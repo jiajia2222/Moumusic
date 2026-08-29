@@ -1,0 +1,32 @@
+name: iOS launch smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'platforms/ios/**'
+      - '.github/workflows/ios-smoke.yml'
+
+jobs:
+  launch:
+    runs-on: macos-26
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run launch UI test on the latest simulator
+        working-directory: platforms/ios/ios
+        run: |
+          xcodebuild test \
+            -project KumoneIOS.xcodeproj \
+            -scheme KumoneIOS \
+            -destination 'platform=iOS Simulator,OS=latest,name=iPhone 16' \
+            -derivedDataPath smoke-build \
+            -only-testing:KumoneIOSUITests/KumoneIOSUITests/testExample \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
