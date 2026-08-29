@@ -33,7 +33,7 @@ const Content = () => {
 
   return (
     <View style={styles.main}>
-      <Text style={styles.title} size={18} >许可协议</Text>
+      <Text style={styles.title} size={20} >许可协议</Text>
       <ScrollView style={styles.content} keyboardShouldPersistTaps={'always'}>
         {!settingState.setting['common.isAgreePact'] && <Text selectable style={styles.bold} >在使用本软件前，你（使用者）需签署本协议才可继续使用！{'\n'}</Text>}
         <Text selectable style={styles.text} >本项目基于 <Text onPress={openLicensePage} style={textLinkStyle}>Apache License 2.0</Text> 许可证发行，以下协议是对于 Apache License 2.0 的补充，如有冲突，以以下协议为准。{'\n'}</Text>
@@ -134,7 +134,7 @@ const Footer = ({ componentId }: { componentId: string }) => {
         isAgreePact
           ? null
           : (
-              <Text selectable style={styles.tip} size={13}>若你（使用者）接受以上协议，请点击下面的“接受”按钮签署本协议；若不接受，请点击“不接受”后退出软件并清除本软件的所有数据。</Text>
+              <Text selectable style={styles.tip} size={16}>若你（使用者）接受以上协议，请点击下面的“接受”按钮签署本协议；若不接受，请点击“不接受”后退出软件并清除本软件的所有数据。</Text>
             )
       }
       <View style={styles.btns}>
@@ -143,12 +143,12 @@ const Footer = ({ componentId }: { componentId: string }) => {
             ? null
             : (
                 <Button style={{ ...styles.btn, backgroundColor: theme['c-button-background'] }} onPress={handleRejct}>
-                  <Text color={theme['c-button-font']}>不接受</Text>
+                  <Text size={17} color={theme['c-button-font']}>不接受</Text>
                 </Button>
               )
         }
         <Button disabled={confirmBtn.disabled} style={{ ...styles.btn, backgroundColor: theme['c-button-background'] }} onPress={handleConfirm}>
-          <Text color={theme['c-button-font']}>{confirmBtn.text}</Text>
+          <Text size={17} color={theme['c-button-font']}>{confirmBtn.text}</Text>
         </Button>
       </View>
     </>
@@ -186,12 +186,12 @@ const styles = createStyle({
     marginBottom: 10,
   },
   text: {
-    fontSize: 14,
+    fontSize: 16,
     textAlignVertical: 'bottom',
     marginBottom: 5,
   },
   bold: {
-    fontSize: 14,
+    fontSize: 16,
     textAlignVertical: 'bottom',
     fontWeight: 'bold',
   },
@@ -211,8 +211,9 @@ const styles = createStyle({
   },
   btn: {
     flex: 1,
-    paddingTop: 10,
-    paddingBottom: 10,
+    minHeight: 50,
+    paddingTop: 12,
+    paddingBottom: 12,
     paddingLeft: 10,
     paddingRight: 10,
     alignItems: 'center',
