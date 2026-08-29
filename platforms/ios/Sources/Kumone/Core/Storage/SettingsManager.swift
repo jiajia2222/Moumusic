@@ -83,13 +83,13 @@ enum HomeRecommendationMode: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .lxAggregate: return String(localized: "LX 聚合")
-        case .kw: return String(localized: "酷我")
-        case .kg: return String(localized: "酷狗")
-        case .tx: return String(localized: "QQ 音乐")
-        case .wy: return String(localized: "网易云")
-        case .mg: return String(localized: "咪咕")
-        case .netease: return String(localized: "网易云推荐")
+        case .lxAggregate: return "LX 聚合"
+        case .kw: return "酷我"
+        case .kg: return "酷狗"
+        case .tx: return "QQ 音乐"
+        case .wy: return "网易云"
+        case .mg: return "咪咕"
+        case .netease: return "网易云推荐"
         }
     }
 

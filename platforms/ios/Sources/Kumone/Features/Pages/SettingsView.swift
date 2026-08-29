@@ -37,27 +37,27 @@ struct SettingsView: View {
                         Text(verbatim: mode.displayName).tag(mode)
                     }
                 } label: {
-                    Text(String(localized: "推荐来源"))
+                    Text(verbatim: "推荐来源")
                 }
-                Text(String(localized: "默认使用 LX 聚合推荐；网易云推荐仅在你主动选择时读取网易云接口。"))
+                Text(verbatim: "默认使用 LX 聚合推荐；网易云推荐仅在你主动选择时读取网易云接口。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
-                Text(String(localized: "首页推荐"))
+                Text(verbatim: "首页推荐")
             }
 #endif
 
 #if os(iOS)
             Section {
                 if lxStore.sources.isEmpty {
-                    Text(String(localized: "没有内置音源，请导入 LX User API 文件。"))
+                    Text(verbatim: "没有内置音源，请导入 LX User API 文件。")
                         .foregroundStyle(.secondary)
                 } else {
                     Picker("当前音源", selection: Binding(
                         get: { lxStore.selectedID ?? "" },
                         set: { lxStore.select($0.isEmpty ? nil : $0) }
                     )) {
-                        Text(String(localized: "不启用")).tag("")
+                        Text(verbatim: "不启用").tag("")
                         ForEach(lxStore.sources) { source in
                             Text(verbatim: source.name).tag(source.id)
                         }
@@ -80,7 +80,7 @@ struct SettingsView: View {
                             }
                             Spacer()
                              Button(role: .destructive) { lxStore.remove(source) } label: {
-                                 Text(String(localized: "删除"))
+                                 Text(verbatim: "删除")
                              }
                                  .font(.caption)
                         }
@@ -90,18 +90,18 @@ struct SettingsView: View {
                         isImportingLX = true
                     } label: {
                         Label {
-                        Text(String(localized: "导入 LX User API"))
+                        Text(verbatim: "导入 LX User API")
                         } icon: {
                             Image(systemName: "square.and.arrow.down")
                         }
                     }
-                Text(String(localized: "音源由用户自行添加；支持 LX 导出的 JSON 或原始 JavaScript 文件。"))
+                Text(verbatim: "音源由用户自行添加；支持 LX 导出的 JSON 或原始 JavaScript 文件。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
-                Text(String(localized: "LX 音源"))
+                Text(verbatim: "LX 音源")
             } footer: {
-                Text(String(localized: "导入后请选择一个音源启用；播放、歌词和音质由该音源提供。"))
+                Text(verbatim: "导入后请选择一个音源启用；播放、歌词和音质由该音源提供。")
             }
 #endif
 
@@ -155,7 +155,7 @@ struct SettingsView: View {
 
             Section("关于") {
                 LabeledContent("Moumusic", value: appVersion)
-                Text("about.description")
+                Text(verbatim: "iOS 使用原生 Kumone SwiftUI 界面；播放解析支持用户导入的 LX User API 音源。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -36,7 +36,6 @@
 		8B9C6A5A61A6330586810260 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A494667EB444A90236506102 /* KumoneIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KumoneIOSApp.swift; sourceTree = "<group>"; };
 		C93D5F709C1E2B4A6D8F0C12 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = zh-Hans.lproj/Localizable.strings; sourceTree = "<group>"; };
-		D93D5F709C1E2B4A6D8F0C12 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -114,7 +113,6 @@
 		A93D5F709C1E2B4A6D8F0C12 /* Localizable.strings */ = {
 			isa = PBXVariantGroup;
 			children = (
-				D93D5F709C1E2B4A6D8F0C12 /* Localizable.strings */,
 				C93D5F709C1E2B4A6D8F0C12 /* Localizable.strings */,
 			);
 			name = Localizable.strings;
