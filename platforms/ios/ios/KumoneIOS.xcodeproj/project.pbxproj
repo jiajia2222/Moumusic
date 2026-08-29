@@ -1,0 +1,453 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		69F9DF0E863EFB197513936E /* KumoneIOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A9033A23C5610F19ABA3774 /* KumoneIOSUITests.swift */; };
+		912D4F61C71BE306BABD494B /* KumoneIOSFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 2D74B41A7A94ABA39956EC55 /* KumoneIOSFeature */; };
+		C2D27A1CAB9C74AB85AE8166 /* KumoneIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A494667EB444A90236506102 /* KumoneIOSApp.swift */; };
+		C777A61B1DD211B6FF64D88B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B9C6A5A61A6330586810260 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		938A878937A1366DA22272E1 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E1C3D3EF86B1B44C4A2366E3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 481C5C62EB4A6DB3CC0FDC39;
+			remoteInfo = KumoneIOS;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0646F456C7BF38C0A8ED880E /* KumoneIOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = KumoneIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		2199D32FC69383EC32B19794 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		25934AD73710C9EDB53BDDA0 /* KumoneIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KumoneIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		45602F996F250E88035F23A9 /* KumoneIOSPackage */ = {isa = PBXFileReference; lastKnownFileType = folder; name = KumoneIOSPackage; path = KumoneIOSPackage; sourceTree = SOURCE_ROOT; };
+		66554F47F0D6FC82F2EFDB2A /* KumoneIOS.xctestplan */ = {isa = PBXFileReference; path = KumoneIOS.xctestplan; sourceTree = "<group>"; };
+		6D28AAA402747474C3A1B8AD /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		74C59F0F113B18EBEA9C55B6 /* Tests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Tests.xcconfig; sourceTree = "<group>"; };
+		7A9033A23C5610F19ABA3774 /* KumoneIOSUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KumoneIOSUITests.swift; sourceTree = "<group>"; };
+		8B9C6A5A61A6330586810260 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A494667EB444A90236506102 /* KumoneIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KumoneIOSApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B85E6AD333E049D6862A8DBF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				912D4F61C71BE306BABD494B /* KumoneIOSFeature in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		06B27D73B868029A6CD07927 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				45602F996F250E88035F23A9 /* KumoneIOSPackage */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		407A4760CEE331B6B395DECF = {
+			isa = PBXGroup;
+			children = (
+				4E1CC50B92220A5917A760E8 /* Config */,
+				9C2BFF3109E01BC79A4469A4 /* KumoneIOS */,
+				CEC97C7667B5C3BA415E1C82 /* KumoneIOSUITests */,
+				06B27D73B868029A6CD07927 /* Packages */,
+				49A9A6B7173C5F9EDEB542C8 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		49A9A6B7173C5F9EDEB542C8 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				25934AD73710C9EDB53BDDA0 /* KumoneIOS.app */,
+				0646F456C7BF38C0A8ED880E /* KumoneIOSUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4E1CC50B92220A5917A760E8 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				6D28AAA402747474C3A1B8AD /* Debug.xcconfig */,
+				2199D32FC69383EC32B19794 /* Release.xcconfig */,
+				74C59F0F113B18EBEA9C55B6 /* Tests.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		9C2BFF3109E01BC79A4469A4 /* KumoneIOS */ = {
+			isa = PBXGroup;
+			children = (
+				8B9C6A5A61A6330586810260 /* Assets.xcassets */,
+				66554F47F0D6FC82F2EFDB2A /* KumoneIOS.xctestplan */,
+				A494667EB444A90236506102 /* KumoneIOSApp.swift */,
+			);
+			path = KumoneIOS;
+			sourceTree = "<group>";
+		};
+		CEC97C7667B5C3BA415E1C82 /* KumoneIOSUITests */ = {
+			isa = PBXGroup;
+			children = (
+				7A9033A23C5610F19ABA3774 /* KumoneIOSUITests.swift */,
+			);
+			path = KumoneIOSUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		481C5C62EB4A6DB3CC0FDC39 /* KumoneIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AEE92511A31680B2D50A464D /* Build configuration list for PBXNativeTarget "KumoneIOS" */;
+			buildPhases = (
+				70D34C1C5A629E97B9F4827E /* Sources */,
+				7545061B2914675A51010029 /* Resources */,
+				B85E6AD333E049D6862A8DBF /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = KumoneIOS;
+			packageProductDependencies = (
+				2D74B41A7A94ABA39956EC55 /* KumoneIOSFeature */,
+			);
+			productName = KumoneIOS;
+			productReference = 25934AD73710C9EDB53BDDA0 /* KumoneIOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7F3FA2EAD87A1580A6CD3880 /* KumoneIOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CDF23D98ED7044C7E39B4C2E /* Build configuration list for PBXNativeTarget "KumoneIOSUITests" */;
+			buildPhases = (
+				51C908B42CEC04D1DBF112EF /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9142B884ABEBCFEA95FAB3EF /* PBXTargetDependency */,
+			);
+			name = KumoneIOSUITests;
+			packageProductDependencies = (
+			);
+			productName = KumoneIOSUITests;
+			productReference = 0646F456C7BF38C0A8ED880E /* KumoneIOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E1C3D3EF86B1B44C4A2366E3 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					481C5C62EB4A6DB3CC0FDC39 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					7F3FA2EAD87A1580A6CD3880 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = CDF86BD3591ABC246FFB339F /* Build configuration list for PBXProject "KumoneIOS" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 407A4760CEE331B6B395DECF;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D068EB99084BBAD6F3EA7AB9 /* XCLocalSwiftPackageReference "KumoneIOSPackage" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 49A9A6B7173C5F9EDEB542C8 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				481C5C62EB4A6DB3CC0FDC39 /* KumoneIOS */,
+				7F3FA2EAD87A1580A6CD3880 /* KumoneIOSUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7545061B2914675A51010029 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C777A61B1DD211B6FF64D88B /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		51C908B42CEC04D1DBF112EF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				69F9DF0E863EFB197513936E /* KumoneIOSUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		70D34C1C5A629E97B9F4827E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C2D27A1CAB9C74AB85AE8166 /* KumoneIOSApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		9142B884ABEBCFEA95FAB3EF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 481C5C62EB4A6DB3CC0FDC39 /* KumoneIOS */;
+			targetProxy = 938A878937A1366DA22272E1 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		4D26825A4F27432C1574AD3E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 74C59F0F113B18EBEA9C55B6 /* Tests.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		ADAED3F2C674B14B62DE526C /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 74C59F0F113B18EBEA9C55B6 /* Tests.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+		B397BC88E3CFDE6D275528E9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 2199D32FC69383EC32B19794 /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		C5D7D4A994E33FBBC157799C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 6D28AAA402747474C3A1B8AD /* Debug.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Config/KumoneIOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_PREVIEWS = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		CEDC431136741B112A47F211 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 6D28AAA402747474C3A1B8AD /* Debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		F8905A572F11E767B9F22E0E /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 2199D32FC69383EC32B19794 /* Release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Config/KumoneIOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_PREVIEWS = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AEE92511A31680B2D50A464D /* Build configuration list for PBXNativeTarget "KumoneIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C5D7D4A994E33FBBC157799C /* Debug */,
+				F8905A572F11E767B9F22E0E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CDF23D98ED7044C7E39B4C2E /* Build configuration list for PBXNativeTarget "KumoneIOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4D26825A4F27432C1574AD3E /* Debug */,
+				ADAED3F2C674B14B62DE526C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CDF86BD3591ABC246FFB339F /* Build configuration list for PBXProject "KumoneIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CEDC431136741B112A47F211 /* Debug */,
+				B397BC88E3CFDE6D275528E9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		D068EB99084BBAD6F3EA7AB9 /* XCLocalSwiftPackageReference "KumoneIOSPackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = KumoneIOSPackage;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2D74B41A7A94ABA39956EC55 /* KumoneIOSFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KumoneIOSFeature;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = E1C3D3EF86B1B44C4A2366E3 /* Project object */;
+}

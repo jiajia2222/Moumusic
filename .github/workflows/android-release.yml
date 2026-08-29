@@ -1,0 +1,56 @@
+name: Android release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: platforms/android/package-lock.json
+
+      - name: Use Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Configure public Git dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Install JavaScript dependencies
+        working-directory: platforms/android
+        run: npm ci --ignore-scripts
+
+      - name: Build unsigned release APK
+        working-directory: platforms/android/android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Moumusic-android-unsigned
+          path: platforms/android/android/app/build/outputs/apk/release/*universal.apk
+          if-no-files-found: error
+
+      - name: Attach APK to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: platforms/android/android/app/build/outputs/apk/release/*universal.apk

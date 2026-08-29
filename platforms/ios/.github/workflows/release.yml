@@ -1,0 +1,154 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: Kumone
+  SPARKLE_VERSION: "2.9.5"
+  SIGN_IDENTITY: "Developer ID Application: MOE AI LLC (NCFNX3LJ83)"
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history: build number = commit count
+
+      - name: Derive version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          Scripts/release-notes.sh "$VERSION" > "$RUNNER_TEMP/notes.md"
+          Scripts/release-notes.sh "$VERSION" --html > "$RUNNER_TEMP/$APP_NAME-$VERSION.html"
+          echo "Release notes for $VERSION:"
+          cat "$RUNNER_TEMP/notes.md"
+
+      - name: Import signing certificate
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Build app (universal)
+        run: |
+          MARKETING_VERSION="$VERSION" BUILD_NUMBER="$BUILD_NUMBER" \
+            ARCHES="arm64 x86_64" \
+            Scripts/build-app.sh release
+
+      - name: Codesign (Developer ID, hardened runtime)
+        run: |
+          APP=".build/app/$APP_NAME.app"
+          FW="$APP/Contents/Frameworks/Sparkle.framework"
+          codesign -f -o runtime --preserve-metadata=entitlements \
+            -s "$SIGN_IDENTITY" "$FW/Versions/B/XPCServices/Downloader.xpc"
+          codesign -f -o runtime --preserve-metadata=entitlements \
+            -s "$SIGN_IDENTITY" "$FW/Versions/B/XPCServices/Installer.xpc"
+          codesign -f -o runtime -s "$SIGN_IDENTITY" "$FW/Versions/B/Autoupdate"
+          codesign -f -o runtime -s "$SIGN_IDENTITY" "$FW/Versions/B/Updater.app"
+          codesign -f -o runtime -s "$SIGN_IDENTITY" "$FW"
+          codesign -f -o runtime -s "$SIGN_IDENTITY" "$APP"
+          codesign --verify --deep --strict "$APP"
+
+      - name: Notarize and staple
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          APP=".build/app/$APP_NAME.app"
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$APP"
+          spctl -a -vv --type execute "$APP"
+
+      - name: Package and generate appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent ".build/app/$APP_NAME.app" "dist/$APP_NAME-$VERSION.zip"
+          cp "$RUNNER_TEMP/$APP_NAME-$VERSION.html" dist/
+
+          curl -sL -o "$RUNNER_TEMP/sparkle.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xJf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | \
+            "$RUNNER_TEMP/sparkle/bin/generate_appcast" \
+              --ed-key-file - \
+              --embed-release-notes \
+              --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/v$VERSION/" \
+              -o dist/appcast.xml \
+              dist
+          rm -f "dist/$APP_NAME-$VERSION.html"
+          cat dist/appcast.xml
+
+      - name: Build unsigned iOS IPA
+        run: |
+          xcodebuild -workspace ios/KumoneIOS.xcworkspace -scheme KumoneIOS \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/ios-dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            build
+          APP="$RUNNER_TEMP/ios-dd/Build/Products/Release-iphoneos/KumoneIOS.app"
+          mkdir -p "$RUNNER_TEMP/payload/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/payload/Payload/"
+          (cd "$RUNNER_TEMP/payload" && zip -qry "$GITHUB_WORKSPACE/dist/$APP_NAME-iOS-$VERSION.ipa" Payload)
+          ls -la dist/
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$APP_NAME $VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            "dist/$APP_NAME-$VERSION.zip" \
+            "dist/$APP_NAME-iOS-$VERSION.ipa" \
+            dist/appcast.xml
+
+      - name: Bump Homebrew cask
+        # Best-effort: a missing GH_HOMEBREW_TOKEN (or a brew failure) must not
+        # fail the release — the app/IPA/appcast are already published above.
+        continue-on-error: true
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GH_HOMEBREW_TOKEN || secrets.HOMEBREW_GITHUB_API_TOKEN || secrets.GH_TOKEN || secrets.PAT }}
+        run: |
+          SHA="$(shasum -a 256 "dist/$APP_NAME-$VERSION.zip" | awk '{print $1}')"
+          git config --global user.email "41898282+github-actions@users.noreply.github.com"
+          git config --global user.name "github-actions"
+          brew update
+          brew tap owo-network/brew
+          brew bump-cask-pr \
+            --version="$VERSION" \
+            --sha256="$SHA" \
+            --no-browse \
+            --no-audit \
+            owo-network/brew/kumone
+

@@ -1,0 +1,52 @@
+# XcodeGen manifest for the iOS app shell.
+# Regenerate the project with: cd ios && xcodegen generate
+name: KumoneIOS
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Debug.xcconfig
+  Release: Config/Release.xcconfig
+packages:
+  KumoneIOSPackage:
+    path: KumoneIOSPackage
+targets:
+  KumoneIOS:
+    type: application
+    platform: iOS
+    sources:
+      - KumoneIOS
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    dependencies:
+      - package: KumoneIOSPackage
+        product: KumoneIOSFeature
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: Config/KumoneIOS.entitlements
+        ENABLE_PREVIEWS: YES
+  KumoneIOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - KumoneIOSUITests
+    configFiles:
+      Debug: Config/Tests.xcconfig
+      Release: Config/Tests.xcconfig
+    dependencies:
+      - target: KumoneIOS
+schemes:
+  KumoneIOS:
+    build:
+      targets:
+        KumoneIOS: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - KumoneIOSUITests
+    archive:
+      config: Release

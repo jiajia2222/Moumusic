@@ -1,0 +1,32 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Android / React Native
+platforms/android/node_modules/
+platforms/android/android/.gradle/
+platforms/android/android/build/
+platforms/android/android/app/build/
+platforms/android/android/.cxx/
+platforms/android/android/local.properties
+platforms/android/android/keystore.properties
+platforms/android/android/app/*.keystore
+platforms/android/index.android.bundle
+platforms/android/res/
+platforms/android/android/app/src/main/assets/index.android.bundle
+
+# iOS / Xcode
+platforms/ios/ios/DerivedData/
+platforms/ios/ios/build/
+platforms/ios/ios/Pods/
+platforms/ios/ios/*.xcuserstate
+platforms/ios/ios/*.xcuserdata/
+platforms/ios/ios/.swiftpm/
+platforms/ios/.build/
+
+# generated release artifacts
+dist/
+*.ipa
+*.apk

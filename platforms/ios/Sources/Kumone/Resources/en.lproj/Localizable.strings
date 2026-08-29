@@ -1,0 +1,288 @@
+/* Kumone — English localization. Keys are the Simplified Chinese source strings. */
+
+/* Sidebar & navigation */
+"推荐" = "Home";
+"精选" = "Explore";
+"漫游" = "Radio";
+"我的" = "Library";
+"我喜欢的音乐" = "Liked Songs";
+"每日推荐" = "Daily Recs";
+"最近播放" = "Recently Played";
+"我的收藏" = "Collections";
+"音乐云盘" = "Cloud Disk";
+"创建的歌单" = "Created Playlists";
+"收藏的歌单" = "Saved Playlists";
+"黑胶 VIP" = "VIP";
+"退出登录" = "Sign Out";
+"登录网易云音乐" = "Sign in to NetEase Cloud Music";
+"登录" = "Sign In";
+
+/* Playback menu & player bar */
+"播放" = "Play";
+"暂停" = "Pause";
+"下一首" = "Next";
+"上一首" = "Previous";
+"随机播放" = "Shuffle";
+"循环模式" = "Repeat Mode";
+"喜欢" = "Like";
+"取消喜欢" = "Unlike";
+"歌词" = "Lyrics";
+"播放队列" = "Queue";
+"检查更新…" = "Check for Updates…";
+"打开播放页" = "Open Now Playing";
+"私人漫游中" = "Personal FM";
+"音源" = "SRC";
+"来自 %@" = "From %@";
+"音量" = "Volume";
+"未在播放" = "Not Playing";
+"正在播放" = "Now Playing";
+"即将播放" = "Up Next";
+"播放队列是空的" = "The queue is empty";
+"播放一些音乐吧" = "Play some music";
+"%lld 首" = "%lld songs";
+
+/* Home */
+"推荐歌单" = "Recommended Playlists";
+"雷达歌单" = "Radar Playlists";
+"排行榜" = "Charts";
+"新碟上架" = "New Albums";
+"推荐歌手" = "Recommended Artists";
+"根据你的口味生成" = "Generated from your taste";
+"私人漫游" = "Personal FM";
+"从喜欢的歌开始漫游" = "Roam from songs you love";
+"心动模式" = "Heartbeat Mode";
+"你的红心歌曲和相似推荐" = "Your liked songs and similar picks";
+"解锁每日推荐、私人漫游与心动模式" = "Unlock daily recs, Personal FM and Heartbeat Mode";
+"网络连接失败" = "Network connection failed";
+"先收藏一些喜欢的歌曲吧" = "Like some songs first";
+"心动模式暂时不可用" = "Heartbeat Mode is unavailable right now";
+"已开启心动模式" = "Heartbeat Mode enabled";
+
+/* Explore categories */
+"全部" = "All";
+"精品歌单" = "Curated";
+"官方" = "Official";
+"华语" = "Chinese";
+"流行" = "Pop";
+"摇滚" = "Rock";
+"民谣" = "Folk";
+"电子" = "Electronic";
+"轻音乐" = "Easy Listening";
+"说唱" = "Hip-Hop";
+"爵士" = "Jazz";
+"古典" = "Classical";
+"影视原声" = "Soundtracks";
+"古风" = "Chinese Style";
+"怀旧" = "Nostalgia";
+"治愈" = "Healing";
+"放松" = "Chill";
+"伤感" = "Sad";
+"快乐" = "Happy";
+"学习" = "Study";
+"工作" = "Work";
+"运动" = "Workout";
+"驾车" = "Driving";
+"夜晚" = "Night";
+
+/* Track list & context menu */
+"下一首播放" = "Play Next";
+"加入歌单…" = "Add to Playlist…";
+"更多操作" = "More Actions";
+"从「我喜欢」中移除" = "Remove from Liked Songs";
+"添加到「我喜欢」" = "Add to Liked Songs";
+"收藏到歌单…" = "Add to Playlist…";
+"收藏到歌单" = "Add to Playlist";
+"从歌单中删除" = "Remove from Playlist";
+"已从歌单中删除" = "Removed from playlist";
+"查看专辑" = "Go to Album";
+"查看歌手：%@" = "Go to Artist: %@";
+"复制链接" = "Copy Link";
+"链接已复制" = "Link copied";
+"还没有创建歌单" = "No playlists yet";
+"新建歌单" = "New Playlist";
+"歌单名称" = "Playlist name";
+"创建" = "Create";
+"创建并收藏" = "Create & Add";
+"已收藏到「%@」" = "Added to “%@”";
+"歌单已创建" = "Playlist created";
+"取消" = "Cancel";
+"删除歌单" = "Delete Playlist";
+"取消收藏" = "Remove from Saved";
+
+/* Playlist / album / artist detail */
+"歌单" = "Playlist";
+"专辑" = "Album";
+"歌手" = "Artist";
+"该歌手" = "this artist";
+"%lld 首 · %@ 次播放 · 更新于 %@" = "%lld songs · %@ plays · Updated %@";
+"%lld 首 · %@ · %@" = "%lld songs · %@ · %@";
+"%lld 首歌曲 · %lld 张专辑" = "%lld songs · %lld albums";
+"播放全部" = "Play All";
+"已收藏" = "Saved";
+"收藏" = "Save";
+"搜索歌单内歌曲" = "Search in playlist";
+"已取消收藏" = "Removed from saved";
+"已收藏歌单" = "Playlist saved";
+"已收藏专辑" = "Album saved";
+"热门歌曲" = "Popular Songs";
+"收起" = "Show Less";
+"查看更多" = "Show More";
+"EP 与单曲" = "EPs & Singles";
+"相似歌手" = "Similar Artists";
+"播放热门" = "Play Popular";
+"已关注" = "Following";
+"关注" = "Follow";
+"已关注歌手" = "Following artist";
+"已取消关注" = "Unfollowed";
+"%@的其他专辑" = "More by %@";
+"发行于 %@" = "Released %@";
+
+/* FM */
+"开始漫游" = "Start Roaming";
+"不喜欢，换一首" = "Trash and skip";
+"根据你的口味漫游好音乐" = "Roam great music picked for your taste";
+"登录后开启私人漫游" = "Sign in to start Personal FM";
+"网易云会根据你的听歌口味推荐音乐" = "NetEase recommends music based on your listening taste";
+
+/* Daily recs */
+"暂无每日推荐" = "No daily recommendations yet";
+"多听几首歌培养口味，每天 6:00 更新" = "Listen to more songs to build your taste — refreshes daily at 6:00";
+"根据你的音乐口味 · 每天 6:00 更新" = "Based on your taste · Refreshes daily at 6:00";
+"登录后才能查看每日推荐" = "Sign in to see daily recommendations";
+"登录后查看你喜欢的音乐" = "Sign in to see your liked songs";
+
+/* Search */
+"综合" = "Top";
+"单曲" = "Songs";
+"搜索：%@" = "Search: %@";
+"没有找到相关结果" = "No results found";
+"搜索音乐、歌手、专辑" = "Search songs, artists, albums";
+
+/* Collections / recents / cloud */
+"还没有收藏专辑" = "No saved albums yet";
+"还没有关注歌手" = "No followed artists yet";
+"所有时间" = "All Time";
+"最近一周" = "Past Week";
+"暂无播放记录" = "No listening history yet";
+"%lld 次" = "%lld plays";
+"云盘还没有歌曲" = "No songs in your cloud disk";
+"在网易云音乐客户端上传的歌曲会出现在这里" = "Songs uploaded from the NetEase Cloud Music client appear here";
+"已使用 %@ GB / %@ GB" = "%@ GB used of %@ GB";
+
+/* Lyrics panel */
+"贡献者：%@" = "Contributor: %@";
+"纯音乐" = "Instrumental";
+"请欣赏" = "Enjoy";
+"纯音乐，请欣赏" = "Instrumental — enjoy";
+"歌词加载中…" = "Loading lyrics…";
+"暂无歌词" = "No lyrics";
+
+/* Login */
+"使用网易云音乐 App 扫码登录" = "Scan with the NetEase Cloud Music app to sign in";
+"二维码已失效" = "QR code expired";
+"刷新" = "Refresh";
+"已扫码" = "Scanned";
+"%@，请在手机上确认" = "%@, confirm on your phone";
+"正在获取二维码…" = "Fetching QR code…";
+"打开网易云音乐 App，扫一扫登录" = "Open the NetEase Cloud Music app and scan to sign in";
+"等待手机确认…" = "Waiting for confirmation…";
+"二维码已失效，请刷新" = "QR code expired — refresh to retry";
+"登录成功！" = "Signed in!";
+"欢迎回来，%@" = "Welcome back, %@";
+
+/* Settings */
+"音质" = "Audio Quality";
+"标准" = "Standard";
+"较高" = "Higher";
+"极高" = "Extreme";
+"无损" = "Lossless";
+"高解析" = "Hi-Res";
+"无损与 Hi-Res 需要黑胶 VIP，未开通时自动回落到可用音质" = "Lossless and Hi-Res require VIP; falls back automatically otherwise";
+"灰色歌曲解锁" = "Unblock Gray Tracks";
+"无版权 / 下架歌曲自动从第三方音源（酷我、酷狗等）匹配播放" = "Unavailable tracks are matched from third-party sources (Kuwo, Kugou, etc.)";
+"外观" = "Appearance";
+"主题" = "Theme";
+"跟随系统" = "System";
+"浅色" = "Light";
+"深色" = "Dark";
+"显示歌词翻译" = "Show Lyrics Translation";
+"桌面歌词" = "Desktop Lyrics";
+"在屏幕上悬浮显示当前歌词，可拖动调整位置" = "Float the current lyric line on screen; drag to reposition";
+"存储" = "Storage";
+"图片缓存" = "Image Cache";
+"清除缓存" = "Clear Cache";
+"账号" = "Account";
+"当前账号" = "Signed in as";
+"未登录" = "Not signed in";
+"关于" = "About";
+"网易云音乐第三方客户端 · 数据来自网易云音乐" = "Third-party NetEase Cloud Music client · Data from NetEase Cloud Music";
+"计算中…" = "Calculating…";
+"0 字节" = "Zero bytes";
+"缓存已清除" = "Cache cleared";
+
+/* Errors & toasts */
+"加载失败" = "Failed to Load";
+"重试" = "Retry";
+"网络错误 (%lld)" = "Network error (%lld)";
+"接口错误 (%lld)" = "API error (%lld)";
+"需要登录" = "Sign-in required";
+"数据加载失败，请稍后重试" = "Failed to load data — try again later";
+"操作失败，专辑下架或版权锁定" = "Action failed — the album is delisted or rights-locked";
+"登录后即可收藏歌曲" = "Sign in to like songs";
+"已添加到下一首播放" = "Added to play next";
+"获取私人漫游数据失败" = "Failed to load Personal FM";
+"已经是最后一首了" = "Already the last song";
+"已使用第三方音源：%@" = "Playing from third-party source: %@";
+"《%@》无法播放%@" = "“%@” can’t be played%@";
+"VIP 歌曲，当前为试听片段" = "VIP song — playing a trial clip";
+"酷我音乐" = "Kuwo Music";
+"酷狗音乐" = "Kugou Music";
+
+/* Track playability */
+"VIP 专属" = "VIP Only";
+"付费专辑" = "Paid Album";
+"无版权" = "Unavailable";
+"已下架" = "Delisted";
+
+/* Durations */
+"%lld 小时 %lld 分钟" = "%lld hr %lld min";
+"%lld 分钟" = "%lld min";
+
+/* Login: SMS + single-device hint */
+"扫码登录" = "QR Code";
+"手机验证码" = "Phone Code";
+"使用手机号 + 短信验证码登录" = "Sign in with your phone number and an SMS code";
+"手机号" = "Phone number";
+"验证码" = "Verification code";
+"获取验证码" = "Send Code";
+"验证码已发送" = "Code sent";
+"登录失败，请重试" = "Sign-in failed — please try again";
+"只有一台设备？截图二维码，到网易云音乐 App 的扫一扫里选择相册识别，然后回到这里即可" = "Only one device? Screenshot the QR code, pick it from your photo library in the NetEase Cloud Music app’s scanner, then come back here";
+
+/* iOS updates */
+"检查更新" = "Check for Updates";
+"已是最新版本" = "You’re up to date";
+"发现新版本 %@" = "Version %@ available";
+"前往下载" = "Download";
+"iOS 无法自动更新：下载新版 IPA 后用侧载工具重新安装即可，登录状态和设置会保留" = "iOS can’t self-update: download the new IPA and reinstall it with your sideloading tool — sign-in and settings are kept";
+
+/* iOS updater (TrollStore) */
+"正在检查更新…" = "Checking for updates…";
+"当前版本 %@" = "Current version %@";
+"将下载并通过 TrollStore 自动安装" = "Will download and auto-install via TrollStore";
+"下载并安装" = "Download & Install";
+"未检测到 TrollStore，将打开发布页手动侧载" = "TrollStore not found — the release page will open for manual sideloading";
+"稍后" = "Later";
+"正在下载 %lld%%" = "Downloading %lld%%";
+"已移交 TrollStore 安装" = "Handed off to TrollStore";
+"请在 TrollStore 中完成安装" = "Finish the install in TrollStore";
+"已下载，请用侧载工具安装" = "Downloaded — install with your sideloading tool";
+"完成" = "Done";
+"检测到 TrollStore：可在应用内下载并自动安装新版本" = "TrollStore detected: new versions download and install in-app";
+"未检测到 TrollStore：检查更新会打开发布页，需用侧载工具重新安装（登录状态与设置保留）" = "No TrollStore: Check for Updates opens the release page; reinstall with your sideloading tool (sign-in and settings are kept)";
+"可能被网易云风控拦截而不可用，推荐使用扫码登录" = "May be blocked by NetEase risk control and unavailable — QR sign-in is recommended";
+
+/* Dock menu */
+"不循环" = "Off";
+"列表循环" = "Repeat All";
+"单曲循环" = "Repeat One";

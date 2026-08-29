@@ -1,0 +1,49 @@
+name: iOS unsigned release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: macos-14
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build unsigned iOS app
+        working-directory: platforms/ios/ios
+        run: |
+          xcodebuild -resolvePackageDependencies -workspace KumoneIOS.xcworkspace -scheme KumoneIOS
+          xcodebuild \
+            -workspace KumoneIOS.xcworkspace \
+            -scheme KumoneIOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM= \
+            build
+          mkdir -p dist/Payload
+          cp -R build/Build/Products/Release-iphoneos/MoumusicIOS.app dist/Payload/Moumusic.app
+          ditto -c -k --sequesterRsrc --keepParent dist/Payload dist/Moumusic-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Moumusic-ios-unsigned
+          path: platforms/ios/ios/dist/Moumusic-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Attach IPA to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: platforms/ios/ios/dist/Moumusic-unsigned.ipa
