@@ -20,7 +20,9 @@ export interface BlankViewType {
 
 export default forwardRef<BlankViewType, BlankViewProps>(({ onSearch }, ref) => {
   // const [listType, setListType] = useState<SearchState['searchType']>('music')
-  const [visible, setVisible] = useState(false)
+  // Render the empty state immediately. Waiting for the persisted search
+  // settings here leaves the entire iOS content area blank on a fresh launch.
+  const [visible, setVisible] = useState(true)
   const hotSearchRef = useRef<HotSearchType>(null)
   const historySearchRef = useRef<HistorySearchType>(null)
   const isShowHotSearch = useSettingValue('search.isShowHotSearch')
