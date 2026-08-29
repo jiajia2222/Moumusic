@@ -7,9 +7,9 @@ export default () => (
     <View style={styles.card}>
       <View style={styles.logo}><Text style={styles.logoText}>M</Text></View>
       <Text style={styles.title}>Moumusic</Text>
-      <Text style={styles.subtitle}>LX ?? ? Kumone ??</Text>
+      <Text style={styles.subtitle}>LX 功能 · Kumone 风格</Text>
       <ActivityIndicator color="#ef5350" size="small" style={styles.spinner} />
-      <Text style={styles.status}>???????????</Text>
+      <Text style={styles.status}>正在启动音源与播放器…</Text>
     </View>
   </View>
 )

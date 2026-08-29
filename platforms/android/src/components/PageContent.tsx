@@ -24,7 +24,7 @@ export default ({ children }: Props) => {
   const glassBorder = theme.isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.9)'
   // const [wh, setWH] = useState<{ width: number | string, height: number | string }>({ width: '100%', height: Dimensions.get('screen').height })
 
-  // ????? ??????????????????
+  // 固定宽高度 防止弹窗键盘时大小改变导致背景被缩放
   // useEffect(() => {
   //   const onChange = () => {
   //     setWH({ width: '100%', height: '100%' })

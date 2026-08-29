@@ -36,6 +36,12 @@ public struct IOSMainWindow: View {
             .preferredColorScheme(settings.appearance.colorScheme)
             .environment(\.openLogin, { showLogin = true })
             .task {
+                // Let the first scene commit before touching AVAudioSession,
+                // MPRemoteCommandCenter, persisted playback state, or a user
+                // supplied JavaScript source.  This is safer on iOS 27 and
+                // still keeps all runtime setup on the main actor.
+                await Task.yield()
+                player.startRuntime()
                 LXUserAPIService.shared.loadSelectedSource()
                 await account.bootstrap()
                 if settings.autoCheckUpdates {
@@ -118,7 +124,7 @@ public struct IOSMainWindow: View {
                 // Present full-screen with a bottom slide-up. A previous version
                 // used `matchedGeometryEffect(.frame, isSource: false)` here to
                 // zoom out of the mini player, but that copies the *source*
-                // (mini-bar) frame onto this view ? shrinking the whole
+                // (mini-bar) frame onto this view — shrinking the whole
                 // now-playing page to bar size, so on iOS 16/17 nothing
                 // full-screen appeared (#28). The slide-up matches the
                 // pull-down-to-dismiss gesture; iOS 18+ still gets the zoom.
@@ -194,26 +200,26 @@ public struct IOSMainWindow: View {
     @available(iOS 26.0, *)
     private var iOS26TabView: some View {
         TabView(selection: $selectedTab) {
-            Tab("??", systemImage: "house", value: .home) {
+            Tab("推荐", systemImage: "house", value: .home) {
                 tabStack(.home) { HomeView() }
             }
 
-            Tab("??", systemImage: "square.grid.2x2", value: .explore) {
+            Tab("精选", systemImage: "square.grid.2x2", value: .explore) {
                 tabStack(.explore) { ExploreView() }
             }
 
-            Tab("??", systemImage: "wave.3.right.circle", value: .fm) {
+            Tab("漫游", systemImage: "wave.3.right.circle", value: .fm) {
                 tabStack(.fm) { FMView() }
             }
 
-            Tab("??", systemImage: "person.crop.circle", value: .library) {
+            Tab("我的", systemImage: "person.crop.circle", value: .library) {
                 tabStack(.library) { IOSLibraryView(showLogin: $showLogin) }
             }
 
             Tab(value: .search, role: .search) {
                 tabStack(.search) { SearchView(query: "") }
             } label: {
-                Label("??", systemImage: "magnifyingglass")
+                Label("搜索", systemImage: "magnifyingglass")
             }
         }
     }
@@ -293,11 +299,11 @@ enum IOSTab: Hashable {
 
 extension IOSMainWindow {
     static let tabItems: [GlassTabBar.Item] = [
-        .init(tab: .home, title: "??", icon: "house"),
-        .init(tab: .explore, title: "??", icon: "square.grid.2x2"),
-        .init(tab: .fm, title: "??", icon: "dot.radiowaves.left.and.right"),
-        .init(tab: .search, title: "??", icon: "magnifyingglass"),
-        .init(tab: .library, title: "??", icon: "person.crop.circle"),
+        .init(tab: .home, title: "推荐", icon: "house"),
+        .init(tab: .explore, title: "精选", icon: "square.grid.2x2"),
+        .init(tab: .fm, title: "漫游", icon: "dot.radiowaves.left.and.right"),
+        .init(tab: .search, title: "搜索", icon: "magnifyingglass"),
+        .init(tab: .library, title: "我的", icon: "person.crop.circle"),
     ]
 }
 
@@ -388,7 +394,7 @@ struct IOSMiniPlayerBar: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(nowPlayingAccessibilityLabel)
-            .accessibilityHint("??????")
+            .accessibilityHint("打开正在播放")
 
             if !presentation.isInline {
                 Button(action: player.previous) {
@@ -401,7 +407,7 @@ struct IOSMiniPlayerBar: View {
                 .buttonStyle(.pressable)
                 .disabled(player.isFMMode)
                 .opacity(player.isFMMode ? 0.35 : 1)
-                .accessibilityLabel("???")
+                .accessibilityLabel("上一首")
             }
 
             Button(action: player.togglePlayPause) {
@@ -412,7 +418,7 @@ struct IOSMiniPlayerBar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.pressable)
-            .accessibilityLabel(player.isPlaying ? "??" : "??")
+            .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
 
             if !presentation.isInline {
                 Button(action: player.next) {
@@ -423,7 +429,7 @@ struct IOSMiniPlayerBar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.pressable)
-                .accessibilityLabel("???")
+                .accessibilityLabel("下一首")
             }
         }
         .padding(.leading, 12)
@@ -476,11 +482,11 @@ struct IOSMiniPlayerBar: View {
     }
 
     private var nowPlayingAccessibilityLabel: String {
-        let title = player.currentTrack?.name ?? String(localized: "????")
+        let title = player.currentTrack?.name ?? String(localized: "正在播放")
         guard let artist = player.currentTrack?.artistNames, !artist.isEmpty else {
             return title
         }
-        return "\(title)?\(artist)"
+        return "\(title)，\(artist)"
     }
 
     private var expandGesture: some Gesture {
@@ -527,9 +533,9 @@ struct IOSLibraryView: View {
                             .foregroundStyle(Theme.accent)
                             .frame(width: 36, height: 36)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(verbatim: "LX ??")
+                            Text(verbatim: "LX 音源")
                                 .font(.headline)
-                            Text(verbatim: lxStore.selectedSource.map { "????\($0.name)" } ?? "????????????")
+                            Text(verbatim: lxStore.selectedSource.map { "已启用：\($0.name)" } ?? "未启用音源，可在这里导入")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -547,13 +553,13 @@ struct IOSLibraryView: View {
                 } label: {
                     HStack {
                         Image(systemName: "square.and.arrow.down")
-                        Text(verbatim: "?? / ?? LX ??")
+                        Text(verbatim: "管理 / 导入 LX 音源")
                     }
                 }
             } header: {
-                Text(verbatim: "????")
+                Text(verbatim: "音源设置")
             } footer: {
-                Text(verbatim: "???????????????? LX User API ??????????????????????")
+                Text(verbatim: "歌曲搜索与播放优先使用这里启用的 LX User API 音源；网易云账号仅用于网易云歌单等账户功能。")
             }
 
             // Profile / Login header
@@ -589,10 +595,10 @@ struct IOSLibraryView: View {
                                 .font(.system(size: 32))
                                 .foregroundStyle(Theme.accent)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("???????")
+                                Text("登录网易云音乐")
                                     .font(.headline)
                                     .foregroundStyle(.primary)
-                                Text("????????????????")
+                                Text("同步我喜欢的音乐、歌单与每日推荐")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -603,24 +609,24 @@ struct IOSLibraryView: View {
             }
 
             if account.hasAuthCookie {
-                Section("???????") {
+                Section("网易云音乐账号") {
                     if let liked = account.likedSongsPlaylist {
                         NavigationLink(value: Destination.playlist(liked.id)) {
-                            Label("??????", systemImage: "heart.fill")
+                            Label("我喜欢的音乐", systemImage: "heart.fill")
                                 .foregroundStyle(Theme.accent)
                         }
                     }
                     NavigationLink(value: Destination.daily) {
-                        Label("????", systemImage: "calendar")
+                        Label("每日推荐", systemImage: "calendar")
                     }
                     NavigationLink(value: Destination.recents) {
-                        Label("????", systemImage: "clock.fill")
+                        Label("最近播放", systemImage: "clock.fill")
                     }
                     NavigationLink(value: Destination.collections) {
-                        Label("????", systemImage: "star.fill")
+                        Label("我的收藏", systemImage: "star.fill")
                     }
                     NavigationLink(value: Destination.cloud) {
-                        Label("????", systemImage: "icloud.fill")
+                        Label("音乐云盘", systemImage: "icloud.fill")
                     }
                 }
 
@@ -636,7 +642,7 @@ struct IOSLibraryView: View {
                                         Text(playlist.name)
                                             .font(.system(size: 14))
                                             .lineLimit(1)
-                                        Text("\(playlist.trackCount) ?")
+                                        Text("\(playlist.trackCount) 首")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -645,7 +651,7 @@ struct IOSLibraryView: View {
                         }
                     } header: {
                         HStack {
-                            Text("?????")
+                            Text("创建的歌单")
                             Spacer()
                             Button {
                                 showNewPlaylist = true
@@ -658,7 +664,7 @@ struct IOSLibraryView: View {
                 }
 
                 if !account.subscribedPlaylists.isEmpty {
-                    Section("?????") {
+                    Section("收藏的歌单") {
                         ForEach(account.subscribedPlaylists) { playlist in
                             NavigationLink(value: Destination.playlist(playlist.id)) {
                                 HStack(spacing: 10) {
@@ -669,7 +675,7 @@ struct IOSLibraryView: View {
                                         Text(playlist.name)
                                             .font(.system(size: 14))
                                             .lineLimit(1)
-                                        Text("\(playlist.trackCount) ?")
+                                        Text("\(playlist.trackCount) 首")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -680,7 +686,7 @@ struct IOSLibraryView: View {
                 }
             }
         }
-        .navigationTitle("??")
+        .navigationTitle("我的")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -693,19 +699,19 @@ struct IOSLibraryView: View {
         .sheet(isPresented: $showSettings) {
             NavigationStack {
                 SettingsView()
-                    .navigationTitle("??")
+                    .navigationTitle("设置")
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("??") {
+                            Button("完成") {
                                 showSettings = false
                             }
                         }
                     }
             }
         }
-        .alert("????", isPresented: $showNewPlaylist) {
-            TextField("????", text: $newPlaylistName)
-            Button("??") {
+        .alert("新建歌单", isPresented: $showNewPlaylist) {
+            TextField("歌单名称", text: $newPlaylistName)
+            Button("创建") {
                 let name = newPlaylistName.trimmingCharacters(in: .whitespaces)
                 newPlaylistName = ""
                 guard !name.isEmpty else { return }
@@ -713,13 +719,13 @@ struct IOSLibraryView: View {
                     do {
                         try await NeteaseAPI.createPlaylist(name: name, isPrivate: false)
                         await account.refreshLibrary()
-                        ToastCenter.shared.show(String(localized: "?????"))
+                        ToastCenter.shared.show(String(localized: "歌单已创建"))
                     } catch {
                         ToastCenter.shared.show(error.localizedDescription)
                     }
                 }
             }
-            Button("??", role: .cancel) { newPlaylistName = "" }
+            Button("取消", role: .cancel) { newPlaylistName = "" }
         }
     }
 }

@@ -101,7 +101,7 @@ enum LyricsParser {
     }
 
     /// Parses NetEase verbatim `yrc` lyrics: each content line is
-    /// `[lineStartMs,lineDurMs](wStartMs,wDurMs,0)word(...)word?`. JSON metadata
+    /// `[lineStartMs,lineDurMs](wStartMs,wDurMs,0)word(...)word…`. JSON metadata
     /// (credits) lines at the top don't match the `[num,num]` head and are
     /// skipped.
     static func parseYRC(_ yrc: String) -> [LyricLine] {
@@ -139,18 +139,18 @@ enum LyricsParser {
         var main = parseLRC(raw)
 
         // Instrumental marker handling (mirrors YesPlayMusic).
-        let instrumentalMarker = "???????"
+        let instrumentalMarker = "纯音乐，请欣赏"
         if main.count <= 10, main.contains(where: { $0.text.contains(instrumentalMarker) }) {
             out.isInstrumental = true
             main.removeAll { line in
                 line.text.contains(instrumentalMarker)
-                    || line.text.range(of: #"^?(?|?)\s*[:?]"#, options: .regularExpression) != nil
+                    || line.text.range(of: #"^作(词|曲)\s*[:：]"#, options: .regularExpression) != nil
             }
             if main.isEmpty {
                 return out
             }
         }
-        main.removeAll { $0.text.range(of: #"^?(?|?)\s*[:?]\s*?$"#, options: .regularExpression) != nil }
+        main.removeAll { $0.text.range(of: #"^作(词|曲)\s*[:：]\s*无$"#, options: .regularExpression) != nil }
 
         var lines = main.enumerated().map { idx, pair in
             LyricLine(id: idx, time: pair.time, text: pair.text)

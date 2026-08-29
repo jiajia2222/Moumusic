@@ -13,7 +13,7 @@ enum RepeatMode: String, CaseIterable {
     }
 }
 
-/// Where the current queue came from ? used for scrobbling and UI affordances.
+/// Where the current queue came from — used for scrobbling and UI affordances.
 enum PlaySource: Equatable {
     case playlist(Int)
     case album(Int)
@@ -30,7 +30,7 @@ enum PlaySource: Equatable {
     }
 }
 
-/// Where playback started from ? listed under "Recently Played" in the Dock
+/// Where playback started from — listed under "Recently Played" in the Dock
 /// menu, where picking one reloads it and starts playing again.
 ///
 /// This is deliberately separate from `PlaySource`: heartbeat mode plays out
@@ -61,13 +61,13 @@ struct PlayContext: Codable, Hashable {
         .init(kind: .artist, id: id, name: name)
     }
 
-    static var daily: PlayContext { .init(kind: .daily, id: 0, name: String(localized: "????")) }
-    static var cloud: PlayContext { .init(kind: .cloud, id: 0, name: String(localized: "????")) }
-    static var recents: PlayContext { .init(kind: .recents, id: 0, name: String(localized: "????")) }
-    static var heartbeat: PlayContext { .init(kind: .heartbeat, id: 0, name: String(localized: "????")) }
-    static var fm: PlayContext { .init(kind: .fm, id: 0, name: String(localized: "????")) }
+    static var daily: PlayContext { .init(kind: .daily, id: 0, name: String(localized: "每日推荐")) }
+    static var cloud: PlayContext { .init(kind: .cloud, id: 0, name: String(localized: "音乐云盘")) }
+    static var recents: PlayContext { .init(kind: .recents, id: 0, name: String(localized: "最近播放")) }
+    static var heartbeat: PlayContext { .init(kind: .heartbeat, id: 0, name: String(localized: "心动模式")) }
+    static var fm: PlayContext { .init(kind: .fm, id: 0, name: String(localized: "私人漫游")) }
 
-    /// Identity is the place, not its current title ? a renamed playlist is
+    /// Identity is the place, not its current title — a renamed playlist is
     /// still the same entry in the recents list.
     static func == (lhs: PlayContext, rhs: PlayContext) -> Bool {
         lhs.kind == rhs.kind && lhs.id == rhs.id
@@ -86,7 +86,7 @@ enum RightPanel {
 /// The playback engine: queue, shuffle/repeat, personal FM, URL resolution,
 /// lyrics, scrobbling. Modeled on YesPlayMusic's Player class, backed by AVPlayer.
 /// High-frequency playback position, isolated so per-tick updates only
-/// re-render the scrubbers/lyrics that observe it ? not every view holding
+/// re-render the scrubbers/lyrics that observe it — not every view holding
 /// the PlayerService.
 @MainActor
 final class PlaybackClock: ObservableObject {
@@ -96,7 +96,7 @@ final class PlaybackClock: ObservableObject {
 /// Which lyric line is current.
 ///
 /// Every lyric view used to derive this itself, which meant observing the clock
-/// and re-rendering on every tick just to discover the line hadn't changed ?
+/// and re-rendering on every tick just to discover the line hadn't changed —
 /// and for the now-playing page, whose body is the whole immersive layout, that
 /// was five full re-evaluations a second. Computing it once here and publishing
 /// only on a change turns that into one re-render per lyric line.
@@ -144,7 +144,7 @@ final class PlayerService: ObservableObject {
 
     @Published private(set) var isFMMode = false
     @Published private(set) var fmUpcoming: [Track] = []
-    /// Where playback was most recently started from, newest first ?
+    /// Where playback was most recently started from, newest first —
     /// surfaced as "Recently Played" in the Dock menu.
     @Published private(set) var recentContexts: [PlayContext] = []
     @Published private(set) var lyrics: ParsedLyrics?
@@ -179,6 +179,7 @@ final class PlayerService: ObservableObject {
     private var consecutiveFailures = 0
     private var scrobbled = false
     private var startScrobbled = false
+    private var runtimeStarted = false
 
     private init() {
         engine.actionAtItemEnd = .pause
@@ -186,6 +187,16 @@ final class PlayerService: ObservableObject {
         engine.volume = volume
         repeatMode = UserDefaults.standard.string(forKey: "player.repeat")
             .flatMap(RepeatMode.init) ?? .off
+    }
+
+    /// Starts the parts of the player that touch system audio and media
+    /// services.  Keeping this out of the singleton initializer is important
+    /// on iOS: SwiftUI creates shared observable objects while the app scene
+    /// is still being brought up, and iOS 27 can terminate an app that calls
+    /// into an audio session or remote-command center too early.
+    func startRuntime() {
+        guard !runtimeStarted else { return }
+        runtimeStarted = true
 
         #if os(iOS)
         do {
@@ -195,7 +206,7 @@ final class PlayerService: ObservableObject {
             print("Failed to activate audio session: \(error)")
         }
 
-        // Resume after interruptions (phone calls, WeChat voice messages, ?).
+        // Resume after interruptions (phone calls, WeChat voice messages, …).
         NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification,
             object: AVAudioSession.sharedInstance(), queue: .main
@@ -232,8 +243,8 @@ final class PlayerService: ObservableObject {
                 self.updateLyricsCursor(at: seconds)
 
                 // The scrubber does not. Publishing the position every tick
-                // re-renders it ? and SwiftUI rebuilds the display list for the
-                // whole tree each time ? to move the thumb a fraction of a
+                // re-renders it — and SwiftUI rebuilds the display list for the
+                // whole tree each time — to move the thumb a fraction of a
                 // pixel. Half a second is still smoother than the eye needs.
                 if abs(seconds - self.progress) > 0.45 {
                     self.progress = seconds
@@ -322,7 +333,7 @@ final class PlayerService: ObservableObject {
         if playNow || currentTrack == nil {
             advanceToNext(userInitiated: true)
         } else {
-            ToastCenter.shared.show(String(localized: "?????????"))
+            ToastCenter.shared.show(String(localized: "已添加到下一首播放"))
         }
     }
 
@@ -410,7 +421,7 @@ final class PlayerService: ObservableObject {
     }
 
     /// Single-button mode cycle for the iOS minimal transport row:
-    /// sequential ? loop all ? loop one ? shuffle ? sequential.
+    /// sequential → loop all → loop one → shuffle → sequential.
     func cyclePlaybackMode() {
         guard !isFMMode else { return }
         if shuffleEnabled {
@@ -492,7 +503,7 @@ final class PlayerService: ObservableObject {
                     break
                 }
                 if attempt == 2 {
-                    ToastCenter.shared.show(String(localized: "??????????"))
+                    ToastCenter.shared.show(String(localized: "获取私人漫游数据失败"))
                     return
                 }
                 try? await Task.sleep(for: .seconds(1))
@@ -525,7 +536,7 @@ final class PlayerService: ObservableObject {
         if idx >= activeQueue.count {
             guard repeatMode == .all else {
                 if userInitiated {
-                    ToastCenter.shared.show(String(localized: "????????"))
+                    ToastCenter.shared.show(String(localized: "已经是最后一首了"))
                 } else {
                     isPlaying = false
                     NowPlayingManager.shared.updateElapsed(progress, rate: 0)
@@ -610,14 +621,14 @@ final class PlayerService: ObservableObject {
         }
         guard generation == resolveGeneration else { return }
 
-        // NetEase refused ? try third-party sources (UnblockNeteaseMusic-style).
+        // NetEase refused — try third-party sources (UnblockNeteaseMusic-style).
         if resolvedURL == nil || data?.freeTrialInfo != nil, SettingsManager.shared.enableUnblock {
             if let unblocked = await UnblockService.resolve(track) {
                 guard generation == resolveGeneration else { return }
                 resolvedURL = unblocked.url
                 unblockSource = unblocked.source
                 data = nil
-                ToastCenter.shared.show(String(localized: "?????????\(unblocked.source)"))
+                ToastCenter.shared.show(String(localized: "已使用第三方音源：\(unblocked.source)"))
             }
         }
         guard generation == resolveGeneration else { return }
@@ -627,7 +638,7 @@ final class PlayerService: ObservableObject {
             let reason = track.playability(privilege: nil,
                                            isLoggedIn: AccountStore.shared.isLoggedIn,
                                            vipType: AccountStore.shared.vipType).reason
-            ToastCenter.shared.show(String(localized: "?\(track.name)?????\(reason.map { "?\($0)" } ?? "")"))
+            ToastCenter.shared.show(String(localized: "《\(track.name)》无法播放\(reason.map { "：\($0)" } ?? "")"))
             if consecutiveFailures < 5 {
                 advanceToNext(userInitiated: false)
             } else {
@@ -640,13 +651,13 @@ final class PlayerService: ObservableObject {
         servedQuality = servedByLXQuality ?? data?.level
         if data?.freeTrialInfo != nil {
             isTrial = true
-            ToastCenter.shared.show(String(localized: "VIP ??????????"))
+            ToastCenter.shared.show(String(localized: "VIP 歌曲，当前为试听片段"))
         }
 
         // Resolve the asset's audio track before the item goes live: an audio mix
         // attached after playback starts is silently ignored, so the spectrum tap
         // has to be spliced in here or not at all. Sources that refuse byte-range
-        // requests never resolve a track ? those play untapped and the UI falls
+        // requests never resolve a track — those play untapped and the UI falls
         // back to its decorative animation.
         let asset = AVURLAsset(url: url)
         let assetTrack = await loadAudioTrack(from: asset, timeout: 2)
@@ -754,7 +765,7 @@ final class PlayerService: ObservableObject {
 
     /// Reloads a place from the recents list and starts playing it again.
     func play(context: PlayContext) {
-        // Personal FM is a stream, not a fixed list ? restart it in place.
+        // Personal FM is a stream, not a fixed list — restart it in place.
         guard context.kind != .fm else { return startFM() }
         Task {
             do {

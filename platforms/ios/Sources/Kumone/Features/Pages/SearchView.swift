@@ -12,11 +12,11 @@ final class SearchViewModel: ObservableObject {
         var id: String { rawValue }
         var displayName: String {
             switch self {
-            case .all: return "??"
-            case .songs: return "??"
-            case .artists: return "??"
-            case .albums: return "??"
-            case .playlists: return "??"
+            case .all: return "综合"
+            case .songs: return "单曲"
+            case .artists: return "歌手"
+            case .albums: return "专辑"
+            case .playlists: return "歌单"
             }
         }
     }
@@ -124,7 +124,7 @@ struct SearchView: View {
                 PlayerClearanceSpacer()
             }
         }
-        .searchable(text: $searchText, prompt: "?????????????")
+        .searchable(text: $searchText, prompt: "搜索歌曲、歌手、专辑、歌单")
         .onSubmit(of: .search) {
             model.setQuery(searchText)
             Task { await model.load(tab: model.tab) }
@@ -138,7 +138,7 @@ struct SearchView: View {
                 }
             }
         }
-        .navigationTitle(searchText.isEmpty ? "??" : String(localized: "???\(searchText)"))
+        .navigationTitle(searchText.isEmpty ? "搜索" : String(localized: "搜索：\(searchText)"))
         .task(id: "\(model.tab.rawValue)-\(model.platform.rawValue)") {
             await model.load(tab: model.tab)
         }
@@ -173,10 +173,10 @@ struct SearchView: View {
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(.tertiary)
                 .padding(.top, 60)
-            Text("?????????????")
+            Text("探索海量华语流行与经典音乐")
                 .font(.headline)
                 .foregroundStyle(.secondary)
-            Text("????????????????????")
+            Text("输入歌曲名称、歌手名或歌单关键字开始搜索")
                 .font(.subheadline)
                 .foregroundStyle(.tertiary)
         }
@@ -200,7 +200,7 @@ struct SearchView: View {
         case .all:
             if !model.songs.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: "??") {
+                    SectionHeader(title: "单曲") {
                         model.tab = .songs
                     }
                     .padding(.horizontal, Theme.Layout.contentInset)
@@ -209,22 +209,22 @@ struct SearchView: View {
                 }
             }
             if !model.artists.isEmpty {
-                Shelf(title: "??", seeAll: { model.tab = .artists }) {
+                Shelf(title: "歌手", seeAll: { model.tab = .artists }) {
                     artistCards(model.artists.prefix(8))
                 }
             }
             if !model.albums.isEmpty {
-                Shelf(title: "??", seeAll: { model.tab = .albums }) {
+                Shelf(title: "专辑", seeAll: { model.tab = .albums }) {
                     albumCards(model.albums.prefix(8))
                 }
             }
             if !model.playlists.isEmpty {
-                Shelf(title: "??", seeAll: { model.tab = .playlists }) {
+                Shelf(title: "歌单", seeAll: { model.tab = .playlists }) {
                     playlistCards(model.playlists.prefix(8))
                 }
             }
             if currentEmpty, !model.isLoading {
-                EmptyStateView(icon: "magnifyingglass", title: "????????")
+                EmptyStateView(icon: "magnifyingglass", title: "没有找到相关结果")
                     .frame(minHeight: 300)
             }
         case .songs:

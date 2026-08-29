@@ -15,12 +15,12 @@ enum LXCatalogPlatform: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .aggregate: return "??"
-        case .kw: return "??"
-        case .kg: return "??"
-        case .tx: return "QQ ??"
-        case .wy: return "???"
-        case .mg: return "??"
+        case .aggregate: return "全部"
+        case .kw: return "酷我"
+        case .kg: return "酷狗"
+        case .tx: return "QQ 音乐"
+        case .wy: return "网易云"
+        case .mg: return "咪咕"
         }
     }
     var sourceID: String? {
@@ -41,8 +41,8 @@ enum LXCatalogError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidResponse: return "??????????????"
-        case .unsupported: return "??????????"
+        case .invalidResponse: return "音源返回了无法识别的搜索结果"
+        case .unsupported: return "当前平台暂不支持搜索"
         }
     }
 }
@@ -299,7 +299,7 @@ enum LXCatalogService {
 
     private static func artists(from value: String?) -> [ArtistRef] {
         guard let value, !value.isEmpty else { return [] }
-        return value.components(separatedBy: CharacterSet(charactersIn: "/,&?;"))
+        return value.components(separatedBy: CharacterSet(charactersIn: "/,&、;"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .enumerated()

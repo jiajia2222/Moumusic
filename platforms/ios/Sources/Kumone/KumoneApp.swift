@@ -24,6 +24,7 @@ public struct KumoneApp: App {
                            ? Theme.Layout.minWindowWidthSidebarCollapsed
                            : Theme.Layout.minWindowWidth,
                        minHeight: Theme.Layout.minWindowHeight)
+                .task { player.startRuntime() }
         }
         .defaultSize(width: Theme.Layout.defaultWindowWidth,
                      height: Theme.Layout.defaultWindowHeight)

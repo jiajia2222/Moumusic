@@ -168,17 +168,17 @@ enum TrackPlayability: Hashable {
     var reason: String? {
         switch self {
         case .playable: return nil
-        case .vipOnly: return String(localized: "VIP ??")
-        case .paidAlbum: return String(localized: "????")
-        case .noCopyright: return String(localized: "???")
-        case .delisted: return String(localized: "???")
+        case .vipOnly: return String(localized: "VIP 专属")
+        case .paidAlbum: return String(localized: "付费专辑")
+        case .noCopyright: return String(localized: "无版权")
+        case .delisted: return String(localized: "已下架")
         }
     }
 }
 
 extension Track {
     /// Mirrors YesPlayMusic's `isTrackPlayable` decision chain,
-    /// with the VIP check widened to cover ?? SVIP (vipType 110 etc).
+    /// with the VIP check widened to cover 黑胶 SVIP (vipType 110 etc).
     func playability(privilege: TrackPrivilege?, isLoggedIn: Bool, vipType: Int) -> TrackPlayability {
         let privilege = privilege ?? embeddedPrivilege
         if let pl = privilege?.pl, pl > 0 { return .playable }

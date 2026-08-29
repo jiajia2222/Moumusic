@@ -45,7 +45,7 @@ void Promise.all([getFontSize(), windowSizeTools.init()]).then(async([fontSize])
       handlePushedHomeScreen = await waitForInit(init())
     } catch (err: any) {
       void tipDialog({
-        title: '????? (Init Failed)',
+        title: '初始化失败 (Init Failed)',
         message: `Boot Log:\n${tryGetBootLog()}\n\n${(err.stack ?? err.message) as string}`,
         btnText: 'Exit',
         bgClose: false,
@@ -81,7 +81,7 @@ void Promise.all([getFontSize(), windowSizeTools.init()]).then(async([fontSize])
   })
 }).catch((err) => {
   void tipDialog({
-    title: '????? (Init Failed)',
+    title: '初始化失败 (Init Failed)',
     message: `Boot Log:\n\n${(err.stack ?? err.message) as string}`,
     btnText: 'Exit',
     bgClose: false,

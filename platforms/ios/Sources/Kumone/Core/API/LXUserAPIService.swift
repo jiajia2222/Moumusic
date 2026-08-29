@@ -104,8 +104,8 @@ final class LXUserAPIService {
 
         var errorDescription: String? {
             switch self {
-            case .noSource: return "??????????? LX ??"
-            case .resolveFailed: return "LX ???????????"
+            case .noSource: return "请先在设置中导入并启用 LX 音源"
+            case .resolveFailed: return "LX 音源没有返回可播放地址"
             case .javascript(let message): return message
             }
         }

@@ -76,8 +76,8 @@ final class LXSourceStore: ObservableObject {
 
         var errorDescription: String? {
             switch self {
-            case .invalidEncoding: return "???????????? UTF-8 ??? JSON ??"
-            case .invalidScript: return "??????? LX User API ??"
+            case .invalidEncoding: return "无法读取音源文件，请选择 UTF-8 文本或 JSON 文件"
+            case .invalidScript: return "这不是可识别的 LX User API 音源"
             }
         }
     }
@@ -99,7 +99,7 @@ final class LXSourceStore: ObservableObject {
               let value = try? JSONDecoder().decode(Export.self, from: data),
               let script = value.script, !script.isEmpty else { return nil }
         return Source(id: value.id ?? UUID().uuidString,
-                      name: value.name?.isEmpty == false ? value.name! : "LX ??",
+                      name: value.name?.isEmpty == false ? value.name! : "LX 音源",
                       description: value.description ?? value.desc ?? "",
                       version: value.version ?? "",
                       author: value.author ?? "",
