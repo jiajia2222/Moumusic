@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react'
-import { View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { useKeyboard } from '@/utils/hooks'
 
 import Pic from './components/Pic'
@@ -19,7 +19,7 @@ export default memo(({ isHome = false }: { isHome?: boolean }) => {
   const autoHidePlayBar = useSettingValue('common.autoHidePlayBar')
 
   const playerComponent = useMemo(() => (
-    <View style={{ ...styles.container, backgroundColor: theme['c-content-background'] }}>
+    <View style={{ ...styles.container, backgroundColor: theme.isDark ? 'rgba(22, 23, 30, 0.9)' : 'rgba(255, 255, 255, 0.84)', borderColor: theme.isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.92)' }}>
       <Pic isHome={isHome} />
       <View style={styles.center}>
         <Title isHome={isHome} />
@@ -42,7 +42,7 @@ export default memo(({ isHome = false }: { isHome?: boolean }) => {
 
 const styles = createStyle({
   container: {
-    width: '100%',
+    alignSelf: 'stretch',
     // height: 100,
     // paddingTop: progressContentPadding,
     // marginTop: -progressContentPadding,
@@ -52,8 +52,10 @@ const styles = createStyle({
     paddingLeft: 5,
     // backgroundColor: AppColors.primary,
     // backgroundColor: 'red',
-    borderTopLeftRadius: 6,
-    borderTopRightRadius: 6,
+    marginHorizontal: 8,
+    marginBottom: 8,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'center',
     elevation: 10,

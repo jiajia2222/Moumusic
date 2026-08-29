@@ -3,6 +3,7 @@ import { Navigation } from 'react-native-navigation'
 
 import {
   HOME_SCREEN,
+  BOOT_SCREEN,
   PLAY_DETAIL_SCREEN,
   SONGLIST_DETAIL_SCREEN,
   COMMENT_SCREEN,
@@ -17,6 +18,26 @@ import { type ListInfoItem } from '@/store/songlist/state'
 
 // const store = getStore()
 // const getTheme = () => getter('common', 'theme')(store.getState())
+
+export async function pushBootScreen() {
+  return Navigation.setRoot({
+    root: {
+      stack: {
+        children: [{
+          component: {
+            name: BOOT_SCREEN,
+            options: {
+              topBar: { visible: false, height: 0 },
+              statusBar: { drawBehind: false, visible: true, style: 'dark', backgroundColor: '#f5f7fb' },
+              navigationBar: { backgroundColor: '#f5f7fb' },
+              layout: { componentBackgroundColor: '#f5f7fb' },
+            },
+          },
+        }],
+      },
+    },
+  })
+}
 
 export async function pushHomeScreen() {
   /*
