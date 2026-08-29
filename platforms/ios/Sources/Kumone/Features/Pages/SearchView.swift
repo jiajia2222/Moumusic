@@ -3,13 +3,22 @@ import SwiftUI
 @MainActor
 final class SearchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case all = "??"
-        case songs = "??"
-        case artists = "??"
-        case albums = "??"
-        case playlists = "??"
+        case all
+        case songs
+        case artists
+        case albums
+        case playlists
 
         var id: String { rawValue }
+        var displayName: String {
+            switch self {
+            case .all: return "??"
+            case .songs: return "??"
+            case .artists: return "??"
+            case .albums: return "??"
+            case .playlists: return "??"
+            }
+        }
     }
 
     var query: String
@@ -95,7 +104,7 @@ struct SearchView: View {
 
                     Picker("", selection: $model.tab) {
                         ForEach(SearchViewModel.Tab.allCases) { tab in
-                            Text(LocalizedStringKey(tab.rawValue)).tag(tab)
+                            Text(tab.displayName).tag(tab)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -142,7 +151,7 @@ struct SearchView: View {
                     Button {
                         model.setPlatform(platform)
                     } label: {
-                        Text(platform.rawValue)
+                        Text(platform.displayName)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(model.platform == platform ? .white : .primary)
                             .padding(.horizontal, 14)

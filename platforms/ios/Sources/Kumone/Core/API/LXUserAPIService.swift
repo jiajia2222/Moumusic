@@ -261,10 +261,11 @@ final class LXUserAPIService {
         for key in ["hash", "strMediaMid", "copyrightId", "albumMid"] {
             if let value = track.sourceMetadata[key], !value.isEmpty { info[key] = value }
         }
-        info["meta"] = ["songId": info["songId"] ?? String(track.id),
-                         "albumName": track.album.name,
-                         "picUrl": track.album.picUrl ?? NSNull(),
-                         "qualitys": ["128k", "320k", "flac", "flac24bit"]]
+        var meta: [String: Any] = ["songId": info["songId"] ?? String(track.id),
+                                    "albumName": track.album.name,
+                                    "qualitys": ["128k", "320k", "flac", "flac24bit"]]
+        meta["picUrl"] = track.album.picUrl ?? NSNull()
+        info["meta"] = meta
         return info
     }
 
@@ -293,7 +294,9 @@ private func md5Hex(_ value: String) -> String {
 private func aesEncrypt(input: String, key: String, iv: String, mode: String) -> String {
     guard let inputData = Data(base64Encoded: input), let keyData = Data(base64Encoded: key) else { return "" }
     let ivData = Data(base64Encoded: iv) ?? Data(repeating: 0, count: kCCBlockSizeAES128)
-    let options: CCOptions = mode == "AES" ? kCCOptionECBMode : kCCOptionPKCS7Padding
+    let options: CCOptions = mode == "AES"
+        ? CCOptions(kCCOptionECBMode)
+        : CCOptions(kCCOptionPKCS7Padding)
     var output = [UInt8](repeating: 0, count: inputData.count + kCCBlockSizeAES128)
     var moved = 0
     let status = inputData.withUnsafeBytes { inputBuffer in

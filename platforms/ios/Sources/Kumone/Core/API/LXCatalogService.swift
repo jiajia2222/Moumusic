@@ -5,14 +5,24 @@ import CommonCrypto
 /// a user script: LX User API scripts resolve playback/lyrics, while these
 /// adapters provide the same multi-platform search experience as LX Mobile.
 enum LXCatalogPlatform: String, CaseIterable, Identifiable {
-    case aggregate = "??"
-    case kw = "??"
-    case kg = "??"
-    case tx = "QQ ??"
-    case wy = "???"
-    case mg = "??"
+    case aggregate
+    case kw
+    case kg
+    case tx
+    case wy
+    case mg
 
     var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .aggregate: return "??"
+        case .kw: return "??"
+        case .kg: return "??"
+        case .tx: return "QQ ??"
+        case .wy: return "???"
+        case .mg: return "??"
+        }
+    }
     var sourceID: String? {
         switch self {
         case .aggregate: return nil

@@ -31,7 +31,7 @@ jobs:
             DEVELOPMENT_TEAM= \
             build
           mkdir -p dist/Payload
-          cp -R build/Build/Products/Release-iphoneos/KumoneIOS.app dist/Payload/Moumusic.app
+          cp -R build/Build/Products/Release-iphoneos/MoumusicIOS.app dist/Payload/Moumusic.app
           ditto -c -k --sequesterRsrc --keepParent dist/Payload dist/Moumusic-unsigned.ipa
 
       - name: Upload IPA
