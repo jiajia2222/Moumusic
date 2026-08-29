@@ -4,13 +4,13 @@ Moumusic 是一次独立重构，不包含旧 `moumusic-ios` 工程的代码。
 
 ## 当前架构
 
-- `platforms/android` 是 Moumusic 的共享 React Native 客户端，同时作为 Android 与 iOS 的前端基线；界面、播放队列、歌词、缓存、下载、歌单和用户源管理由同一套代码维护。
+- `platforms/android` 是 Moumusic 的共享 React Native 客户端，同时作为 Android 与 iOS 的前端基线；它移植了 Kumone 的主导航、卡片式首页、沉浸式播放器和液态玻璃交互，并继续由同一套代码维护播放队列、歌词、缓存、下载、歌单和用户源管理。
 - `platforms/android/src/utils/musicSdk` 内置酷我、酷狗、QQ、网易云、咪咕的平台适配器，负责搜索、歌单、排行榜和推荐目录。
-- `platforms/ios` 保留 Kumone 作为参考源码与许可证边界，但当前 iOS 发布构建不再使用 Kumone UI，而是构建上面的 Moumusic 共享客户端。
+- `platforms/ios` 保留 Kumone 的 SwiftUI 参考源码与许可证边界；双端发布构建使用上面的共享 RN 客户端，避免把仅支持 SwiftUI 的原生前端与 LX 的 JavaScript 核心拆成两套产品。
 
 ## 音源策略
 
-平台与音源是两层：搜索栏切换“平台”，设置页的“播放音源”切换用户导入的 LX User API。用户可在“设置 → 自定义源管理”导入 JavaScript 源，再选择已导入的源为歌曲返回播放地址、歌词、封面和可用音质；仓库不硬编码第三方解锁服务，也不预置音源脚本。
+平台与播放音源是两层：搜索页可选网易云、QQ、酷狗、酷我等平台，或选择“全部”执行 LX 聚合搜索；设置页的“播放音源”切换用户导入的 LX User API。用户可在设置中导入 JavaScript 源，再选择已导入的源为歌曲返回播放地址、歌词、封面和可用音质；仓库不硬编码第三方解锁服务，也不预置音源脚本。
 
 ## 构建
 
