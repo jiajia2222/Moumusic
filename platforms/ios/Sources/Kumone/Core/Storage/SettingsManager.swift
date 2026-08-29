@@ -11,21 +11,21 @@ enum AudioQuality: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .standard: return String(localized: "??")
-        case .higher: return String(localized: "??")
-        case .exhigh: return String(localized: "??")
-        case .lossless: return String(localized: "??")
+        case .standard: return String(localized: "标准")
+        case .higher: return String(localized: "较高")
+        case .exhigh: return String(localized: "极高")
+        case .lossless: return String(localized: "无损")
         case .hires: return "Hi-Res"
         }
     }
 
     var badge: String {
         switch self {
-        case .standard: return String(localized: "??")
-        case .higher: return String(localized: "??")
-        case .exhigh: return String(localized: "??")
-        case .lossless: return String(localized: "??")
-        case .hires: return String(localized: "???")
+        case .standard: return String(localized: "标准")
+        case .higher: return String(localized: "较高")
+        case .exhigh: return String(localized: "极高")
+        case .lossless: return String(localized: "无损")
+        case .hires: return String(localized: "高解析")
         }
     }
 }
@@ -37,9 +37,9 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .auto: return String(localized: "????")
-        case .light: return String(localized: "??")
-        case .dark: return String(localized: "??")
+        case .auto: return String(localized: "跟随系统")
+        case .light: return String(localized: "浅色")
+        case .dark: return String(localized: "深色")
         }
     }
 
@@ -62,9 +62,9 @@ enum NowPlayingMode: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .classic: return String(localized: "????")
-        case .immersive: return String(localized: "????")
-        case .minimal: return String(localized: "????")
+        case .classic: return String(localized: "经典模式")
+        case .immersive: return String(localized: "沉浸模式")
+        case .minimal: return String(localized: "简洁模式")
         }
     }
 }
@@ -83,13 +83,13 @@ enum HomeRecommendationMode: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .lxAggregate: return "LX ??"
-        case .kw: return "??"
-        case .kg: return "??"
-        case .tx: return "QQ ??"
-        case .wy: return "???"
-        case .mg: return "??"
-        case .netease: return "?????"
+        case .lxAggregate: return String(localized: "LX 聚合")
+        case .kw: return String(localized: "酷我")
+        case .kg: return String(localized: "酷狗")
+        case .tx: return String(localized: "QQ 音乐")
+        case .wy: return String(localized: "网易云")
+        case .mg: return String(localized: "咪咕")
+        case .netease: return String(localized: "网易云推荐")
         }
     }
 
