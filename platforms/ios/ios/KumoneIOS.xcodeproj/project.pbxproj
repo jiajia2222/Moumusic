@@ -11,6 +11,7 @@
 		912D4F61C71BE306BABD494B /* KumoneIOSFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 2D74B41A7A94ABA39956EC55 /* KumoneIOSFeature */; };
 		C2D27A1CAB9C74AB85AE8166 /* KumoneIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A494667EB444A90236506102 /* KumoneIOSApp.swift */; };
 		C777A61B1DD211B6FF64D88B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B9C6A5A61A6330586810260 /* Assets.xcassets */; };
+		B93D5F709C1E2B4A6D8F0C12 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = A93D5F709C1E2B4A6D8F0C12 /* Localizable.strings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -34,6 +35,7 @@
 		7A9033A23C5610F19ABA3774 /* KumoneIOSUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KumoneIOSUITests.swift; sourceTree = "<group>"; };
 		8B9C6A5A61A6330586810260 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A494667EB444A90236506102 /* KumoneIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KumoneIOSApp.swift; sourceTree = "<group>"; };
+		C93D5F709C1E2B4A6D8F0C12 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = zh-Hans.lproj/Localizable.strings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -92,6 +94,7 @@
 				8B9C6A5A61A6330586810260 /* Assets.xcassets */,
 				66554F47F0D6FC82F2EFDB2A /* KumoneIOS.xctestplan */,
 				A494667EB444A90236506102 /* KumoneIOSApp.swift */,
+				A93D5F709C1E2B4A6D8F0C12 /* Localizable.strings */,
 			);
 			path = KumoneIOS;
 			sourceTree = "<group>";
@@ -105,6 +108,17 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
+/* Begin PBXVariantGroup section */
+		A93D5F709C1E2B4A6D8F0C12 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				C93D5F709C1E2B4A6D8F0C12 /* Localizable.strings */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin PBXNativeTarget section */
 		481C5C62EB4A6DB3CC0FDC39 /* KumoneIOS */ = {
@@ -170,6 +184,7 @@
 			knownRegions = (
 				Base,
 				en,
+				zh-Hans,
 			);
 			mainGroup = 407A4760CEE331B6B395DECF;
 			minimizedProjectReferenceProxies = 1;
@@ -193,6 +208,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C777A61B1DD211B6FF64D88B /* Assets.xcassets in Resources */,
+				B93D5F709C1E2B4A6D8F0C12 /* Localizable.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -510,12 +510,52 @@ struct IOSMiniPlayerBar: View {
 struct IOSLibraryView: View {
     @Binding var showLogin: Bool
     @EnvironmentObject private var account: AccountStore
+    @StateObject private var lxStore = LXSourceStore.shared
     @State private var showSettings = false
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
 
     var body: some View {
         List {
+            Section {
+                Button {
+                    showSettings = true
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "waveform.badge.plus")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 36, height: 36)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(verbatim: "LX ??")
+                                .font(.headline)
+                            Text(verbatim: lxStore.selectedSource.map { "????\($0.name)" } ?? "????????????")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    showSettings = true
+                } label: {
+                    HStack {
+                        Image(systemName: "square.and.arrow.down")
+                        Text(verbatim: "?? / ?? LX ??")
+                    }
+                }
+            } header: {
+                Text(verbatim: "????")
+            } footer: {
+                Text(verbatim: "???????????????? LX User API ??????????????????????")
+            }
+
             // Profile / Login header
             Section {
                 if let profile = account.profile {
@@ -563,7 +603,7 @@ struct IOSLibraryView: View {
             }
 
             if account.hasAuthCookie {
-                Section("????") {
+                Section("???????") {
                     if let liked = account.likedSongsPlaylist {
                         NavigationLink(value: Destination.playlist(liked.id)) {
                             Label("??????", systemImage: "heart.fill")

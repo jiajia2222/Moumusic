@@ -42,7 +42,10 @@ final class LXSourceStore: ObservableObject {
             throw ImportError.invalidEncoding
         }
         let source = decodeExport(raw) ?? sourceFromHeader(raw, suggestedName: suggestedName)
-        guard source.script.contains("lx") else { throw ImportError.invalidScript }
+        let script = source.script.lowercased()
+        guard script.contains("musicurl") || script.contains("lyric") || script.contains("globalthis.lx") else {
+            throw ImportError.invalidScript
+        }
         sources.removeAll { $0.id == source.id || $0.name == source.name }
         sources.append(source)
         sources.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

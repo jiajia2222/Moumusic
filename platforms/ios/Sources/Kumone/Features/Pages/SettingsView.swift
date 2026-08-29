@@ -31,50 +31,60 @@ struct SettingsView: View {
             }
 
 #if os(iOS)
-            Section("LX ??") {
+            Section {
                 if lxStore.sources.isEmpty {
-                    Text("?????????? LX User API ???")
+                    Text(verbatim: "?????????? LX User API ???")
                         .foregroundStyle(.secondary)
                 } else {
                     Picker("????", selection: Binding(
                         get: { lxStore.selectedID ?? "" },
                         set: { lxStore.select($0.isEmpty ? nil : $0) }
                     )) {
-                        Text("???").tag("")
+                        Text(verbatim: "???").tag("")
                         ForEach(lxStore.sources) { source in
-                            Text(source.name).tag(source.id)
+                            Text(verbatim: source.name).tag(source.id)
                         }
                     }
                     ForEach(lxStore.sources) { source in
                         HStack(alignment: .top, spacing: 10) {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(source.name).font(.body.weight(.medium))
+                                Text(verbatim: source.name).font(.body.weight(.medium))
                                 let detail = [source.author, source.version]
                                     .filter { !$0.isEmpty }.joined(separator: " ? ")
                                 if !detail.isEmpty {
-                                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                                    Text(verbatim: detail).font(.caption).foregroundStyle(.secondary)
                                 }
                                 if !source.description.isEmpty {
-                                    Text(source.description)
+                                    Text(verbatim: source.description)
                                         .font(.caption2)
                                         .foregroundStyle(.tertiary)
                                         .lineLimit(2)
                                 }
                             }
                             Spacer()
-                            Button("??", role: .destructive) { lxStore.remove(source) }
-                                .font(.caption)
+                             Button(role: .destructive) { lxStore.remove(source) } label: {
+                                 Text(verbatim: "??")
+                             }
+                                 .font(.caption)
                         }
                     }
                 }
                 Button {
                     isImportingLX = true
                 } label: {
-                    Label("?? LX User API", systemImage: "square.and.arrow.down")
+                    Label {
+                        Text(verbatim: "?? LX User API")
+                    } icon: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
                 }
-                Text("???????????? LX ??? JSON ??? JavaScript ???")
+                Text(verbatim: "???????????? LX ??? JSON ??? JavaScript ???")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } header: {
+                Text(verbatim: "LX ??")
+            } footer: {
+                Text(verbatim: "????????????????????????????")
             }
 #endif
 
@@ -140,7 +150,8 @@ struct SettingsView: View {
         .task { updateCacheSize() }
 #if os(iOS)
         .fileImporter(isPresented: $isImportingLX,
-                      allowedContentTypes: [.plainText, .json, .sourceCode]) { result in
+                      allowedContentTypes: [.plainText, .json, .sourceCode,
+                                            UTType(filenameExtension: "js") ?? .plainText]) { result in
             do {
                 let url = try result.get()
                 let accessed = url.startAccessingSecurityScopedResource()

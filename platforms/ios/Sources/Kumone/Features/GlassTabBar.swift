@@ -1,22 +1,22 @@
 #if os(iOS)
 import SwiftUI
 
-/// Floating tab bar for iOS 16–25 (no native Liquid Glass), modelled on
+/// Floating tab bar for iOS 16?25 (no native Liquid Glass), modelled on
 /// Telegram's `TabBarComponent` / `LiquidLensView`:
-///   • a full-height glass capsule (56pt content + 4pt inset = 64pt), near
+///   ? a full-height glass capsule (56pt content + 4pt inset = 64pt), near
 ///     full-width;
-///   • a sliding selection **capsule that fills the bar height**, tinted the
-///     way Telegram tints it — a faint darkening (black @ 7.5%) in light /
+///   ? a sliding selection **capsule that fills the bar height**, tinted the
+///     way Telegram tints it ? a faint darkening (black @ 7.5%) in light /
 ///     white @ 10% in dark, not a bright chip;
-///   • items whose 23pt filled icon and 10pt semibold label share one colour:
+///   ? items whose 23pt filled icon and 10pt semibold label share one colour:
 ///     black @ 80% unselected, accent when selected;
-///   • **an interactive pill you can drag** across the tabs — the lens tracks
+///   ? **an interactive pill you can drag** across the tabs ? the lens tracks
 ///     your finger and switches tabs live, then settles with a spring on
 ///     release; a plain tap slides it there instead.
 struct GlassTabBar: View {
     struct Item: Identifiable {
         let tab: IOSTab
-        let title: LocalizedStringKey
+        let title: String
         let icon: String
         var id: IOSTab { tab }
     }
@@ -78,7 +78,7 @@ struct GlassTabBar: View {
             Image(systemName: item.icon)
                 .font(.system(size: 23, weight: .semibold))
                 .symbolVariant(.fill)
-            Text(item.title)
+            Text(verbatim: item.title)
                 .font(.system(size: 10, weight: .semibold))
         }
         .foregroundStyle(isSelected
@@ -88,7 +88,7 @@ struct GlassTabBar: View {
         .contentShape(Rectangle())
     }
 
-    /// The sliding indicator — a bar-height capsule with Telegram's faint tint.
+    /// The sliding indicator ? a bar-height capsule with Telegram's faint tint.
     private var selectionPill: some View {
         Capsule(style: .continuous)
             .fill(colorScheme == .dark
