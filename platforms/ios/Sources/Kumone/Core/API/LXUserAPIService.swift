@@ -237,8 +237,6 @@ final class LXUserAPIService {
         let encoded: String?
         if let data, let json = try? JSONSerialization.data(withJSONObject: data), let string = String(data: json, encoding: .utf8) {
             encoded = string
-        } else if let data as Int {
-            encoded = String(data)
         } else {
             encoded = nil
         }
