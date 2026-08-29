@@ -1,102 +1,166 @@
 import SwiftUI
+#if os(iOS)
+import UniformTypeIdentifiers
+#endif
 
 struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
     @EnvironmentObject private var account: AccountStore
-    @State private var cacheSize: String = String(localized: "计算中…")
+    @State private var cacheSize = "????"
+#if os(iOS)
+    @StateObject private var lxStore = LXSourceStore.shared
+    @State private var isImportingLX = false
+    @State private var lxError: String?
+#endif
 
     var body: some View {
         Form {
-            Section("播放") {
-                Picker("音质", selection: $settings.audioQuality) {
+            Section("??") {
+                Picker("??", selection: $settings.audioQuality) {
                     ForEach(AudioQuality.allCases) { quality in
                         Text(quality.displayName).tag(quality)
                     }
                 }
-                Text("无损与 Hi-Res 需要黑胶 VIP，未开通时自动回落到可用音质")
+                Text("??? Hi-Res ???????????????")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Toggle("灰色歌曲解锁", isOn: $settings.enableUnblock)
-                Text("默认关闭第三方音源；开启后使用 Kumone 的兼容解锁流程")
+                Toggle("??????", isOn: $settings.enableUnblock)
+                Text("?????????????? Kumone ????????")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Section("外观") {
-                Picker("主题", selection: $settings.appearance) {
+#if os(iOS)
+            Section("LX ??") {
+                if lxStore.sources.isEmpty {
+                    Text("?????????? LX User API ???")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker("????", selection: Binding(
+                        get: { lxStore.selectedID ?? "" },
+                        set: { lxStore.select($0.isEmpty ? nil : $0) }
+                    )) {
+                        Text("???").tag("")
+                        ForEach(lxStore.sources) { source in
+                            Text(source.name).tag(source.id)
+                        }
+                    }
+                    ForEach(lxStore.sources) { source in
+                        HStack(alignment: .top, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(source.name).font(.body.weight(.medium))
+                                let detail = [source.author, source.version]
+                                    .filter { !$0.isEmpty }.joined(separator: " ? ")
+                                if !detail.isEmpty {
+                                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                                }
+                                if !source.description.isEmpty {
+                                    Text(source.description)
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            Spacer()
+                            Button("??", role: .destructive) { lxStore.remove(source) }
+                                .font(.caption)
+                        }
+                    }
+                }
+                Button {
+                    isImportingLX = true
+                } label: {
+                    Label("?? LX User API", systemImage: "square.and.arrow.down")
+                }
+                Text("???????????? LX ??? JSON ??? JavaScript ???")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+#endif
+
+            Section("??") {
+                Picker("??", selection: $settings.appearance) {
                     ForEach(AppAppearance.allCases) { appearance in
                         Text(appearance.displayName).tag(appearance)
                     }
                 }
-                #if os(iOS)
-                Picker("播放页模式", selection: $settings.nowPlayingMode) {
+#if os(iOS)
+                Picker("?????", selection: $settings.nowPlayingMode) {
                     ForEach(NowPlayingMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
                     }
                 }
-                #endif
-                Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
-                Toggle("逐字歌词（卡拉OK）", isOn: $settings.verbatimLyrics)
-                Toggle("显示日文歌词罗马音", isOn: $settings.showLyricsRomaji)
-                Text("日文歌词上方显示罗马音，缺少官方罗马音时自动生成读音")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                #if os(macOS)
-                Toggle("桌面歌词", isOn: $settings.showDesktopLyrics)
-                Text("在屏幕上悬浮显示当前歌词，可拖动调整位置")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                #endif
+#endif
+                Toggle("??????", isOn: $settings.showLyricsTranslation)
+                Toggle("??????? OK?", isOn: $settings.verbatimLyrics)
+                Toggle("?????????", isOn: $settings.showLyricsRomaji)
+#if os(macOS)
+                Toggle("????", isOn: $settings.showDesktopLyrics)
+#endif
             }
 
-            Section("存储") {
-                LabeledContent("图片缓存", value: cacheSize)
-                Button("清除缓存") {
-                    clearCache()
-                }
+            Section("??") {
+                LabeledContent("????", value: cacheSize)
+                Button("????") { clearCache() }
             }
 
-            Section("账号") {
+            Section("??") {
                 if let profile = account.profile {
-                    LabeledContent("当前账号", value: profile.nickname)
-                    Button("退出登录", role: .destructive) {
+                    LabeledContent("????", value: profile.nickname)
+                    Button("????", role: .destructive) {
                         Task { await AccountStore.shared.logout() }
                     }
                 } else {
-                    Text("未登录")
-                        .foregroundStyle(.secondary)
+                    Text("???").foregroundStyle(.secondary)
                 }
             }
 
-            Section("更新") {
-                Toggle("启动时自动检查更新", isOn: $settings.autoCheckUpdates)
-                Text("关闭后启动不再自动弹出更新提示，仍可手动检查更新")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("关于") {
-                LabeledContent("Moumusic", value: appVersion)
-                #if os(iOS)
+            Section("??") {
+                Toggle("?????????", isOn: $settings.autoCheckUpdates)
+#if os(iOS)
                 Button {
                     IOSUpdater.shared.check(interactive: true)
                 } label: {
-                    Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
+                    Label("????", systemImage: "arrow.triangle.2.circlepath")
                 }
-                Text("装有 TrollStore（巨魔）可在应用内一键自动安装；否则可下载 IPA 用侧载工具重装（登录状态与设置保留）")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                #endif
-                Text("网易云音乐第三方客户端 · 数据来自网易云音乐")
+#endif
+            }
+
+            Section("??") {
+                LabeledContent("Moumusic", value: appVersion)
+                Text("iOS ???? Kumone SwiftUI ?????????????? LX User API ???")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        #if os(macOS)
-        .frame(width: 440, height: 480)
-        #endif
+#if os(macOS)
+        .frame(width: 440, height: 520)
+#endif
         .task { updateCacheSize() }
+#if os(iOS)
+        .fileImporter(isPresented: $isImportingLX,
+                      allowedContentTypes: [.plainText, .json, .sourceCode]) { result in
+            do {
+                let url = try result.get()
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: url)
+                try lxStore.importScript(data, suggestedName: url.deletingPathExtension().lastPathComponent)
+                LXUserAPIService.shared.loadSelectedSource()
+            } catch {
+                lxError = error.localizedDescription
+            }
+        }
+        .alert("LX ??", isPresented: Binding(
+            get: { lxError != nil },
+            set: { if !$0 { lxError = nil } }
+        )) {
+            Button("??", role: .cancel) { lxError = nil }
+        } message: {
+            Text(lxError ?? "????")
+        }
+#endif
     }
 
     private var appVersion: String {
@@ -109,29 +173,27 @@ struct SettingsView: View {
     }
 
     private func updateCacheSize() {
-        let dir = cacheDirectory
+        let directory = cacheDirectory
         DispatchQueue.global(qos: .utility).async {
             let files = (try? FileManager.default.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: [.fileSizeKey]
+                at: directory, includingPropertiesForKeys: [.fileSizeKey]
             )) ?? []
-            let bytes = files.reduce(0) { sum, url in
-                sum + ((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            let bytes = files.reduce(0) {
+                $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
             }
             let formatted = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-            DispatchQueue.main.async {
-                cacheSize = formatted
-            }
+            DispatchQueue.main.async { cacheSize = formatted }
         }
     }
 
     private func clearCache() {
-        let dir = cacheDirectory
+        let directory = cacheDirectory
         DispatchQueue.global(qos: .utility).async {
-            try? FileManager.default.removeItem(at: dir)
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             DispatchQueue.main.async {
-                cacheSize = String(localized: "0 字节")
-                ToastCenter.shared.show(String(localized: "缓存已清除"))
+                cacheSize = "0 ??"
+                ToastCenter.shared.show("?????")
             }
         }
     }

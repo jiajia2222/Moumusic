@@ -54,6 +54,11 @@ struct Track: Codable, Hashable, Identifiable {
     let isCloud: Bool
     /// Some endpoints (cloudsearch, FM) embed the privilege in the track itself.
     let embeddedPrivilege: TrackPrivilege?
+    /// LX Music keeps source-specific identifiers next to the unified song
+    /// fields.  Keeping them here means a result can be played by the same
+    /// queue as a NetEase result without losing its original source key.
+    var source: String?
+    var sourceMetadata: [String: String]
 
     var artistNames: String { artists.map(\.name).joined(separator: " / ") }
     var duration: TimeInterval { TimeInterval(durationMS) / 1000 }
@@ -66,6 +71,7 @@ struct Track: Codable, Hashable, Identifiable {
         case dt, duration
         case alia, alias
         case tns, fee, mv, no, cd, noCopyrightRcmd, pc, privilege
+        case source, sourceMetadata
     }
 
     init(from decoder: Decoder) throws {
@@ -90,6 +96,36 @@ struct Track: Codable, Hashable, Identifiable {
             && (try? c.decodeNil(forKey: .noCopyrightRcmd)) == false
         isCloud = c.contains(.pc) && (try? c.decodeNil(forKey: .pc)) == false
         embeddedPrivilege = try? c.decode(TrackPrivilege.self, forKey: .privilege)
+        source = try? c.decode(String.self, forKey: .source)
+        sourceMetadata = (try? c.decode([String: String].self, forKey: .sourceMetadata)) ?? [:]
+    }
+
+    init(id: Int, name: String, artists: [ArtistRef], album: AlbumRef,
+         durationMS: Int, source: String? = nil,
+         sourceMetadata: [String: String] = [:]) {
+        self.id = id
+        self.name = name
+        self.artists = artists
+        self.album = album
+        self.durationMS = durationMS
+        self.alias = []
+        self.transNames = []
+        self.fee = 0
+        self.mvID = 0
+        self.trackNo = 0
+        self.disc = nil
+        self.noCopyright = false
+        self.isCloud = false
+        self.embeddedPrivilege = nil
+        self.source = source
+        self.sourceMetadata = sourceMetadata
+    }
+
+    func withSource(_ source: String, metadata: [String: String] = [:]) -> Track {
+        var copy = self
+        copy.source = source
+        copy.sourceMetadata = metadata.isEmpty ? sourceMetadata : metadata
+        return copy
     }
 
     func encode(to encoder: Encoder) throws {
@@ -105,6 +141,10 @@ struct Track: Codable, Hashable, Identifiable {
         try c.encode(mvID, forKey: .mv)
         try c.encode(trackNo, forKey: .no)
         try c.encodeIfPresent(disc, forKey: .cd)
+        try c.encodeIfPresent(source, forKey: .source)
+        if !sourceMetadata.isEmpty {
+            try c.encode(sourceMetadata, forKey: .sourceMetadata)
+        }
     }
 }
 
@@ -128,17 +168,17 @@ enum TrackPlayability: Hashable {
     var reason: String? {
         switch self {
         case .playable: return nil
-        case .vipOnly: return String(localized: "VIP 专属")
-        case .paidAlbum: return String(localized: "付费专辑")
-        case .noCopyright: return String(localized: "无版权")
-        case .delisted: return String(localized: "已下架")
+        case .vipOnly: return String(localized: "VIP ??")
+        case .paidAlbum: return String(localized: "????")
+        case .noCopyright: return String(localized: "???")
+        case .delisted: return String(localized: "???")
         }
     }
 }
 
 extension Track {
     /// Mirrors YesPlayMusic's `isTrackPlayable` decision chain,
-    /// with the VIP check widened to cover 黑胶 SVIP (vipType 110 etc).
+    /// with the VIP check widened to cover ?? SVIP (vipType 110 etc).
     func playability(privilege: TrackPrivilege?, isLoggedIn: Bool, vipType: Int) -> TrackPlayability {
         let privilege = privilege ?? embeddedPrivilege
         if let pl = privilege?.pl, pl > 0 { return .playable }

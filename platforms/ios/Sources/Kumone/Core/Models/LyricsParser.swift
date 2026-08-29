@@ -45,6 +45,34 @@ struct ParsedLyrics: Hashable {
 }
 
 enum LyricsParser {
+    /// Parses the common LX User API lyric payload without forcing it through
+    /// NetEase's response model.  LX sources may return translated or romaji
+    /// lines alongside the main LRC body.
+    static func parseLX(lyric: String, tlyric: String? = nil,
+                        rlyric: String? = nil, lxlyric: String? = nil) -> ParsedLyrics {
+        var result = ParsedLyrics()
+        let main = parseLRC(lyric).filter { !$0.text.isEmpty }
+        var lines = main.enumerated().map { index, line in
+            LyricLine(id: index, time: line.time, text: line.text)
+        }
+
+        func merge(_ body: String?, into keyPath: WritableKeyPath<LyricLine, String?>) {
+            guard let body, !body.isEmpty else { return }
+            let secondary = parseLRC(body)
+            for index in lines.indices {
+                guard let nearest = secondary.min(by: {
+                    abs($0.time - lines[index].time) < abs($1.time - lines[index].time)
+                }), abs(nearest.time - lines[index].time) < 0.3 else { continue }
+                lines[index][keyPath: keyPath] = nearest.text
+            }
+        }
+
+        merge(tlyric, into: \.translation)
+        merge(rlyric ?? lxlyric, into: \.romaji)
+        result.lines = lines
+        return result
+    }
+
     /// Parses an LRC body into (time, text) pairs. Handles multiple timestamps
     /// per line and both `.` / `:` millisecond separators.
     static func parseLRC(_ lrc: String) -> [(time: TimeInterval, text: String)] {
@@ -73,7 +101,7 @@ enum LyricsParser {
     }
 
     /// Parses NetEase verbatim `yrc` lyrics: each content line is
-    /// `[lineStartMs,lineDurMs](wStartMs,wDurMs,0)word(...)word…`. JSON metadata
+    /// `[lineStartMs,lineDurMs](wStartMs,wDurMs,0)word(...)word?`. JSON metadata
     /// (credits) lines at the top don't match the `[num,num]` head and are
     /// skipped.
     static func parseYRC(_ yrc: String) -> [LyricLine] {
@@ -111,18 +139,18 @@ enum LyricsParser {
         var main = parseLRC(raw)
 
         // Instrumental marker handling (mirrors YesPlayMusic).
-        let instrumentalMarker = "纯音乐，请欣赏"
+        let instrumentalMarker = "???????"
         if main.count <= 10, main.contains(where: { $0.text.contains(instrumentalMarker) }) {
             out.isInstrumental = true
             main.removeAll { line in
                 line.text.contains(instrumentalMarker)
-                    || line.text.range(of: #"^作(词|曲)\s*[:：]"#, options: .regularExpression) != nil
+                    || line.text.range(of: #"^?(?|?)\s*[:?]"#, options: .regularExpression) != nil
             }
             if main.isEmpty {
                 return out
             }
         }
-        main.removeAll { $0.text.range(of: #"^作(词|曲)\s*[:：]\s*无$"#, options: .regularExpression) != nil }
+        main.removeAll { $0.text.range(of: #"^?(?|?)\s*[:?]\s*?$"#, options: .regularExpression) != nil }
 
         var lines = main.enumerated().map { idx, pair in
             LyricLine(id: idx, time: pair.time, text: pair.text)

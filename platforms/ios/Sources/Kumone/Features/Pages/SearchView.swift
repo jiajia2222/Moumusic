@@ -3,11 +3,11 @@ import SwiftUI
 @MainActor
 final class SearchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case all = "综合"
-        case songs = "单曲"
-        case artists = "歌手"
-        case albums = "专辑"
-        case playlists = "歌单"
+        case all = "??"
+        case songs = "??"
+        case artists = "??"
+        case albums = "??"
+        case playlists = "??"
 
         var id: String { rawValue }
     }
@@ -20,6 +20,7 @@ final class SearchViewModel: ObservableObject {
     @Published var playlists: [PlaylistSummary] = []
     @Published var isLoading = false
     @Published var loadedTabs: Set<Tab> = []
+    @Published var platform: LXCatalogPlatform = .aggregate
 
     init(query: String) {
         self.query = query
@@ -35,6 +36,14 @@ final class SearchViewModel: ObservableObject {
         playlists = []
     }
 
+    func setPlatform(_ newPlatform: LXCatalogPlatform) {
+        guard newPlatform != platform else { return }
+        platform = newPlatform
+        loadedTabs.remove(.all)
+        loadedTabs.remove(.songs)
+        songs = []
+    }
+
     func load(tab: Tab) async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -45,16 +54,16 @@ final class SearchViewModel: ObservableObject {
 
         switch tab {
         case .all:
-            async let songsTask = try? NeteaseAPI.search(trimmed, type: .songs, limit: 12)
+            async let songsTask = try? LXCatalogService.search(trimmed, platform: platform, limit: 12)
             async let artistsTask = try? NeteaseAPI.search(trimmed, type: .artists, limit: 10)
             async let albumsTask = try? NeteaseAPI.search(trimmed, type: .albums, limit: 10)
             async let playlistsTask = try? NeteaseAPI.search(trimmed, type: .playlists, limit: 10)
-            songs = (await songsTask)?.songs ?? []
+            songs = await songsTask ?? []
             artists = (await artistsTask)?.artists ?? []
             albums = (await albumsTask)?.albums ?? []
             playlists = (await playlistsTask)?.playlists ?? []
         case .songs:
-            songs = (try? await NeteaseAPI.search(trimmed, type: .songs, limit: 100))?.songs ?? songs
+            songs = (try? await LXCatalogService.search(trimmed, platform: platform, limit: 100)) ?? songs
         case .artists:
             artists = (try? await NeteaseAPI.search(trimmed, type: .artists, limit: 50))?.artists ?? artists
         case .albums:
@@ -82,6 +91,8 @@ struct SearchView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                    platformPicker
+
                     Picker("", selection: $model.tab) {
                         ForEach(SearchViewModel.Tab.allCases) { tab in
                             Text(LocalizedStringKey(tab.rawValue)).tag(tab)
@@ -104,7 +115,7 @@ struct SearchView: View {
                 PlayerClearanceSpacer()
             }
         }
-        .searchable(text: $searchText, prompt: "搜索歌曲、歌手、专辑、歌单")
+        .searchable(text: $searchText, prompt: "?????????????")
         .onSubmit(of: .search) {
             model.setQuery(searchText)
             Task { await model.load(tab: model.tab) }
@@ -118,10 +129,33 @@ struct SearchView: View {
                 }
             }
         }
-        .navigationTitle(searchText.isEmpty ? "搜索" : String(localized: "搜索：\(searchText)"))
-        .task(id: model.tab) {
+        .navigationTitle(searchText.isEmpty ? "??" : String(localized: "???\(searchText)"))
+        .task(id: "\(model.tab.rawValue)-\(model.platform.rawValue)") {
             await model.load(tab: model.tab)
         }
+    }
+
+    private var platformPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(LXCatalogPlatform.allCases) { platform in
+                    Button {
+                        model.setPlatform(platform)
+                    } label: {
+                        Text(platform.rawValue)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(model.platform == platform ? .white : .primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(model.platform == platform ? Color.accentColor : Color.secondary.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, Theme.Layout.contentInset)
+        }
+        .padding(.top, 12)
     }
 
     private var emptySearchPrompt: some View {
@@ -130,10 +164,10 @@ struct SearchView: View {
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(.tertiary)
                 .padding(.top, 60)
-            Text("探索海量华语流行与经典音乐")
+            Text("?????????????")
                 .font(.headline)
                 .foregroundStyle(.secondary)
-            Text("输入歌曲名称、歌手名或歌单关键字开始搜索")
+            Text("????????????????????")
                 .font(.subheadline)
                 .foregroundStyle(.tertiary)
         }
@@ -157,7 +191,7 @@ struct SearchView: View {
         case .all:
             if !model.songs.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: "单曲") {
+                    SectionHeader(title: "??") {
                         model.tab = .songs
                     }
                     .padding(.horizontal, Theme.Layout.contentInset)
@@ -166,22 +200,22 @@ struct SearchView: View {
                 }
             }
             if !model.artists.isEmpty {
-                Shelf(title: "歌手", seeAll: { model.tab = .artists }) {
+                Shelf(title: "??", seeAll: { model.tab = .artists }) {
                     artistCards(model.artists.prefix(8))
                 }
             }
             if !model.albums.isEmpty {
-                Shelf(title: "专辑", seeAll: { model.tab = .albums }) {
+                Shelf(title: "??", seeAll: { model.tab = .albums }) {
                     albumCards(model.albums.prefix(8))
                 }
             }
             if !model.playlists.isEmpty {
-                Shelf(title: "歌单", seeAll: { model.tab = .playlists }) {
+                Shelf(title: "??", seeAll: { model.tab = .playlists }) {
                     playlistCards(model.playlists.prefix(8))
                 }
             }
             if currentEmpty, !model.isLoading {
-                EmptyStateView(icon: "magnifyingglass", title: "没有找到相关结果")
+                EmptyStateView(icon: "magnifyingglass", title: "????????")
                     .frame(minHeight: 300)
             }
         case .songs:
