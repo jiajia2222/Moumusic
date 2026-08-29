@@ -54,7 +54,7 @@ export default forwardRef<SearchInputType, SearchInputProps>(({ onChangeText, on
   return (
     <Input
       ref={inputRef}
-      placeholder="Search for something..."
+      placeholder="搜索歌曲、歌手或歌单"
       value={text}
       onChangeText={handleChangeText}
       // style={{ ...styles.input, backgroundColor: theme['c-primary-input-background'] }}

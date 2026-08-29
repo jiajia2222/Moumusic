@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useRef } from 'react'
 
-import { View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 
 import SubTitle from '../../components/SubTitle'
 import CheckBox from '@/components/common/CheckBox'
@@ -14,7 +14,7 @@ import Button from '../../components/Button'
 import UserApiEditModal, { type UserApiEditModalType } from './UserApiEditModal'
 import Text from '@/components/common/Text'
 import { useTheme } from '@/store/theme/hook'
-// import { importUserApi, removeUserApi } from '@/core/userApi'
+import { MUSIC_PLATFORMS } from '@/config/platforms'
 
 const apiSourceList = apiSourceInfo.map(api => ({
   id: api.id,
@@ -91,6 +91,8 @@ export default memo(() => {
     })
   }, [userApiListRaw, apiStatus, apiSourceSetting, t])
 
+  const activeSourceName = userApiListRaw.find(api => api.id == apiSourceSetting)?.name
+
   const modalRef = useRef<UserApiEditModalType>(null)
   const handleShow = () => {
     modalRef.current?.show()
@@ -100,6 +102,19 @@ export default memo(() => {
     <SubTitle title={t('setting_basic_source')}>
       <Text style={styles.tipText} color={theme['c-font-label']} size={12}>
         {t('setting_basic_source_user_only_tip')}
+      </Text>
+      <Text style={styles.sectionLabel} size={13}>{t('setting_basic_platform_catalog')}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.platformScroll} contentContainerStyle={styles.platformList}>
+        {MUSIC_PLATFORMS.map(platform => (
+          <View key={platform.id} style={{ ...styles.platformChip, borderColor: platform.color }}>
+            <View style={{ ...styles.platformDot, backgroundColor: platform.color }} />
+            <Text size={12}>{platform.name}</Text>
+          </View>
+        ))}
+      </ScrollView>
+      <Text style={styles.sectionLabel} size={13}>{t('setting_basic_source_resolver')}</Text>
+      <Text style={styles.activeSource} color={activeSourceName ? theme['c-primary-font-active'] : theme['c-font-label']} size={12}>
+        {activeSourceName ?? t('setting_basic_source_none')}
       </Text>
       <View style={styles.list}>
         {
@@ -139,5 +154,34 @@ const styles = createStyle({
   },
   tipText: {
     marginBottom: 10,
+  },
+  sectionLabel: {
+    marginTop: 8,
+    marginBottom: 6,
+    fontWeight: '600',
+  },
+  activeSource: {
+    marginBottom: 6,
+  },
+  platformScroll: {
+    flexGrow: 0,
+  },
+  platformList: {
+    paddingBottom: 4,
+  },
+  platformChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 99,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginRight: 6,
+  },
+  platformDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 5,
   },
 })

@@ -1,6 +1,30 @@
 import { NativeModules, NativeEventEmitter } from 'react-native'
 
-const { LyricModule } = NativeModules
+const LyricModule = NativeModules.LyricModule ?? {
+  addListener: () => {},
+  removeListeners: () => {},
+  setSendLyricTextEvent: async() => {},
+  showDesktopLyric: async() => {},
+  hideDesktopLyric: async() => {},
+  play: async() => {},
+  pause: async() => {},
+  setLyric: async() => {},
+  setPlaybackRate: async() => {},
+  toggleTranslation: async() => {},
+  toggleRoma: async() => {},
+  toggleLock: async() => {},
+  setColor: async() => {},
+  setAlpha: async() => {},
+  setTextSize: async() => {},
+  setShowToggleAnima: async() => {},
+  setSingleLine: async() => {},
+  setPosition: async() => {},
+  setMaxLineNum: async() => {},
+  setWidth: async() => {},
+  setLyricTextPosition: async() => {},
+  checkOverlayPermission: async() => false,
+  openOverlayPermissionActivity: async() => false,
+}
 
 // export const themes = [
 //   { id: 'green', value: '#07c556' },
@@ -240,4 +264,3 @@ export const onLyricLinePlay = (handler: (lineInfo: { text: string, extendedLyri
     eventListener.remove()
   }
 }
-

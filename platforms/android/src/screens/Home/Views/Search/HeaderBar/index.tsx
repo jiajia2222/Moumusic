@@ -13,6 +13,8 @@ import { createStyle } from '@/utils/tools'
 import { useTheme } from '@/store/theme/hook'
 import { type Source as MusicSource } from '@/store/search/music/state'
 import { type Source as SonglistSource } from '@/store/search/songlist/state'
+import Text from '@/components/common/Text'
+import { useI18n } from '@/lang'
 
 type Sources = Readonly<Array<MusicSource | SonglistSource>>
 type SourceSelectorProps = _SourceSelectorProps<Sources>
@@ -37,6 +39,7 @@ export default forwardRef<HeaderBarType, HeaderBarProps>(({ onSourceChange, onTi
   const sourceSelectorRef = useRef<SourceSelectorType>(null)
   const searchInputRef = useRef<SearchInputType>(null)
   const theme = useTheme()
+  const t = useI18n()
 
   useImperativeHandle(ref, () => ({
     setSourceList(list, source) {
@@ -54,6 +57,7 @@ export default forwardRef<HeaderBarType, HeaderBarProps>(({ onSourceChange, onTi
   return (
     <View style={{ ...styles.searchBar, borderBottomColor: theme['c-border-background'] }}>
       <View style={styles.selector}>
+        <Text style={styles.selectorLabel} color={theme['c-font-label']} size={11}>{t('search_platform_label')}</Text>
         <SourceSelector ref={sourceSelectorRef} onSourceChange={onSourceChange} center />
       </View>
       <SearchInput
@@ -76,6 +80,12 @@ const styles = createStyle({
     borderBottomWidth: BorderWidths.normal,
   },
   selector: {
-    // width: 86,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  selectorLabel: {
+    marginLeft: 8,
+    marginRight: -8,
+    zIndex: 1,
   },
 })

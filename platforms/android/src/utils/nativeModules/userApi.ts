@@ -1,6 +1,12 @@
 import { NativeEventEmitter, NativeModules } from 'react-native'
 
-const { UserApiModule } = NativeModules
+const UserApiModule = NativeModules.UserApiModule ?? {
+  addListener: () => {},
+  removeListeners: () => {},
+  loadScript: async() => {},
+  sendAction: async() => false,
+  destroy: () => {},
+}
 
 let loadScriptInfo: LX.UserApi.UserApiInfo | null = null
 export const loadScript = (info: LX.UserApi.UserApiInfo & { script: string }) => {

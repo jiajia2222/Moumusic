@@ -16,13 +16,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build unsigned iOS app
-        working-directory: platforms/ios/ios
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: platforms/android/package-lock.json
+
+      - name: Configure public Git dependencies
+        shell: bash
         run: |
-          xcodebuild -resolvePackageDependencies -workspace KumoneIOS.xcworkspace -scheme KumoneIOS
+          git config --global url."https://github.com/".insteadOf git+ssh://git@github.com/
+          git config --global url."https://github.com/".insteadOf ssh://git@github.com/
+
+      - name: Install JavaScript dependencies
+        working-directory: platforms/android
+        run: npm ci --ignore-scripts
+
+      - name: Install CocoaPods dependencies
+        working-directory: platforms/android/ios
+        run: pod install
+
+      - name: Build unsigned iOS app
+        working-directory: platforms/android/ios
+        run: |
           xcodebuild \
-            -workspace KumoneIOS.xcworkspace \
-            -scheme KumoneIOS \
+            -workspace LxMusicMobile.xcworkspace \
+            -scheme LxMusicMobile \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -32,18 +52,18 @@ jobs:
             DEVELOPMENT_TEAM= \
             build
           mkdir -p dist/Payload
-          cp -R build/Build/Products/Release-iphoneos/MoumusicIOS.app dist/Payload/Moumusic.app
+          cp -R build/Build/Products/Release-iphoneos/LxMusicMobile.app dist/Payload/Moumusic.app
           ditto -c -k --sequesterRsrc --keepParent dist/Payload dist/Moumusic-unsigned.ipa
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: Moumusic-ios-unsigned
-          path: platforms/ios/ios/dist/Moumusic-unsigned.ipa
+          path: platforms/android/ios/dist/Moumusic-unsigned.ipa
           if-no-files-found: error
 
       - name: Attach IPA to GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: platforms/ios/ios/dist/Moumusic-unsigned.ipa
+          files: platforms/android/ios/dist/Moumusic-unsigned.ipa

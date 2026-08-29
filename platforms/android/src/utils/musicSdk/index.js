@@ -1,10 +1,33 @@
 import { supportQuality } from './api-source'
 
+// Platform adapters are the catalog/search side of Moumusic. They are kept
+// separate from the playback resolver: users choose a platform here (Kuwo,
+// Kugou, QQ, NetEase, Migu), then choose their own LX-compatible resolver in
+// Settings for URLs, lyrics, covers, and quality negotiation.
+import kw from './kw'
+import kg from './kg'
+import tx from './tx'
+import wy from './wy'
+import mg from './mg'
+import xm from './xm'
+
 // Moumusic deliberately ships without a bundled provider registry. The
 // resolver is populated by an imported LX User API at runtime.
 /** @type {{ sources: Array<{ name: string, id: string }>, [key: string]: any }} */
 const sources = {
-  sources: [],
+  sources: [
+    { name: '酷我音乐', id: 'kw' },
+    { name: '酷狗音乐', id: 'kg' },
+    { name: 'QQ音乐', id: 'tx' },
+    { name: '网易云音乐', id: 'wy' },
+    { name: '咪咕音乐', id: 'mg' },
+  ],
+  kw,
+  kg,
+  tx,
+  wy,
+  mg,
+  xm,
 }
 
 /** @type {Record<string, any>} */

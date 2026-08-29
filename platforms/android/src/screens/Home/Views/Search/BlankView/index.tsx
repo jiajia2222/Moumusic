@@ -7,6 +7,7 @@ import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import HistorySearch, { type HistorySearchType } from './HistorySearch'
 import HotSearch, { type HotSearchType } from './HotSearch'
+import MoumusicWelcome from '@/components/brand/MoumusicWelcome'
 
 interface BlankViewProps {
   onSearch: (keyword: string) => void
@@ -48,17 +49,21 @@ export default forwardRef<BlankViewType, BlankViewProps>(({ onSearch }, ref) => 
     visible
       ? isShowHotSearch || isShowHistorySearch
         ? (
-            <ScrollView>
+          <ScrollView contentInsetAdjustmentBehavior="automatic">
               <View style={styles.content}>
+                <MoumusicWelcome />
                 { isShowHotSearch ? <HotSearch ref={hotSearchRef} onSearch={onSearch} /> : null }
                 { isShowHistorySearch ? <HistorySearch ref={historySearchRef} onSearch={onSearch} /> : null }
               </View>
             </ScrollView>
           )
         : (
-            <View style={styles.welcome}>
-              <Text size={22} color={theme['c-font-label']}>{t('search__welcome')}</Text>
-            </View>
+            <ScrollView contentInsetAdjustmentBehavior="automatic">
+              <MoumusicWelcome />
+              <View style={styles.welcome}>
+                <Text size={16} color={theme['c-font-label']}>{t('search__welcome')}</Text>
+              </View>
+            </ScrollView>
           )
       : null
 

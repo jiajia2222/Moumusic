@@ -1,6 +1,6 @@
-<p align="center"><a href="https://github.com/lyswhut/lx-music-mobile"><img width="200" src="https://github.com/lyswhut/lx-music-mobile/blob/master/doc/images/icon.png" alt="lx-music logo"></a></p>
+<p align="center"><strong>Moumusic</strong></p>
 
-<h1 align="center">LX Music 移动版</h1>
+<h1 align="center">Moumusic 移动版</h1>
 
 <p align="center">
   <a href="https://github.com/lyswhut/lx-music-mobile/releases"><img src="https://img.shields.io/github/release/lyswhut/lx-music-mobile" alt="Release version"></a>
@@ -12,7 +12,9 @@
   <!-- <a href="https://github.com/lyswhut/lx-music-mobile/blob/master/LICENSE"><img src="https://img.shields.io/github/license/lyswhut/lx-music-mobile" alt="License"></a> -->
 </p>
 
-<p align="center">一个基于 React Native 开发的音乐软件</p>
+<p align="center">一个基于 React Native 的可切换平台与用户音源的音乐软件</p>
+
+> 本目录是 Moumusic 的共享客户端。搜索栏可切换酷我、酷狗、QQ、网易云和咪咕等平台；“设置 → 自定义源”用于导入并切换 LX User API 播放音源。其余上游说明、许可证和兼容实现均按原项目保留。
 
 ## 说明
 

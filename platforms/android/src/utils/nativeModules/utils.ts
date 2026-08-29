@@ -1,6 +1,24 @@
-import { AppState, NativeEventEmitter, NativeModules } from 'react-native'
+import { AppState, Dimensions, NativeEventEmitter, NativeModules } from 'react-native'
 
-const { UtilsModule } = NativeModules
+const UtilsModule = NativeModules.UtilsModule ?? {
+  addListener: () => {},
+  removeListeners: () => {},
+  exitApp: () => {},
+  getSupportedAbis: async() => [],
+  installApk: async() => await Promise.reject(new Error('APK installation is only available on Android')),
+  screenkeepAwake: () => {},
+  screenUnkeepAwake: () => {},
+  getWIFIIPV4Address: async() => '',
+  getDeviceName: async() => 'Moumusic',
+  isNotificationsEnabled: async() => false,
+  openNotificationPermissionActivity: async() => false,
+  shareText: () => {},
+  getSystemLocales: async() => 'zh-CN',
+  getWindowSize: async() => Dimensions.get('window'),
+  listenWindowSizeChanged: () => {},
+  isIgnoringBatteryOptimization: async() => false,
+  requestIgnoreBatteryOptimization: async() => false,
+}
 
 export const exitApp = UtilsModule.exitApp
 

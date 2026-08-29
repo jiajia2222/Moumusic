@@ -12,6 +12,7 @@ import type { InitState } from '@/store/common/state'
 import { exitApp, setNavActiveId } from '@/core/common'
 import Text from '@/components/common/Text'
 import { useSettingValue } from '@/store/setting/hook'
+import MoumusicBrand from '@/components/brand/MoumusicBrand'
 
 const styles = createStyle({
   container: {
@@ -63,8 +64,7 @@ const Header = () => {
   return (
     <View style={{ paddingTop: statusBarHeight, backgroundColor: theme['c-primary-light-700-alpha-500'] }}>
       <View style={styles.header}>
-        <Icon name="logo" color={theme['c-primary-dark-100-alpha-300']} size={28} />
-        <Text style={styles.headerText} size={28} color={theme['c-primary-dark-100-alpha-300']}>LX Music</Text>
+        <MoumusicBrand compact />
       </View>
     </View>
   )
@@ -141,4 +141,3 @@ export default memo(() => {
     </View>
   )
 })
-
