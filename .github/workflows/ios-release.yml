@@ -50,6 +50,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             DEVELOPMENT_TEAM= \
+            LIBRARY_SEARCH_PATHS='$(inherited) $(TOOLCHAIN_DIR)/usr/lib/swift/iphoneos' \
             build
           mkdir -p dist/Payload
           cp -R build/Build/Products/Release-iphoneos/LxMusicMobile.app dist/Payload/Moumusic.app
