@@ -40,6 +40,7 @@ jobs:
       - name: Build unsigned iOS app
         working-directory: platforms/android/ios
         run: |
+          XCODE_TOOLCHAIN_PATH="$(dirname "$(dirname "$(dirname "$(xcrun --toolchain com.apple.dt.toolchain.XcodeDefault --find clang)")")")"
           xcodebuild \
             -workspace LxMusicMobile.xcworkspace \
             -scheme LxMusicMobile \
@@ -50,7 +51,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             DEVELOPMENT_TEAM= \
-            LIBRARY_SEARCH_PATHS='$(inherited) $(TOOLCHAIN_DIR)/usr/lib/swift/iphoneos' \
+            LIBRARY_SEARCH_PATHS='$(inherited) '"$XCODE_TOOLCHAIN_PATH/usr/lib/swift/iphoneos" \
             build
           mkdir -p dist/Payload
           cp -R build/Build/Products/Release-iphoneos/LxMusicMobile.app dist/Payload/Moumusic.app
