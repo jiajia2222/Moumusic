@@ -237,7 +237,7 @@ RCT_EXPORT_MODULE(UserApiModule)
   [function callWithArguments:@[self.key ?: @"", action ?: @"", argument]];
 }
 
-- (void)loadScript:(NSDictionary *)info {
+- (void)loadUserScript:(NSDictionary *)info {
   self.inited = NO;
   self.key = NSUUID.UUID.UUIDString;
   self.context = [[JSContext alloc] init];
@@ -281,7 +281,7 @@ RCT_EXPORT_MODULE(UserApiModule)
   [self.context evaluateScript:info[@"script"] ?: @""];
 }
 
-RCT_EXPORT_METHOD(loadScript:(NSDictionary *)info) { [self loadScript:info]; }
+RCT_EXPORT_METHOD(loadScript:(NSDictionary *)info) { [self loadUserScript:info]; }
 RCT_EXPORT_METHOD(sendAction:(NSString *)action info:(NSString *)info) { [self callJS:action data:info]; }
 RCT_EXPORT_METHOD(destroy) { self.context = nil; }
 @end
