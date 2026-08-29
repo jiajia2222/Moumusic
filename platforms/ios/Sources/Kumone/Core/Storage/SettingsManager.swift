@@ -11,21 +11,21 @@ enum AudioQuality: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .standard: return String(localized: "标准")
-        case .higher: return String(localized: "较高")
-        case .exhigh: return String(localized: "极高")
-        case .lossless: return String(localized: "无损")
+        case .standard: return String(localized: "??")
+        case .higher: return String(localized: "??")
+        case .exhigh: return String(localized: "??")
+        case .lossless: return String(localized: "??")
         case .hires: return "Hi-Res"
         }
     }
 
     var badge: String {
         switch self {
-        case .standard: return String(localized: "标准")
-        case .higher: return String(localized: "较高")
-        case .exhigh: return String(localized: "极高")
-        case .lossless: return String(localized: "无损")
-        case .hires: return String(localized: "高解析")
+        case .standard: return String(localized: "??")
+        case .higher: return String(localized: "??")
+        case .exhigh: return String(localized: "??")
+        case .lossless: return String(localized: "??")
+        case .hires: return String(localized: "???")
         }
     }
 }
@@ -37,9 +37,9 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .auto: return String(localized: "跟随系统")
-        case .light: return String(localized: "浅色")
-        case .dark: return String(localized: "深色")
+        case .auto: return String(localized: "????")
+        case .light: return String(localized: "??")
+        case .dark: return String(localized: "??")
         }
     }
 
@@ -62,13 +62,49 @@ enum NowPlayingMode: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .classic: return String(localized: "经典模式")
-        case .immersive: return String(localized: "沉浸模式")
-        case .minimal: return String(localized: "简洁模式")
+        case .classic: return String(localized: "????")
+        case .immersive: return String(localized: "????")
+        case .minimal: return String(localized: "????")
         }
     }
 }
 #endif
+
+enum HomeRecommendationMode: String, CaseIterable, Identifiable {
+    case lxAggregate = "lx-aggregate"
+    case kw
+    case kg
+    case tx
+    case wy
+    case mg
+    case netease = "netease"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .lxAggregate: return "LX ??"
+        case .kw: return "??"
+        case .kg: return "??"
+        case .tx: return "QQ ??"
+        case .wy: return "???"
+        case .mg: return "??"
+        case .netease: return "?????"
+        }
+    }
+
+    var catalogPlatform: LXCatalogPlatform? {
+        switch self {
+        case .lxAggregate: return .aggregate
+        case .kw: return .kw
+        case .kg: return .kg
+        case .tx: return .tx
+        case .wy: return .wy
+        case .mg: return .mg
+        case .netease: return nil
+        }
+    }
+}
 
 @MainActor
 final class SettingsManager: ObservableObject {
@@ -88,6 +124,7 @@ final class SettingsManager: ObservableObject {
         static let unblock = "settings.enableUnblock"
         static let autoCheckUpdates = "settings.autoCheckUpdates"
         static let desktopLyrics = "settings.showDesktopLyrics"
+        static let homeRecommendationMode = "settings.homeRecommendationMode"
     }
 
     @Published var audioQuality: AudioQuality {
@@ -140,6 +177,10 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(showDesktopLyrics, forKey: Keys.desktopLyrics) }
     }
 
+    @Published var homeRecommendationMode: HomeRecommendationMode {
+        didSet { UserDefaults.standard.set(homeRecommendationMode.rawValue, forKey: Keys.homeRecommendationMode) }
+    }
+
     private init() {
         let defaults = UserDefaults.standard
         audioQuality = defaults.string(forKey: Keys.quality).flatMap(AudioQuality.init) ?? .exhigh
@@ -153,5 +194,12 @@ final class SettingsManager: ObservableObject {
         enableUnblock = defaults.object(forKey: Keys.unblock) as? Bool ?? false
         autoCheckUpdates = defaults.object(forKey: Keys.autoCheckUpdates) as? Bool ?? true
         showDesktopLyrics = defaults.object(forKey: Keys.desktopLyrics) as? Bool ?? false
+        #if os(iOS)
+        homeRecommendationMode = defaults.string(forKey: Keys.homeRecommendationMode)
+            .flatMap(HomeRecommendationMode.init) ?? .lxAggregate
+        #else
+        homeRecommendationMode = defaults.string(forKey: Keys.homeRecommendationMode)
+            .flatMap(HomeRecommendationMode.init) ?? .netease
+        #endif
     }
 }

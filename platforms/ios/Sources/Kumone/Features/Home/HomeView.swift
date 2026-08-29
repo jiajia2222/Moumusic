@@ -10,13 +10,13 @@ final class HomeViewModel: ObservableObject {
         case error(String)
     }
 
-    /// The personalized radar family — global playlist IDs whose content is
+    /// The personalized radar family ? global playlist IDs whose content is
     /// generated per logged-in account (same list YesPlayMusic special-cases).
     static let radarPlaylistIDs = [
-        3_136_952_023, // 私人雷达
-        2_829_883_282, // 华语私人雷达
-        2_829_816_518, // 欧美私人雷达
-        2_829_896_389, // 日系私人雷达
+        3_136_952_023, // ????
+        2_829_883_282, // ??????
+        2_829_816_518, // ??????
+        2_829_896_389, // ??????
     ]
 
     struct RadarPlaylist: Identifiable, Hashable {
@@ -33,10 +33,21 @@ final class HomeViewModel: ObservableObject {
     @Published var newAlbums: [AlbumSummary] = []
     @Published var topArtists: [ArtistSummary] = []
     @Published var dailyFirstCover: String?
+    @Published private(set) var activeMode: HomeRecommendationMode = .netease
+    @Published var recommendTracks: [Track] = []
+    private var loadedMode: HomeRecommendationMode?
 
-    func load(loggedIn: Bool) async {
-        if case .loaded = state { return }
+    func load(loggedIn: Bool, mode: HomeRecommendationMode) async {
+        if loadedMode == mode, case .loaded = state { return }
+        activeMode = mode
+        loadedMode = mode
         state = .loading
+
+        if let platform = mode.catalogPlatform {
+            recommendTracks = (try? await LXCatalogService.search("????", platform: platform, limit: 30)) ?? []
+            state = recommendTracks.isEmpty ? .error("LX ?????????????????????") : .loaded
+            return
+        }
 
         async let playlistsTask = fetchRecommendPlaylists(loggedIn: loggedIn)
         async let toplistsTask = try? NeteaseAPI.toplists()
@@ -59,12 +70,13 @@ final class HomeViewModel: ObservableObject {
             await loadRadarPlaylists()
         }
 
-        state = playlists.isEmpty && newAlbums.isEmpty ? .error(String(localized: "网络连接失败")) : .loaded
+        state = playlists.isEmpty && newAlbums.isEmpty ? .error(String(localized: "??????")) : .loaded
     }
 
-    func reload(loggedIn: Bool) async {
+    func reload(loggedIn: Bool, mode: HomeRecommendationMode) async {
         state = .idle
-        await load(loggedIn: loggedIn)
+        loadedMode = nil
+        await load(loggedIn: loggedIn, mode: mode)
     }
 
     private func loadRadarPlaylists() async {
@@ -82,9 +94,9 @@ final class HomeViewModel: ObservableObject {
         }
         radarPlaylists = Self.radarPlaylistIDs.compactMap { id in
             guard let brief = briefs[id] else { return nil }
-            // Names arrive as "今天从《…》听起|私人雷达" — split into title/subtitle.
+            // Names arrive as "????????|????" ? split into title/subtitle.
             let parts = (brief.name ?? "").components(separatedBy: "|")
-            let title = parts.count > 1 ? parts.last! : (brief.name ?? String(localized: "雷达歌单"))
+            let title = parts.count > 1 ? parts.last! : (brief.name ?? String(localized: "????"))
             let subtitle = parts.count > 1 ? parts.dropLast().joined(separator: "|") : nil
             return RadarPlaylist(id: id, title: title, subtitle: subtitle, coverURL: brief.coverImgUrl)
         }
@@ -106,6 +118,7 @@ final class HomeViewModel: ObservableObject {
 struct HomeView: View {
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var settings: SettingsManager
     @StateObject private var model = HomeViewModel.shared
 
     var body: some View {
@@ -115,17 +128,42 @@ struct HomeView: View {
                 loadingBody
             case .error(let message):
                 ErrorStateView(message: message) {
-                    Task { await model.reload(loggedIn: account.isLoggedIn) }
+                    Task { await model.reload(loggedIn: account.isLoggedIn, mode: settings.homeRecommendationMode) }
                 }
                 .frame(minHeight: 400)
             case .loaded:
-                loadedBody
+                if model.activeMode.catalogPlatform != nil {
+                    lxLoadedBody
+                } else {
+                    loadedBody
+                }
             }
         }
-        .navigationTitle("推荐")
-        .task(id: account.isLoggedIn) {
-            await model.load(loggedIn: account.isLoggedIn)
+        .navigationTitle("??")
+        .task(id: "\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)") {
+            await model.load(loggedIn: account.isLoggedIn, mode: settings.homeRecommendationMode)
         }
+    }
+
+    private var lxLoadedBody: some View {
+        LazyVStack(alignment: .leading, spacing: 22) {
+            HStack(spacing: 10) {
+                Image(systemName: "waveform")
+                    .foregroundStyle(Theme.accent)
+                Text(verbatim: "LX ??")
+                    .font(.title3.weight(.semibold))
+                Text(verbatim: model.activeMode.displayName)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, Theme.Layout.contentInset)
+            TrackListView(tracks: model.recommendTracks)
+                .padding(.horizontal, Theme.Layout.contentInset - 10)
+            PlayerClearanceSpacer()
+        }
+        .padding(.vertical, Theme.Layout.contentInset - 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var loadingBody: some View {
@@ -146,14 +184,14 @@ struct HomeView: View {
     private var loadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 34) {
             // Anonymous users go straight to recommended playlists;
-            // the login entry lives in the sidebar / 我的 tab only.
+            // the login entry lives in the sidebar / ?? tab only.
             if account.isLoggedIn {
                 featureCards
                     .padding(.top, 8)
             }
 
             if !model.recommendPlaylists.isEmpty {
-                Shelf(title: "推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+                Shelf(title: "????", rowHeight: Theme.Layout.coverShelfHeight) {
                     ForEach(Array(model.recommendPlaylists.prefix(12).enumerated()), id: \.element.id) { index, playlist in
                         playlistCard(playlist)
                             .staggeredAppearance(index: index, id: "home-rec-\(playlist.id)")
@@ -162,7 +200,7 @@ struct HomeView: View {
             }
 
             if !model.radarPlaylists.isEmpty {
-                Shelf(title: "雷达歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+                Shelf(title: "????", rowHeight: Theme.Layout.coverShelfHeight) {
                     ForEach(model.radarPlaylists) { radar in
                         NavigationLink(value: Destination.playlist(radar.id)) {
                             CoverCardBody(
@@ -179,7 +217,7 @@ struct HomeView: View {
             }
 
             if !model.toplists.isEmpty {
-                Shelf(title: "排行榜", seeAll: nil, rowHeight: Theme.Layout.coverShelfHeight) {
+                Shelf(title: "???", seeAll: nil, rowHeight: Theme.Layout.coverShelfHeight) {
                     ForEach(model.toplists) { toplist in
                         NavigationLink(value: Destination.playlist(toplist.id)) {
                             toplistCard(toplist)
@@ -190,7 +228,7 @@ struct HomeView: View {
             }
 
             if !model.newAlbums.isEmpty {
-                Shelf(title: "新碟上架", rowHeight: Theme.Layout.coverShelfHeight) {
+                Shelf(title: "????", rowHeight: Theme.Layout.coverShelfHeight) {
                     ForEach(model.newAlbums) { album in
                         albumCard(album)
                     }
@@ -198,7 +236,7 @@ struct HomeView: View {
             }
 
             if !model.topArtists.isEmpty {
-                Shelf(title: "推荐歌手", rowHeight: Theme.Layout.artistShelfHeight) {
+                Shelf(title: "????", rowHeight: Theme.Layout.artistShelfHeight) {
                     ForEach(model.topArtists) { artist in
                         artistCard(artist)
                     }
@@ -220,8 +258,8 @@ struct HomeView: View {
                 if account.isLoggedIn {
                     NavigationLink(value: Destination.daily) {
                         FeatureCard(
-                            title: "每日推荐",
-                            subtitle: "根据你的口味生成",
+                            title: "????",
+                            subtitle: "????????",
                             icon: "calendar",
                             coverURL: model.dailyFirstCover?.resizedImageURL(512),
                             showsDate: true
@@ -233,8 +271,8 @@ struct HomeView: View {
                         player.startFM()
                     } label: {
                         FeatureCard(
-                            title: "私人漫游",
-                            subtitle: "从喜欢的歌开始漫游",
+                            title: "????",
+                            subtitle: "?????????",
                             icon: "wave.3.right.circle.fill",
                             gradient: [Color(red: 0.16, green: 0.20, blue: 0.42),
                                        Color(red: 0.36, green: 0.24, blue: 0.62)]
@@ -246,8 +284,8 @@ struct HomeView: View {
                         startHeartbeatMode()
                     } label: {
                         FeatureCard(
-                            title: "心动模式",
-                            subtitle: "你的红心歌曲和相似推荐",
+                            title: "????",
+                            subtitle: "???????????",
                             icon: "heart.circle.fill",
                             gradient: [Color(red: 0.85, green: 0.19, blue: 0.41),
                                        Color(red: 0.98, green: 0.42, blue: 0.34)]
@@ -266,18 +304,18 @@ struct HomeView: View {
         guard let likedList = account.likedSongsPlaylist else { return }
         Task {
             guard let seed = account.likedTrackIDs.randomElement() else {
-                ToastCenter.shared.show(String(localized: "先收藏一些喜欢的歌曲吧"))
+                ToastCenter.shared.show(String(localized: "???????????"))
                 return
             }
             do {
                 let tracks = try await NeteaseAPI.intelligenceList(songID: seed, playlistID: likedList.id)
                 guard !tracks.isEmpty else {
-                    ToastCenter.shared.show(String(localized: "心动模式暂时不可用"))
+                    ToastCenter.shared.show(String(localized: "?????????"))
                     return
                 }
                 player.play(tracks: tracks, source: .playlist(likedList.id),
                             context: .heartbeat)
-                ToastCenter.shared.show(String(localized: "已开启心动模式"))
+                ToastCenter.shared.show(String(localized: "???????"))
             } catch {
                 ToastCenter.shared.show(error.localizedDescription)
             }

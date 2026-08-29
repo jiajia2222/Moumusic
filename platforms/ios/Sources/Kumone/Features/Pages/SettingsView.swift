@@ -32,6 +32,23 @@ struct SettingsView: View {
 
 #if os(iOS)
             Section {
+                Picker(selection: $settings.homeRecommendationMode) {
+                    ForEach(HomeRecommendationMode.allCases) { mode in
+                        Text(verbatim: mode.displayName).tag(mode)
+                    }
+                } label: {
+                    Text(verbatim: "????")
+                }
+                Text(verbatim: "???? LX ??????????????????????????")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text(verbatim: "????")
+            }
+#endif
+
+#if os(iOS)
+            Section {
                 if lxStore.sources.isEmpty {
                     Text(verbatim: "?????????? LX User API ???")
                         .foregroundStyle(.secondary)
