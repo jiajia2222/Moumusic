@@ -42,7 +42,6 @@ public struct IOSMainWindow: View {
                 // still keeps all runtime setup on the main actor.
                 await Task.yield()
                 player.startRuntime()
-                LXUserAPIService.shared.loadSelectedSource()
                 await account.bootstrap()
                 if settings.autoCheckUpdates {
                     IOSUpdater.shared.check(interactive: false)
@@ -167,7 +166,13 @@ public struct IOSMainWindow: View {
 
     @ViewBuilder
     private var tabInterface: some View {
-        if #available(iOS 26.0, *) {
+        // Keep the custom glass shell on iOS 27 until the native iOS 26 tab
+        // accessory path has a real iOS 27 device smoke test.  It provides
+        // the same tabs and mini-player without relying on the newer system
+        // tab container during launch.
+        if #available(iOS 27.0, *) {
+            customTabInterface
+        } else if #available(iOS 26.0, *) {
             iOS26TabInterface
         } else {
             customTabInterface

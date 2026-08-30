@@ -41,6 +41,15 @@ final class LXUserAPIService {
         load(LXSourceStore.shared.selectedSource)
     }
 
+    /// Load a provider only when a request actually needs one.  A user's
+    /// imported JavaScript must not be evaluated while the app scene is
+    /// launching.
+    func ensureSelectedSourceLoaded() {
+        let selectedID = LXSourceStore.shared.selectedID
+        guard loadedID != selectedID else { return }
+        loadSelectedSource()
+    }
+
     func load(_ source: LXSourceStore.Source?) {
         context = nil
         loadedID = source?.id
@@ -67,6 +76,7 @@ final class LXUserAPIService {
     }
 
     func resolveMusicURL(for track: Track, quality: String) async throws -> ResolvedURL {
+        ensureSelectedSourceLoaded()
         guard context != nil else { throw LXError.noSource }
         let requestedQuality = Self.lxQuality(for: quality)
         for platform in sourceCandidates(for: track) {
@@ -84,6 +94,7 @@ final class LXUserAPIService {
     }
 
     func resolveLyrics(for track: Track) async throws -> ResolvedLyrics {
+        ensureSelectedSourceLoaded()
         guard context != nil else { throw LXError.noSource }
         for platform in sourceCandidates(for: track) {
             guard capabilities[platform]?.contains("lyric") == true else { continue }
