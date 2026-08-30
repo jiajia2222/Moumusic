@@ -3,21 +3,46 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
     @EnvironmentObject private var account: AccountStore
+#if os(iOS)
+    @StateObject private var lxStore = LXSourceStore.shared
+#endif
     @State private var cacheSize = "计算中…"
+#if os(iOS)
+    @State private var showSourceManager = false
+#endif
 
     var body: some View {
         Form {
             Section("播放") {
                 Toggle("播放源失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
-                Text("音质和实际播放源请在歌曲播放页调整；音频始终由已启用的 LX 音源返回。")
+                Text("默认开启；当前平台或 LX 音源无法解析时，会按已声明的可用平台继续尝试。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-
-                Toggle("播放源失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
-                Text("默认开启；当前平台或 LX 音源无法解析时，会按可用平台继续尝试。")
+                Text("音质在歌曲播放页调整；音频始终由已启用的 LX 音源返回。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+#if os(iOS)
+            Section("LX 音源") {
+                Button {
+                    showSourceManager = true
+                } label: {
+                    HStack {
+                        Label("管理 / 导入 LX 音源", systemImage: "waveform.badge.plus")
+                        Spacer()
+                        Text(lxStore.selectedSource?.name ?? "未启用")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(minHeight: 44)
+                Text("音源管理是独立页面：可导入文件或在线链接、切换当前音源，并测试 musicUrl 接口。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+#endif
 
 #if os(iOS)
             Section("首页推荐") {
@@ -82,7 +107,7 @@ struct SettingsView: View {
 
             Section("关于") {
                 LabeledContent("Moumusic", value: appVersion)
-                Text("播放、歌词和封面支持用户导入的 LX User API 音源。LX 音源管理位于“我的”页面的独立入口。")
+                Text("播放、歌词和封面支持用户导入的 LX User API 音源。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -92,6 +117,13 @@ struct SettingsView: View {
         .frame(width: 440, height: 520)
 #endif
         .task { updateCacheSize() }
+#if os(iOS)
+        .sheet(isPresented: $showSourceManager) {
+            NavigationStack {
+                LXSourceManagerView()
+            }
+        }
+#endif
     }
 
     private var appVersion: String {

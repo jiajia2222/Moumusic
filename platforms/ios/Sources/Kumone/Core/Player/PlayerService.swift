@@ -667,9 +667,19 @@ final class PlayerService: ObservableObject {
             isPlaying = false
             return
         }
-        if let lx = try? await LXUserAPIService.shared.resolveMusicURL(for: track, quality: quality) {
+        do {
+            let lx = try await LXUserAPIService.shared.resolveMusicURL(for: track, quality: quality)
             resolvedURL = lx.url
             servedByLXQuality = lx.quality
+        } catch {
+            guard generation == resolveGeneration else { return }
+            consecutiveFailures += 1
+            ToastCenter.shared.show("《\(track.name)》播放失败：\(error.localizedDescription)")
+            // A source-level error is not fixed by immediately trying five
+            // more queue entries. Keep the current song visible so the user
+            // can adjust the source or retry after reading the real error.
+            isPlaying = false
+            return
         }
 #else
         if resolvedURL == nil, !isLXCatalogTrack {

@@ -22,7 +22,7 @@ public struct IOSMainWindow: View {
     @State private var explorePath = NavigationPath()
     @State private var fmPath = NavigationPath()
     @State private var searchPath = NavigationPath()
-    @State private var libraryPath = NavigationPath()
+    @State private var playlistsPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
 
     public init() {}
@@ -218,8 +218,8 @@ public struct IOSMainWindow: View {
                 tabStack(.fm) { FMView() }
             }
 
-            Tab("我的", systemImage: "person.crop.circle", value: .library) {
-                tabStack(.library) { IOSLibraryView(showLogin: $showLogin) }
+            Tab("歌单", systemImage: "music.note.list", value: .playlists) {
+                tabStack(.playlists) { LocalPlaylistsView() }
             }
 
             Tab("设置", systemImage: "gearshape", value: .settings) {
@@ -237,7 +237,7 @@ public struct IOSMainWindow: View {
     private var customTabInterface: some View {
         ZStack(alignment: .bottom) {
             // Construct only the selected page.  The previous ZStack built
-            // all five page trees during launch, including the library's LX
+            // all five page trees during launch, including the playlist's LX
             // source store and the search/FM state, even though the user had
             // not opened those tabs yet.
             selectedPage
@@ -270,8 +270,8 @@ public struct IOSMainWindow: View {
             tabStack(.fm) { FMView() }
         case .search:
             tabStack(.search) { SearchView(query: "") }
-        case .library:
-            tabStack(.library) { IOSLibraryView(showLogin: $showLogin) }
+        case .playlists:
+            tabStack(.playlists) { LocalPlaylistsView() }
         case .settings:
             tabStack(.settings) { SettingsView() }
         }
@@ -283,7 +283,7 @@ public struct IOSMainWindow: View {
         case .explore: explorePath = NavigationPath()
         case .fm: fmPath = NavigationPath()
         case .search: searchPath = NavigationPath()
-        case .library: libraryPath = NavigationPath()
+        case .playlists: playlistsPath = NavigationPath()
         case .settings: settingsPath = NavigationPath()
         }
     }
@@ -315,14 +315,14 @@ public struct IOSMainWindow: View {
         case .explore: return $explorePath
         case .fm: return $fmPath
         case .search: return $searchPath
-        case .library: return $libraryPath
+        case .playlists: return $playlistsPath
         case .settings: return $settingsPath
         }
     }
 }
 
 enum IOSTab: Hashable {
-    case home, explore, fm, search, library, settings
+    case home, explore, fm, search, playlists, settings
 }
 
 extension IOSMainWindow {
@@ -331,7 +331,7 @@ extension IOSMainWindow {
         .init(tab: .explore, title: "精选", icon: "square.grid.2x2"),
         .init(tab: .fm, title: "漫游", icon: "dot.radiowaves.left.and.right"),
         .init(tab: .search, title: "搜索", icon: "magnifyingglass"),
-        .init(tab: .library, title: "我的", icon: "person.crop.circle"),
+        .init(tab: .playlists, title: "歌单", icon: "music.note.list"),
         .init(tab: .settings, title: "设置", icon: "gearshape"),
     ]
 }
