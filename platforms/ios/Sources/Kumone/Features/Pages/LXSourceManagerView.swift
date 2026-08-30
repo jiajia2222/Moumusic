@@ -14,6 +14,8 @@ struct LXSourceManagerView: View {
     @State private var isLoadingOnline = false
     @State private var sourceToDelete: LXSourceStore.Source?
     @State private var lxError: String?
+    @State private var testingSourceID: String?
+    @State private var sourceCheckResults: [String: LXUserAPIService.SourceCheckResult] = [:]
 
     var body: some View {
         content
@@ -145,15 +147,46 @@ struct LXSourceManagerView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if let source = lxStore.selectedSource,
+               let result = sourceCheckResults[source.id] {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: result.isAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(result.isAvailable ? .green : .red)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(result.message)
+                            .font(.subheadline.weight(.medium))
+                        if let detail = result.detail {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
             Button("重新加载当前音源") {
                 lxAPI.loadSelectedSource()
             }
             .disabled(lxStore.selectedSource == nil)
             .frame(minHeight: 44)
+            Button {
+                if let source = lxStore.selectedSource {
+                    checkSource(source)
+                }
+            } label: {
+                if testingSourceID == lxStore.selectedID {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("测试当前音源", systemImage: "checkmark.shield")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .disabled(lxStore.selectedSource == nil || testingSourceID != nil)
+            .frame(minHeight: 44)
         } header: {
             Text("当前音源状态")
         } footer: {
-            Text("播放地址、歌词和封面由所选 LX User API 脚本提供。音质请到“设置 → 播放”调整。")
+            Text("点击“测试”会用一首公开测试歌曲请求所选音源的 musicUrl 接口，只检查是否返回有效播放地址，不会保存或下载歌曲。")
         }
     }
 
@@ -203,6 +236,14 @@ struct LXSourceManagerView: View {
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(2)
                         }
+                        if let result = sourceCheckResults[source.id] {
+                            HStack(spacing: 4) {
+                                Image(systemName: result.isAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                Text(result.message)
+                            }
+                            .font(.caption)
+                            .foregroundStyle(result.isAvailable ? .green : .red)
+                        }
                         if let sourceURL = source.sourceURL, let url = URL(string: sourceURL) {
                             Link(destination: url) {
                                 Label("查看在线链接", systemImage: "link")
@@ -221,6 +262,23 @@ struct LXSourceManagerView: View {
             }
             .buttonStyle(.plain)
             .frame(minHeight: 56)
+
+            Button {
+                checkSource(source)
+            } label: {
+                if testingSourceID == source.id {
+                    ProgressView()
+                        .frame(width: 44, height: 44)
+                } else {
+                    Image(systemName: "checkmark.shield")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(testingSourceID != nil)
+            .accessibilityLabel("测试 \\(source.name)")
 
             Button(role: .destructive) {
                 sourceToDelete = source
@@ -291,6 +349,23 @@ struct LXSourceManagerView: View {
                 lxError = error.localizedDescription
             }
             isLoadingOnline = false
+        }
+    }
+
+    private func checkSource(_ source: LXSourceStore.Source) {
+        guard testingSourceID == nil else { return }
+        let previousID = lxStore.selectedID
+        testingSourceID = source.id
+        if previousID != source.id {
+            lxStore.select(source.id)
+        }
+        Task { @MainActor in
+            let result = await lxAPI.checkSelectedSource()
+            sourceCheckResults[source.id] = result
+            if previousID != source.id {
+                lxStore.select(previousID)
+            }
+            testingSourceID = nil
         }
     }
 }
