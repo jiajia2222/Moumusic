@@ -231,13 +231,11 @@ public struct IOSMainWindow: View {
 
     private var customTabInterface: some View {
         ZStack(alignment: .bottom) {
-            ZStack {
-                page(.home) { tabStack(.home) { HomeView() } }
-                page(.explore) { tabStack(.explore) { ExploreView() } }
-                page(.fm) { tabStack(.fm) { FMView() } }
-                page(.search) { tabStack(.search) { SearchView(query: "") } }
-                page(.library) { tabStack(.library) { IOSLibraryView(showLogin: $showLogin) } }
-            }
+            // Construct only the selected page.  The previous ZStack built
+            // all five page trees during launch, including the library's LX
+            // source store and the search/FM state, even though the user had
+            // not opened those tabs yet.
+            selectedPage
 
             VStack(spacing: 8) {
                 if player.hasCurrentTrack {
@@ -254,6 +252,22 @@ public struct IOSMainWindow: View {
             .padding(.bottom, 6)
         }
         .animation(AppAnimation.standard, value: player.hasCurrentTrack)
+    }
+
+    @ViewBuilder
+    private var selectedPage: some View {
+        switch selectedTab {
+        case .home:
+            tabStack(.home) { HomeView() }
+        case .explore:
+            tabStack(.explore) { ExploreView() }
+        case .fm:
+            tabStack(.fm) { FMView() }
+        case .search:
+            tabStack(.search) { SearchView(query: "") }
+        case .library:
+            tabStack(.library) { IOSLibraryView(showLogin: $showLogin) }
+        }
     }
 
     private func popToRoot(_ tab: IOSTab) {
