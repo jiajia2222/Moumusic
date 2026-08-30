@@ -21,6 +21,19 @@ final class LXUserAPIService: ObservableObject {
         let lxlyric: String?
     }
 
+    struct SourceCheckResult: Equatable {
+        enum Status: Equatable {
+            case available
+            case unavailable
+        }
+
+        let status: Status
+        let message: String
+        let detail: String?
+
+        var isAvailable: Bool { status == .available }
+    }
+
     static let shared = LXUserAPIService()
 
     private let session: URLSession
@@ -125,6 +138,88 @@ final class LXUserAPIService: ObservableObject {
             }
         }
         throw LXError.resolveFailed
+    }
+
+    /// Performs a real, read-only musicUrl request against the selected LX
+    /// source. This deliberately checks a catalogue result and validates the
+    /// returned URL instead of treating script initialization alone as proof
+    /// that playback works.
+    func checkSelectedSource() async -> SourceCheckResult {
+        ensureSelectedSourceLoaded()
+        await waitForSourceReady()
+        guard LXSourceStore.shared.selectedSource != nil else {
+            return SourceCheckResult(status: .unavailable,
+                                     message: "未选择音源",
+                                     detail: "请先导入并启用一个 LX User API 音源。")
+        }
+        guard context != nil else {
+            return SourceCheckResult(status: .unavailable,
+                                     message: "音源脚本加载失败",
+                                     detail: statusMessage)
+        }
+
+        let platformOrder = ["wy", "kw", "kg", "tx", "mg"]
+        let supportedPlatforms = platformOrder.filter {
+            capabilities[$0]?.contains("musicUrl") == true
+        }
+        guard !supportedPlatforms.isEmpty else {
+            let detail = capabilities.isEmpty
+                ? "脚本没有返回平台能力。"
+                : "脚本已加载，但没有提供 musicUrl 接口。"
+            return SourceCheckResult(status: .unavailable,
+                                     message: "没有可用的播放接口",
+                                     detail: detail)
+        }
+
+        var failures: [String] = []
+        for platform in supportedPlatforms {
+            let platformName = LXCatalogPlatform(rawValue: platform)?.displayName ?? platform
+            let track: Track?
+            if let current = PlayerService.shared.currentTrack, current.source == platform {
+                track = current
+            } else {
+                let results = try? await LXCatalogService.search(
+                    "周杰伦 晴天",
+                    platform: LXCatalogPlatform(rawValue: platform)!,
+                    page: 1,
+                    limit: 1
+                )
+                track = results?.first
+            }
+            guard let track else {
+                failures.append("\(platformName)：找不到测试歌曲")
+                continue
+            }
+
+            let requestedQuality = Self.lxQuality(for: SettingsManager.shared.audioQuality.rawValue,
+                                                   supported: qualityCapabilities[platform] ?? [])
+            let info = musicInfo(for: track, platform: platform)
+            guard let response = try? await request(source: platform, action: "musicUrl",
+                                                    info: ["type": requestedQuality, "musicInfo": info]),
+                  let data = response["data"] as? [String: Any],
+                  let rawURL = data["url"] as? String,
+                  let url = URL(string: rawURL),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                failures.append("\(platformName)：没有返回有效播放地址")
+                continue
+            }
+
+            let actualQuality = (data["type"] as? String) ?? requestedQuality
+            let detail = "已通过 \(platformName) 的 musicUrl 接口，音质：\(actualQuality)"
+            let result = SourceCheckResult(status: .available,
+                                           message: "音源可用",
+                                           detail: detail)
+            statusMessage = "\(result.message)：\(detail)"
+            return result
+        }
+
+        let detail = failures.isEmpty ? "音源没有返回可播放地址。" : failures.joined(separator: "；")
+        let result = SourceCheckResult(status: .unavailable,
+                                       message: "音源不可用",
+                                       detail: detail)
+        statusMessage = "\(result.message)：\(detail)"
+        return result
     }
 
     func resolveLyrics(for track: Track) async throws -> ResolvedLyrics {

@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef } from 'react'
+import { memo, useCallback, useMemo, useRef, useState } from 'react'
 
 import { ScrollView, View } from 'react-native'
 
@@ -6,6 +6,7 @@ import SubTitle from '../../components/SubTitle'
 import CheckBox from '@/components/common/CheckBox'
 import { createStyle } from '@/utils/tools'
 import { setApiSource } from '@/core/apiSource'
+import { checkUserApi } from '@/core/userApi'
 import { useI18n } from '@/lang'
 import apiSourceInfo from '@/utils/musicSdk/api-source-info'
 import { useSettingValue } from '@/store/setting/hook'
@@ -56,12 +57,18 @@ const Item = ({ id, name, desc, statusLabel, change }: {
 export default memo(() => {
   const t = useI18n()
   const theme = useTheme()
+  const [checking, setChecking] = useState(false)
+  const [checkSourceId, setCheckSourceId] = useState<string | null>(null)
+  const [checkMessage, setCheckMessage] = useState<string | null>(null)
+  const [checkSucceeded, setCheckSucceeded] = useState(false)
   const list = useMemo(() => apiSourceList.map(s => ({
     // @ts-expect-error
     name: t(`setting_basic_source_${s.id}`) || s.name,
     id: s.id,
   })), [t])
   const setApiSourceId = useCallback((id: string) => {
+    setCheckSourceId(null)
+    setCheckMessage(null)
     setApiSource(id)
   }, [])
   const userApiListRaw = useUserApiList()
@@ -98,6 +105,22 @@ export default memo(() => {
     modalRef.current?.show()
   }
 
+  const handleCheck = useCallback(async() => {
+    setChecking(true)
+    setCheckSourceId(apiSourceSetting)
+    setCheckMessage(null)
+    try {
+      const result = await checkUserApi()
+      setCheckSucceeded(true)
+      setCheckMessage(`音源可用：${result.source} / ${result.quality}`)
+    } catch (error: any) {
+      setCheckSucceeded(false)
+      setCheckMessage(`音源不可用：${error?.message ?? '请求失败'}`)
+    } finally {
+      setChecking(false)
+    }
+  }, [apiSourceSetting])
+
   return (
     <SubTitle title={t('setting_basic_source')}>
       <Text style={styles.tipText} color={theme['c-font-label']} size={12}>
@@ -115,6 +138,19 @@ export default memo(() => {
       <Text style={styles.sectionLabel} size={13}>{t('setting_basic_source_resolver')}</Text>
       <Text style={styles.activeSource} color={activeSourceName ? theme['c-primary-font-active'] : theme['c-font-label']} size={12}>
         {activeSourceName ?? t('setting_basic_source_none')}
+      </Text>
+      <View style={styles.checkRow}>
+        <Button disabled={checking || !/^user_api/.test(apiSourceSetting)} onPress={handleCheck}>
+          {checking ? '检测中…' : '测试当前音源'}
+        </Button>
+        {checkSourceId == apiSourceSetting && checkMessage ? (
+          <Text style={styles.checkMessage} color={checkSucceeded ? theme['c-primary-font-active'] : theme['c-500']} size={12}>
+            {checkMessage}
+          </Text>
+        ) : null}
+      </View>
+      <Text style={styles.tipText} color={theme['c-font-label']} size={12}>
+        测试会使用一首公开歌曲请求音源的 musicUrl 接口，只检查是否能返回播放地址，不会下载歌曲。
       </Text>
       <View style={styles.list}>
         {
@@ -142,6 +178,17 @@ const styles = createStyle({
   btn: {
     marginTop: 10,
     flexDirection: 'row',
+  },
+  checkRow: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  checkMessage: {
+    flexShrink: 1,
+    marginTop: 5,
+    marginBottom: 5,
   },
   sourceLabel: {
 
