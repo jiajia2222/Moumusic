@@ -54,7 +54,11 @@ final class LXSourceStore: ObservableObject {
         sources.append(source)
         sources.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         persist()
-        if selectedID == nil { select(source.id) }
+        // Re-select a replaced source as well. Otherwise the store keeps the
+        // old selected ID and LXUserAPIService continues using the old script.
+        if selectedID == nil || selectedID == source.id || selectedSource == nil {
+            select(source.id)
+        }
     }
 
     /// Downloads and imports an LX User API script. The script remains local

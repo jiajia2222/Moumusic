@@ -1,5 +1,6 @@
 #if os(iOS)
 import CommonCrypto
+import Combine
 import Foundation
 import JavaScriptCore
 import Security
@@ -7,7 +8,7 @@ import Security
 /// iOS counterpart of LX Mobile's QuickJS bridge.  The provider script stays
 /// user supplied; this class only implements the LX 2.0 host protocol.
 @MainActor
-final class LXUserAPIService {
+final class LXUserAPIService: ObservableObject {
     struct ResolvedURL {
         let url: URL
         let quality: String
@@ -28,7 +29,9 @@ final class LXUserAPIService {
     private var loadedID: String?
     private var tasks: [String: URLSessionDataTask] = [:]
     private var pending: [String: CheckedContinuation<[String: Any], Error>] = [:]
-    private(set) var capabilities: [String: [String]] = [:]
+    @Published private(set) var capabilities: [String: [String]] = [:]
+    @Published private(set) var qualityCapabilities: [String: [String]] = [:]
+    @Published private(set) var statusMessage = "未加载音源"
 
     private init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -54,9 +57,14 @@ final class LXUserAPIService {
         context = nil
         loadedID = source?.id
         capabilities = [:]
+        qualityCapabilities = [:]
+        statusMessage = source == nil ? "未选择音源" : "正在加载音源"
         guard let source,
               let preloadURL = Bundle.module.url(forResource: "LXUserAPIPreload", withExtension: "js"),
-              let preload = try? String(contentsOf: preloadURL, encoding: .utf8) else { return }
+              let preload = try? String(contentsOf: preloadURL, encoding: .utf8) else {
+            statusMessage = "LX 预加载桥接文件不存在"
+            return
+        }
 
         let js = JSContext()
         js?.exceptionHandler = { _, exception in
@@ -66,27 +74,40 @@ final class LXUserAPIService {
         key = UUID().uuidString
         installHostFunctions(in: js!)
         js?.evaluateScript(preload)
+        if let exception = js?.exception {
+            context = nil
+            statusMessage = "LX 桥接加载失败：\(exception.toString())"
+            return
+        }
         let setup = js?.objectForKeyedSubscript("lx_setup")
         setup?.call(withArguments: [key, source.id, source.name, source.description,
                                     source.version, source.author, source.homepage, source.script])
+        if let exception = js?.exception {
+            context = nil
+            statusMessage = "LX 音源初始化失败：\(exception.toString())"
+            return
+        }
         _ = js?.evaluateScript(source.script)
-        if js?.exception != nil {
-            print("[LX] failed to load source \(source.name)")
+        if let exception = js?.exception {
+            context = nil
+            statusMessage = "LX 音源脚本错误：\(exception.toString())"
+            print("[LX] failed to load source \(source.name): \(exception)")
         }
     }
 
     func resolveMusicURL(for track: Track, quality: String) async throws -> ResolvedURL {
         ensureSelectedSourceLoaded()
         guard context != nil else { throw LXError.noSource }
-        let requestedQuality = Self.lxQuality(for: quality)
         for platform in sourceCandidates(for: track) {
             guard capabilities[platform]?.contains("musicUrl") == true else { continue }
+            let requestedQuality = Self.lxQuality(for: quality,
+                                                  supported: qualityCapabilities[platform] ?? [])
             let info = musicInfo(for: track, platform: platform)
             if let response = try? await request(source: platform, action: "musicUrl",
                                                  info: ["type": requestedQuality, "musicInfo": info]),
                let data = response["data"] as? [String: Any],
                let rawURL = data["url"] as? String,
-               let url = URL(string: rawURL.replacingOccurrences(of: "http://", with: "https://")) {
+               let url = URL(string: rawURL) {
                 return ResolvedURL(url: url, quality: (data["type"] as? String) ?? requestedQuality)
             }
         }
@@ -115,7 +136,7 @@ final class LXUserAPIService {
 
         var errorDescription: String? {
             switch self {
-            case .noSource: return "请先在设置中导入并启用 LX 音源"
+            case .noSource: return "请先在“我的 → LX 音源”中导入并启用音源"
             case .resolveFailed: return "LX 音源没有返回可播放地址"
             case .javascript(let message): return message
             }
@@ -123,6 +144,16 @@ final class LXUserAPIService {
     }
 
     private func installHostFunctions(in js: JSContext) {
+        let consoleLog: @convention(block) (String) -> Void = { message in
+            print("[LX] \(message)")
+        }
+        let console = JSValue(newObjectIn: js)
+        console?.setObject(consoleLog, forKeyedSubscript: "log" as NSString)
+        console?.setObject(consoleLog, forKeyedSubscript: "info" as NSString)
+        console?.setObject(consoleLog, forKeyedSubscript: "warn" as NSString)
+        console?.setObject(consoleLog, forKeyedSubscript: "error" as NSString)
+        js.setObject(console, forKeyedSubscript: "console" as NSString)
+
         let nativeCall: @convention(block) (String, String, String) -> Void = { [weak self] key, action, data in
             Task { @MainActor in
                 guard let self, self.key == key else { return }
@@ -169,6 +200,11 @@ final class LXUserAPIService {
         guard let payload = object as? [String: Any] else { return }
         switch action {
         case "init":
+            guard payload["status"] as? Bool != false else {
+                statusMessage = (payload["errorMessage"] as? String).map { "LX 音源初始化失败：\($0)" }
+                    ?? "LX 音源初始化失败"
+                return
+            }
             if let info = payload["info"] as? [String: Any],
                let sources = info["sources"] as? [String: Any] {
                 capabilities = sources.reduce(into: [:]) { result, pair in
@@ -176,6 +212,17 @@ final class LXUserAPIService {
                     let actions = value["actions"] as? [String] ?? []
                     result[pair.key] = actions
                 }
+                qualityCapabilities = sources.reduce(into: [:]) { result, pair in
+                    guard let value = pair.value as? [String: Any] else { return }
+                    result[pair.key] = value["qualitys"] as? [String] ?? []
+                }
+                let active = capabilities
+                    .filter { !$0.value.isEmpty }
+                    .map { "\($0.key): \($0.value.joined(separator: ", "))" }
+                    .sorted()
+                statusMessage = active.isEmpty
+                    ? "音源已加载，但没有可用接口"
+                    : "音源已加载（\(active.joined(separator: "；"))）"
             }
         case "request":
             if let requestKey = payload["requestKey"] as? String,
@@ -200,15 +247,18 @@ final class LXUserAPIService {
     private func sendScriptRequest(requestKey: String, url: URL, options: [String: Any]) {
         var request = URLRequest(url: url)
         request.httpMethod = (options["method"] as? String ?? "GET").uppercased()
+        if options["headers"] == nil {
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+        }
         if let headers = options["headers"] as? [String: Any] {
             headers.forEach { request.setValue(String(describing: $0.value), forHTTPHeaderField: $0.key) }
         }
-        if let body = options["body"] {
+        if let body = options["body"], !(body is NSNull) {
             if let string = body as? String { request.httpBody = Data(string.utf8) }
             else if JSONSerialization.isValidJSONObject(body) { request.httpBody = try? JSONSerialization.data(withJSONObject: body) }
         } else if let form = options["form"] as? [String: Any] {
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            request.httpBody = Data(form.map { "\($0.key)=\(String(describing: $0.value).urlQueryEscaped)" }.joined(separator: "&").utf8)
+            request.httpBody = Data(form.map { "\($0.key.lxFormEncoded)=\(String(describing: $0.value).lxFormEncoded)" }.joined(separator: "&").utf8)
         }
         if let timeout = options["timeout"] as? Double, timeout > 0 { request.timeoutInterval = min(timeout / 1000, 60) }
 
@@ -262,37 +312,71 @@ final class LXUserAPIService {
     }
 
     private func musicInfo(for track: Track, platform: String) -> [String: Any] {
+        // LX's User API receives the legacy MusicInfo object, not Kumone's
+        // internal Track. This mirrors LX Mobile's toOldMusicInfo() exactly.
+        let songmid = track.sourceMetadata["songmid"]
+            ?? track.sourceMetadata["songId"]
+            ?? String(track.id)
+        let albumID = track.sourceMetadata["albumId"] ?? String(track.album.id)
+        let qualities = ["128k", "320k", "flac", "flac24bit"]
+        let qualityInfo = qualities.map { ["type": $0, "size": ""] as [String: Any] }
+        let qualityMap = Dictionary(uniqueKeysWithValues: qualities.map {
+            ($0, ["size": ""] as [String: Any])
+        })
         var info: [String: Any] = [
-            "id": String(track.id), "songId": track.sourceMetadata["songId"] ?? String(track.id),
-            "songmid": track.sourceMetadata["songmid"] ?? String(track.id),
-            "name": track.name, "singer": track.artistNames, "source": platform,
+            "name": track.name,
+            "singer": track.artistNames,
+            "source": platform,
+            "songmid": songmid,
             "interval": String(format: "%02d:%02d", Int(track.duration) / 60, Int(track.duration) % 60),
-            "albumName": track.album.name, "albumId": track.sourceMetadata["albumId"] ?? String(track.album.id),
+            "albumName": track.album.name,
+            "img": track.album.picUrl ?? "",
+            "typeUrl": [:] as [String: String],
+            "albumId": albumID,
+            "types": qualityInfo,
+            "_types": qualityMap,
         ]
-        for key in ["hash", "strMediaMid", "copyrightId", "albumMid"] {
-            if let value = track.sourceMetadata[key], !value.isEmpty { info[key] = value }
+        switch platform {
+        case "kg":
+            info["hash"] = track.sourceMetadata["hash"] ?? ""
+        case "tx":
+            info["songId"] = Int(track.sourceMetadata["id"] ?? "") ?? track.id
+            info["strMediaMid"] = track.sourceMetadata["strMediaMid"] ?? ""
+            info["albumMid"] = track.sourceMetadata["albumMid"] ?? ""
+        case "mg":
+            info["copyrightId"] = track.sourceMetadata["copyrightId"] ?? songmid
+            for key in ["lrcUrl", "mrcUrl", "trcUrl"] {
+                if let value = track.sourceMetadata[key], !value.isEmpty { info[key] = value }
+            }
+        default:
+            break
         }
-        var meta: [String: Any] = ["songId": info["songId"] ?? String(track.id),
-                                    "albumName": track.album.name,
-                                    "qualitys": ["128k", "320k", "flac", "flac24bit"]]
-        meta["picUrl"] = track.album.picUrl ?? NSNull()
-        info["meta"] = meta
         return info
     }
 
-    private static func lxQuality(for quality: String) -> String {
+    private static func lxQuality(for quality: String, supported: [String]) -> String {
+        let requested: String
         switch quality {
-        case "standard": return "128k"
-        case "higher", "exhigh": return "320k"
-        case "lossless": return "flac"
-        case "hires": return "flac24bit"
-        default: return "320k"
+        case "standard": requested = "128k"
+        case "higher", "exhigh": requested = "320k"
+        case "lossless": requested = "flac"
+        case "hires": requested = "flac24bit"
+        default: requested = "320k"
         }
+        guard !supported.isEmpty else { return requested }
+        let order = ["128k", "320k", "flac", "flac24bit"]
+        guard let requestedIndex = order.firstIndex(of: requested) else { return supported[0] }
+        return order[...requestedIndex].reversed().first(where: supported.contains)
+            ?? supported.first
+            ?? "128k"
     }
 }
 
 private extension String {
-    var urlQueryEscaped: String { addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? self }
+    var lxFormEncoded: String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        return addingPercentEncoding(withAllowedCharacters: allowed) ?? self
+    }
 }
 
 private func md5Hex(_ value: String) -> String {

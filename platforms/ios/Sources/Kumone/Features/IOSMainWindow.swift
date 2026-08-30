@@ -537,6 +537,7 @@ struct IOSLibraryView: View {
     @EnvironmentObject private var account: AccountStore
     @StateObject private var lxStore = LXSourceStore.shared
     @State private var showSettings = false
+    @State private var showSourceManager = false
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
 
@@ -544,7 +545,7 @@ struct IOSLibraryView: View {
         List {
             Section {
                 Button {
-                    showSettings = true
+                    showSourceManager = true
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "waveform.badge.plus")
@@ -568,7 +569,7 @@ struct IOSLibraryView: View {
                 .buttonStyle(.plain)
 
                 Button {
-                    showSettings = true
+                    showSourceManager = true
                 } label: {
                     HStack {
                         Image(systemName: "square.and.arrow.down")
@@ -726,6 +727,11 @@ struct IOSLibraryView: View {
                             }
                         }
                     }
+            }
+        }
+        .sheet(isPresented: $showSourceManager) {
+            NavigationStack {
+                LXSourceManagerView()
             }
         }
         .alert("新建歌单", isPresented: $showNewPlaylist) {
