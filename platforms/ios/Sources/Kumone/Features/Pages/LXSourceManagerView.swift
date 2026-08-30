@@ -141,7 +141,7 @@ struct LXSourceManagerView: View {
 
     @ViewBuilder
     private var verifiedSourceSection: some View {
-        Section("已验证的参考音源") {
+        Section {
             VStack(alignment: .leading, spacing: 5) {
                 Text("星海音乐源")
                     .font(.body.weight(.medium))
@@ -170,6 +170,8 @@ struct LXSourceManagerView: View {
                 Label("查看源码和在线链接", systemImage: "link")
             }
             .frame(minHeight: 44)
+        } header: {
+            Text("已验证的参考音源")
         } footer: {
             Text("这里只提供用户主动导入的公开脚本，不会在首次启动时自动写入或启用任何音源。")
         }
