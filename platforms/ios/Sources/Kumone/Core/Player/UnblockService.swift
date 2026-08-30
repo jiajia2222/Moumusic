@@ -1,4 +1,5 @@
 import CryptoKit
+#if os(macOS)
 import Foundation
 import os.log
 
@@ -148,3 +149,4 @@ enum UnblockService {
         return url
     }
 }
+#endif

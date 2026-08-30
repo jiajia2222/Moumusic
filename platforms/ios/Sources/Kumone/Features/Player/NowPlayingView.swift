@@ -56,21 +56,6 @@ struct NowPlayingView: View {
             }
             .overlay(alignment: .topTrailing) {
                 HStack(spacing: 8) {
-                    if player.currentTrack != nil {
-                        Button {
-                            showQualityPicker = true
-                        } label: {
-                            Text(player.currentQuality.badge)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .padding(.horizontal, 8)
-                                .frame(minHeight: 36)
-                                .background(.white.opacity(0.12), in: Capsule())
-                        }
-                        .buttonStyle(.pressable)
-                        .accessibilityLabel("音质")
-                    }
-
                     if isCompact, showsClassicChrome(isCompact: isCompact) {
                         Button {
                             withAnimation(AppAnimation.standard) {
@@ -563,6 +548,19 @@ struct NowPlayingView: View {
                 .font(.system(size: 13.5))
                 .foregroundStyle(.white.opacity(0.65))
                 .lineLimit(1)
+
+            Button {
+                showQualityPicker = true
+            } label: {
+                Label("音质：\(player.currentQuality.badge)", systemImage: "waveform")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 44)
+                    .background(.white.opacity(0.12), in: Capsule())
+            }
+            .buttonStyle(.pressable)
+            .accessibilityLabel("选择播放音质")
         }
         .frame(maxWidth: 400)
     }
@@ -847,7 +845,7 @@ struct LyricMainText: View {
 private struct QualityPickerSheet: View {
     @EnvironmentObject private var player: PlayerService
     @Environment(\.dismiss) private var dismiss
-    @State private var available: [AudioQuality] = AudioQuality.allCases
+    @State private var available: [AudioQuality] = []
     @State private var loading = true
 
     var body: some View {
@@ -861,23 +859,30 @@ private struct QualityPickerSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("选择音质") {
-                    ForEach(available) { quality in
-                        Button {
-                            player.selectQuality(quality)
-                            dismiss()
-                        } label: {
-                            HStack {
-                                Text(quality.displayName)
-                                Spacer()
-                                if player.currentQuality == quality {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(Theme.accent)
+                if !available.isEmpty {
+                    Section("选择音质") {
+                        ForEach(available) { quality in
+                            Button {
+                                player.selectQuality(quality)
+                                dismiss()
+                            } label: {
+                                HStack {
+                                    Text(quality.displayName)
+                                    Spacer()
+                                    if player.currentQuality == quality {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Theme.accent)
+                                    }
                                 }
                             }
+                            .foregroundStyle(.primary)
+                            .frame(minHeight: 44)
                         }
-                        .foregroundStyle(.primary)
-                        .frame(minHeight: 44)
+                    }
+                } else if !loading {
+                    Section("选择音质") {
+                        Text("当前 LX 音源没有返回可用音质，请检查音源是否支持该平台。")
+                            .foregroundStyle(.secondary)
                     }
                 }
 

@@ -133,9 +133,7 @@ struct ExploreView: View {
         }
         .navigationTitle("精选")
         .task(id: "\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)") {
-            let initialPlatform = settings.homeRecommendationMode == .netease
-                ? LXCatalogPlatform.wy : settings.homeRecommendationPlatform
-            model.prepare(platform: initialPlatform)
+            model.prepare(platform: settings.homeRecommendationPlatform)
             await model.loadMore()
         }
     }

@@ -128,6 +128,19 @@ struct Track: Codable, Hashable, Identifiable {
         return copy
     }
 
+    /// Native NetEase catalogue endpoints return tracks without a source
+    /// marker. Mark those results as WY before they enter the queue so iOS
+    /// always asks the selected LX User API for the actual audio URL.
+    func normalizedForLXPlayback() -> Track {
+        guard source?.isEmpty != false else { return self }
+        var copy = self
+        copy.source = "wy"
+        var metadata = sourceMetadata
+        metadata["songmid"] = metadata["songmid"] ?? String(id)
+        copy.sourceMetadata = metadata
+        return copy
+    }
+
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)

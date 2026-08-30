@@ -8,17 +8,8 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("播放") {
-                Picker("音质", selection: $settings.audioQuality) {
-                    ForEach(AudioQuality.allCases) { quality in
-                        Text(quality.displayName).tag(quality)
-                    }
-                }
-                Text("音质只在这里设置，实际可用等级由当前播放音源返回的结果决定。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Toggle("灰色歌曲解锁", isOn: $settings.enableUnblock)
-                Text("当前 LX 音源无法解析时，允许尝试第三方解锁服务。")
+                Toggle("播放源失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
+                Text("音质和实际播放源请在歌曲播放页调整；音频始终由已启用的 LX 音源返回。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -111,12 +102,11 @@ struct SettingsView: View {
     private var homePlatformSelection: Binding<LXCatalogPlatform> {
         Binding(
             get: {
-                settings.homeRecommendationMode == .netease
-                    ? .wy : settings.homeRecommendationPlatform
+                settings.homeRecommendationPlatform
             },
             set: { platform in
                 settings.homeRecommendationPlatform = platform
-                settings.homeRecommendationMode = platform == .wy ? .netease : .lx
+                settings.homeRecommendationMode = .lx
             }
         )
     }

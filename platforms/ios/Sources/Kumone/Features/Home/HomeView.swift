@@ -33,7 +33,7 @@ final class HomeViewModel: ObservableObject {
     @Published var newAlbums: [AlbumSummary] = []
     @Published var topArtists: [ArtistSummary] = []
     @Published var dailyFirstCover: String?
-    @Published private(set) var activeMode: HomeRecommendationMode = .netease
+    @Published private(set) var activeMode: HomeRecommendationMode = .lx
     @Published private(set) var activePlatform: LXCatalogPlatform = .kw
     @Published var recommendTracks: [Track] = []
     @Published var lxRecommendPlaylists: [LXPlaylistSummary] = []
@@ -44,44 +44,21 @@ final class HomeViewModel: ObservableObject {
               platform: LXCatalogPlatform) async {
         if loadedMode == mode, loadedPlatform == platform, case .loaded = state { return }
         activeMode = mode
-        let effectivePlatform = mode == .netease ? .wy : platform
-        activePlatform = effectivePlatform
+        activePlatform = platform
         loadedMode = mode
         loadedPlatform = platform
         state = .loading
 
-        if mode == .lx {
-            let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
-            lxRecommendPlaylists = content.playlists
-            recommendTracks = content.tracks
-            state = recommendTracks.isEmpty && lxRecommendPlaylists.isEmpty
-                ? .error("LX 暂无推荐结果，请检查网络或切换推荐平台")
-                : .loaded
-            return
-        }
-
-        async let playlistsTask = fetchRecommendPlaylists(loggedIn: loggedIn)
-        async let toplistsTask = try? NeteaseAPI.toplists()
-        async let albumsTask = try? NeteaseAPI.newAlbums(limit: 20)
-        async let artistsTask = try? NeteaseAPI.topArtists()
-
-        let playlists = await playlistsTask
-        recommendPlaylists = playlists
-        toplists = (await toplistsTask ?? []).filter {
-            [19_723_756, 3_779_629, 2_884_035, 3_778_678, 60198].contains($0.id)
-        }
-        newAlbums = await albumsTask ?? []
-        let artists = await artistsTask ?? []
-        topArtists = Array(artists.shuffled().prefix(6))
-
-        if loggedIn {
-            if let daily = try? await NeteaseAPI.dailyRecommendSongs() {
-                dailyFirstCover = daily.first?.album.picUrl
-            }
-            await loadRadarPlaylists()
-        }
-
-        state = playlists.isEmpty && newAlbums.isEmpty ? .error(String(localized: "网络连接失败")) : .loaded
+        // Home recommendations always come from the LX catalogue path. The
+        // selected platform controls the catalogue request, while the actual
+        // audio URL is still resolved by the imported LX User API.
+        let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
+        lxRecommendPlaylists = content.playlists
+        recommendTracks = content.tracks
+        state = recommendTracks.isEmpty && lxRecommendPlaylists.isEmpty
+            ? .error("LX 暂无推荐结果，请检查网络或切换推荐平台")
+            : .loaded
+        return
     }
 
     func reload(loggedIn: Bool, mode: HomeRecommendationMode,
@@ -232,13 +209,12 @@ struct HomeView: View {
     }
 
     private func isHomePlatform(_ platform: LXCatalogPlatform) -> Bool {
-        if settings.homeRecommendationMode == .netease { return platform == .wy }
         return settings.homeRecommendationPlatform == platform
     }
 
     private func selectHomePlatform(_ platform: LXCatalogPlatform) {
         settings.homeRecommendationPlatform = platform
-        settings.homeRecommendationMode = platform == .wy ? .netease : .lx
+        settings.homeRecommendationMode = .lx
     }
 
     private func lxPlaylistCard(_ playlist: LXPlaylistSummary) -> some View {
@@ -353,20 +329,18 @@ struct HomeView: View {
 
                 }
 
-                if settings.homeRecommendationMode == .lx || account.isLoggedIn {
-                    Button {
-                        player.startFM()
-                    } label: {
-                        FeatureCard(
-                            title: settings.homeRecommendationMode == .lx ? "LX 漫游" : "私人漫游",
-                            subtitle: settings.homeRecommendationMode == .lx ? "按首页平台生成漫游队列" : "从喜欢的歌开始漫游",
-                            icon: "wave.3.right.circle.fill",
-                            gradient: [Color(red: 0.16, green: 0.20, blue: 0.42),
-                                       Color(red: 0.36, green: 0.24, blue: 0.62)]
-                        )
-                    }
-                    .buttonStyle(.interactiveCard)
+                Button {
+                    player.startFM()
+                } label: {
+                    FeatureCard(
+                        title: "LX 漫游",
+                        subtitle: "按首页平台生成漫游队列",
+                        icon: "wave.3.right.circle.fill",
+                        gradient: [Color(red: 0.16, green: 0.20, blue: 0.42),
+                                   Color(red: 0.36, green: 0.24, blue: 0.62)]
+                    )
                 }
+                .buttonStyle(.interactiveCard)
 
                 if account.isLoggedIn {
                     Button {
