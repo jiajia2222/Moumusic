@@ -162,6 +162,27 @@ final class PlayerService: ObservableObject {
 
     var hasCurrentTrack: Bool { currentTrack != nil }
 
+    var currentQuality: AudioQuality { SettingsManager.shared.audioQuality }
+
+    func availableQualitiesForCurrentTrack() async -> [AudioQuality] {
+        guard let track = currentTrack else { return AudioQuality.allCases }
+        #if os(iOS)
+        if track.source != nil {
+            let names = await LXUserAPIService.shared.availableQualityNames(for: track)
+            let qualities = AudioQuality.allCases.filter { names.contains($0.lxType) }
+            if !qualities.isEmpty { return qualities }
+        }
+        #endif
+        return AudioQuality.allCases
+    }
+
+    func selectQuality(_ quality: AudioQuality) {
+        guard let track = currentTrack else { return }
+        let resumeAt = progress
+        SettingsManager.shared.audioQuality = quality
+        startPlaying(track, indexUnchanged: true, resumeAt: resumeAt)
+    }
+
     // MARK: - Engine
 
     private let engine = AVPlayer()
@@ -176,6 +197,7 @@ final class PlayerService: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
     private var resolveGeneration = 0
+    private var pendingSeek: TimeInterval?
     private var consecutiveFailures = 0
     private var scrobbled = false
     private var startScrobbled = false
@@ -592,10 +614,12 @@ final class PlayerService: ObservableObject {
 
     // MARK: - Source resolution
 
-    private func startPlaying(_ track: Track, indexUnchanged: Bool = false) {
+    private func startPlaying(_ track: Track, indexUnchanged: Bool = false,
+                              resumeAt: TimeInterval? = nil) {
         scrobbleIfNeeded(completed: false)
         currentTrack = track
-        progress = 0
+        progress = resumeAt ?? 0
+        pendingSeek = resumeAt
         duration = track.duration
         servedQuality = nil
         unblockSource = nil
@@ -718,7 +742,19 @@ final class PlayerService: ObservableObject {
             }
         }
         engine.replaceCurrentItem(with: item)
-        engine.play()
+        let seekPosition = pendingSeek
+        pendingSeek = nil
+        if let seekPosition, seekPosition > 0 {
+            engine.seek(to: CMTime(seconds: seekPosition, preferredTimescale: 600),
+                        toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, generation == self.resolveGeneration else { return }
+                    self.engine.play()
+                }
+            }
+        } else {
+            engine.play()
+        }
         isPlaying = true
 
         if !startScrobbled {

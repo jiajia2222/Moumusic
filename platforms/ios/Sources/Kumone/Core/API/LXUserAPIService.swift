@@ -321,9 +321,22 @@ final class LXUserAPIService: ObservableObject {
     private func sourceCandidates(for track: Track) -> [String] {
         var values: [String] = []
         if let source = track.source, !source.isEmpty { values.append(source) }
-        values.append(contentsOf: ["wy", "kw", "kg", "tx", "mg"])
+        if SettingsManager.shared.enableSourcePlatformFallback {
+            values.append(contentsOf: ["wy", "kw", "kg", "tx", "mg"])
+        }
         var seen = Set<String>()
         return values.filter { capabilities[$0] != nil && seen.insert($0).inserted }
+    }
+
+    func availableQualityNames(for track: Track) async -> [String] {
+        ensureSelectedSourceLoaded()
+        await waitForSourceReady()
+        var names: [String] = []
+        for platform in sourceCandidates(for: track) {
+            names.append(contentsOf: qualityCapabilities[platform] ?? [])
+        }
+        let order = ["128k", "320k", "flac", "flac24bit"]
+        return order.filter { names.contains($0) }
     }
 
     private func musicInfo(for track: Track, platform: String) -> [String: Any] {

@@ -241,6 +241,11 @@ struct TrackRow: View {
                     }
                 }
             }
+        } else if onRemoved != nil {
+            Button("从本地歌单中删除", role: .destructive) {
+                onRemoved?()
+                ToastCenter.shared.show(String(localized: "已从歌单中删除"))
+            }
         }
         Divider()
         if track.album.id > 0 {
@@ -500,6 +505,7 @@ struct AddToPlaylistSheet: View {
 
     @EnvironmentObject private var account: AccountStore
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var localStore = LocalPlaylistStore.shared
     @State private var newName = ""
     @State private var creating = false
 
@@ -509,54 +515,109 @@ struct AddToPlaylistSheet: View {
                 .font(.headline)
                 .padding(16)
             Divider().opacity(0.4)
-            if account.createdPlaylists.isEmpty {
-                EmptyStateView(icon: "music.note.list", title: "还没有创建歌单")
-                    .frame(height: 200)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(account.createdPlaylists) { playlist in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    Text("本地歌单")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.top, 8)
+                    if localStore.playlists.isEmpty {
+                        Text("还没有本地歌单，可在下方新建")
+                            .font(.footnote)
+                            .foregroundStyle(.tertiary)
+                            .padding(10)
+                    } else {
+                        ForEach(localStore.playlists) { playlist in
                             Button {
                                 add(to: playlist)
                             } label: {
-                                HStack(spacing: 10) {
-                                    CachedAsyncImage(url: playlist.coverURL?.resizedImageURL(80), animated: false)
-                                        .frame(width: 36, height: 36)
-                                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(playlist.name)
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(1)
-                                        Text("\(playlist.trackCount) 首")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .contentShape(Rectangle())
+                                playlistRow(
+                                    name: playlist.name,
+                                    count: playlist.tracks.count,
+                                    coverURL: playlist.coverURL
+                                )
                             }
                             .buttonStyle(.interactiveRow)
                         }
                     }
-                    .padding(8)
+
+                    if !account.createdPlaylists.isEmpty {
+                        Text("网易云歌单")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.top, 14)
+                        ForEach(account.createdPlaylists) { playlist in
+                            Button {
+                                add(to: playlist)
+                            } label: {
+                                playlistRow(
+                                    name: playlist.name,
+                                    count: playlist.trackCount,
+                                    coverURL: playlist.coverURL
+                                )
+                            }
+                            .buttonStyle(.interactiveRow)
+                        }
+                    }
                 }
-                .frame(height: 280)
+                .padding(8)
             }
+            .frame(height: 300)
             Divider().opacity(0.4)
             HStack {
-                TextField("新建歌单", text: $newName)
+                TextField("新建本地歌单", text: $newName)
                     .textFieldStyle(.roundedBorder)
-                Button("创建并收藏") {
-                    createAndAdd()
+                Button("创建") {
+                    createLocalAndAdd()
                 }
                 .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || creating)
             }
             .padding(12)
+            if account.isLoggedIn {
+                Button("在网易云新建并收藏") {
+                    createNeteaseAndAdd()
+                }
+                .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || creating)
+                .padding(.bottom, 12)
+            }
         }
         .frame(width: 340)
+    }
+
+    private func playlistRow(name: String, count: Int, coverURL: String?) -> some View {
+        HStack(spacing: 10) {
+            CachedAsyncImage(url: coverURL?.resizedImageURL(80), animated: false)
+                .frame(width: 36, height: 36)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay {
+                    if coverURL == nil {
+                        Image(systemName: "music.note.list")
+                            .font(.caption)
+                            .foregroundStyle(Theme.accent)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text("\(count) 首")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+    }
+
+    private func add(to playlist: LocalPlaylist) {
+        localStore.add(track, to: playlist.id)
+        dismiss()
     }
 
     private func add(to playlist: PlaylistSummary) {
@@ -572,7 +633,15 @@ struct AddToPlaylistSheet: View {
         }
     }
 
-    private func createAndAdd() {
+    private func createLocalAndAdd() {
+        let name = newName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        _ = localStore.create(name: name, tracks: [track])
+        ToastCenter.shared.show("已收藏到「\(name)」")
+        dismiss()
+    }
+
+    private func createNeteaseAndAdd() {
         let name = newName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         creating = true
