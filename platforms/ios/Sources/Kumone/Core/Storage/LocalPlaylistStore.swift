@@ -174,7 +174,7 @@ private enum PlaylistImportService {
             URLQueryItem(name: "n", value: "1000"),
         ]
         let root = try await fetchJSONObject(components.url!)
-        if let code = int(root["code"]), code != 200 {
+        if let code = integer(root["code"]), code != 200 {
             throw PlaylistImportError.invalidFormat
         }
         guard let playlist = (root["playlist"] as? [String: Any])
@@ -350,6 +350,13 @@ private enum PlaylistImportService {
     private static func string(_ value: Any?) -> String? {
         if let string = value as? String { return string }
         if let number = value as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    private static func integer(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) }
         return nil
     }
 
