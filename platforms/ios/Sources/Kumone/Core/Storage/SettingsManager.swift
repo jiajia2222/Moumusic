@@ -197,7 +197,7 @@ final class SettingsManager: ObservableObject {
 
     private init() {
         let defaults = UserDefaults.standard
-        audioQuality = defaults.string(forKey: Keys.quality).flatMap(AudioQuality.init) ?? .exhigh
+        audioQuality = defaults.string(forKey: Keys.quality).flatMap(AudioQuality.init(rawValue:)) ?? .exhigh
         appearance = defaults.string(forKey: Keys.appearance).flatMap(AppAppearance.init) ?? .auto
         #if os(iOS)
         nowPlayingMode = defaults.string(forKey: Keys.nowPlayingMode).flatMap(NowPlayingMode.init) ?? .immersive
