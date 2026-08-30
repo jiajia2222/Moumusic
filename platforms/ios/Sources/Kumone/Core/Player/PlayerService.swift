@@ -756,20 +756,78 @@ final class PlayerService: ObservableObject {
         if LXSourceStore.shared.selectedSource != nil,
            let lx = try? await LXUserAPIService.shared.resolveLyrics(for: track) {
             guard generation == resolveGeneration else { return }
-            lyrics = LyricsParser.parseLX(lyric: lx.lyric, tlyric: lx.tlyric,
-                                          rlyric: lx.rlyric, lxlyric: lx.lxlyric)
-            updateLyricsCursor(at: progress)
-            return
-        }
-        if track.source != nil {
-            guard generation == resolveGeneration else { return }
-            lyrics = nil
-            return
+            let parsed = LyricsParser.parseLX(lyric: lx.lyric, tlyric: lx.tlyric,
+                                               rlyric: lx.rlyric, lxlyric: lx.lxlyric)
+            if !parsed.isEmpty {
+                lyrics = parsed
+                updateLyricsCursor(at: progress)
+                return
+            }
         }
 #endif
-        let response = try? await NeteaseAPI.lyric(id: track.id)
+
+        // LX song IDs belong to their own platform and must not be sent
+        // directly to NetEase. For an LX result, search NetEase by metadata
+        // only as a lyric fallback when the imported source has no lyric
+        // action or returned an unusable body.
+        let response: LyricResponse?
+        if track.source == nil {
+            response = try? await NeteaseAPI.lyric(id: track.id)
+        } else {
+            response = nil
+        }
         guard generation == resolveGeneration else { return }
-        lyrics = response.map(LyricsParser.parse)
+        if let response {
+            let parsed = LyricsParser.parse(response)
+            if !parsed.isEmpty {
+                lyrics = parsed
+                updateLyricsCursor(at: progress)
+                return
+            }
+        }
+
+#if os(iOS)
+        // LX Mobile's built-in catalogue adapters own online lyrics. The
+        // imported User API normally exposes only `musicUrl`, so asking it
+        // for `lyric` cannot work for kw/kg/tx/mg sources.
+        if track.source != nil,
+           let native = try? await LXCatalogService.nativeLyrics(for: track) {
+            let parsed = LyricsParser.parseLX(lyric: native.lyric,
+                                               tlyric: native.tlyric,
+                                               rlyric: native.rlyric,
+                                               lxlyric: native.lxlyric)
+            if !parsed.isEmpty {
+                guard generation == resolveGeneration else { return }
+                lyrics = parsed
+                updateLyricsCursor(at: progress)
+                return
+            }
+        }
+
+        if track.source != nil {
+            let query = [track.name, track.artistNames]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: " ")
+            if let result = try? await NeteaseAPI.search(query, type: .songs, limit: 6),
+               let candidates = result.songs {
+                for candidate in candidates {
+                    guard let response = try? await NeteaseAPI.lyric(id: candidate.id) else { continue }
+                    let parsed = LyricsParser.parse(response)
+                    if !parsed.isEmpty {
+                        guard generation == resolveGeneration else { return }
+                        lyrics = parsed
+                        updateLyricsCursor(at: progress)
+                        return
+                    }
+                }
+            }
+        }
+#endif
+
+        guard generation == resolveGeneration else { return }
+        // A completed lookup should render an empty state instead of leaving
+        // the lyric panel in an infinite loading spinner.
+        lyrics = ParsedLyrics()
         updateLyricsCursor(at: progress)
     }
 

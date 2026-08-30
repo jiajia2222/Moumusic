@@ -36,6 +36,7 @@ final class HomeViewModel: ObservableObject {
     @Published private(set) var activeMode: HomeRecommendationMode = .netease
     @Published private(set) var activePlatform: LXCatalogPlatform = .kw
     @Published var recommendTracks: [Track] = []
+    @Published var lxRecommendPlaylists: [LXPlaylistSummary] = []
     private var loadedMode: HomeRecommendationMode?
     private var loadedPlatform: LXCatalogPlatform?
 
@@ -43,14 +44,19 @@ final class HomeViewModel: ObservableObject {
               platform: LXCatalogPlatform) async {
         if loadedMode == mode, loadedPlatform == platform, case .loaded = state { return }
         activeMode = mode
-        activePlatform = platform
+        let effectivePlatform = mode == .netease ? .wy : platform
+        activePlatform = effectivePlatform
         loadedMode = mode
         loadedPlatform = platform
         state = .loading
 
         if mode == .lx {
-            recommendTracks = (try? await LXCatalogService.recommendedTracks(platform: platform, limit: 30)) ?? []
-            state = recommendTracks.isEmpty ? .error("LX 暂无推荐结果，请检查网络或切换推荐平台") : .loaded
+            let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
+            lxRecommendPlaylists = content.playlists
+            recommendTracks = content.tracks
+            state = recommendTracks.isEmpty && lxRecommendPlaylists.isEmpty
+                ? .error("LX 暂无推荐结果，请检查网络或切换推荐平台")
+                : .loaded
             return
         }
 
@@ -160,23 +166,91 @@ struct HomeView: View {
 
     private var lxLoadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 22) {
+            homePlatformPicker
+
             HStack(spacing: 10) {
                 Image(systemName: "waveform")
                     .foregroundStyle(Theme.accent)
-                Text(verbatim: "LX 推荐")
+                Text("\(model.activePlatform.displayName) 推荐")
                     .font(.title3.weight(.semibold))
-                Text(verbatim: model.activePlatform.displayName)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
                 Spacer()
             }
             .padding(.horizontal, Theme.Layout.contentInset)
-            TrackListView(tracks: model.recommendTracks)
-                .padding(.horizontal, Theme.Layout.contentInset - 10)
+
+            if !model.lxRecommendPlaylists.isEmpty {
+                Shelf(title: "推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+                    ForEach(model.lxRecommendPlaylists.prefix(12)) { playlist in
+                        lxPlaylistCard(playlist)
+                    }
+                }
+            }
+
+            if !model.recommendTracks.isEmpty {
+                SectionHeader(title: "推荐歌曲")
+                    .padding(.horizontal, Theme.Layout.contentInset)
+                TrackListView(tracks: model.recommendTracks)
+                    .padding(.horizontal, Theme.Layout.contentInset - 10)
+            }
             PlayerClearanceSpacer()
         }
         .padding(.vertical, Theme.Layout.contentInset - 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var homePlatformPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("首页推荐平台")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(homePlatforms) { platform in
+                        Button {
+                            selectHomePlatform(platform)
+                        } label: {
+                            Text(platform.displayName)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(isHomePlatform(platform) ? .white : .primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(isHomePlatform(platform) ? Theme.accent : Color.secondary.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .frame(minHeight: 44)
+                    }
+                }
+                .padding(.horizontal, Theme.Layout.contentInset)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private var homePlatforms: [LXCatalogPlatform] {
+        LXCatalogPlatform.allCases.filter { $0 != .aggregate }
+    }
+
+    private func isHomePlatform(_ platform: LXCatalogPlatform) -> Bool {
+        if settings.homeRecommendationMode == .netease { return platform == .wy }
+        return settings.homeRecommendationPlatform == platform
+    }
+
+    private func selectHomePlatform(_ platform: LXCatalogPlatform) {
+        settings.homeRecommendationPlatform = platform
+        settings.homeRecommendationMode = platform == .wy ? .netease : .lx
+    }
+
+    private func lxPlaylistCard(_ playlist: LXPlaylistSummary) -> some View {
+        NavigationLink(value: Destination.lxPlaylist(source: playlist.source, id: playlist.id)) {
+            CoverCardBody(
+                coverURL: playlist.coverURL?.resizedImageURL(384),
+                title: playlist.name,
+                subtitle: [playlist.source.displayName, playlist.author].compactMap { $0 }.joined(separator: " · "),
+                playCount: playlist.playCount
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private var loadingBody: some View {
@@ -196,6 +270,7 @@ struct HomeView: View {
 
     private var loadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 34) {
+            homePlatformPicker
             featureCards
                 .padding(.top, 8)
 

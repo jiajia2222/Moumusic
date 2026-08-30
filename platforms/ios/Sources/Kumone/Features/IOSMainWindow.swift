@@ -23,6 +23,7 @@ public struct IOSMainWindow: View {
     @State private var fmPath = NavigationPath()
     @State private var searchPath = NavigationPath()
     @State private var libraryPath = NavigationPath()
+    @State private var settingsPath = NavigationPath()
 
     public init() {}
 
@@ -221,6 +222,10 @@ public struct IOSMainWindow: View {
                 tabStack(.library) { IOSLibraryView(showLogin: $showLogin) }
             }
 
+            Tab("设置", systemImage: "gearshape", value: .settings) {
+                tabStack(.settings) { SettingsView() }
+            }
+
             Tab(value: .search, role: .search) {
                 tabStack(.search) { SearchView(query: "") }
             } label: {
@@ -267,6 +272,8 @@ public struct IOSMainWindow: View {
             tabStack(.search) { SearchView(query: "") }
         case .library:
             tabStack(.library) { IOSLibraryView(showLogin: $showLogin) }
+        case .settings:
+            tabStack(.settings) { SettingsView() }
         }
     }
 
@@ -277,6 +284,7 @@ public struct IOSMainWindow: View {
         case .fm: fmPath = NavigationPath()
         case .search: searchPath = NavigationPath()
         case .library: libraryPath = NavigationPath()
+        case .settings: settingsPath = NavigationPath()
         }
     }
 
@@ -308,12 +316,13 @@ public struct IOSMainWindow: View {
         case .fm: return $fmPath
         case .search: return $searchPath
         case .library: return $libraryPath
+        case .settings: return $settingsPath
         }
     }
 }
 
 enum IOSTab: Hashable {
-    case home, explore, fm, search, library
+    case home, explore, fm, search, library, settings
 }
 
 extension IOSMainWindow {
@@ -323,6 +332,7 @@ extension IOSMainWindow {
         .init(tab: .fm, title: "漫游", icon: "dot.radiowaves.left.and.right"),
         .init(tab: .search, title: "搜索", icon: "magnifyingglass"),
         .init(tab: .library, title: "我的", icon: "person.crop.circle"),
+        .init(tab: .settings, title: "设置", icon: "gearshape"),
     ]
 }
 
@@ -536,7 +546,6 @@ struct IOSLibraryView: View {
     @Binding var showLogin: Bool
     @EnvironmentObject private var account: AccountStore
     @StateObject private var lxStore = LXSourceStore.shared
-    @State private var showSettings = false
     @State private var showSourceManager = false
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
@@ -707,28 +716,6 @@ struct IOSLibraryView: View {
             }
         }
         .navigationTitle("我的")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                }
-            }
-        }
-        .sheet(isPresented: $showSettings) {
-            NavigationStack {
-                SettingsView()
-                    .navigationTitle("设置")
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("完成") {
-                                showSettings = false
-                            }
-                        }
-                    }
-            }
-        }
         .sheet(isPresented: $showSourceManager) {
             NavigationStack {
                 LXSourceManagerView()
