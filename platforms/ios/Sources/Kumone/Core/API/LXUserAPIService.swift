@@ -42,6 +42,8 @@ final class LXUserAPIService: ObservableObject {
     private var loadedID: String?
     private var tasks: [String: URLSessionDataTask] = [:]
     private var pending: [String: CheckedContinuation<[String: Any], Error>] = [:]
+    private var sourceInitializationTask: Task<Void, Never>?
+    private var pendingInitializationID: String?
     @Published private(set) var capabilities: [String: [String]] = [:]
     @Published private(set) var qualityCapabilities: [String: [String]] = [:]
     @Published private(set) var statusMessage = "未加载音源"
@@ -67,6 +69,9 @@ final class LXUserAPIService: ObservableObject {
     }
 
     func load(_ source: LXSourceStore.Source?) {
+        sourceInitializationTask?.cancel()
+        sourceInitializationTask = nil
+        pendingInitializationID = source?.id
         context = nil
         loadedID = source?.id
         capabilities = [:]
@@ -75,6 +80,7 @@ final class LXUserAPIService: ObservableObject {
         guard let source,
               let preloadURL = Bundle.module.url(forResource: "LXUserAPIPreload", withExtension: "js"),
               let preload = try? String(contentsOf: preloadURL, encoding: .utf8) else {
+            pendingInitializationID = nil
             statusMessage = "LX 预加载桥接文件不存在"
             return
         }
@@ -89,6 +95,7 @@ final class LXUserAPIService: ObservableObject {
         js?.evaluateScript(preload)
         if let exception = js?.exception {
             context = nil
+            pendingInitializationID = nil
             statusMessage = "LX 桥接加载失败：\(exception.toString())"
             return
         }
@@ -97,20 +104,26 @@ final class LXUserAPIService: ObservableObject {
                                     source.version, source.author, source.homepage, source.script])
         if let exception = js?.exception {
             context = nil
+            pendingInitializationID = nil
             statusMessage = "LX 音源初始化失败：\(exception.toString())"
             return
         }
         _ = js?.evaluateScript(source.script)
         if let exception = js?.exception {
             context = nil
+            pendingInitializationID = nil
             statusMessage = "LX 音源脚本错误：\(exception.toString())"
             print("[LX] failed to load source \(source.name): \(exception)")
+        }
+        if context != nil {
+            scheduleInitializationFallback(for: source.id)
         }
     }
 
     func resolveMusicURL(for track: Track, quality: String) async throws -> ResolvedURL {
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
+        enableCompatibilityProbeIfNeeded()
         guard context != nil else { throw LXError.noSource }
         let primarySource = track.source?.isEmpty == false ? track.source! : "wy"
         for platform in sourceCandidates(for: track) {
@@ -147,6 +160,7 @@ final class LXUserAPIService: ObservableObject {
     func checkSelectedSource() async -> SourceCheckResult {
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
+        enableCompatibilityProbeIfNeeded()
         guard LXSourceStore.shared.selectedSource != nil else {
             return SourceCheckResult(status: .unavailable,
                                      message: "未选择音源",
@@ -242,6 +256,7 @@ final class LXUserAPIService: ObservableObject {
     enum LXError: LocalizedError {
         case noSource
         case resolveFailed
+        case requestTimedOut
         case javascript(String)
 
         var errorDescription: String? {
@@ -249,6 +264,7 @@ final class LXUserAPIService: ObservableObject {
             case .noSource: return "请先在“我的 → LX 音源”中导入并启用音源"
             case .resolveFailed: return "LX 音源没有返回可播放地址"
             case .javascript(let message): return message
+            case .requestTimedOut: return "LX 音源请求超时，请检查音源服务器和网络后重试"
             }
         }
     }
@@ -310,6 +326,9 @@ final class LXUserAPIService: ObservableObject {
         guard let payload = object as? [String: Any] else { return }
         switch action {
         case "init":
+            sourceInitializationTask?.cancel()
+            sourceInitializationTask = nil
+            pendingInitializationID = nil
             guard payload["status"] as? Bool != false else {
                 statusMessage = (payload["errorMessage"] as? String).map { "LX 音源初始化失败：\($0)" }
                     ?? "LX 音源初始化失败"
@@ -334,6 +353,7 @@ final class LXUserAPIService: ObservableObject {
                     ? "音源已加载，但没有可用接口"
                     : "音源已加载（\(active.joined(separator: "；"))）"
             }
+            enableCompatibilityProbeIfNeeded()
         case "request":
             if let requestKey = payload["requestKey"] as? String,
                let url = payload["url"] as? String,
@@ -348,7 +368,8 @@ final class LXUserAPIService: ObservableObject {
             if payload["status"] as? Bool == true, let result = payload["result"] as? [String: Any] {
                 pending.removeValue(forKey: requestKey)?.resume(returning: result)
             } else {
-                pending.removeValue(forKey: requestKey)?.resume(throwing: LXError.resolveFailed)
+                let message = payload["errorMessage"] as? String ?? "LX 音源没有返回有效响应"
+                pending.removeValue(forKey: requestKey)?.resume(throwing: LXError.javascript(message))
             }
         default: break
         }
@@ -414,6 +435,12 @@ final class LXUserAPIService: ObservableObject {
             pending[requestKey] = continuation
             callJS(action: "request", data: ["requestKey": requestKey,
                                                 "data": ["source": source, "action": action, "info": info]])
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(12))
+                guard let self,
+                      let pendingRequest = self.pending.removeValue(forKey: requestKey) else { return }
+                pendingRequest.resume(throwing: LXError.requestTimedOut)
+            }
         }
     }
 
@@ -426,6 +453,40 @@ final class LXUserAPIService: ObservableObject {
             if !capabilities.isEmpty || context == nil { return }
             try? await Task.sleep(for: .milliseconds(50))
         }
+    }
+
+    /// Some legacy LX scripts register a request handler but never send an
+    /// `inited` capability table (or their remote init endpoint is slow).
+    /// Do not leave the UI in a permanent loading state: enable a conservative
+    /// probe mode so playback and the test action can ask the script directly.
+    /// A source is only reported as usable after it returns a real music URL.
+    private func scheduleInitializationFallback(for sourceID: String) {
+        sourceInitializationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled,
+                  let self,
+                  self.pendingInitializationID == sourceID,
+                  self.loadedID == sourceID else { return }
+            self.enableCompatibilityProbeIfNeeded()
+            self.pendingInitializationID = nil
+        }
+    }
+
+    private func enableCompatibilityProbeIfNeeded() {
+        guard context != nil else { return }
+        let hasMusicURL = capabilities.values.contains { $0.contains("musicUrl") }
+        guard !hasMusicURL,
+              let source = LXSourceStore.shared.selectedSource,
+              source.id == loadedID,
+              source.script.range(of: "musicUrl", options: .caseInsensitive) != nil else {
+            return
+        }
+
+        let platforms = ["wy", "kw", "kg", "tx", "mg"]
+        let qualities = ["128k", "320k", "flac", "flac24bit"]
+        capabilities = Dictionary(uniqueKeysWithValues: platforms.map { ($0, ["musicUrl"]) })
+        qualityCapabilities = Dictionary(uniqueKeysWithValues: platforms.map { ($0, qualities) })
+        statusMessage = "音源未返回能力清单，已启用兼容探测"
     }
 
     private func callJS(action: String, data: Any? = nil) {
@@ -452,6 +513,7 @@ final class LXUserAPIService: ObservableObject {
     func availableQualityNames(for track: Track) async -> [String] {
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
+        enableCompatibilityProbeIfNeeded()
         var names: [String] = []
         for platform in sourceCandidates(for: track) {
             names.append(contentsOf: qualityCapabilities[platform] ?? [])
