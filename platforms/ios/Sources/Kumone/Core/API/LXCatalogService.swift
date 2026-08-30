@@ -87,6 +87,38 @@ enum LXCatalogService {
         }
     }
 
+    /// Find the same song on another catalogue platform before asking the LX
+    /// User API to resolve it. Reusing the original platform's ID is unsafe:
+    /// a Kuwo RID is not a Kugou hash, QQ mid, or NetEase song ID, and doing so
+    /// is what makes a cross-platform fallback return the wrong song.
+    static func matchingTrack(_ sourceTrack: Track, on platform: String) async -> Track? {
+        guard let platform = LXCatalogPlatform(rawValue: platform), platform != .aggregate else {
+            return nil
+        }
+        let keyword = [sourceTrack.name, sourceTrack.artistNames]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !keyword.isEmpty,
+              let candidates = try? await search(keyword, platform: platform, page: 1, limit: 12),
+              !candidates.isEmpty else { return nil }
+
+        let targetDuration = sourceTrack.duration
+        func score(_ candidate: Track) -> Double {
+            let namePenalty = candidate.name.caseInsensitiveCompare(sourceTrack.name) == .orderedSame ? 0 : 100
+            let artistPenalty = candidate.artistNames.caseInsensitiveCompare(sourceTrack.artistNames) == .orderedSame ? 0 : 30
+            let durationPenalty = targetDuration > 0 && candidate.duration > 0
+                ? min(abs(candidate.duration - targetDuration), 60)
+                : 20
+            return Double(namePenalty + artistPenalty) + durationPenalty
+        }
+        guard let best = candidates.min(by: { score($0) < score($1) }) else { return nil }
+        let sameName = best.name.caseInsensitiveCompare(sourceTrack.name) == .orderedSame
+        let closeDuration = targetDuration <= 0 || best.duration <= 0
+            || abs(best.duration - targetDuration) <= 8
+        return sameName || closeDuration ? best : nil
+    }
+
     private static func searchNetease(_ keyword: String, page: Int, limit: Int) async throws -> [Track] {
         let result = try await NeteaseAPI.search(keyword, type: .songs,
                                                  limit: limit, offset: max(0, page - 1) * limit)

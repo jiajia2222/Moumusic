@@ -99,11 +99,23 @@ final class LXUserAPIService: ObservableObject {
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
         guard context != nil else { throw LXError.noSource }
+        let primarySource = track.source?.isEmpty == false ? track.source! : "wy"
         for platform in sourceCandidates(for: track) {
             guard capabilities[platform]?.contains("musicUrl") == true else { continue }
+            let requestTrack: Track
+            if platform == primarySource {
+                requestTrack = track
+            } else {
+                // Platform fallback must use a newly searched result with IDs
+                // belonging to that platform, never the original track's ID.
+                guard let matched = await LXCatalogService.matchingTrack(track, on: platform) else {
+                    continue
+                }
+                requestTrack = matched
+            }
             let requestedQuality = Self.lxQuality(for: quality,
                                                   supported: qualityCapabilities[platform] ?? [])
-            let info = musicInfo(for: track, platform: platform)
+            let info = musicInfo(for: requestTrack, platform: platform)
             if let response = try? await request(source: platform, action: "musicUrl",
                                                  info: ["type": requestedQuality, "musicInfo": info]),
                let data = response["data"] as? [String: Any],

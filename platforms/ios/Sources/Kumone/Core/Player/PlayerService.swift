@@ -165,15 +165,13 @@ final class PlayerService: ObservableObject {
     var currentQuality: AudioQuality { SettingsManager.shared.audioQuality }
 
     func availableQualitiesForCurrentTrack() async -> [AudioQuality] {
-        guard let track = currentTrack else { return AudioQuality.allCases }
-        #if os(iOS)
-        if track.source != nil {
-            let names = await LXUserAPIService.shared.availableQualityNames(for: track)
-            let qualities = AudioQuality.allCases.filter { names.contains($0.lxType) }
-            if !qualities.isEmpty { return qualities }
-        }
-        #endif
+        guard let track = currentTrack else { return [] }
+#if os(iOS)
+        let names = await LXUserAPIService.shared.availableQualityNames(for: track)
+        return AudioQuality.allCases.filter { names.contains($0.lxType) }
+#else
         return AudioQuality.allCases
+#endif
     }
 
     func selectQuality(_ quality: AudioQuality) {
@@ -616,6 +614,7 @@ final class PlayerService: ObservableObject {
 
     private func startPlaying(_ track: Track, indexUnchanged: Bool = false,
                               resumeAt: TimeInterval? = nil) {
+        let track = track.normalizedForLXPlayback()
         scrobbleIfNeeded(completed: false)
         currentTrack = track
         progress = resumeAt ?? 0
@@ -649,28 +648,30 @@ final class PlayerService: ObservableObject {
 
     private func resolveAndLoad(_ track: Track, generation: Int) async {
         let quality = SettingsManager.shared.audioQuality.rawValue
+#if os(macOS)
         let isLXCatalogTrack = track.source != nil
+#endif
         var resolvedURL: URL?
         var servedByLXQuality: String?
+#if os(macOS)
         var data: SongURLData?
+#endif
 
 #if os(iOS)
-        // A catalogue result must stay on the selected LX User API path. Do
-        // not silently turn a KW/KG/TX/MG/WY song into a NetEase request when
-        // the user has not configured an LX playback source.
-        if isLXCatalogTrack, LXSourceStore.shared.selectedSource == nil {
+        // Every online track, including a NetEase catalogue result, must use
+        // the selected LX User API. There is intentionally no native NetEase
+        // URL fallback and no third-party Kuwo/unblock fallback on iOS.
+        guard LXSourceStore.shared.selectedSource != nil else {
             guard generation == resolveGeneration else { return }
             ToastCenter.shared.show("请先在设置 → LX 音源中选择播放音源")
             isPlaying = false
             return
         }
-        if LXSourceStore.shared.selectedSource != nil,
-           let lx = try? await LXUserAPIService.shared.resolveMusicURL(for: track, quality: quality) {
+        if let lx = try? await LXUserAPIService.shared.resolveMusicURL(for: track, quality: quality) {
             resolvedURL = lx.url
             servedByLXQuality = lx.quality
         }
-#endif
-
+#else
         if resolvedURL == nil, !isLXCatalogTrack {
             data = try? await NeteaseAPI.songURL(ids: [track.id], level: quality).first
             if data?.url == nil, quality != AudioQuality.standard.rawValue {
@@ -682,7 +683,8 @@ final class PlayerService: ObservableObject {
         }
         guard generation == resolveGeneration else { return }
 
-        // NetEase refused — try third-party sources (UnblockNeteaseMusic-style).
+        // Keep the legacy desktop-only fallback isolated from iOS. iOS must
+        // never silently turn a failed source request into a Kuwo URL.
         if resolvedURL == nil || data?.freeTrialInfo != nil, SettingsManager.shared.enableUnblock {
             if let unblocked = await UnblockService.resolve(track) {
                 guard generation == resolveGeneration else { return }
@@ -692,6 +694,7 @@ final class PlayerService: ObservableObject {
                 ToastCenter.shared.show(String(localized: "已使用第三方音源：\(unblocked.source)"))
             }
         }
+#endif
         guard generation == resolveGeneration else { return }
 
         guard let url = resolvedURL else {
@@ -709,11 +712,15 @@ final class PlayerService: ObservableObject {
         }
 
         consecutiveFailures = 0
+#if os(iOS)
+        servedQuality = servedByLXQuality
+#else
         servedQuality = servedByLXQuality ?? data?.level
         if data?.freeTrialInfo != nil {
             isTrial = true
             ToastCenter.shared.show(String(localized: "VIP 歌曲，当前为试听片段"))
         }
+#endif
 
         // Resolve the asset's audio track before the item goes live: an audio mix
         // attached after playback starts is silently ignored, so the spectrum tap

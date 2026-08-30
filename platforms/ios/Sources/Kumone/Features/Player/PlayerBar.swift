@@ -152,13 +152,9 @@ struct PlayerBar: View {
     private func optionsSection(compact: Bool) -> some View {
         HStack(spacing: 4) {
             if !compact, let level = player.servedQuality,
-               let quality = AudioQuality(rawValue: level) {
+               let quality = AudioQuality(rawValue: level) ?? AudioQuality(lxType: level) {
                 QualityTag(text: quality.badge)
                     .padding(.trailing, 2)
-            } else if !compact, player.unblockSource != nil {
-                QualityTag(text: String(localized: "音源"))
-                    .padding(.trailing, 2)
-                    .help("来自 \(player.unblockSource ?? "")")
             }
             PlayerIconButton(
                 icon: "quote.bubble", size: 13,

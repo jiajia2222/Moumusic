@@ -376,6 +376,9 @@ enum NeteaseAPI {
 
     // MARK: - Tracks
 
+#if os(macOS)
+    /// The desktop target still has its historical native player. iOS is
+    /// source-only and does not compile this NetEase URL endpoint.
     struct SongURLResponse: Decodable {
         let data: [SongURLData]
     }
@@ -386,6 +389,7 @@ enum NeteaseAPI {
         if level == "sky" { payload["immerseType"] = "c51" }
         return try await eapi(SongURLResponse.self, "/song/enhance/player/url/v1", payload).data
     }
+#endif
 
     static func lyric(id: Int) async throws -> LyricResponse {
         // `/song/lyric/v1` also returns verbatim (word-by-word) `yrc`. Fall back
