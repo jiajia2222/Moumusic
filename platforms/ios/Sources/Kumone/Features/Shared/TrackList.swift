@@ -86,14 +86,11 @@ struct TrackRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if style == .full && !isCompact {
-                NavigationLink(value: Destination.album(track.album.id)) {
-                    Text(track.album.name)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: 220, alignment: .leading)
+                Text(track.album.name)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: 220, alignment: .leading)
             }
 
             if let reason = playability.reason {
@@ -197,17 +194,6 @@ struct TrackRow: View {
 
     private var likeAndDuration: some View {
         HStack(spacing: 8) {
-            let liked = account.isLiked(track.id)
-            Button {
-                Task { await account.toggleLike(trackID: track.id) }
-            } label: {
-                Image(systemName: liked ? "heart.fill" : "heart")
-                    .font(.system(size: 12))
-                    .foregroundStyle(liked ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
-            }
-            .buttonStyle(.pressable)
-            .opacity(liked || isHovering ? 1 : 0)
-
             Text(Formatters.duration(track.duration))
                 .font(.system(size: 11.5).monospacedDigit())
                 .foregroundStyle(.tertiary)
@@ -222,46 +208,19 @@ struct TrackRow: View {
             player.addToPlayNext(track)
         }
         Divider()
-        let liked = account.isLiked(track.id)
-        Button(liked ? String(localized: "从「我喜欢」中移除") : String(localized: "添加到「我喜欢」")) {
-            Task { await account.toggleLike(trackID: track.id) }
-        }
         Button("收藏到歌单…") {
             showAddToPlaylist = true
         }
-        if let pid = removableFromPlaylistID {
-            Button("从歌单中删除", role: .destructive) {
-                Task {
-                    do {
-                        try await NeteaseAPI.playlistTracks(op: "del", playlistID: pid, trackIDs: [track.id])
-                        onRemoved?()
-                        ToastCenter.shared.show(String(localized: "已从歌单中删除"))
-                    } catch {
-                        ToastCenter.shared.show(error.localizedDescription)
-                    }
-                }
-            }
-        } else if onRemoved != nil {
+        if onRemoved != nil {
             Button("从本地歌单中删除", role: .destructive) {
                 onRemoved?()
                 ToastCenter.shared.show(String(localized: "已从歌单中删除"))
             }
         }
         Divider()
-        if track.album.id > 0 {
-            NavigationLink(value: Destination.album(track.album.id)) {
-                Text("查看专辑")
-            }
-        }
-        ForEach(track.artists.prefix(3)) { artist in
-            NavigationLink(value: Destination.artist(artist.id)) {
-                Text("查看歌手：\(artist.name)")
-            }
-        }
-        Divider()
-        Button("复制链接") {
-            Platform.copyToPasteboard(string: "https://music.163.com/#/song?id=\(track.id)")
-            ToastCenter.shared.show(String(localized: "链接已复制"))
+        Button("复制歌曲信息") {
+            Platform.copyToPasteboard(string: "\(track.name) - \(track.artistNames)")
+            ToastCenter.shared.show(String(localized: "歌曲信息已复制"))
         }
     }
 }
@@ -503,11 +462,9 @@ struct TrackListView: View {
 struct AddToPlaylistSheet: View {
     let track: Track
 
-    @EnvironmentObject private var account: AccountStore
     @Environment(\.dismiss) private var dismiss
     @StateObject private var localStore = LocalPlaylistStore.shared
     @State private var newName = ""
-    @State private var creating = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -542,25 +499,6 @@ struct AddToPlaylistSheet: View {
                         }
                     }
 
-                    if !account.createdPlaylists.isEmpty {
-                        Text("网易云歌单")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
-                            .padding(.top, 14)
-                        ForEach(account.createdPlaylists) { playlist in
-                            Button {
-                                add(to: playlist)
-                            } label: {
-                                playlistRow(
-                                    name: playlist.name,
-                                    count: playlist.trackCount,
-                                    coverURL: playlist.coverURL
-                                )
-                            }
-                            .buttonStyle(.interactiveRow)
-                        }
-                    }
                 }
                 .padding(8)
             }
@@ -572,16 +510,9 @@ struct AddToPlaylistSheet: View {
                 Button("创建") {
                     createLocalAndAdd()
                 }
-                .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || creating)
+                .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(12)
-            if account.isLoggedIn {
-                Button("在网易云新建并收藏") {
-                    createNeteaseAndAdd()
-                }
-                .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || creating)
-                .padding(.bottom, 12)
-            }
         }
         .frame(width: 340)
     }
@@ -620,19 +551,6 @@ struct AddToPlaylistSheet: View {
         dismiss()
     }
 
-    private func add(to playlist: PlaylistSummary) {
-        Task {
-            do {
-                try await NeteaseAPI.playlistTracks(op: "add", playlistID: playlist.id, trackIDs: [track.id])
-                ToastCenter.shared.show(String(localized: "已收藏到「\(playlist.name)」"))
-                await account.refreshLibrary()
-                dismiss()
-            } catch {
-                ToastCenter.shared.show(error.localizedDescription)
-            }
-        }
-    }
-
     private func createLocalAndAdd() {
         let name = newName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
@@ -641,22 +559,4 @@ struct AddToPlaylistSheet: View {
         dismiss()
     }
 
-    private func createNeteaseAndAdd() {
-        let name = newName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
-        creating = true
-        Task {
-            defer { creating = false }
-            do {
-                if let id = try await NeteaseAPI.createPlaylist(name: name, isPrivate: false) {
-                    try await NeteaseAPI.playlistTracks(op: "add", playlistID: id, trackIDs: [track.id])
-                    ToastCenter.shared.show(String(localized: "已收藏到「\(name)」"))
-                    await account.refreshLibrary()
-                    dismiss()
-                }
-            } catch {
-                ToastCenter.shared.show(error.localizedDescription)
-            }
-        }
-    }
 }

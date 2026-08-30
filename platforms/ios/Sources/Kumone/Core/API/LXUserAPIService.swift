@@ -127,49 +127,30 @@ final class LXUserAPIService: ObservableObject {
         guard capabilities.values.contains(where: { $0.contains("musicUrl") }) else {
             throw LXError.sourceUnavailable(statusMessage)
         }
-        let primarySource = track.source?.isEmpty == false ? track.source! : "wy"
-        var failures: [String] = []
-        for platform in sourceCandidates(for: track) {
-            guard capabilities[platform]?.contains("musicUrl") == true else { continue }
-            let platformName = LXCatalogPlatform(rawValue: platform)?.displayName ?? platform
-            let requestTrack: Track
-            if platform == primarySource {
-                requestTrack = track
-            } else {
-                // Platform fallback must use a newly searched result with IDs
-                // belonging to that platform, never the original track's ID.
-                guard let matched = await LXCatalogService.matchingTrack(track, on: platform) else {
-                    failures.append("\(platformName)：没有可用于回退的匹配歌曲")
-                    continue
-                }
-                requestTrack = matched
-            }
-            let requestedQuality = Self.lxQuality(for: quality,
-                                                  supported: qualityCapabilities[platform] ?? [])
-            let info = musicInfo(for: requestTrack, platform: platform)
-            do {
-                let response = try await request(source: platform, action: "musicUrl",
-                                                 info: ["type": requestedQuality, "musicInfo": info])
-                guard let data = response["data"] as? [String: Any],
-                      let rawURL = data["url"] as? String,
-                      let url = URL(string: rawURL),
-                      let scheme = url.scheme?.lowercased(),
-                      scheme == "http" || scheme == "https" else {
-                    failures.append("\(platformName)：音源没有返回有效播放地址")
-                    continue
-                }
-                return ResolvedURL(url: url, quality: (data["type"] as? String) ?? requestedQuality)
-            } catch {
-                failures.append("\(platformName)：\(error.localizedDescription)")
-            }
+        guard let platform = sourceCandidates(for: track).first else {
+            throw LXError.resolveFailed(["歌曲没有平台标识；请导入包含 source 和 sourceMetadata 的歌单 JSON"])
         }
-        throw LXError.resolveFailed(failures)
+        guard capabilities[platform]?.contains("musicUrl") == true else {
+            throw LXError.resolveFailed(["当前 LX 音源不支持 \(platform) 的播放地址解析"])
+        }
+        let requestedQuality = Self.lxQuality(for: quality,
+                                              supported: qualityCapabilities[platform] ?? [])
+        let response = try await request(source: platform, action: "musicUrl",
+                                         info: ["type": requestedQuality,
+                                                "musicInfo": musicInfo(for: track, platform: platform)])
+        guard let data = response["data"] as? [String: Any],
+              let rawURL = data["url"] as? String,
+              let url = URL(string: rawURL),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            throw LXError.resolveFailed(["LX 音源没有返回有效播放地址"])
+        }
+        return ResolvedURL(url: url, quality: (data["type"] as? String) ?? requestedQuality)
     }
 
     /// Performs a real, read-only musicUrl request against the selected LX
-    /// source. This deliberately checks a catalogue result and validates the
-    /// returned URL instead of treating script initialization alone as proof
-    /// that playback works.
+    /// source. The test metadata is bundled locally so health checks never
+    /// call a built-in music-platform catalogue endpoint.
     func checkSelectedSource() async -> SourceCheckResult {
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
@@ -200,21 +181,11 @@ final class LXUserAPIService: ObservableObject {
         var failures: [String] = []
         for platform in supportedPlatforms {
             let platformName = LXCatalogPlatform(rawValue: platform)?.displayName ?? platform
-            let track: Track?
+            let track: Track
             if let current = PlayerService.shared.currentTrack, current.source == platform {
                 track = current
             } else {
-                let results = try? await LXCatalogService.search(
-                    "周杰伦 晴天",
-                    platform: LXCatalogPlatform(rawValue: platform)!,
-                    page: 1,
-                    limit: 1
-                )
-                track = results?.first
-            }
-            guard let track else {
-                failures.append("\(platformName)：找不到测试歌曲")
-                continue
+                track = sourceCheckTrack(for: platform)
             }
 
             let requestedQuality = Self.lxQuality(for: SettingsManager.shared.audioQuality.rawValue,
@@ -504,13 +475,30 @@ final class LXUserAPIService: ObservableObject {
     }
 
     private func sourceCandidates(for track: Track) -> [String] {
-        var values: [String] = []
-        if let source = track.source, !source.isEmpty { values.append(source) }
-        if SettingsManager.shared.enableSourcePlatformFallback {
-            values.append(contentsOf: ["wy", "kw", "kg", "tx", "mg"])
-        }
-        var seen = Set<String>()
-        return values.filter { capabilities[$0] != nil && seen.insert($0).inserted }
+        guard let source = track.source?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !source.isEmpty,
+              capabilities[source] != nil else { return [] }
+        return [source]
+    }
+
+    /// This is only request metadata for the source's health check. It is not
+    /// a playback catalogue and it never leaves the device except as part of
+    /// the user-selected source's own `musicUrl` request.
+    private func sourceCheckTrack(for platform: String) -> Track {
+        Track(
+            id: 186_016,
+            name: "晴天",
+            artists: [ArtistRef(id: 1, name: "周杰伦")],
+            album: AlbumRef(id: 0, name: "音源连通性测试", picUrl: nil),
+            durationMS: 269_000,
+            source: platform,
+            sourceMetadata: [
+                "id": "186016",
+                "songmid": "186016",
+                "songId": "186016",
+                "copyrightId": "186016",
+            ]
+        )
     }
 
     func availableQualityNames(for track: Track) async -> [String] {

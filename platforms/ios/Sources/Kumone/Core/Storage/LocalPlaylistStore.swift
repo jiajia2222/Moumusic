@@ -28,8 +28,8 @@ enum PlaylistImportError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .emptyInput: return "请输入歌单链接、JSON 文件内容或歌曲列表"
-        case .unsupportedLink: return "暂不支持这个歌单链接，请粘贴歌单 JSON 或歌曲列表"
+        case .emptyInput: return "请输入歌单 JSON 文件内容"
+        case .unsupportedLink: return "在线歌单链接解析已移除；请从原音乐软件导出并导入 JSON 歌单"
         case .invalidFormat: return "无法识别歌单格式"
         case .noTracks: return "歌单中没有可导入的歌曲"
         }
@@ -148,7 +148,8 @@ private enum PlaylistImportService {
 
         if let url = URL(string: value), let scheme = url.scheme?.lowercased(),
            scheme == "http" || scheme == "https" {
-            return try await importURL(url)
+            _ = url
+            throw PlaylistImportError.unsupportedLink
         }
 
         if let data = value.data(using: .utf8),
@@ -156,58 +157,7 @@ private enum PlaylistImportService {
             return try importJSON(object)
         }
 
-        return try await importTextLines(value)
-    }
-
-    private static func importURL(_ url: URL) async throws -> ImportedPlaylist {
-        let absolute = url.absoluteString
-        guard let descriptor = descriptor(for: absolute) else {
-            throw PlaylistImportError.unsupportedLink
-        }
-
-        let detail = try await LXCatalogService.playlistDetail(source: descriptor.source,
-                                                                 id: descriptor.id)
-        guard !detail.tracks.isEmpty else { throw PlaylistImportError.noTracks }
-        return ImportedPlaylist(name: detail.name, coverURL: detail.coverURL,
-                                sourceName: detail.source.displayName, tracks: detail.tracks)
-    }
-
-    private struct Descriptor {
-        let source: LXCatalogPlatform
-        let id: String
-    }
-
-    private static func descriptor(for value: String) -> Descriptor? {
-        let lowercased = value.lowercased()
-        if lowercased.contains("music.163.com") || lowercased.contains("163cn.tv") {
-            if let id = firstCapture(#"(?:[?&#]|playlist%3fid=|playlist\?id=)(\d+)"#, in: value) {
-                return Descriptor(source: .wy, id: id)
-            }
-            if let id = queryValue("id", in: value) { return Descriptor(source: .wy, id: id) }
-        }
-        if lowercased.contains("y.qq.com") || lowercased.contains("qq.com") {
-            if let id = firstCapture(#"(?:playlist|dissid)[/=:](\d+)"#, in: value)
-                ?? queryValue("dissid", in: value) {
-                return Descriptor(source: .tx, id: id)
-            }
-        }
-        if lowercased.contains("kuwo.cn") {
-            if let id = queryValue("playlistid", in: value) ?? queryValue("pid", in: value) {
-                return Descriptor(source: .kw, id: id)
-            }
-        }
-        if lowercased.contains("kugou.com") {
-            if let id = firstCapture(#"(?:single|specialid)[/=](\d+)"#, in: value)
-                ?? queryValue("specialid", in: value) {
-                return Descriptor(source: .kg, id: "id_\(id)")
-            }
-        }
-        if lowercased.contains("migu.cn") || lowercased.contains("miguvideo.com") {
-            if let id = queryValue("playlistId", in: value) ?? queryValue("playlistid", in: value) {
-                return Descriptor(source: .mg, id: id)
-            }
-        }
-        return nil
+        throw PlaylistImportError.invalidFormat
     }
 
     private static func importJSON(_ object: Any) throws -> ImportedPlaylist {
@@ -291,30 +241,6 @@ private enum PlaylistImportService {
                      sourceMetadata: metadata)
     }
 
-    private static func importTextLines(_ value: String) async throws -> ImportedPlaylist {
-        let lines = value.components(separatedBy: .newlines).map {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines)
-        }.filter { !$0.isEmpty && !$0.hasPrefix("#") }
-        guard !lines.isEmpty else { throw PlaylistImportError.invalidFormat }
-
-        let tracks = await withTaskGroup(of: Track?.self, returning: [Track].self) { group in
-            for line in lines.prefix(100) {
-                group.addTask {
-                    let query = line.components(separatedBy: " - ").first ?? line
-                    return (try? await LXCatalogService.search(query, platform: .aggregate, limit: 1))?.first
-                }
-            }
-            var result: [Track] = []
-            for await track in group {
-                if let track { result.append(track) }
-            }
-            return result
-        }
-        guard !tracks.isEmpty else { throw PlaylistImportError.noTracks }
-        return ImportedPlaylist(name: "导入歌单", coverURL: nil,
-                                sourceName: "聚合搜索匹配", tracks: tracks)
-    }
-
     private static func durationMS(_ value: [String: Any]) -> Int {
         let raw = value["durationMS"] ?? value["dt"] ?? value["duration"] ?? value["interval"]
             ?? value["Duration"]
@@ -340,17 +266,4 @@ private enum PlaylistImportService {
         return Int(hash & 0x7fff_ffff)
     }
 
-    private static func queryValue(_ key: String, in value: String) -> String? {
-        guard let components = URLComponents(string: value) else { return nil }
-        return components.queryItems?.first(where: { $0.name.lowercased() == key.lowercased() })?.value
-            ?? firstCapture("(?:[?&#])\(NSRegularExpression.escapedPattern(for: key))=([A-Za-z0-9_-]+)", in: value)
-    }
-
-    private static func firstCapture(_ pattern: String, in value: String) -> String? {
-        guard let expression = try? NSRegularExpression(pattern: pattern),
-              let match = expression.firstMatch(in: value, range: NSRange(location: 0, length: value.utf16.count)),
-              match.numberOfRanges > 1,
-              let range = Range(match.range(at: 1), in: value) else { return nil }
-        return String(value[range])
-    }
 }

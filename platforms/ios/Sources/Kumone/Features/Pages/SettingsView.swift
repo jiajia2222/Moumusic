@@ -2,7 +2,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
-    @EnvironmentObject private var account: AccountStore
 #if os(iOS)
     @StateObject private var lxStore = LXSourceStore.shared
 #endif
@@ -14,11 +13,10 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("播放") {
-                Toggle("播放源失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
-                Text("默认开启；当前平台或 LX 音源无法解析时，会按已声明的可用平台继续尝试。")
+                Text("音频、歌词和封面只通过已导入的 LX 音源解析。为避免后台请求预置音乐平台，已取消跨平台自动回退。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("音质在歌曲播放页调整；音频始终由已启用的 LX 音源返回。")
+                Text("音质在歌曲播放页调整；可用档位由当前 LX 音源声明。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -39,19 +37,6 @@ struct SettingsView: View {
                 }
                 .frame(minHeight: 44)
                 Text("音源管理是独立页面：可导入文件或在线链接、切换当前音源，并测试 musicUrl 接口。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-#endif
-
-#if os(iOS)
-            Section("首页推荐") {
-                Picker("首页推荐平台", selection: homePlatformSelection) {
-                    ForEach(LXCatalogPlatform.allCases.filter { $0 != .aggregate }) { platform in
-                        Text(platform.displayName).tag(platform)
-                    }
-                }
-                Text("首页和精选使用这里选择的平台；搜索页仍可单独使用聚合搜索。音源脚本只负责播放、歌词和封面解析。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -81,17 +66,6 @@ struct SettingsView: View {
             Section("存储") {
                 LabeledContent("图片缓存", value: cacheSize)
                 Button("清除缓存") { clearCache() }
-            }
-
-            Section("账号") {
-                if let profile = account.profile {
-                    LabeledContent("当前账号", value: profile.nickname)
-                    Button("退出登录", role: .destructive) {
-                        Task { await AccountStore.shared.logout() }
-                    }
-                } else {
-                    Text("未登录").foregroundStyle(.secondary)
-                }
             }
 
             Section("更新") {
@@ -129,20 +103,6 @@ struct SettingsView: View {
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
-
-#if os(iOS)
-    private var homePlatformSelection: Binding<LXCatalogPlatform> {
-        Binding(
-            get: {
-                settings.homeRecommendationPlatform
-            },
-            set: { platform in
-                settings.homeRecommendationPlatform = platform
-                settings.homeRecommendationMode = .lx
-            }
-        )
-    }
-#endif
 
     private var cacheDirectory: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]

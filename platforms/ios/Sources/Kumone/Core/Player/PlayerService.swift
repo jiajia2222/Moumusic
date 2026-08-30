@@ -776,9 +776,11 @@ final class PlayerService: ObservableObject {
 
         if !startScrobbled {
             startScrobbled = true
+#if !os(iOS)
             let tid = track.id
             let sid = source.sourceID
             Task.detached { await NeteaseAPI.scrobbleStart(trackID: tid, sourceID: sid) }
+#endif
         }
 
 #if os(macOS)
@@ -819,7 +821,15 @@ final class PlayerService: ObservableObject {
                 return
             }
         }
-#endif
+
+        // Source-only iOS mode never falls back to a NetEase or catalogue
+        // lyric endpoint. A source without `lyric` simply leaves the lyric
+        // panel empty instead of contacting a built-in provider.
+        guard generation == resolveGeneration else { return }
+        lyrics = ParsedLyrics()
+        updateLyricsCursor(at: progress)
+        return
+#else
 
         // LX song IDs belong to their own platform and must not be sent
         // directly to NetEase. For an LX result, search NetEase by metadata
@@ -879,6 +889,8 @@ final class PlayerService: ObservableObject {
         }
 #endif
 
+#endif
+
         guard generation == resolveGeneration else { return }
         // A completed lookup should render an empty state instead of leaving
         // the lyric panel in an infinite loading spinner.
@@ -893,9 +905,11 @@ final class PlayerService: ObservableObject {
         scrobbled = true
         let seconds = completed ? Int(duration) : Int(progress)
         let sourceID = source.sourceID
+#if !os(iOS)
         Task.detached {
             await NeteaseAPI.scrobbleFinish(trackID: track.id, sourceID: sourceID, seconds: seconds)
         }
+#endif
     }
 
     // MARK: - Shuffle helpers

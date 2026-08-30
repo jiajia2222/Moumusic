@@ -80,6 +80,7 @@ struct LXSourceManagerView: View {
         Form {
             sourceListSection
             importSection
+            verifiedSourceSection
             statusSection
         }
     }
@@ -135,6 +136,42 @@ struct LXSourceManagerView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(minHeight: 44)
+        }
+    }
+
+    @ViewBuilder
+    private var verifiedSourceSection: some View {
+        Section("已验证的参考音源") {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("星海音乐源")
+                    .font(.body.weight(.medium))
+                Text("发布前已完成脚本加载和 musicUrl 只读验证：酷我、咪咕 128k 可返回播放地址。第三方接口会随时变动，导入后仍请用“测试当前音源”复核。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button {
+                onlineSourceURL = Self.xinghaiSourceURL
+                importOnlineSource()
+            } label: {
+                if isLoadingOnline {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("导入星海音乐源", systemImage: "arrow.down.circle")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .disabled(isLoadingOnline)
+            .frame(minHeight: 44)
+
+            Link(destination: URL(string: "https://github.com/cdyUuu/lx-music-xinghai-source")!) {
+                Label("查看源码和在线链接", systemImage: "link")
+            }
+            .frame(minHeight: 44)
+        } footer: {
+            Text("这里只提供用户主动导入的公开脚本，不会在首次启动时自动写入或启用任何音源。")
         }
     }
 
@@ -351,6 +388,8 @@ struct LXSourceManagerView: View {
             isLoadingOnline = false
         }
     }
+
+    private static let xinghaiSourceURL = "https://raw.githubusercontent.com/cdyUuu/lx-music-xinghai-source/main/xinghai-music-source.js"
 
     private func checkSource(_ source: LXSourceStore.Source) {
         guard testingSourceID == nil else { return }

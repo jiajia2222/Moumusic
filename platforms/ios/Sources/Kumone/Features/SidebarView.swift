@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 struct SidebarView: View {
@@ -314,6 +315,7 @@ private struct SidebarRow: View {
         }
     }
 }
+#endif
 
 private struct SidebarPlaylistRow: View {
     let playlist: PlaylistSummary
