@@ -1,4 +1,8 @@
 import SwiftUI
+#if os(iOS)
+import MediaPlayer
+import UIKit
+#endif
 
 /// Immersive full-window now-playing page: artwork-tinted gradient backdrop,
 /// large artwork on the left, big synced lyrics on the right.
@@ -257,6 +261,8 @@ struct NowPlayingView: View {
             VStack(spacing: 12) {
                 NowPlayingScrubber()
                     .padding(.horizontal, 24)
+                CompactVolumeControl()
+                    .padding(.horizontal, 24)
                 controls
             }
             .padding(.bottom, 24)
@@ -328,6 +334,7 @@ struct NowPlayingView: View {
             CompactSecondaryControls(
                 showsLyrics: showLyricsOnMobile,
                 showsQueue: showQueueOnMobile,
+                onShowQuality: { showQualityPicker = true },
                 onToggleLyrics: toggleImmersiveLyrics,
                 onToggleQueue: toggleImmersiveQueue
             )
@@ -472,11 +479,25 @@ struct NowPlayingView: View {
             NowPlayingScrubber()
                 .padding(.horizontal, 2)
                 .padding(.top, 16)
+            CompactVolumeControl()
+                .padding(.horizontal, 2)
             MinimalTransportControls(
                 backdrop: colors,
                 showQueue: $showQueueOnMobile
             )
                 .padding(.horizontal, 2)
+            Button {
+                showQualityPicker = true
+            } label: {
+                Label("音质：\(player.currentQuality.badge)", systemImage: "waveform")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 44)
+                    .background(.white.opacity(0.12), in: Capsule())
+            }
+            .buttonStyle(.pressable)
+            .accessibilityLabel("选择播放音质")
         }
         .accessibilityIdentifier("immersiveControls")
     }
@@ -1233,6 +1254,21 @@ private struct CompactTransportControls: View {
 }
 
 private struct CompactVolumeControl: View {
+#if os(iOS)
+    var body: some View {
+        HStack(spacing: 11) {
+            Image(systemName: "speaker.fill")
+                .font(.caption2)
+            MPSystemVolumeSlider()
+                .frame(height: 28)
+            Image(systemName: "speaker.wave.3.fill")
+                .font(.caption)
+        }
+        .foregroundStyle(.white.opacity(0.7))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("系统音量")
+    }
+#else
     @EnvironmentObject private var player: PlayerService
     @State private var isDragging = false
 
@@ -1294,17 +1330,44 @@ private struct CompactVolumeControl: View {
             break
         }
     }
+#endif
 }
+
+#if os(iOS)
+private struct MPSystemVolumeSlider: UIViewRepresentable {
+    func makeUIView(context: Context) -> MPVolumeView {
+        let view = MPVolumeView(frame: .zero)
+        view.showsRouteButton = false
+        view.showsVolumeSlider = true
+        view.tintColor = .white
+        if let slider = view.subviews.compactMap({ $0 as? UISlider }).first {
+            slider.minimumTrackTintColor = .white
+            slider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.28)
+            slider.accessibilityLabel = "系统音量"
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
+}
+#endif
 
 private struct CompactSecondaryControls: View {
     @EnvironmentObject private var player: PlayerService
     let showsLyrics: Bool
     let showsQueue: Bool
+    let onShowQuality: () -> Void
     let onToggleLyrics: () -> Void
     let onToggleQueue: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
+            secondaryButton(
+                icon: "waveform",
+                label: "选择播放音质",
+                action: onShowQuality
+            )
+
             secondaryButton(
                 icon: showsLyrics && !showsQueue ? "quote.bubble.fill" : "quote.bubble",
                 label: showsLyrics ? "显示封面" : "显示歌词",

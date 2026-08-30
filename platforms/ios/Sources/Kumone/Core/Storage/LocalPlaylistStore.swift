@@ -29,7 +29,7 @@ enum PlaylistImportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .emptyInput: return "请输入歌单 JSON 文件内容"
-        case .unsupportedLink: return "在线歌单链接解析已移除；请从原音乐软件导出并导入 JSON 歌单"
+        case .unsupportedLink: return "只支持网易云公开歌单链接；其他软件请导出 JSON 后导入"
         case .invalidFormat: return "无法识别歌单格式"
         case .noTracks: return "歌单中没有可导入的歌曲"
         }
@@ -148,8 +148,7 @@ private enum PlaylistImportService {
 
         if let url = URL(string: value), let scheme = url.scheme?.lowercased(),
            scheme == "http" || scheme == "https" {
-            _ = url
-            throw PlaylistImportError.unsupportedLink
+            return try await importNeteasePlaylist(from: url)
         }
 
         if let data = value.data(using: .utf8),
@@ -160,8 +159,102 @@ private enum PlaylistImportService {
         throw PlaylistImportError.invalidFormat
     }
 
-    private static func importJSON(_ object: Any) throws -> ImportedPlaylist {
-        let tracks = collectTracks(from: object)
+    private static func importNeteasePlaylist(from url: URL) async throws -> ImportedPlaylist {
+        let resolvedURL = (try? await resolveRedirect(from: url)) ?? url
+        guard let host = resolvedURL.host?.lowercased(),
+              host.contains("163cn.tv") || host.contains("music.163.com"),
+              let playlistID = neteasePlaylistID(from: resolvedURL)
+                ?? neteasePlaylistID(from: url) else {
+            throw PlaylistImportError.unsupportedLink
+        }
+
+        var components = URLComponents(string: "https://music.163.com/api/v6/playlist/detail")!
+        components.queryItems = [
+            URLQueryItem(name: "id", value: String(playlistID)),
+            URLQueryItem(name: "n", value: "1000"),
+        ]
+        let root = try await fetchJSONObject(components.url!)
+        if let code = int(root["code"]), code != 200 {
+            throw PlaylistImportError.invalidFormat
+        }
+        guard let playlist = (root["playlist"] as? [String: Any])
+                ?? ((root["result"] as? [String: Any])?["playlist"] as? [String: Any]) else {
+            throw PlaylistImportError.invalidFormat
+        }
+
+        var tracks = collectTracks(from: playlist["tracks"] ?? [], defaultSource: "wy")
+        let ids = (playlist["trackIds"] as? [[String: Any]])?
+            .compactMap { string($0["id"]) }
+            .filter { !$0.isEmpty } ?? []
+        // The v6 endpoint deliberately returns only a preview in `tracks`
+        // even when n=1000. Fetch the full trackIds list so a shared playlist
+        // is not silently truncated to ten songs.
+        if tracks.count < ids.count, !ids.isEmpty {
+            var detailComponents = URLComponents(string: "https://music.163.com/api/song/detail")!
+            detailComponents.queryItems = [
+                URLQueryItem(name: "ids", value: "[\(ids.joined(separator: ","))]"),
+            ]
+            if let details = try? await fetchJSONObject(detailComponents.url!) {
+                let detailedTracks = collectTracks(from: details["songs"] ?? details["data"] ?? details,
+                                                    defaultSource: "wy")
+                if !detailedTracks.isEmpty { tracks = detailedTracks }
+            }
+        }
+        guard !tracks.isEmpty else { throw PlaylistImportError.noTracks }
+
+        let name = string(playlist["name"]) ?? "网易云歌单 \(playlistID)"
+        let cover = string(playlist["coverImgUrl"])
+            ?? string(playlist["picUrl"])
+            ?? string(playlist["cover"])
+        return ImportedPlaylist(name: name, coverURL: cover,
+                                sourceName: "网易云", tracks: tracks)
+    }
+
+    private static func resolveRedirect(from url: URL) async throws -> URL {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+                         forHTTPHeaderField: "User-Agent")
+        let (_, response) = try await URLSession.shared.data(for: request)
+        return response.url ?? url
+    }
+
+    private static func fetchJSONObject(_ url: URL) async throws -> [String: Any] {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+                         forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw PlaylistImportError.invalidFormat
+        }
+        return object
+    }
+
+    private static func neteasePlaylistID(from url: URL) -> Int? {
+        func queryID(_ components: URLComponents?) -> Int? {
+            components?.queryItems?.first(where: { $0.name.lowercased() == "id" })?.value
+                .flatMap(Int.init)
+        }
+
+        if let id = queryID(URLComponents(url: url, resolvingAgainstBaseURL: false)) {
+            return id
+        }
+        if let fragment = url.fragment,
+           let id = queryID(URLComponents(string: fragment)) {
+            return id
+        }
+        let parts = url.path.split(separator: "/").map(String.init)
+        if let index = parts.firstIndex(where: { $0.lowercased() == "playlist" }),
+           index + 1 < parts.count {
+            return Int(parts[index + 1])
+        }
+        return nil
+    }
+
+    private static func importJSON(_ object: Any, defaultSource: String? = nil) throws -> ImportedPlaylist {
+        let tracks = collectTracks(from: object, defaultSource: defaultSource)
         guard !tracks.isEmpty else { throw PlaylistImportError.noTracks }
         let root = object as? [String: Any]
         let name = string(root?["name"])
@@ -176,24 +269,24 @@ private enum PlaylistImportService {
                                 sourceName: string(root?["source"]), tracks: tracks)
     }
 
-    private static func collectTracks(from object: Any) -> [Track] {
+    private static func collectTracks(from object: Any, defaultSource: String? = nil) -> [Track] {
         if let array = object as? [Any] {
-            return array.flatMap(collectTracks)
+            return array.flatMap { collectTracks(from: $0, defaultSource: defaultSource) }
         }
         guard let dictionary = object as? [String: Any] else { return [] }
-        if let track = makeTrack(dictionary) { return [track] }
+        if let track = makeTrack(dictionary, defaultSource: defaultSource) { return [track] }
 
         let keys = ["tracks", "songs", "musicList", "musiclist", "list", "playlist", "data", "result"]
         for key in keys {
             if let nested = dictionary[key] {
-                let tracks = collectTracks(from: nested)
+                let tracks = collectTracks(from: nested, defaultSource: defaultSource)
                 if !tracks.isEmpty { return tracks }
             }
         }
         return []
     }
 
-    private static func makeTrack(_ value: [String: Any]) -> Track? {
+    private static func makeTrack(_ value: [String: Any], defaultSource: String? = nil) -> Track? {
         let name = string(value["name"]) ?? string(value["songName"])
             ?? string(value["SongName"]) ?? string(value["title"])
             ?? string(value["songname"])
@@ -233,7 +326,7 @@ private enum PlaylistImportService {
                     "albumId", "strMediaMid", "albumMid", "id"] {
             if let value = string(value[key]), !value.isEmpty { metadata[key] = value }
         }
-        let source = string(value["source"])?.lowercased()
+        let source = string(value["source"])?.lowercased() ?? defaultSource
         return Track(id: id, name: name, artists: artists,
                      album: AlbumRef(id: Int(string(albumDictionary?["id"]) ?? "") ?? 0,
                                     name: albumName, picUrl: cover),

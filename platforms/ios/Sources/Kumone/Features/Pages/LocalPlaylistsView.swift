@@ -135,7 +135,7 @@ struct ImportPlaylistSheet: View {
                         .font(.body)
                         .overlay(alignment: .topLeading) {
                             if input.isEmpty {
-                                Text("粘贴从其他音乐软件导出的歌单 JSON；歌曲必须包含 source 与 sourceMetadata，供 LX 音源解析。")
+                                Text("粘贴网易云公开歌单链接，或粘贴其他音乐软件导出的歌单 JSON。网易云歌曲仍由已选 LX 音源负责播放。")
                                     .foregroundStyle(.tertiary)
                                     .padding(.top, 8)
                                     .allowsHitTesting(false)
@@ -164,7 +164,7 @@ struct ImportPlaylistSheet: View {
                 }
 
                 Section("说明") {
-                    Text("导入歌单只保存到本机，不会修改原音乐软件的歌单。为避免调用软件预置的平台接口，在线歌单链接、聚合搜索和纯文本自动匹配已移除。")
+                    Text("歌单只保存到本机，不会修改原音乐软件。支持网易云公开歌单链接和 JSON；在线目录只读取公开信息，实际播放仍使用你自己添加的 LX 音源。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
