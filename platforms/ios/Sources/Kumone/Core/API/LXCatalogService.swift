@@ -308,7 +308,7 @@ enum LXCatalogService {
             let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
             defer { buffer.deallocate() }
             let count = data.withUnsafeBytes { source in
-                compression_decode_buffer(buffer, capacity, source.bindMemory(to: UInt8.self).baseAddress,
+                compression_decode_buffer(buffer, capacity, source.bindMemory(to: UInt8.self).baseAddress!,
                                            data.count, nil, COMPRESSION_ZLIB)
             }
             if count > 0 { return Data(bytes: buffer, count: count) }
@@ -334,7 +334,7 @@ enum LXCatalogService {
             guard let match = line.firstMatch(of: pattern),
                   let milliseconds = Int(match.output.1) else { return nil }
             let text = String(match.output.3)
-                .replacingOccurrences(of: #/<\d+,\d+(?:,\d+)?>/#, with: "",
+                .replacingOccurrences(of: #"<\d+,\d+(?:,\d+)?>"#, with: "",
                                       options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
