@@ -18,6 +18,7 @@ struct NowPlayingView: View {
     @State private var isUserScrolling = false
     @State private var resumeTask: Task<Void, Never>?
     @State private var showLyricsOnMobile = false
+    @State private var showQualityPicker = false
     #if os(iOS)
     @State private var showQueueOnMobile = false
     #endif
@@ -54,22 +55,39 @@ struct NowPlayingView: View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if isCompact, showsClassicChrome(isCompact: isCompact) {
-                    Button {
-                        withAnimation(AppAnimation.standard) {
-                            showLyricsOnMobile.toggle()
+                HStack(spacing: 8) {
+                    if player.currentTrack != nil {
+                        Button {
+                            showQualityPicker = true
+                        } label: {
+                            Text(player.currentQuality.badge)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .padding(.horizontal, 8)
+                                .frame(minHeight: 36)
+                                .background(.white.opacity(0.12), in: Capsule())
                         }
-                    } label: {
-                        Image(systemName: showLyricsOnMobile ? "music.note" : "quote.bubble")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(showLyricsOnMobile ? Theme.accent : .white.opacity(0.85))
-                            .frame(width: 36, height: 36)
-                            .background(.white.opacity(0.12), in: Circle())
+                        .buttonStyle(.pressable)
+                        .accessibilityLabel("音质")
                     }
-                    .buttonStyle(.pressable)
-                    .padding(.top, 20)
-                    .padding(.trailing, 20)
+
+                    if isCompact, showsClassicChrome(isCompact: isCompact) {
+                        Button {
+                            withAnimation(AppAnimation.standard) {
+                                showLyricsOnMobile.toggle()
+                            }
+                        } label: {
+                            Image(systemName: showLyricsOnMobile ? "music.note" : "quote.bubble")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(showLyricsOnMobile ? Theme.accent : .white.opacity(0.85))
+                                .frame(width: 36, height: 36)
+                                .background(.white.opacity(0.12), in: Circle())
+                        }
+                        .buttonStyle(.pressable)
+                    }
                 }
+                .padding(.top, 20)
+                .padding(.trailing, 20)
             }
             #if os(iOS)
             .overlay {
@@ -114,6 +132,11 @@ struct NowPlayingView: View {
             close()
         }
         #endif
+        .sheet(isPresented: $showQualityPicker) {
+            QualityPickerSheet()
+                .environmentObject(player)
+                .environmentObject(settings)
+        }
     }
 
     private var hasLyricsColumn: Bool {
@@ -818,6 +841,70 @@ struct LyricMainText: View {
             }
         }
         return out
+    }
+}
+
+private struct QualityPickerSheet: View {
+    @EnvironmentObject private var player: PlayerService
+    @Environment(\.dismiss) private var dismiss
+    @State private var available: [AudioQuality] = AudioQuality.allCases
+    @State private var loading = true
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("当前歌曲") {
+                    Text(player.currentTrack?.name ?? "未播放歌曲")
+                        .lineLimit(2)
+                    Text("可用音质会随当前平台和音源变化")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("选择音质") {
+                    ForEach(available) { quality in
+                        Button {
+                            player.selectQuality(quality)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Text(quality.displayName)
+                                Spacer()
+                                if player.currentQuality == quality {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(Theme.accent)
+                                }
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                        .frame(minHeight: 44)
+                    }
+                }
+
+                if loading {
+                    ProgressView("正在读取音源支持的音质")
+                }
+
+                Section {
+                    Text("如果选定音质不可用，播放器会自动回退到当前音源支持的较低音质。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("播放音质")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .task {
+            available = await player.availableQualitiesForCurrentTrack()
+            loading = false
+        }
     }
 }
 

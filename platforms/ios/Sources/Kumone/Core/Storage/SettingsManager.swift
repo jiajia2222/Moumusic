@@ -28,6 +28,25 @@ enum AudioQuality: String, CaseIterable, Identifiable {
         case .hires: return String(localized: "高解析")
         }
     }
+
+    var lxType: String {
+        switch self {
+        case .standard: return "128k"
+        case .higher, .exhigh: return "320k"
+        case .lossless: return "flac"
+        case .hires: return "flac24bit"
+        }
+    }
+
+    init?(lxType: String) {
+        switch lxType.lowercased() {
+        case "128k", "m4a": self = .standard
+        case "320k": self = .exhigh
+        case "flac", "ape": self = .lossless
+        case "flac24bit", "flac24", "hires": self = .hires
+        default: return nil
+        }
+    }
 }
 
 enum AppAppearance: String, CaseIterable, Identifiable {
@@ -107,6 +126,7 @@ final class SettingsManager: ObservableObject {
         static let desktopLyrics = "settings.showDesktopLyrics"
         static let homeRecommendationMode = "settings.homeRecommendationMode"
         static let homeRecommendationPlatform = "settings.homeRecommendationPlatform"
+        static let sourcePlatformFallback = "settings.sourcePlatformFallback"
     }
 
     @Published var audioQuality: AudioQuality {
@@ -169,6 +189,12 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(homeRecommendationPlatform.rawValue, forKey: Keys.homeRecommendationPlatform) }
     }
 
+    /// Try other LX platform adapters when the selected playback source cannot
+    /// resolve a track. This is enabled by default for uninterrupted playback.
+    @Published var enableSourcePlatformFallback: Bool {
+        didSet { UserDefaults.standard.set(enableSourcePlatformFallback, forKey: Keys.sourcePlatformFallback) }
+    }
+
     private init() {
         let defaults = UserDefaults.standard
         audioQuality = defaults.string(forKey: Keys.quality).flatMap(AudioQuality.init) ?? .exhigh
@@ -192,5 +218,6 @@ final class SettingsManager: ObservableObject {
         let storedPlatform = defaults.string(forKey: Keys.homeRecommendationPlatform)
             .flatMap(LXCatalogPlatform.init)
         homeRecommendationPlatform = storedPlatform.flatMap { $0 == .aggregate ? nil : $0 } ?? .kw
+        enableSourcePlatformFallback = defaults.object(forKey: Keys.sourcePlatformFallback) as? Bool ?? true
     }
 }

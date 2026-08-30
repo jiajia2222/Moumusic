@@ -50,9 +50,9 @@ final class SearchViewModel: ObservableObject {
         Task { await loadHotKeywords() }
     }
 
-    func load(tab: Tab) async {
+    func load(tab: Tab, force: Bool = false) async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !loadedTabs.contains(tab) else { return }
+        guard !trimmed.isEmpty, force || !loadedTabs.contains(tab) else { return }
         isLoading = true
         defer { isLoading = false }
 
@@ -83,6 +83,7 @@ struct SearchView: View {
 
     @StateObject private var model: SearchViewModel
     @State private var searchText: String = ""
+    @FocusState private var searchFocused: Bool
 
     init(query: String) {
         self.initialQuery = query
@@ -93,6 +94,8 @@ struct SearchView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                searchBar
+
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     platformPicker
                     tabPicker
@@ -110,26 +113,63 @@ struct SearchView: View {
                 PlayerClearanceSpacer()
             }
         }
-        .searchable(text: $searchText, prompt: "搜索歌曲或歌单")
-        .onSubmit(of: .search) {
-            model.setQuery(searchText)
-            Task { await model.load(tab: model.tab) }
-        }
-        .onChange(of: searchText) { newValue in
-            model.setQuery(newValue)
-            Task {
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                guard searchText == newValue else { return }
-                await model.load(tab: model.tab)
-            }
-        }
-        .navigationTitle(searchText.isEmpty ? "搜索" : "搜索：\(searchText)")
+        .navigationTitle("搜索")
         .task(id: "\(model.tab.rawValue)-\(model.platform.rawValue)") {
             await model.load(tab: model.tab)
         }
         .task {
+            if !initialQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                model.setQuery(initialQuery)
+                await model.load(tab: model.tab, force: true)
+            }
             await model.loadHotKeywords()
         }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("搜索歌曲、歌手或歌单", text: $searchText)
+                .textFieldStyle(.plain)
+                .submitLabel(.search)
+                .focused($searchFocused)
+                .onSubmit { performSearch() }
+                .accessibilityLabel("搜索关键词")
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    model.setQuery("")
+                    searchFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 44, height: 44)
+                .accessibilityLabel("清除搜索关键词")
+            }
+
+            Button("搜索") { performSearch() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel("提交搜索")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, Theme.Layout.contentInset)
+        .padding(.top, 12)
+    }
+
+    private func performSearch(_ submittedText: String? = nil) {
+        let query = (submittedText ?? searchText).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        searchFocused = false
+        model.setQuery(query)
+        Task { await model.load(tab: model.tab, force: true) }
     }
 
     private var tabPicker: some View {
@@ -202,8 +242,7 @@ struct SearchView: View {
                     ForEach(Array(model.hotKeywords.prefix(20)), id: \.self) { keyword in
                         Button(keyword) {
                             searchText = keyword
-                            model.setQuery(keyword)
-                            Task { await model.load(tab: model.tab) }
+                            performSearch(keyword)
                         }
                         .buttonStyle(.bordered)
                         .frame(minHeight: 44)

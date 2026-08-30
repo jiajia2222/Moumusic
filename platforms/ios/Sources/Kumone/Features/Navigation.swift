@@ -69,6 +69,8 @@ enum Destination: Hashable {
     case collections
     case cloud
     case search(String)
+    case localPlaylists
+    case localPlaylist(UUID)
 }
 
 /// Registers all shared navigation destinations on a stack.
@@ -97,6 +99,10 @@ struct DestinationsModifier: ViewModifier {
                     CloudView()
                 case .search(let query):
                     SearchView(query: query)
+                case .localPlaylists:
+                    LocalPlaylistsView()
+                case .localPlaylist(let id):
+                    LocalPlaylistDetailView(playlistID: id)
                 }
             }
             .playerContentInset()

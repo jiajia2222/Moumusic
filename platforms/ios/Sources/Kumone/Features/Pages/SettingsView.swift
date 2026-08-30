@@ -21,6 +21,11 @@ struct SettingsView: View {
                 Text("当前 LX 音源无法解析时，允许尝试第三方解锁服务。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Toggle("播放源失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
+                Text("默认开启；当前平台或 LX 音源无法解析时，会按可用平台继续尝试。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
 #if os(iOS)

@@ -553,6 +553,16 @@ struct IOSLibraryView: View {
     var body: some View {
         List {
             Section {
+                NavigationLink(value: Destination.localPlaylists) {
+                    Label("本地歌单", systemImage: "music.note.list")
+                }
+            } header: {
+                Text("歌单")
+            } footer: {
+                Text("本地歌单不需要登录，可导入其他音乐软件的歌单，也可以在歌曲页面添加歌曲。")
+            }
+
+            Section {
                 Button {
                     showSourceManager = true
                 } label: {
