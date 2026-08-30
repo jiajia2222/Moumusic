@@ -771,10 +771,12 @@ final class PlayerService: ObservableObject {
             Task.detached { await NeteaseAPI.scrobbleStart(trackID: tid, sourceID: sid) }
         }
 
+#if os(macOS)
         if let time = data?.time, time > 0 {
             duration = TimeInterval(time) / 1000
             NowPlayingManager.shared.updateMetadata(for: track, duration: duration)
         }
+#endif
     }
 
     /// Resolves the asset's audio track, giving up after `timeout` so a slow or
