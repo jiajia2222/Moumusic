@@ -16,73 +16,7 @@ struct LXSourceManagerView: View {
     @State private var lxError: String?
 
     var body: some View {
-        Form {
-            Section {
-                if lxStore.sources.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "waveform.badge.plus")
-                            .font(.system(size: 28))
-                            .foregroundStyle(Theme.accent)
-                        Text("还没有 LX 音源")
-                            .font(.headline)
-                        Text("请导入 LX User API 文件，或添加在线脚本链接。")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
-                } else {
-                    ForEach(lxStore.sources) { source in
-                        sourceRow(source)
-                    }
-                }
-            } header: {
-                Text("已添加的音源")
-            } footer: {
-                Text("点击音源行即可切换当前播放源。删除按钮固定显示在右侧，也支持左滑删除。")
-            }
-
-            Section("添加音源") {
-                Button {
-                    isImportingFile = true
-                } label: {
-                    Label("从文件导入", systemImage: "doc.badge.plus")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(minHeight: 44)
-
-                Button {
-                    onlineSourceURL = ""
-                    isShowingOnlineImport = true
-                } label: {
-                    Label("从在线链接导入", systemImage: "link.badge.plus")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(minHeight: 44)
-            }
-
-            Section("当前音源状态") {
-                LabeledContent("状态", value: lxAPI.statusMessage)
-                if !lxAPI.capabilities.isEmpty {
-                    let abilities = lxAPI.capabilities
-                        .filter { !$0.value.isEmpty }
-                        .map { "\($0.key)：\($0.value.joined(separator: ", "))" }
-                        .sorted()
-                        .joined(separator: "\n")
-                    Text(abilities)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Button("重新加载当前音源") {
-                    lxAPI.loadSelectedSource()
-                }
-                .disabled(lxStore.selectedSource == nil)
-                .frame(minHeight: 44)
-            } footer: {
-                Text("播放地址、歌词和封面由所选 LX User API 脚本提供。音质请到“设置 → 播放”调整。")
-            }
-        }
+        content
         .formStyle(.grouped)
         .navigationTitle("LX 音源")
         .navigationBarTitleDisplayMode(.inline)
@@ -137,6 +71,98 @@ struct LXSourceManagerView: View {
         } message: {
             Text(sourceToDelete?.name ?? "")
         }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        Form {
+            sourceListSection
+            importSection
+            statusSection
+        }
+    }
+
+    @ViewBuilder
+    private var sourceListSection: some View {
+        Section {
+            if lxStore.sources.isEmpty {
+                emptySourceView
+            } else {
+                ForEach(lxStore.sources) { source in
+                    sourceRow(source)
+                }
+            }
+        } header: {
+            Text("已添加的音源")
+        } footer: {
+            Text("点击音源行即可切换当前播放源。删除按钮固定显示在右侧，也支持左滑删除。")
+        }
+    }
+
+    private var emptySourceView: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "waveform.badge.plus")
+                .font(.system(size: 28))
+                .foregroundStyle(Theme.accent)
+            Text("还没有 LX 音源")
+                .font(.headline)
+            Text("请导入 LX User API 文件，或添加在线脚本链接。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    private var importSection: some View {
+        Section("添加音源") {
+            Button {
+                isImportingFile = true
+            } label: {
+                Label("从文件导入", systemImage: "doc.badge.plus")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 44)
+
+            Button {
+                onlineSourceURL = ""
+                isShowingOnlineImport = true
+            } label: {
+                Label("从在线链接导入", systemImage: "link.badge.plus")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 44)
+        }
+    }
+
+    @ViewBuilder
+    private var statusSection: some View {
+        Section {
+            LabeledContent("状态", value: lxAPI.statusMessage)
+            if !activeCapabilitiesText.isEmpty {
+                Text(activeCapabilitiesText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Button("重新加载当前音源") {
+                lxAPI.loadSelectedSource()
+            }
+            .disabled(lxStore.selectedSource == nil)
+            .frame(minHeight: 44)
+        } header: {
+            Text("当前音源状态")
+        } footer: {
+            Text("播放地址、歌词和封面由所选 LX User API 脚本提供。音质请到“设置 → 播放”调整。")
+        }
+    }
+
+    private var activeCapabilitiesText: String {
+        lxAPI.capabilities
+            .filter { !$0.value.isEmpty }
+            .map { "\($0.key)：\($0.value.joined(separator: ", "))" }
+            .sorted()
+            .joined(separator: "\n")
     }
 
     @ViewBuilder
