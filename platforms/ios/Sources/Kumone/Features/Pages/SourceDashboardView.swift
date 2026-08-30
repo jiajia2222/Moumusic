@@ -5,10 +5,16 @@ import SwiftUI
 /// come from a user-imported local playlist and are resolved only by the
 /// selected LX User API source.
 struct SourceDashboardView: View {
+    let title: String
+
     @StateObject private var sourceStore = LXSourceStore.shared
     @StateObject private var sourceAPI = LXUserAPIService.shared
     @StateObject private var playlists = LocalPlaylistStore.shared
     @State private var showSourceManager = false
+
+    init(title: String = "音源") {
+        self.title = title
+    }
 
     var body: some View {
         ScrollView {
@@ -50,7 +56,7 @@ struct SourceDashboardView: View {
             }
             .padding(Theme.Layout.contentInset)
         }
-        .navigationTitle("音源")
+        .navigationTitle(title)
         .sheet(isPresented: $showSourceManager) {
             NavigationStack { LXSourceManagerView() }
         }

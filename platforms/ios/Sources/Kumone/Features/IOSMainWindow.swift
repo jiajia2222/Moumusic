@@ -18,6 +18,7 @@ public struct IOSMainWindow: View {
 
     @State private var selectedTab: IOSTab = .home
     @State private var homePath = NavigationPath()
+    @State private var explorePath = NavigationPath()
     @State private var searchPath = NavigationPath()
     @State private var playlistsPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
@@ -195,8 +196,12 @@ public struct IOSMainWindow: View {
     @available(iOS 26.0, *)
     private var iOS26TabView: some View {
         TabView(selection: $selectedTab) {
-            Tab("音源", systemImage: "waveform", value: .home) {
-                tabStack(.home) { SourceDashboardView() }
+            Tab("推荐", systemImage: "house", value: .home) {
+                tabStack(.home) { RecommendationView() }
+            }
+
+            Tab("发现", systemImage: "square.grid.2x2", value: .explore) {
+                tabStack(.explore) { SourceDashboardView(title: "发现") }
             }
 
             Tab("歌单", systemImage: "music.note.list", value: .playlists) {
@@ -244,7 +249,9 @@ public struct IOSMainWindow: View {
     private var selectedPage: some View {
         switch selectedTab {
         case .home:
-            tabStack(.home) { SourceDashboardView() }
+            tabStack(.home) { RecommendationView() }
+        case .explore:
+            tabStack(.explore) { SourceDashboardView(title: "发现") }
         case .search:
             tabStack(.search) { SearchView(query: "") }
         case .playlists:
@@ -257,6 +264,7 @@ public struct IOSMainWindow: View {
     private func popToRoot(_ tab: IOSTab) {
         switch tab {
         case .home: homePath = NavigationPath()
+        case .explore: explorePath = NavigationPath()
         case .search: searchPath = NavigationPath()
         case .playlists: playlistsPath = NavigationPath()
         case .settings: settingsPath = NavigationPath()
@@ -287,6 +295,7 @@ public struct IOSMainWindow: View {
     private func binding(for tab: IOSTab) -> Binding<NavigationPath> {
         switch tab {
         case .home: return $homePath
+        case .explore: return $explorePath
         case .search: return $searchPath
         case .playlists: return $playlistsPath
         case .settings: return $settingsPath
@@ -295,12 +304,13 @@ public struct IOSMainWindow: View {
 }
 
 enum IOSTab: Hashable {
-    case home, search, playlists, settings
+    case home, explore, search, playlists, settings
 }
 
 extension IOSMainWindow {
     static let tabItems: [GlassTabBar.Item] = [
-        .init(tab: .home, title: "音源", icon: "waveform"),
+        .init(tab: .home, title: "推荐", icon: "house"),
+        .init(tab: .explore, title: "发现", icon: "square.grid.2x2"),
         .init(tab: .search, title: "搜索", icon: "magnifyingglass"),
         .init(tab: .playlists, title: "歌单", icon: "music.note.list"),
         .init(tab: .settings, title: "设置", icon: "gearshape"),
