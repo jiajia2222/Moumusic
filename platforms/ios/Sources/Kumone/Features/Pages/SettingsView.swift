@@ -12,6 +12,11 @@ struct SettingsView: View {
                 Text("音质和实际播放源请在歌曲播放页调整；音频始终由已启用的 LX 音源返回。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Toggle("播放源失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
+                Text("默认开启；当前平台或 LX 音源无法解析时，会按可用平台继续尝试。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
 #if os(iOS)
