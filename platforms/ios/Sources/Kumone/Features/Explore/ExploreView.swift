@@ -2,32 +2,46 @@ import SwiftUI
 
 @MainActor
 final class ExploreViewModel: ObservableObject {
-    /// Shared so category selection and loaded pages survive sidebar switches.
     static let shared = ExploreViewModel()
 
-    static let categories: [String] = [
-        "全部", "推荐歌单", "精品歌单", "排行榜", "官方",
-        "华语", "流行", "摇滚", "民谣", "电子", "轻音乐", "说唱", "爵士", "古典",
-        "影视原声", "ACG", "古风", "怀旧", "治愈", "放松", "伤感", "快乐",
-        "学习", "工作", "运动", "驾车", "夜晚",
+    static let categories = [
+        "推荐", "最热", "最新", "华语", "流行", "摇滚", "民谣", "电子",
+        "轻音乐", "说唱", "古典", "影视原声", "ACG", "古风", "怀旧", "治愈",
     ]
 
-    @Published var selectedCategory = "全部"
-    @Published var playlists: [PlaylistSummary] = []
-    @Published var toplists: [ToplistItem] = []
+    @Published var platform: LXCatalogPlatform = .kw
+    @Published var selectedCategory = "推荐"
+    @Published var playlists: [LXPlaylistSummary] = []
     @Published var isLoading = false
     @Published var hasMore = true
-    private var offset = 0
-    private var highQualityBefore = 0
+    @Published var errorMessage: String?
+
+    private var page = 1
     private var loadTask: Task<Void, Never>?
+
+    func prepare(platform: LXCatalogPlatform) {
+        guard platform != self.platform else { return }
+        self.platform = platform
+        playlists = []
+        page = 1
+        hasMore = true
+        errorMessage = nil
+    }
+
+    func selectPlatform(_ platform: LXCatalogPlatform) {
+        guard platform != self.platform else { return }
+        prepare(platform: platform)
+        loadTask?.cancel()
+        loadTask = Task { await loadMore() }
+    }
 
     func select(_ category: String) {
         guard category != selectedCategory || playlists.isEmpty else { return }
         selectedCategory = category
         playlists = []
-        offset = 0
-        highQualityBefore = 0
+        page = 1
         hasMore = true
+        errorMessage = nil
         loadTask?.cancel()
         loadTask = Task { await loadMore() }
     }
@@ -37,69 +51,65 @@ final class ExploreViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        switch selectedCategory {
-        case "排行榜":
-            if let lists = try? await NeteaseAPI.toplists() {
-                toplists = lists
-            }
-            hasMore = false
-        case "推荐歌单":
-            if let result = try? await NeteaseAPI.personalizedPlaylists(limit: 100) {
-                playlists = result
-            }
-            hasMore = false
-        case "精品歌单":
-            if let result = try? await NeteaseAPI.highQualityPlaylists(before: highQualityBefore) {
-                let existing = Set(playlists.map(\.id))
-                playlists += result.playlists.filter { !existing.contains($0.id) }
-                highQualityBefore = result.lasttime ?? 0
-                hasMore = result.more ?? false
+        do {
+            let result: [LXPlaylistSummary]
+            if selectedCategory == "推荐" && page == 1 {
+                result = try await LXCatalogService.recommendedSonglists(platform: platform, limit: 30)
             } else {
-                hasMore = false
+                let keyword: String
+                switch selectedCategory {
+                case "最热": keyword = "热门"
+                case "最新": keyword = "最新"
+                default: keyword = selectedCategory
+                }
+                result = try await LXCatalogService.searchSonglists(keyword, platform: platform,
+                                                                     page: page, limit: 30)
             }
-        default:
-            let cat = selectedCategory == "官方" ? "官方" : selectedCategory
-            if let result = try? await NeteaseAPI.topPlaylists(
-                category: cat == "全部" ? "全部" : cat, offset: offset
-            ) {
-                let existing = Set(playlists.map(\.id))
-                playlists += result.playlists.filter { !existing.contains($0.id) }
-                offset += 50
-                hasMore = (result.more ?? false) && offset < 500
-            } else {
-                hasMore = false
-            }
+
+            var seen = Set(playlists.map { "\($0.source.rawValue)|\($0.id)" })
+            playlists += result.filter { seen.insert("\($0.source.rawValue)|\($0.id)").inserted }
+            page += 1
+            hasMore = selectedCategory != "推荐" && result.count >= 30 && page <= 6
+            errorMessage = playlists.isEmpty ? "当前平台暂时没有歌单，请切换平台或稍后重试" : nil
+        } catch {
+            errorMessage = playlists.isEmpty ? error.localizedDescription : nil
+            hasMore = false
         }
     }
 }
 
 struct ExploreView: View {
     @StateObject private var model = ExploreViewModel.shared
-    @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var settings: SettingsManager
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
+                platformPicker
                 categoryChips
-                    .padding(.top, 8)
 
-                if model.selectedCategory == "排行榜" {
-                    ToplistGrid(toplists: model.toplists)
-                        .padding(.horizontal, Theme.Layout.contentInset)
+                if model.isLoading && model.playlists.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 300)
+                } else if let errorMessage = model.errorMessage, model.playlists.isEmpty {
+                    ErrorStateView(message: errorMessage) {
+                        Task { await model.loadMore() }
+                    }
+                    .frame(minHeight: 300)
                 } else {
                     CardGrid {
                         ForEach(Array(model.playlists.enumerated()), id: \.element.id) { index, playlist in
-                            NavigationLink(value: Destination.playlist(playlist.id)) {
+                            NavigationLink(value: Destination.lxPlaylist(source: playlist.source, id: playlist.id)) {
                                 CoverCardBody(
                                     coverURL: playlist.coverURL?.resizedImageURL(384),
                                     title: playlist.name,
+                                    subtitle: [playlist.source.displayName, playlist.author]
+                                        .compactMap { $0 }.joined(separator: " · "),
                                     playCount: playlist.playCount
-                                ) {
-                                    playPlaylist(playlist.id)
-                                }
+                                )
                             }
                             .buttonStyle(.plain)
-                            .staggeredAppearance(index: index % 10, id: "explore-\(playlist.id)")
+                            .staggeredAppearance(index: index % 10, id: "explore-\(playlist.source.rawValue)-\(playlist.id)")
                         }
                     }
                     .padding(.horizontal, Theme.Layout.contentInset)
@@ -114,9 +124,7 @@ struct ExploreView: View {
                     } else if model.hasMore {
                         Color.clear
                             .frame(height: 1)
-                            .onAppear {
-                                Task { await model.loadMore() }
-                            }
+                            .onAppear { Task { await model.loadMore() } }
                     }
                 }
 
@@ -124,9 +132,36 @@ struct ExploreView: View {
             }
         }
         .navigationTitle("精选")
-        .task {
-            if model.playlists.isEmpty, model.toplists.isEmpty {
-                await model.loadMore()
+        .task(id: "\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)") {
+            let initialPlatform = settings.homeRecommendationMode == .netease
+                ? LXCatalogPlatform.wy : settings.homeRecommendationPlatform
+            model.prepare(platform: initialPlatform)
+            await model.loadMore()
+        }
+    }
+
+    private var platformPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("歌单平台")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(LXCatalogPlatform.allCases.filter { $0 != .aggregate }) { platform in
+                        Button { model.selectPlatform(platform) } label: {
+                            Text(platform.displayName)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(model.platform == platform ? .white : .primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(model.platform == platform ? Theme.accent : Color.secondary.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .frame(minHeight: 44)
+                    }
+                }
+                .padding(.horizontal, Theme.Layout.contentInset)
             }
         }
     }
@@ -136,10 +171,8 @@ struct ExploreView: View {
             HStack(spacing: 8) {
                 Spacer().frame(width: Theme.Layout.contentInset - 8)
                 ForEach(ExploreViewModel.categories, id: \.self) { category in
-                    Button {
-                        model.select(category)
-                    } label: {
-                        Text(LocalizedStringKey(category))
+                    Button { model.select(category) } label: {
+                        Text(category)
                     }
                     .buttonStyle(.chip(isSelected: model.selectedCategory == category))
                 }
@@ -148,22 +181,9 @@ struct ExploreView: View {
             .padding(.vertical, 2)
         }
     }
-
-    private func playPlaylist(_ id: Int) {
-        Task {
-            guard let detail = try? await NeteaseAPI.playlistDetail(id: id) else { return }
-            var tracks = detail.playlist.tracks
-            if tracks.isEmpty {
-                let ids = detail.playlist.trackIds.map(\.id)
-                tracks = (try? await NeteaseAPI.songDetails(ids: Array(ids.prefix(500))))?.songs ?? []
-            }
-            player.play(tracks: tracks, source: .playlist(id),
-                        context: .playlist(id: id, name: detail.playlist.name))
-        }
-    }
 }
 
-// MARK: - Toplist grid
+// MARK: - NetEase ranking page kept for the account/sidebar entry point.
 
 struct ToplistGrid: View {
     let toplists: [ToplistItem]

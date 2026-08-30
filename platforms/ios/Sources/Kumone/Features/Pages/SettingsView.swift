@@ -25,25 +25,14 @@ struct SettingsView: View {
 
 #if os(iOS)
             Section("首页推荐") {
-                Picker("首页内容", selection: $settings.homeRecommendationMode) {
-                    ForEach(HomeRecommendationMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
+                Picker("首页推荐平台", selection: homePlatformSelection) {
+                    ForEach(LXCatalogPlatform.allCases.filter { $0 != .aggregate }) { platform in
+                        Text(platform.displayName).tag(platform)
                     }
                 }
-                if settings.homeRecommendationMode == .lx {
-                    Picker("LX 推荐平台", selection: $settings.homeRecommendationPlatform) {
-                        ForEach(LXCatalogPlatform.allCases.filter { $0 != .aggregate }) { platform in
-                            Text(platform.displayName).tag(platform)
-                        }
-                    }
-                    Text("首页和漫游只使用这个 LX 平台；聚合搜索和热门关键词只在搜索页使用。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("首页显示网易云推荐。搜索页仍可单独选择 LX 平台或聚合搜索。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("首页和精选使用这里选择的平台；搜索页仍可单独使用聚合搜索。音源脚本只负责播放、歌词和封面解析。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 #endif
 
@@ -112,6 +101,21 @@ struct SettingsView: View {
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
+
+#if os(iOS)
+    private var homePlatformSelection: Binding<LXCatalogPlatform> {
+        Binding(
+            get: {
+                settings.homeRecommendationMode == .netease
+                    ? .wy : settings.homeRecommendationPlatform
+            },
+            set: { platform in
+                settings.homeRecommendationPlatform = platform
+                settings.homeRecommendationMode = platform == .wy ? .netease : .lx
+            }
+        )
+    }
+#endif
 
     private var cacheDirectory: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]

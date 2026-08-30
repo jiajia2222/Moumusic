@@ -51,14 +51,15 @@ enum LyricsParser {
     static func parseLX(lyric: String, tlyric: String? = nil,
                         rlyric: String? = nil, lxlyric: String? = nil) -> ParsedLyrics {
         var result = ParsedLyrics()
-        let main = parseLRC(lyric).filter { !$0.text.isEmpty }
+        let timedMain = parseLRC(lyric).filter { !$0.text.isEmpty }
+        let main = timedMain.isEmpty ? parsePlainText(lyric) : timedMain
         var lines = main.enumerated().map { index, line in
             LyricLine(id: index, time: line.time, text: line.text)
         }
 
         func merge(_ body: String?, into keyPath: WritableKeyPath<LyricLine, String?>) {
             guard let body, !body.isEmpty else { return }
-            let secondary = parseLRC(body)
+            let secondary = parseLRC(body).filter { !$0.text.isEmpty }
             for index in lines.indices {
                 guard let nearest = secondary.min(by: {
                     abs($0.time - lines[index].time) < abs($1.time - lines[index].time)
@@ -73,13 +74,42 @@ enum LyricsParser {
         return result
     }
 
+    /// LX source scripts are not completely consistent: most return LRC,
+    /// while some return escaped newlines or an un-timestamped lyric body.
+    /// Normalize those forms before parsing so the UI never silently receives
+    /// an empty `ParsedLyrics` just because the source omitted LRC timestamps.
+    private static func parsePlainText(_ body: String) -> [(time: TimeInterval, text: String)] {
+        let normalized = normalize(body)
+        guard !normalized.isEmpty else { return [] }
+        return normalized.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { line in
+                // Drop LRC metadata such as [ar:…] when a source has mixed
+                // metadata and plain text, but keep ordinary lyric text.
+                !(line.hasPrefix("[") && line.contains("]"))
+            }
+            .enumerated()
+            .map { index, text in (Double(index) * 0.01, text) }
+    }
+
+    private static func normalize(_ body: String) -> String {
+        body
+            .replacingOccurrences(of: "\\r\\n", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\r", with: "\n")
+            .replacingOccurrences(of: "\\uFEFF", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\u{FEFF}"))
+    }
+
     /// Parses an LRC body into (time, text) pairs. Handles multiple timestamps
     /// per line and both `.` / `:` millisecond separators.
     static func parseLRC(_ lrc: String) -> [(time: TimeInterval, text: String)] {
         var result: [(TimeInterval, String)] = []
         let timeTag = #/\[(\d+):(\d+)(?:[.:](\d+))?\]/#
 
-        for rawLine in lrc.components(separatedBy: .newlines) {
+        for rawLine in normalize(lrc).components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
             let matches = line.matches(of: timeTag)

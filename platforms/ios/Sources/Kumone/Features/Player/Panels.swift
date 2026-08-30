@@ -96,6 +96,8 @@ struct LyricsPanel: View {
                     }
                 )
             }
+        } else if player.lyrics != nil, player.lyrics?.isInstrumental != true {
+            EmptyStateView(icon: "quote.bubble", title: "暂无歌词")
         } else if player.lyrics?.isInstrumental == true {
             EmptyStateView(icon: "music.quarternote.3", title: "纯音乐", subtitle: "请欣赏")
         } else if player.hasCurrentTrack {

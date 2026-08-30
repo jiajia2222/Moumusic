@@ -1,5 +1,7 @@
 import Foundation
 import CommonCrypto
+import Compression
+import CoreFoundation
 
 /// LX Music's catalogue side. Search, songlists and hot words come from the
 /// selected catalogue platform; an imported User API script is kept for
@@ -274,6 +276,20 @@ enum LXCatalogService {
         return try JSONSerialization.jsonObject(with: data)
     }
 
+    private static func fetchData(_ url: URL, method: String = "GET", body: Data? = nil,
+                                  headers: [String: String] = [:]) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.httpBody = body
+        request.setValue("Moumusic/0.5", forHTTPHeaderField: "User-Agent")
+        headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw LXCatalogError.invalidResponse
+        }
+        return data
+    }
+
     private static func fetchText(_ url: URL) async throws -> String {
         var request = URLRequest(url: url)
         request.setValue("Moumusic/0.5", forHTTPHeaderField: "User-Agent")
@@ -283,6 +299,49 @@ enum LXCatalogService {
             throw LXCatalogError.invalidResponse
         }
         return text
+    }
+
+    private static func inflateZlib(_ data: Data) -> Data? {
+        guard !data.isEmpty else { return nil }
+        var capacity = max(data.count * 8, 64 * 1024)
+        while capacity <= 8 * 1024 * 1024 {
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
+            defer { buffer.deallocate() }
+            let count = data.withUnsafeBytes { source in
+                compression_decode_buffer(buffer, capacity, source.bindMemory(to: UInt8.self).baseAddress,
+                                           data.count, nil, COMPRESSION_ZLIB)
+            }
+            if count > 0 { return Data(bytes: buffer, count: count) }
+            capacity *= 2
+        }
+        return nil
+    }
+
+    private static func decodeGB18030(_ data: Data) -> String? {
+        #if canImport(CoreFoundation)
+        let encoding = CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+        )
+        return String(data: data, encoding: String.Encoding(rawValue: encoding))
+        #else
+        return String(data: data, encoding: .utf8)
+        #endif
+    }
+
+    private static func parseKugouLRC(_ raw: String) -> String {
+        let pattern = #/^\[(\d+),(\d+)\](.*)$/#
+        return raw.components(separatedBy: .newlines).compactMap { line in
+            guard let match = line.firstMatch(of: pattern),
+                  let milliseconds = Int(match.output.1) else { return nil }
+            let text = String(match.output.3)
+                .replacingOccurrences(of: #/<\d+,\d+(?:,\d+)?>/#, with: "",
+                                      options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            let minutes = milliseconds / 60_000
+            let seconds = Double(milliseconds % 60_000) / 1000
+            return String(format: "[%02d:%05.2f] %@", minutes, seconds, text)
+        }.joined(separator: "\n")
     }
 
     private static func text(_ value: Any?) -> String? {
@@ -392,17 +451,371 @@ enum LXCatalogService {
         }
     }
 
-    /// A lightweight recommendation feed for a single LX platform. The
-    /// upstream mobile app obtains this from each platform SDK; on iOS we use
-    /// that platform's own hot-search seed and then keep every returned track
-    /// source-tagged. It never runs aggregate search.
+    /// Loads the same kind of source-owned feed that LX Mobile exposes on its
+    /// song-list page.  The old iOS implementation searched the first hot
+    /// word, which is not a recommendation feed and can return placeholder
+    /// words from a user API.  Keeping the song list and its tracks together
+    /// also guarantees that a home recommendation never loses its platform.
+    static func recommendedContent(platform: LXCatalogPlatform, limit: Int = 30)
+        async -> (playlists: [LXPlaylistSummary], tracks: [Track]) {
+        guard platform != .aggregate else { return ([], []) }
+
+        let playlists = (try? await recommendedSonglists(platform: platform, limit: limit)) ?? []
+        let candidates = Array(playlists.prefix(3))
+        let groups = await withTaskGroup(of: [Track].self, returning: [[Track]].self) { group in
+            for playlist in candidates {
+                group.addTask {
+                    (try? await playlistDetail(source: platform, id: playlist.id))?.tracks ?? []
+                }
+            }
+            var output: [[Track]] = []
+            for await tracks in group { output.append(tracks) }
+            return output
+        }
+
+        var seen = Set<String>()
+        var tracks = groups.flatMap { $0 }.filter {
+            seen.insert("\($0.name.lowercased())|\($0.artistNames.lowercased())").inserted
+        }
+
+        // A platform may expose playlists while temporarily refusing their
+        // details.  Keep a real platform search as a small fallback, but do
+        // not use the hot-word endpoint that produced the old dummy feed.
+        if tracks.isEmpty {
+            tracks = (try? await search("热门歌曲", platform: platform, limit: limit)) ?? []
+        }
+        return (playlists, Array(tracks.prefix(limit)))
+    }
+
     static func recommendedTracks(platform: LXCatalogPlatform, limit: Int = 30) async throws -> [Track] {
         guard platform != .aggregate else { throw LXCatalogError.unsupported }
-        let seed = (try? await hotKeywords(platform: platform))?.first ?? "热门歌曲"
-        return try await search(seed, platform: platform, limit: limit)
+        let content = await recommendedContent(platform: platform, limit: limit)
+        return content.tracks
+    }
+
+    struct NativeLyrics {
+        let lyric: String
+        let tlyric: String?
+        let rlyric: String?
+        let lxlyric: String?
+    }
+
+    /// LX Mobile ships lyric adapters with the catalogue SDK rather than the
+    /// user source API. Keep the same separation on iOS: imported sources
+    /// resolve audio URLs, while the selected catalogue platform resolves
+    /// lyrics. This is important because LX's online source capabilities only
+    /// advertise `musicUrl`; treating them as lyric providers always returns
+    /// an empty panel.
+    static func nativeLyrics(for track: Track) async throws -> NativeLyrics {
+        switch track.source {
+        case "kw": return try await nativeKuwoLyrics(for: track)
+        case "kg": return try await nativeKugouLyrics(for: track)
+        case "tx": return try await nativeQQLyrics(for: track)
+        case "mg": return try await nativeMiguLyrics(for: track)
+        default: throw LXCatalogError.unsupported
+        }
+    }
+
+    private static func nativeKuwoLyrics(for track: Track) async throws -> NativeLyrics {
+        let id = track.sourceMetadata["songmid"] ?? String(track.id)
+        let params = "user=12345,web,web,web&requester=localhost&req=1&rid=MUSIC_\(id)&lrcx=1"
+        let key = Array("yeelion".utf8)
+        let encoded = Data(params.utf8).enumerated().map { $0.element ^ key[$0.offset % key.count] }
+        let query = Data(encoded).base64EncodedString()
+        let url = URL(string: "http://newlyric.kuwo.cn/newlyric.lrc?\(query)")!
+        let data = try await fetchData(url)
+        guard let delimiter = data.range(of: Data("\r\n\r\n".utf8)) else {
+            throw LXCatalogError.invalidResponse
+        }
+        guard let inflated = inflateZlib(Data(data[delimiter.upperBound...])),
+              let encodedLyric = String(data: inflated, encoding: .utf8),
+              let lyricData = Data(base64Encoded: encodedLyric,
+                                   options: .ignoreUnknownCharacters) else {
+            throw LXCatalogError.invalidResponse
+        }
+        let decoded = lyricData.enumerated().map { $0.element ^ key[$0.offset % key.count] }
+        guard let lyric = decodeGB18030(Data(decoded)), !lyric.isEmpty else {
+            throw LXCatalogError.invalidResponse
+        }
+        return NativeLyrics(lyric: lyric, tlyric: nil, rlyric: nil, lxlyric: nil)
+    }
+
+    private static func nativeKugouLyrics(for track: Track) async throws -> NativeLyrics {
+        guard let hash = track.sourceMetadata["hash"], !hash.isEmpty else {
+            throw LXCatalogError.invalidResponse
+        }
+        var searchURL = URLComponents(string: "http://lyrics.kugou.com/search")!
+        searchURL.queryItems = [
+            URLQueryItem(name: "ver", value: "1"),
+            URLQueryItem(name: "man", value: "yes"),
+            URLQueryItem(name: "client", value: "pc"),
+            URLQueryItem(name: "keyword", value: track.name),
+            URLQueryItem(name: "hash", value: hash),
+            URLQueryItem(name: "timelength", value: String(Int(track.duration))),
+            URLQueryItem(name: "lrctxt", value: "1"),
+        ]
+        let search = try await fetchObject(searchURL.url!) as? [String: Any]
+        guard let candidate = (search?["candidates"] as? [[String: Any]])?.first,
+              let id = text(candidate["id"]),
+              let accessKey = text(candidate["accesskey"]) else {
+            throw LXCatalogError.invalidResponse
+        }
+        let isKRC = int(candidate["krctype"]) == 1 && int(candidate["contenttype"]) != 1
+        var downloadURL = URLComponents(string: "http://lyrics.kugou.com/download")!
+        downloadURL.queryItems = [
+            URLQueryItem(name: "ver", value: "1"),
+            URLQueryItem(name: "client", value: "pc"),
+            URLQueryItem(name: "id", value: id),
+            URLQueryItem(name: "accesskey", value: accessKey),
+            URLQueryItem(name: "fmt", value: isKRC ? "krc" : "lrc"),
+            URLQueryItem(name: "charset", value: "utf8"),
+        ]
+        let result = try await fetchObject(downloadURL.url!) as? [String: Any]
+        guard let content = text(result?["content"]),
+              let contentData = Data(base64Encoded: content,
+                                     options: .ignoreUnknownCharacters) else {
+            throw LXCatalogError.invalidResponse
+        }
+        if !isKRC {
+            guard let lyric = String(data: contentData, encoding: .utf8), !lyric.isEmpty else {
+                throw LXCatalogError.invalidResponse
+            }
+            return NativeLyrics(lyric: lyric, tlyric: nil, rlyric: nil, lxlyric: nil)
+        }
+
+        guard contentData.count > 4 else { throw LXCatalogError.invalidResponse }
+        let key: [UInt8] = [0x40, 0x47, 0x61, 0x77, 0x5e, 0x32, 0x74, 0x47,
+                            0x51, 0x36, 0x31, 0x2d, 0xce, 0xd2, 0x6e, 0x69]
+        var encrypted = Array(contentData.dropFirst(4))
+        for index in encrypted.indices { encrypted[index] ^= key[index % key.count] }
+        guard let inflated = inflateZlib(Data(encrypted)),
+              let raw = String(data: inflated, encoding: .utf8) else {
+            throw LXCatalogError.invalidResponse
+        }
+        let lyric = parseKugouLRC(raw)
+        guard !lyric.isEmpty else { throw LXCatalogError.invalidResponse }
+        return NativeLyrics(lyric: lyric, tlyric: nil, rlyric: nil, lxlyric: nil)
+    }
+
+    private static func nativeQQLyrics(for track: Track) async throws -> NativeLyrics {
+        let mid = track.sourceMetadata["songmid"] ?? String(track.id)
+        var components = URLComponents(string: "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg")!
+        components.queryItems = [
+            URLQueryItem(name: "songmid", value: mid),
+            URLQueryItem(name: "g_tk", value: "5381"),
+            URLQueryItem(name: "loginUin", value: "0"),
+            URLQueryItem(name: "hostUin", value: "0"),
+            URLQueryItem(name: "format", value: "json"),
+            URLQueryItem(name: "inCharset", value: "utf8"),
+            URLQueryItem(name: "outCharset", value: "utf-8"),
+            URLQueryItem(name: "platform", value: "yqq"),
+        ]
+        let root = try await fetchObject(components.url!, headers: ["Referer": "https://y.qq.com/portal/player.html"]) as? [String: Any]
+        guard int(root?["code"]) == 0, let raw = text(root?["lyric"]),
+              let data = Data(base64Encoded: raw, options: .ignoreUnknownCharacters),
+              let lyric = String(data: data, encoding: .utf8), !lyric.isEmpty else {
+            throw LXCatalogError.invalidResponse
+        }
+        let translation: String?
+        if let rawTranslation = text(root?["trans"]),
+           let translationData = Data(base64Encoded: rawTranslation,
+                                      options: .ignoreUnknownCharacters) {
+            translation = String(data: translationData, encoding: .utf8)
+        } else {
+            translation = nil
+        }
+        return NativeLyrics(lyric: lyric, tlyric: translation, rlyric: nil, lxlyric: nil)
+    }
+
+    private static func nativeMiguLyrics(for track: Track) async throws -> NativeLyrics {
+        let resourceID = track.sourceMetadata["copyrightId"]
+            ?? track.sourceMetadata["songmid"]
+            ?? String(track.id)
+        let url = URL(string: "https://c.musicapp.migu.cn/MIGUM2.0/v1.0/content/resourceinfo.do?resourceType=2")!
+        let encodedID = resourceID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? resourceID
+        let root = try await fetchObject(url, method: "POST",
+                                         body: Data("resourceId=\(encodedID)".utf8),
+                                         headers: ["Content-Type": "application/x-www-form-urlencoded",
+                                                   "Referer": "https://app.c.nf.migu.cn/"]) as? [String: Any]
+        let data = root?["data"] as? [String: Any]
+        let resource = (data?["resource"] as? [[String: Any]])?.first
+        if let lrcURL = text(resource?["lrcUrl"]), !lrcURL.isEmpty {
+            let lyric = try await fetchText(URL(string: lrcURL)!)
+            if !lyric.isEmpty { return NativeLyrics(lyric: lyric, tlyric: nil, rlyric: nil, lxlyric: nil) }
+        }
+        throw LXCatalogError.invalidResponse
     }
 
     // MARK: - Songlists
+
+    /// Returns source-native recommended song lists.  This mirrors the
+    /// `songList.getList()` calls in LX Mobile instead of turning a hot-search
+    /// keyword into fake recommendations.
+    static func recommendedSonglists(platform: LXCatalogPlatform, limit: Int = 30)
+        async throws -> [LXPlaylistSummary] {
+        guard platform != .aggregate else { throw LXCatalogError.unsupported }
+
+        switch platform {
+        case .kw:
+            let lists = try await recommendedKuwoSonglists(limit: limit)
+            return lists.isEmpty
+                ? try await searchSonglists("热门", platform: .kw, limit: limit)
+                : lists
+        case .kg:
+            let lists = try await recommendedKugouSonglists(limit: limit)
+            return lists.isEmpty
+                ? try await searchSonglists("热门", platform: .kg, limit: limit)
+                : lists
+        case .tx:
+            let lists = try await recommendedQQSonglists(limit: limit)
+            return lists.isEmpty
+                ? try await searchSonglists("热门", platform: .tx, limit: limit)
+                : lists
+        case .wy:
+            let items = try await NeteaseAPI.personalizedPlaylists(limit: limit)
+            return items.map {
+                LXPlaylistSummary(id: String($0.id), name: $0.name, coverURL: $0.coverURL,
+                                  playCount: $0.playCount, trackCount: $0.trackCount,
+                                  description: $0.copywriter, author: $0.creator?.nickname,
+                                  source: .wy)
+            }
+        case .mg:
+            let lists = try await recommendedMiguSonglists(limit: limit)
+            return lists.isEmpty
+                ? try await searchSonglists("热门", platform: .mg, limit: limit)
+                : lists
+        case .aggregate:
+            throw LXCatalogError.unsupported
+        }
+    }
+
+    private static func recommendedKuwoSonglists(limit: Int) async throws -> [LXPlaylistSummary] {
+        var components = URLComponents(string: "http://wapi.kuwo.cn/api/pc/classify/playlist/getRcmPlayList")!
+        components.queryItems = [
+            URLQueryItem(name: "loginUid", value: "0"),
+            URLQueryItem(name: "loginSid", value: "0"),
+            URLQueryItem(name: "appUid", value: "76039576"),
+            URLQueryItem(name: "pn", value: "1"),
+            URLQueryItem(name: "rn", value: String(limit)),
+            URLQueryItem(name: "order", value: "5"),
+        ]
+        let root = try await fetchObject(components.url!) as? [String: Any]
+        let data = root?["data"] as? [String: Any]
+        let items = data?["data"] as? [[String: Any]] ?? []
+        return items.compactMap { item in
+            guard let rawID = text(item["id"]) ?? text(item["playlistid"]) else { return nil }
+            let id: String
+            if let digest = text(item["digest"]), !digest.isEmpty {
+                // LX keeps the digest because Kuwo playlist ids can resolve
+                // through different detail adapters (digest 5/8/13).
+                id = "digest-\(digest)__\(rawID)"
+            } else {
+                id = rawID
+            }
+            return LXPlaylistSummary(id: id, name: text(item["name"]) ?? "",
+                                     coverURL: text(item["img"]),
+                                     playCount: int(item["listencnt"]) ?? int(item["playcnt"]) ?? 0,
+                                     trackCount: int(item["total"]) ?? int(item["songnum"]) ?? 0,
+                                     description: text(item["desc"]), author: text(item["uname"]),
+                                     source: .kw)
+        }
+    }
+
+    private static func recommendedKugouSonglists(limit: Int) async throws -> [LXPlaylistSummary] {
+        // This is LX Mobile's source-native recommendation call. The normal
+        // getSpecial endpoint is a tag listing and frequently returns an
+        // empty page for the default tag, which used to make Home look blank.
+        let body: [String: Any] = [
+            "appid": 1001,
+            "clienttime": 1566798337219,
+            "clientver": 8275,
+            "key": "f1f93580115bb106680d2375f8032d96",
+            "mid": "21511157a05844bd085308bc76ef3343",
+            "platform": "pc",
+            "userid": "262643156",
+            "return_min": 6,
+            "return_max": max(6, min(limit, 15)),
+        ]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let url = URL(string: "http://everydayrec.service.kugou.com/guess_special_recommend")!
+        let root = try await fetchObject(url, method: "POST", body: data,
+                                         headers: ["Content-Type": "application/json",
+                                                   "User-Agent": "KuGou2012-8275-web_browser_event_handler"]) as? [String: Any]
+        let result = root?["data"] as? [String: Any]
+        let items = result?["special_list"] as? [[String: Any]] ?? []
+        return items.prefix(limit).compactMap { item in
+            guard let id = int(item["specialid"]) else { return nil }
+            return LXPlaylistSummary(id: "id_\(id)", name: text(item["specialname"]) ?? "",
+                                     coverURL: text(item["img"]) ?? text(item["imgurl"]),
+                                     playCount: int(item["total_play_count"]) ?? int(item["play_count"]) ?? int(item["collectcount"]) ?? 0,
+                                     trackCount: int(item["songcount"]) ?? int(item["song_count"]) ?? 0,
+                                     description: text(item["intro"]), author: text(item["nickname"]),
+                                     source: .kg)
+        }
+    }
+
+    private static func recommendedQQSonglists(limit: Int) async throws -> [LXPlaylistSummary] {
+        // Match LX Mobile's GET form. QQ accepts the same JSON envelope via
+        // the `data` query item; posting the envelope returns HTTP 200 but an
+        // empty playlist object on some regions.
+        let request: [String: Any] = [
+            "comm": ["cv": 1602, "ct": 20],
+            "playlist": [
+                "method": "get_playlist_by_tag",
+                "param": ["id": 10000000, "sin": 0, "size": limit, "order": 5, "cur_page": 1],
+                "module": "playlist.PlayListPlazaServer",
+            ],
+        ]
+        let encoded = try JSONSerialization.data(withJSONObject: request)
+        var components = URLComponents(string: "https://u.y.qq.com/cgi-bin/musicu.fcg")!
+        components.queryItems = [
+            URLQueryItem(name: "loginUin", value: "0"),
+            URLQueryItem(name: "hostUin", value: "0"),
+            URLQueryItem(name: "format", value: "json"),
+            URLQueryItem(name: "inCharset", value: "utf-8"),
+            URLQueryItem(name: "outCharset", value: "utf-8"),
+            URLQueryItem(name: "notice", value: "0"),
+            URLQueryItem(name: "platform", value: "wk_v15.json"),
+            URLQueryItem(name: "needNewCode", value: "0"),
+            URLQueryItem(name: "data", value: String(data: encoded, encoding: .utf8)),
+        ]
+        let root = try await fetchObject(components.url!) as? [String: Any]
+        let playlist = root?["playlist"] as? [String: Any]
+        let data = playlist?["data"] as? [String: Any]
+        let items = data?["v_playlist"] as? [[String: Any]] ?? []
+        return items.prefix(limit).compactMap { item in
+            guard let id = int(item["tid"]) else { return nil }
+            let creator = (item["creator_info"] as? [String: Any]).flatMap { text($0["nick"]) }
+            return LXPlaylistSummary(id: String(id), name: text(item["title"]) ?? "",
+                                     coverURL: text(item["cover_url_medium"]) ?? text(item["cover_url"]),
+                                     playCount: int(item["access_num"]) ?? 0,
+                                     trackCount: (item["song_ids"] as? [Any])?.count ?? 0,
+                                     description: text(item["desc"]), author: creator, source: .tx)
+        }
+    }
+
+    private static func recommendedMiguSonglists(limit: Int) async throws -> [LXPlaylistSummary] {
+        let url = URL(string: "https://app.c.nf.migu.cn/pc/bmw/page-data/playlist-square-recommend/v1.0?templateVersion=2&pageNo=1")!
+        let root = try await fetchObject(url, headers: ["Referer": "https://m.music.migu.cn/"]) as? [String: Any]
+        let data = root?["data"] as? [String: Any]
+        let contents = data?["contents"] as? [[String: Any]] ?? []
+        var output: [LXPlaylistSummary] = []
+        var seen = Set<String>()
+
+        func visit(_ item: [String: Any]) {
+            if let nested = item["contents"] as? [[String: Any]] {
+                nested.forEach(visit)
+            } else if text(item["resType"]) == "2021",
+                      let id = text(item["resId"]), seen.insert(id).inserted {
+                output.append(LXPlaylistSummary(id: id, name: text(item["txt"]) ?? "",
+                                                 coverURL: text(item["img"]), playCount: 0,
+                                                 trackCount: int(item["contentCount"]) ?? 0,
+                                                 description: text(item["txt2"]), author: nil, source: .mg))
+            }
+        }
+        contents.forEach(visit)
+        return Array(output.prefix(limit))
+    }
 
     /// LX Search has two catalogue types: music and songlists. Songlists are
     /// intentionally not delegated to NetEase except for the WY adapter.

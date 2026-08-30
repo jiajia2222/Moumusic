@@ -716,6 +716,16 @@ struct NowPlayingView: View {
                     }
                 )
             }
+        } else if player.lyrics != nil, player.lyrics?.isInstrumental != true {
+            VStack(spacing: 10) {
+                Image(systemName: "quote.bubble")
+                    .font(.system(size: 32, weight: .light))
+                    .foregroundStyle(.white.opacity(0.45))
+                Text("暂无歌词")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if player.lyrics?.isInstrumental == true {
             VStack(spacing: 10) {
                 Image(systemName: "music.quarternote.3")
@@ -869,6 +879,16 @@ private struct IOSImmersiveLyricsColumn: View {
                             }
                     )
                 }
+            } else if player.lyrics != nil, player.lyrics?.isInstrumental != true {
+                VStack(spacing: 10) {
+                    Image(systemName: "quote.bubble")
+                        .font(.system(size: 32, weight: .light))
+                        .foregroundStyle(.white.opacity(0.45))
+                    Text("暂无歌词")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white.opacity(0.65))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if player.lyrics?.isInstrumental == true {
                 VStack(spacing: 10) {
                     Image(systemName: "music.quarternote.3")
@@ -1519,6 +1539,17 @@ private struct IOSMinimalLyricsColumn: View {
                             selectionGuide(lyrics: lyrics)
                         }
                     }
+                } else if player.lyrics != nil, player.lyrics?.isInstrumental != true {
+                    VStack(spacing: 10) {
+                        Image(systemName: "quote.bubble")
+                            .font(.system(size: 32, weight: .light))
+                            .foregroundStyle(.white.opacity(0.45))
+                        Text("暂无歌词")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white.opacity(0.65))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
                 } else if player.lyrics?.isInstrumental == true {
                     VStack(spacing: 10) {
                         Image(systemName: "music.quarternote.3")

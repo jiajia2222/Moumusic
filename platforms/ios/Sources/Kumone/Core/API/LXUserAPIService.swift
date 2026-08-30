@@ -97,6 +97,7 @@ final class LXUserAPIService: ObservableObject {
 
     func resolveMusicURL(for track: Track, quality: String) async throws -> ResolvedURL {
         ensureSelectedSourceLoaded()
+        await waitForSourceReady()
         guard context != nil else { throw LXError.noSource }
         for platform in sourceCandidates(for: track) {
             guard capabilities[platform]?.contains("musicUrl") == true else { continue }
@@ -116,13 +117,15 @@ final class LXUserAPIService: ObservableObject {
 
     func resolveLyrics(for track: Track) async throws -> ResolvedLyrics {
         ensureSelectedSourceLoaded()
+        await waitForSourceReady()
         guard context != nil else { throw LXError.noSource }
         for platform in sourceCandidates(for: track) {
             guard capabilities[platform]?.contains("lyric") == true else { continue }
-            let response = try await request(source: platform, action: "lyric",
-                                             info: ["type": "lyric", "musicInfo": musicInfo(for: track, platform: platform)])
-            guard let data = response["data"] as? [String: Any],
-                  let lyric = data["lyric"] as? String else { continue }
+            guard let response = try? await request(source: platform, action: "lyric",
+                                                    info: ["type": "lyric", "musicInfo": musicInfo(for: track, platform: platform)]),
+                  let data = response["data"] as? [String: Any],
+                  let lyric = data["lyric"] as? String,
+                  !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             return ResolvedLyrics(lyric: lyric, tlyric: data["tlyric"] as? String,
                                   rlyric: data["rlyric"] as? String, lxlyric: data["lxlyric"] as? String)
         }
@@ -293,6 +296,17 @@ final class LXUserAPIService: ObservableObject {
         }
     }
 
+    /// `init` is delivered through a main-actor callback. Resolution can start
+    /// in the same run-loop turn as source loading, so wait briefly for the
+    /// imported script's capability table before treating it as empty.
+    private func waitForSourceReady() async {
+        guard LXSourceStore.shared.selectedSource != nil else { return }
+        for _ in 0..<24 {
+            if !capabilities.isEmpty || context == nil { return }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     private func callJS(action: String, data: Any? = nil) {
         guard let context, let function = context.objectForKeyedSubscript("__lx_native__") else { return }
         let encoded: String?
@@ -308,7 +322,8 @@ final class LXUserAPIService: ObservableObject {
         var values: [String] = []
         if let source = track.source, !source.isEmpty { values.append(source) }
         values.append(contentsOf: ["wy", "kw", "kg", "tx", "mg"])
-        return values.filter { capabilities[$0] != nil }
+        var seen = Set<String>()
+        return values.filter { capabilities[$0] != nil && seen.insert($0).inserted }
     }
 
     private func musicInfo(for track: Track, platform: String) -> [String: Any] {
