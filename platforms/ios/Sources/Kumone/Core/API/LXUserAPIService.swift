@@ -376,7 +376,21 @@ final class LXUserAPIService: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.tasks.removeValue(forKey: requestKey)
-                let body = String(data: data ?? Data(), encoding: .utf8) ?? ""
+                let rawBody = data ?? Data()
+                let body: Any
+                if options["binary"] as? Bool == true {
+                    // Binary responses are not parsed. The current LX source
+                    // bridge only uses textual/JSON responses, but preserving
+                    // this branch keeps the User API contract intact.
+                    body = String(data: rawBody, encoding: .utf8) ?? ""
+                } else if let jsonBody = try? JSONSerialization.jsonObject(with: rawBody) {
+                    // LX User API scripts expect response.body to behave like
+                    // LX Mobile's request helper: JSON bodies are objects,
+                    // while non-JSON bodies remain strings.
+                    body = jsonBody
+                } else {
+                    body = String(data: rawBody, encoding: .utf8) ?? ""
+                }
                 let http = response as? HTTPURLResponse
                 var result: [String: Any] = [
                     "requestKey": requestKey,
