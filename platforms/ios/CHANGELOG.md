@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 - 2026-08-30
+
+### Fixed
+
+- iOS: prevent the QQ Music aggregate-search signer from crashing on a Swift string index outside a SHA-1 digest.
+- iOS: keep aggregate search alive when QQ signing cannot be generated.
+- iOS：修复 QQ 音乐聚合搜索签名访问 SHA-1 字符串越界导致的启动闪退。
+- iOS：QQ 签名无法生成时只跳过 QQ 平台，不再让聚合搜索和首页一起崩溃。
+
 每个版本必须在此记录变更；发布流程会提取对应版本的段落，作为 GitHub Release
 正文并渲染进 Sparkle appcast 的更新说明。Sections are the change categories
 (`### Added / 新增`, `### Fixed / 修复`, `### Improved / 改进`); within each

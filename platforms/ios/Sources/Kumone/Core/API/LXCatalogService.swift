@@ -224,7 +224,10 @@ enum LXCatalogService {
                               "cat": 2, "grp": 1, "sin": 0, "sem": 0]],
         ]
         let body = try JSONSerialization.data(withJSONObject: request)
-        let sign = zzcSign(body)
+        // The LX JavaScript implementation ignores an out-of-range hash index
+        // when Array.join() converts undefined to an empty string.  Swift's
+        // String.Index traps instead, so signing must be allowed to fail safely.
+        guard let sign = zzcSign(body) else { return [] }
         let url = URL(string: "https://u.y.qq.com/cgi-bin/musics.fcg?sign=\(sign)")!
         var requestObject = URLRequest(url: url)
         requestObject.httpMethod = "POST"
@@ -323,20 +326,41 @@ enum LXCatalogService {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func zzcSign(_ data: Data) -> String {
+    private static func zzcSign(_ data: Data) -> String? {
         var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
         data.withUnsafeBytes { buffer in
             _ = CC_SHA1(buffer.baseAddress, CC_LONG(data.count), &digest)
         }
-        let hash = digest.map { String(format: "%02x", $0) }.joined()
-        let part1 = [23, 14, 6, 36, 16, 40, 7, 19].map { String(hash[hash.index(hash.startIndex, offsetBy: $0)]) }.joined()
-        let part2 = [16, 1, 32, 12, 19, 27, 8, 5].map { String(hash[hash.index(hash.startIndex, offsetBy: $0)]) }.joined()
+
+        // Keep the hash as ASCII bytes.  Indexing a Swift String by scalar or
+        // character offsets is unnecessary here and was the source of the
+        // iOS 27 crash (the LX-compatible part-1 table contains index 40,
+        // while a SHA-1 hex digest has valid offsets 0...39).
+        let hexDigits = Array("0123456789abcdef".utf8)
+        let hash = digest.flatMap { byte in
+            [hexDigits[Int(byte >> 4)], hexDigits[Int(byte & 0x0f)]]
+        }
+        guard hash.count == 40 else { return nil }
+
+        let part1Indexes = [23, 14, 6, 36, 16, 40, 7, 19]
+        let part2Indexes = [16, 1, 32, 12, 19, 27, 8, 5]
+        // `hash[40]` is undefined in the original JavaScript and disappears
+        // when joined, so filtering it matches LX's output exactly.
+        let part1 = part1Indexes
+            .filter { hash.indices.contains($0) }
+            .map { String(decoding: [hash[$0]], as: UTF8.self) }
+            .joined()
+        let part2 = part2Indexes
+            .filter { hash.indices.contains($0) }
+            .map { String(decoding: [hash[$0]], as: UTF8.self) }
+            .joined()
         let scramble = [89, 39, 179, 150, 218, 82, 58, 252, 177, 52, 186, 123, 120, 64, 242, 133, 143, 161, 121, 179]
         var bytes: [UInt8] = []
         for (index, value) in scramble.enumerated() {
-            let start = hash.index(hash.startIndex, offsetBy: index * 2)
-            let end = hash.index(start, offsetBy: 2)
-            bytes.append(UInt8(value) ^ UInt8(String(hash[start..<end]), radix: 16)!)
+            let high = hexNibble(hash[index * 2])
+            let low = hexNibble(hash[index * 2 + 1])
+            guard let high, let low else { return nil }
+            bytes.append(UInt8(value) ^ ((high << 4) | low))
         }
         let base64 = Data(bytes).base64EncodedString()
             .replacingOccurrences(of: "/", with: "")
@@ -344,5 +368,14 @@ enum LXCatalogService {
             .replacingOccurrences(of: "+", with: "")
             .replacingOccurrences(of: "=", with: "")
         return "zzc\(part1)\(base64)\(part2)".lowercased()
+    }
+
+    private static func hexNibble(_ byte: UInt8) -> UInt8? {
+        switch byte {
+        case 48...57: return byte - 48
+        case 65...70: return byte - 55
+        case 97...102: return byte - 87
+        default: return nil
+        }
     }
 }
