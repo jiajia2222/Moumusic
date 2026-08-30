@@ -1,9 +1,9 @@
 import Foundation
 import CommonCrypto
 
-/// The catalogue side of LX Music.  Search is intentionally independent from
-/// a user script: LX User API scripts resolve playback/lyrics, while these
-/// adapters provide the same multi-platform search experience as LX Mobile.
+/// LX Music's catalogue side. Search, songlists and hot words come from the
+/// selected catalogue platform; an imported User API script is kept for
+/// playback, lyrics and artwork resolution.
 enum LXCatalogPlatform: String, CaseIterable, Identifiable {
     case aggregate
     case kw
@@ -15,7 +15,7 @@ enum LXCatalogPlatform: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .aggregate: return "全部"
+        case .aggregate: return "聚合"
         case .kw: return "酷我"
         case .kg: return "酷狗"
         case .tx: return "QQ 音乐"
@@ -41,8 +41,8 @@ enum LXCatalogError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidResponse: return "音源返回了无法识别的搜索结果"
-        case .unsupported: return "当前平台暂不支持搜索"
+        case .invalidResponse: return "平台返回了无法识别的结果"
+        case .unsupported: return "当前平台暂不支持此功能"
         }
     }
 }
@@ -260,9 +260,11 @@ enum LXCatalogService {
         }
     }
 
-    private static func fetchObject(_ url: URL, headers: [String: String] = [:]) async throws -> Any {
+    private static func fetchObject(_ url: URL, method: String = "GET", body: Data? = nil,
+                                    headers: [String: String] = [:]) async throws -> Any {
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = method
+        request.httpBody = body
         request.setValue("Moumusic/0.4", forHTTPHeaderField: "User-Agent")
         headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         let (data, response) = try await session.data(for: request)
@@ -270,6 +272,17 @@ enum LXCatalogService {
             throw LXCatalogError.invalidResponse
         }
         return try JSONSerialization.jsonObject(with: data)
+    }
+
+    private static func fetchText(_ url: URL) async throws -> String {
+        var request = URLRequest(url: url)
+        request.setValue("Moumusic/0.5", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let text = String(data: data, encoding: .utf8) else {
+            throw LXCatalogError.invalidResponse
+        }
+        return text
     }
 
     private static func text(_ value: Any?) -> String? {
@@ -377,5 +390,346 @@ enum LXCatalogService {
         case 97...102: return byte - 87
         default: return nil
         }
+    }
+
+    /// A lightweight recommendation feed for a single LX platform. The
+    /// upstream mobile app obtains this from each platform SDK; on iOS we use
+    /// that platform's own hot-search seed and then keep every returned track
+    /// source-tagged. It never runs aggregate search.
+    static func recommendedTracks(platform: LXCatalogPlatform, limit: Int = 30) async throws -> [Track] {
+        guard platform != .aggregate else { throw LXCatalogError.unsupported }
+        let seed = (try? await hotKeywords(platform: platform))?.first ?? "热门歌曲"
+        return try await search(seed, platform: platform, limit: limit)
+    }
+
+    // MARK: - Songlists
+
+    /// LX Search has two catalogue types: music and songlists. Songlists are
+    /// intentionally not delegated to NetEase except for the WY adapter.
+    static func searchSonglists(_ keyword: String, platform: LXCatalogPlatform,
+                                page: Int = 1, limit: Int = 30) async throws -> [LXPlaylistSummary] {
+        if platform == .aggregate {
+            let results = await withTaskGroup(of: [LXPlaylistSummary].self,
+                                              returning: [[LXPlaylistSummary]].self) { group in
+                for item in LXCatalogPlatform.allCases where item != .aggregate {
+                    group.addTask {
+                        (try? await searchSonglists(keyword, platform: item, page: page, limit: limit)) ?? []
+                    }
+                }
+                var all: [[LXPlaylistSummary]] = []
+                for await result in group { all.append(result) }
+                return all
+            }
+            var seen = Set<String>()
+            return results.flatMap { $0 }.filter {
+                let author = $0.author?.lowercased() ?? ""
+                return seen.insert("\($0.name.lowercased())|\(author)").inserted
+            }
+        }
+
+        switch platform {
+        case .kw: return try await searchKuwoSonglists(keyword, page: page, limit: limit)
+        case .kg: return try await searchKugouSonglists(keyword, page: page, limit: limit)
+        case .tx: return try await searchQQSonglists(keyword, page: page, limit: limit)
+        case .wy: return try await searchNeteaseSonglists(keyword, page: page, limit: limit)
+        case .mg: return try await searchMiguSonglists(keyword, page: page, limit: limit)
+        case .aggregate: throw LXCatalogError.unsupported
+        }
+    }
+
+    private static func searchNeteaseSonglists(_ keyword: String, page: Int, limit: Int) async throws -> [LXPlaylistSummary] {
+        let result = try await NeteaseAPI.search(keyword, type: .playlists,
+                                                 limit: limit, offset: max(0, page - 1) * limit)
+        return (result.playlists ?? []).map {
+            LXPlaylistSummary(id: String($0.id), name: $0.name, coverURL: $0.coverURL,
+                              playCount: $0.playCount, trackCount: $0.trackCount,
+                              description: $0.copywriter, author: $0.creator?.nickname, source: .wy)
+        }
+    }
+
+    private static func searchKuwoSonglists(_ keyword: String, page: Int, limit: Int) async throws -> [LXPlaylistSummary] {
+        var components = URLComponents(string: "http://search.kuwo.cn/r.s")!
+        components.queryItems = [
+            URLQueryItem(name: "all", value: keyword),
+            URLQueryItem(name: "pn", value: String(max(0, page - 1))),
+            URLQueryItem(name: "rn", value: String(limit)),
+            URLQueryItem(name: "rformat", value: "json"),
+            URLQueryItem(name: "encoding", value: "utf8"),
+            URLQueryItem(name: "ft", value: "playlist"),
+        ]
+        let root = try await fetchObject(components.url!) as? [String: Any]
+        let items = root?["abslist"] as? [[String: Any]] ?? []
+        return items.compactMap { item in
+            guard let id = text(item["playlistid"]) ?? text(item["id"]) else { return nil }
+            return LXPlaylistSummary(id: id, name: text(item["name"]) ?? "",
+                                     coverURL: text(item["pic"]),
+                                     playCount: int(item["playcnt"]) ?? 0,
+                                     trackCount: int(item["songnum"]) ?? 0,
+                                     description: text(item["intro"]),
+                                     author: text(item["nickname"]), source: .kw)
+        }
+    }
+
+    private static func searchKugouSonglists(_ keyword: String, page: Int, limit: Int) async throws -> [LXPlaylistSummary] {
+        var components = URLComponents(string: "https://msearchretry.kugou.com/api/v3/search/special")!
+        components.queryItems = [
+            URLQueryItem(name: "keyword", value: keyword),
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "pagesize", value: String(limit)),
+            URLQueryItem(name: "showtype", value: "10"),
+            URLQueryItem(name: "filter", value: "0"),
+            URLQueryItem(name: "version", value: "7910"),
+            URLQueryItem(name: "sver", value: "2"),
+        ]
+        let root = try await fetchObject(components.url!) as? [String: Any]
+        guard let data = root?["data"] as? [String: Any],
+              let items = data["info"] as? [[String: Any]] else { return [] }
+        return items.compactMap { item in
+            guard let id = int(item["specialid"]) else { return nil }
+            return LXPlaylistSummary(id: "id_\(id)", name: text(item["specialname"]) ?? "",
+                                     coverURL: text(item["imgurl"]),
+                                     playCount: int(item["playcount"]) ?? 0,
+                                     trackCount: int(item["songcount"]) ?? 0,
+                                     description: text(item["intro"]),
+                                     author: text(item["nickname"]), source: .kg)
+        }
+    }
+
+    private static func searchQQSonglists(_ keyword: String, page: Int, limit: Int) async throws -> [LXPlaylistSummary] {
+        var components = URLComponents(string: "http://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist")!
+        components.queryItems = [
+            URLQueryItem(name: "page_no", value: String(max(0, page - 1))),
+            URLQueryItem(name: "num_per_page", value: String(limit)),
+            URLQueryItem(name: "format", value: "json"),
+            URLQueryItem(name: "query", value: keyword),
+            URLQueryItem(name: "remoteplace", value: "txt.yqq.playlist"),
+        ]
+        let root = try await fetchObject(components.url!, headers: ["Referer": "http://y.qq.com/portal/search.html"]) as? [String: Any]
+        let data = root?["data"] as? [String: Any]
+        let items = data?["list"] as? [[String: Any]] ?? []
+        return items.compactMap { item in
+            guard let id = text(item["dissid"]) else { return nil }
+            return LXPlaylistSummary(id: id, name: text(item["dissname"]) ?? "",
+                                     coverURL: text(item["imgurl"]),
+                                     playCount: int(item["listennum"]) ?? 0,
+                                     trackCount: int(item["song_count"]) ?? 0,
+                                     description: text(item["introduction"]),
+                                     author: text(item["creator"]), source: .tx)
+        }
+    }
+
+    private static func searchMiguSonglists(_ keyword: String, page: Int, limit: Int) async throws -> [LXPlaylistSummary] {
+        let timestamp = String(Int(Date().timeIntervalSince1970 * 1000))
+        let deviceID = "963B7AA0D21511ED807EE5846EC87D20"
+        let signature = md5("\(keyword)6cdc72a439cef99a3418d2a78aa28c73yyapp2d16148780a1dcc7408e06336b98cfd50\(deviceID)\(timestamp)")
+        var components = URLComponents(string: "https://jadeite.migu.cn/music_search/v3/search/searchAll")!
+        components.queryItems = [
+            URLQueryItem(name: "isCorrect", value: "1"),
+            URLQueryItem(name: "isCopyright", value: "1"),
+            URLQueryItem(name: "searchSwitch", value: "{\"song\":0,\"album\":0,\"singer\":0,\"tagSong\":0,\"mvSong\":0,\"bestShow\":0,\"songlist\":1,\"lyricSong\":0}"),
+            URLQueryItem(name: "pageSize", value: String(limit)),
+            URLQueryItem(name: "text", value: keyword),
+            URLQueryItem(name: "pageNo", value: String(page)),
+            URLQueryItem(name: "sort", value: "0"),
+            URLQueryItem(name: "sid", value: "USS"),
+        ]
+        let root = try await fetchObject(components.url!, headers: [
+            "uiVersion": "A_music_3.6.1", "deviceId": deviceID,
+            "timestamp": timestamp, "sign": signature, "channel": "0146921",
+        ]) as? [String: Any]
+        let result = root?["songListResultData"] as? [String: Any]
+        let items = result?["result"] as? [[String: Any]] ?? []
+        return items.compactMap { item in
+            guard let id = text(item["id"]) else { return nil }
+            return LXPlaylistSummary(id: id, name: text(item["name"]) ?? "",
+                                     coverURL: text(item["musicListPicUrl"]),
+                                     playCount: int(item["playNum"]) ?? 0,
+                                     trackCount: int(item["musicNum"]) ?? 0,
+                                     description: nil, author: text(item["userName"]), source: .mg)
+        }
+    }
+
+    // MARK: - Hot search
+
+    static func hotKeywords(platform: LXCatalogPlatform) async throws -> [String] {
+        if platform == .aggregate {
+            let results = await withTaskGroup(of: [String].self, returning: [[String]].self) { group in
+                for item in LXCatalogPlatform.allCases where item != .aggregate {
+                    group.addTask { (try? await hotKeywords(platform: item)) ?? [] }
+                }
+                var all: [[String]] = []
+                for await result in group { all.append(result) }
+                return all
+            }
+            var seen = Set<String>()
+            return results.flatMap { $0 }.filter { seen.insert($0.lowercased()).inserted }
+        }
+
+        switch platform {
+        case .kw:
+            let url = URL(string: "http://hotword.kuwo.cn/hotword.s?prod=kwplayer_ar_9.3.0.1&corp=kuwo&newver=2&vipver=9.3.0.1&source=kwplayer_ar_9.3.0.1_40.apk&p2p=1&notrace=0&uid=0&plat=kwplayer_ar&rformat=json&encoding=utf8&tabid=1")!
+            let root = try await fetchObject(url) as? [String: Any]
+            return (root?["tagvalue"] as? [[String: Any]])?.compactMap { text($0["key"]) } ?? []
+        case .kg:
+            let url = URL(string: "https://gateway.kugou.com/api/v3/search/hot_tab?signature=ee44edb9d7155821412d220bcaf509dd&appid=1005&clientver=10026&plat=0")!
+            let root = try await fetchObject(url, headers: ["x-router": "msearch.kugou.com", "kg-rc": "1"]) as? [String: Any]
+            let groups = ((root?["data"] as? [String: Any])?["list"] as? [[String: Any]]) ?? []
+            return groups.flatMap { ($0["keywords"] as? [[String: Any]]) ?? [] }.compactMap { text($0["keyword"]) }
+        case .tx:
+            let request: [String: Any] = [
+                "comm": ["ct": "19", "cv": "1803", "tmeAppID": "qqmusic", "uin": "0"],
+                "hotkey": ["method": "GetHotkeyForQQMusicPC", "module": "tencent_musicsoso_hotkey.HotkeyService", "param": ["search_id": "", "uin": 0]],
+            ]
+            let body = try JSONSerialization.data(withJSONObject: request)
+            let root = try await fetchObject(URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg")!, method: "POST", body: body,
+                                              headers: ["Content-Type": "application/json", "Referer": "https://y.qq.com/portal/player.html"]) as? [String: Any]
+            let hotkey = (root?["hotkey"] as? [String: Any])?["data"] as? [String: Any]
+            return (hotkey?["vec_hotkey"] as? [[String: Any]])?.compactMap { text($0["query"]) } ?? []
+        case .wy:
+            let result = try await NeteaseAPI.searchDefaultKeyword()
+            return result.map { [$0] } ?? []
+        case .mg:
+            let root = try await fetchObject(URL(string: "http://jadeite.migu.cn:7090/music_search/v3/search/hotword")!) as? [String: Any]
+            let groups = (((root?["data"] as? [String: Any])?["hotwords"] as? [[String: Any]]) ?? [])
+            return groups.flatMap { ($0["hotwordList"] as? [[String: Any]]) ?? [] }
+                .filter { text($0["resourceType"]) == "song" }.compactMap { text($0["word"]) }
+        case .aggregate: throw LXCatalogError.unsupported
+        }
+    }
+
+    // MARK: - Songlist details
+
+    static func playlistDetail(source: LXCatalogPlatform, id: String) async throws -> LXPlaylistDetail {
+        switch source {
+        case .wy:
+            guard let neteaseID = Int(id) else { throw LXCatalogError.invalidResponse }
+            let response = try await NeteaseAPI.playlistDetail(id: neteaseID)
+            var tracks = response.playlist.tracks
+            if tracks.isEmpty {
+                tracks = (try? await NeteaseAPI.songDetails(ids: response.playlist.trackIds.map(\.id))).map { $0.songs } ?? []
+            }
+            return LXPlaylistDetail(id: id, name: response.playlist.name,
+                                    coverURL: response.playlist.coverImgUrl,
+                                    description: response.playlist.description,
+                                    author: response.playlist.creator?.nickname,
+                                    playCount: response.playlist.playCount,
+                                    tracks: tracks.map { $0.withSource("wy") }, source: .wy)
+        case .kw:
+            let listID = id.components(separatedBy: "__").last ?? id
+            let url = URL(string: "http://nplserver.kuwo.cn/pl.svc?op=getlistinfo&pid=\(listID)&pn=0&rn=1000&encode=utf8&keyset=pl2012&identity=kuwo&pcmp4=1&vipver=MUSIC_9.0.5.0_W1&newver=1")!
+            let root = try await fetchObject(url) as? [String: Any]
+            let rawTracks = root?["musiclist"] as? [[String: Any]] ?? []
+            return LXPlaylistDetail(id: id, name: text(root?["name"]) ?? text(root?["title"]) ?? "酷我歌单",
+                                    coverURL: text(root?["pic"]), description: text(root?["intro"]),
+                                    author: text(root?["uname"]), playCount: int(root?["playnum"]) ?? 0,
+                                    tracks: rawTracks.compactMap { track(from: $0, source: .kw) }, source: .kw)
+        case .tx:
+            let url = URL(string: "https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?type=1&json=1&utf8=1&onlysong=0&new_format=1&disstid=\(id)&loginUin=0&hostUin=0&format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0")!
+            let root = try await fetchObject(url) as? [String: Any]
+            let cd = ((root?["cdlist"] as? [[String: Any]]) ?? []).first
+            let rawTracks = cd?["songlist"] as? [[String: Any]] ?? []
+            return LXPlaylistDetail(id: id, name: text(cd?["dissname"]) ?? "QQ 音乐歌单",
+                                    coverURL: text(cd?["logo"]), description: text(cd?["desc"]),
+                                    author: text(cd?["nickname"]), playCount: int(cd?["visitnum"]) ?? 0,
+                                    tracks: rawTracks.compactMap { track(from: $0, source: .tx) }, source: .tx)
+        case .mg:
+            let url = URL(string: "https://app.c.nf.migu.cn/MIGUM3.0/resource/playlist/song/v2.0?pageNo=1&pageSize=1000&playlistId=\(id)")!
+            let root = try await fetchObject(url, headers: ["Referer": "https://m.music.migu.cn/"]) as? [String: Any]
+            let data = root?["data"] as? [String: Any]
+            let rawTracks = data?["songList"] as? [[String: Any]] ?? []
+            let infoObject = try? await fetchObject(URL(string: "https://c.musicapp.migu.cn/MIGUM3.0/resource/playlist/v2.0?playlistId=\(id)")!, headers: ["Referer": "https://m.music.migu.cn/"])
+            let info = (infoObject as? [String: Any])?["data"] as? [String: Any]
+            return LXPlaylistDetail(id: id, name: text(info?["title"]) ?? "咪咕歌单",
+                                    coverURL: text((info?["imgItem"] as? [String: Any])?["img"]),
+                                    description: text(info?["summary"]), author: text(info?["ownerName"]),
+                                    playCount: int((info?["opNumItem"] as? [String: Any])?["playNum"]) ?? 0,
+                                    tracks: rawTracks.compactMap { track(from: $0, source: .mg) }, source: .mg)
+        case .kg:
+            let cleanID = id.replacingOccurrences(of: "id_", with: "")
+            let url = URL(string: "https://www.kugou.com/yy/special/single/\(cleanID).html")!
+            let html = try await fetchText(url)
+            guard let json = firstCapture(#"global\.data = (\[.+\]);"#, in: html),
+                  let data = json.data(using: .utf8),
+                  let rawTracks = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+                throw LXCatalogError.invalidResponse
+            }
+            let name = firstCapture(#"name:\s*\"([^\"]+)\""#, in: html) ?? "酷狗歌单"
+            let cover = firstCapture(#"pic:\s*\"([^\"]+)\""#, in: html)
+            return LXPlaylistDetail(id: id, name: name, coverURL: cover, description: nil,
+                                    author: nil, playCount: 0,
+                                    tracks: rawTracks.compactMap { track(from: $0, source: .kg) }, source: .kg)
+        case .aggregate: throw LXCatalogError.unsupported
+        }
+    }
+
+    private static func track(from item: [String: Any], source: LXCatalogPlatform) -> Track? {
+        let nestedAlbum = item["album"] as? [String: Any]
+        let nestedFile = item["file"] as? [String: Any]
+        let rawID: String?
+        let name: String
+        let artistText: String?
+        let albumID: Int
+        let albumName: String
+        let durationValue: Any?
+        var metadata: [String: String] = [:]
+
+        switch source {
+        case .kw:
+            rawID = text(item["id"]) ?? text(item["songmid"])
+            name = text(item["name"]) ?? text(item["SONGNAME"]) ?? ""
+            artistText = text(item["artist"]) ?? text(item["ARTIST"])
+            albumID = int(item["albumid"]) ?? int(item["ALBUMID"]) ?? 0
+            albumName = text(item["album"]) ?? text(item["ALBUM"]) ?? ""
+            durationValue = item["duration"] ?? item["DURATION"]
+            if let rawID { metadata["songmid"] = rawID; metadata["albumId"] = String(albumID) }
+        case .kg:
+            let hash = text(item["hash"]) ?? text(item["FileHash"]) ?? ""
+            rawID = text(item["audio_id"]) ?? text(item["Audioid"]) ?? text(item["songid"]) ?? hash
+            name = text(item["songname"]) ?? text(item["SongName"]) ?? text(item["filename"]) ?? ""
+            artistText = text(item["singername"]) ?? text(item["Singers"])
+            albumID = int(item["album_id"]) ?? int(item["AlbumID"]) ?? 0
+            albumName = text(item["album_name"]) ?? text(item["AlbumName"]) ?? ""
+            durationValue = item["duration"] ?? item["Duration"]
+            if !hash.isEmpty { metadata["hash"] = hash }
+            if let rawID { metadata["songmid"] = rawID }
+            metadata["albumId"] = String(albumID)
+        case .tx:
+            rawID = text(item["mid"]) ?? text(item["songmid"]) ?? text(item["id"])
+            name = text(item["title"]) ?? text(item["name"]) ?? ""
+            artistText = text(item["singer"]) ?? text(item["singername"])
+            albumID = int(nestedAlbum?["id"]) ?? int(nestedAlbum?["mid"]) ?? 0
+            albumName = text(nestedAlbum?["name"]) ?? text(item["albumname"]) ?? ""
+            durationValue = item["interval"] ?? item["duration"]
+            if let rawID { metadata["songmid"] = rawID }
+            metadata["strMediaMid"] = text(nestedFile?["media_mid"]) ?? ""
+            metadata["albumMid"] = text(nestedAlbum?["mid"]) ?? ""
+        case .mg:
+            rawID = text(item["songId"]) ?? text(item["copyrightId"]) ?? text(item["contentId"])
+            name = text(item["songName"]) ?? text(item["name"]) ?? ""
+            artistText = text(item["singerName"]) ?? text(item["singerList"])
+            albumID = int(item["albumId"]) ?? 0
+            albumName = text(item["albumName"]) ?? text(item["album"]) ?? ""
+            durationValue = item["duration"] ?? item["length"]
+            if let rawID { metadata["songmid"] = rawID }
+            metadata["copyrightId"] = text(item["copyrightId"]) ?? ""
+        case .aggregate, .wy:
+            return nil
+        }
+
+        guard let rawID, !rawID.isEmpty else { return nil }
+        let numericID = Int(rawID) ?? abs(rawID.hashValue)
+        guard numericID > 0 else { return nil }
+        return Track(id: numericID, name: name, artists: artists(from: artistText),
+                     album: AlbumRef(id: albumID, name: albumName, picUrl: nil),
+                     durationMS: seconds(durationValue) * 1000,
+                     source: source.sourceID, sourceMetadata: metadata)
+    }
+
+    private static func firstCapture(_ pattern: String, in text: String) -> String? {
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: text, range: NSRange(location: 0, length: text.utf16.count)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return String(text[range])
     }
 }

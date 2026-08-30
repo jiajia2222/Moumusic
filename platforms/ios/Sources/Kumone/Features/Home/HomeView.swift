@@ -34,18 +34,23 @@ final class HomeViewModel: ObservableObject {
     @Published var topArtists: [ArtistSummary] = []
     @Published var dailyFirstCover: String?
     @Published private(set) var activeMode: HomeRecommendationMode = .netease
+    @Published private(set) var activePlatform: LXCatalogPlatform = .kw
     @Published var recommendTracks: [Track] = []
     private var loadedMode: HomeRecommendationMode?
+    private var loadedPlatform: LXCatalogPlatform?
 
-    func load(loggedIn: Bool, mode: HomeRecommendationMode) async {
-        if loadedMode == mode, case .loaded = state { return }
+    func load(loggedIn: Bool, mode: HomeRecommendationMode,
+              platform: LXCatalogPlatform) async {
+        if loadedMode == mode, loadedPlatform == platform, case .loaded = state { return }
         activeMode = mode
+        activePlatform = platform
         loadedMode = mode
+        loadedPlatform = platform
         state = .loading
 
-        if let platform = mode.catalogPlatform {
-            recommendTracks = (try? await LXCatalogService.search("热门歌曲", platform: platform, limit: 30)) ?? []
-            state = recommendTracks.isEmpty ? .error("LX 暂无推荐结果，请检查网络或切换首页推荐平台") : .loaded
+        if mode == .lx {
+            recommendTracks = (try? await LXCatalogService.recommendedTracks(platform: platform, limit: 30)) ?? []
+            state = recommendTracks.isEmpty ? .error("LX 暂无推荐结果，请检查网络或切换推荐平台") : .loaded
             return
         }
 
@@ -73,10 +78,12 @@ final class HomeViewModel: ObservableObject {
         state = playlists.isEmpty && newAlbums.isEmpty ? .error(String(localized: "网络连接失败")) : .loaded
     }
 
-    func reload(loggedIn: Bool, mode: HomeRecommendationMode) async {
+    func reload(loggedIn: Bool, mode: HomeRecommendationMode,
+                platform: LXCatalogPlatform) async {
         state = .idle
         loadedMode = nil
-        await load(loggedIn: loggedIn, mode: mode)
+        loadedPlatform = nil
+        await load(loggedIn: loggedIn, mode: mode, platform: platform)
     }
 
     private func loadRadarPlaylists() async {
@@ -128,11 +135,15 @@ struct HomeView: View {
                 loadingBody
             case .error(let message):
                 ErrorStateView(message: message) {
-                    Task { await model.reload(loggedIn: account.isLoggedIn, mode: settings.homeRecommendationMode) }
+                    Task {
+                        await model.reload(loggedIn: account.isLoggedIn,
+                                           mode: settings.homeRecommendationMode,
+                                           platform: settings.homeRecommendationPlatform)
+                    }
                 }
                 .frame(minHeight: 400)
             case .loaded:
-                if model.activeMode.catalogPlatform != nil {
+                if model.activeMode == .lx {
                     lxLoadedBody
                 } else {
                     loadedBody
@@ -140,8 +151,10 @@ struct HomeView: View {
             }
         }
         .navigationTitle("推荐")
-        .task(id: "\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)") {
-            await model.load(loggedIn: account.isLoggedIn, mode: settings.homeRecommendationMode)
+        .task(id: "\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)") {
+            await model.load(loggedIn: account.isLoggedIn,
+                             mode: settings.homeRecommendationMode,
+                             platform: settings.homeRecommendationPlatform)
         }
     }
 
@@ -152,7 +165,7 @@ struct HomeView: View {
                     .foregroundStyle(Theme.accent)
                 Text(verbatim: "LX 推荐")
                     .font(.title3.weight(.semibold))
-                Text(verbatim: model.activeMode.displayName)
+                Text(verbatim: model.activePlatform.displayName)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -183,12 +196,8 @@ struct HomeView: View {
 
     private var loadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 34) {
-            // Anonymous users go straight to recommended playlists;
-            // the login entry lives in the sidebar / 我的 tab only.
-            if account.isLoggedIn {
-                featureCards
-                    .padding(.top, 8)
-            }
+            featureCards
+                .padding(.top, 8)
 
             if !model.recommendPlaylists.isEmpty {
                 Shelf(title: "推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
@@ -267,19 +276,24 @@ struct HomeView: View {
                     }
                     .buttonStyle(.plain)
 
+                }
+
+                if settings.homeRecommendationMode == .lx || account.isLoggedIn {
                     Button {
                         player.startFM()
                     } label: {
                         FeatureCard(
-                            title: "私人漫游",
-                            subtitle: "从喜欢的歌开始漫游",
+                            title: settings.homeRecommendationMode == .lx ? "LX 漫游" : "私人漫游",
+                            subtitle: settings.homeRecommendationMode == .lx ? "按首页平台生成漫游队列" : "从喜欢的歌开始漫游",
                             icon: "wave.3.right.circle.fill",
                             gradient: [Color(red: 0.16, green: 0.20, blue: 0.42),
                                        Color(red: 0.36, green: 0.24, blue: 0.62)]
                         )
                     }
                     .buttonStyle(.interactiveCard)
+                }
 
+                if account.isLoggedIn {
                     Button {
                         startHeartbeatMode()
                     } label: {
@@ -413,8 +427,8 @@ struct HomeView: View {
 // MARK: - Feature card
 
 struct FeatureCard: View {
-    let title: LocalizedStringKey
-    let subtitle: LocalizedStringKey
+    let title: String
+    let subtitle: String
     let icon: String
     var coverURL: URL?
     var gradient: [Color] = [Color(red: 0.75, green: 0.16, blue: 0.22),

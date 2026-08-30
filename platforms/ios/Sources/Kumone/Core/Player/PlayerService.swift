@@ -470,6 +470,13 @@ final class PlayerService: ObservableObject {
 
     func startFM() {
         guard !isFMMode || !isPlaying else { return }
+#if os(iOS)
+        if SettingsManager.shared.homeRecommendationMode == .lx,
+           LXSourceStore.shared.selectedSource == nil {
+            ToastCenter.shared.show("请先在设置 → LX 音源中选择一个播放音源")
+            return
+        }
+#endif
         recordRecent(.fm)
         isFMMode = true
         shuffleEnabled = false
@@ -491,11 +498,33 @@ final class PlayerService: ObservableObject {
         guard isFMMode, let track = currentTrack else { return }
         Task {
             await fmAdvance()
+#if os(iOS)
+            guard SettingsManager.shared.homeRecommendationMode != .lx else { return }
+#endif
             try? await NeteaseAPI.fmTrash(id: track.id)
         }
     }
 
     private func fmAdvance() async {
+#if os(iOS)
+        if SettingsManager.shared.homeRecommendationMode == .lx {
+            guard LXSourceStore.shared.selectedSource != nil else {
+                ToastCenter.shared.show("请先在设置 → LX 音源中选择一个播放音源")
+                return
+            }
+            if fmUpcoming.isEmpty {
+                let platform = SettingsManager.shared.homeRecommendationPlatform
+                fmUpcoming = (try? await LXCatalogService.recommendedTracks(platform: platform, limit: 30)) ?? []
+            }
+            guard !fmUpcoming.isEmpty else {
+                ToastCenter.shared.show("LX 漫游暂时没有歌曲，请检查网络或更换推荐平台")
+                return
+            }
+            let track = fmUpcoming.removeFirst()
+            startPlaying(track, indexUnchanged: true)
+            return
+        }
+#endif
         if fmUpcoming.isEmpty {
             for attempt in 0..<3 {
                 if let tracks = try? await NeteaseAPI.personalFM(), !tracks.isEmpty {
@@ -596,21 +625,29 @@ final class PlayerService: ObservableObject {
 
     private func resolveAndLoad(_ track: Track, generation: Int) async {
         let quality = SettingsManager.shared.audioQuality.rawValue
+        let isLXCatalogTrack = track.source != nil
         var resolvedURL: URL?
         var servedByLXQuality: String?
         var data: SongURLData?
 
-        #if os(iOS)
-        // A selected LX User API source is the primary resolver.  NetEase is
-        // kept as a compatibility fallback for old queues and FM entries.
+#if os(iOS)
+        // A catalogue result must stay on the selected LX User API path. Do
+        // not silently turn a KW/KG/TX/MG/WY song into a NetEase request when
+        // the user has not configured an LX playback source.
+        if isLXCatalogTrack, LXSourceStore.shared.selectedSource == nil {
+            guard generation == resolveGeneration else { return }
+            ToastCenter.shared.show("请先在设置 → LX 音源中选择播放音源")
+            isPlaying = false
+            return
+        }
         if LXSourceStore.shared.selectedSource != nil,
            let lx = try? await LXUserAPIService.shared.resolveMusicURL(for: track, quality: quality) {
             resolvedURL = lx.url
             servedByLXQuality = lx.quality
         }
-        #endif
+#endif
 
-        if resolvedURL == nil {
+        if resolvedURL == nil, !isLXCatalogTrack {
             data = try? await NeteaseAPI.songURL(ids: [track.id], level: quality).first
             if data?.url == nil, quality != AudioQuality.standard.rawValue {
                 data = try? await NeteaseAPI.songURL(ids: [track.id], level: AudioQuality.standard.rawValue).first
@@ -715,7 +752,7 @@ final class PlayerService: ObservableObject {
     }
 
     private func loadLyrics(for track: Track, generation: Int) async {
-        #if os(iOS)
+#if os(iOS)
         if LXSourceStore.shared.selectedSource != nil,
            let lx = try? await LXUserAPIService.shared.resolveLyrics(for: track) {
             guard generation == resolveGeneration else { return }
@@ -724,7 +761,12 @@ final class PlayerService: ObservableObject {
             updateLyricsCursor(at: progress)
             return
         }
-        #endif
+        if track.source != nil {
+            guard generation == resolveGeneration else { return }
+            lyrics = nil
+            return
+        }
+#endif
         let response = try? await NeteaseAPI.lyric(id: track.id)
         guard generation == resolveGeneration else { return }
         lyrics = response.map(LyricsParser.parse)

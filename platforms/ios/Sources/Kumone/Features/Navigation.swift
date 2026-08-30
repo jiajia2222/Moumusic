@@ -60,6 +60,7 @@ enum SidebarItem: Hashable {
 
 enum Destination: Hashable {
     case playlist(Int)
+    case lxPlaylist(source: LXCatalogPlatform, id: String)
     case album(Int)
     case artist(Int)
     case daily
@@ -78,6 +79,8 @@ struct DestinationsModifier: ViewModifier {
                 switch destination {
                 case .playlist(let id):
                     PlaylistDetailView(playlistID: id)
+                case .lxPlaylist(let source, let id):
+                    LXPlaylistDetailView(source: source, playlistID: id)
                 case .album(let id):
                     AlbumDetailView(albumID: id)
                 case .artist(let id):

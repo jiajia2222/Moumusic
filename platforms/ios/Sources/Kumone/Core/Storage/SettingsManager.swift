@@ -70,38 +70,19 @@ enum NowPlayingMode: String, CaseIterable, Identifiable {
 }
 #endif
 
+/// The home page has one recommendation family at a time. The platform used
+/// by LX recommendations is configured separately so aggregate search never
+/// accidentally becomes the home page provider.
 enum HomeRecommendationMode: String, CaseIterable, Identifiable {
-    case lxAggregate = "lx-aggregate"
-    case kw
-    case kg
-    case tx
-    case wy
-    case mg
+    case lx
     case netease = "netease"
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .lxAggregate: return "LX 聚合"
-        case .kw: return "酷我"
-        case .kg: return "酷狗"
-        case .tx: return "QQ 音乐"
-        case .wy: return "网易云"
-        case .mg: return "咪咕"
+        case .lx: return "LX 推荐"
         case .netease: return "网易云推荐"
-        }
-    }
-
-    var catalogPlatform: LXCatalogPlatform? {
-        switch self {
-        case .lxAggregate: return .aggregate
-        case .kw: return .kw
-        case .kg: return .kg
-        case .tx: return .tx
-        case .wy: return .wy
-        case .mg: return .mg
-        case .netease: return nil
         }
     }
 }
@@ -125,6 +106,7 @@ final class SettingsManager: ObservableObject {
         static let autoCheckUpdates = "settings.autoCheckUpdates"
         static let desktopLyrics = "settings.showDesktopLyrics"
         static let homeRecommendationMode = "settings.homeRecommendationMode"
+        static let homeRecommendationPlatform = "settings.homeRecommendationPlatform"
     }
 
     @Published var audioQuality: AudioQuality {
@@ -181,6 +163,12 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(homeRecommendationMode.rawValue, forKey: Keys.homeRecommendationMode) }
     }
 
+    /// A single LX catalogue provider for the home page. `.aggregate` is
+    /// deliberately not a valid value here; it belongs to Search only.
+    @Published var homeRecommendationPlatform: LXCatalogPlatform {
+        didSet { UserDefaults.standard.set(homeRecommendationPlatform.rawValue, forKey: Keys.homeRecommendationPlatform) }
+    }
+
     private init() {
         let defaults = UserDefaults.standard
         audioQuality = defaults.string(forKey: Keys.quality).flatMap(AudioQuality.init) ?? .exhigh
@@ -196,10 +184,13 @@ final class SettingsManager: ObservableObject {
         showDesktopLyrics = defaults.object(forKey: Keys.desktopLyrics) as? Bool ?? false
         #if os(iOS)
         homeRecommendationMode = defaults.string(forKey: Keys.homeRecommendationMode)
-            .flatMap(HomeRecommendationMode.init) ?? .lxAggregate
+            .flatMap(HomeRecommendationMode.init) ?? .lx
         #else
         homeRecommendationMode = defaults.string(forKey: Keys.homeRecommendationMode)
             .flatMap(HomeRecommendationMode.init) ?? .netease
         #endif
+        let storedPlatform = defaults.string(forKey: Keys.homeRecommendationPlatform)
+            .flatMap(LXCatalogPlatform.init)
+        homeRecommendationPlatform = storedPlatform.flatMap { $0 == .aggregate ? nil : $0 } ?? .kw
     }
 }

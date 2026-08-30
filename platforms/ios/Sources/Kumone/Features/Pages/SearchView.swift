@@ -5,17 +5,14 @@ final class SearchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
         case all
         case songs
-        case artists
-        case albums
         case playlists
 
         var id: String { rawValue }
+
         var displayName: String {
             switch self {
             case .all: return "综合"
-            case .songs: return "单曲"
-            case .artists: return "歌手"
-            case .albums: return "专辑"
+            case .songs: return "歌曲"
             case .playlists: return "歌单"
             }
         }
@@ -24,10 +21,10 @@ final class SearchViewModel: ObservableObject {
     var query: String
     @Published var tab: Tab = .all
     @Published var songs: [Track] = []
-    @Published var artists: [ArtistSummary] = []
-    @Published var albums: [AlbumSummary] = []
-    @Published var playlists: [PlaylistSummary] = []
+    @Published var playlists: [LXPlaylistSummary] = []
+    @Published var hotKeywords: [String] = []
     @Published var isLoading = false
+    @Published var isLoadingHot = false
     @Published var loadedTabs: Set<Tab> = []
     @Published var platform: LXCatalogPlatform = .aggregate
 
@@ -40,46 +37,44 @@ final class SearchViewModel: ObservableObject {
         query = newQuery
         loadedTabs.removeAll()
         songs = []
-        artists = []
-        albums = []
         playlists = []
     }
 
     func setPlatform(_ newPlatform: LXCatalogPlatform) {
         guard newPlatform != platform else { return }
         platform = newPlatform
-        loadedTabs.remove(.all)
-        loadedTabs.remove(.songs)
+        loadedTabs.removeAll()
         songs = []
+        playlists = []
+        hotKeywords = []
+        Task { await loadHotKeywords() }
     }
 
     func load(tab: Tab) async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        guard !loadedTabs.contains(tab) else { return }
+        guard !trimmed.isEmpty, !loadedTabs.contains(tab) else { return }
         isLoading = true
         defer { isLoading = false }
-        loadedTabs.insert(tab)
 
         switch tab {
         case .all:
             async let songsTask = try? LXCatalogService.search(trimmed, platform: platform, limit: 12)
-            async let artistsTask = try? NeteaseAPI.search(trimmed, type: .artists, limit: 10)
-            async let albumsTask = try? NeteaseAPI.search(trimmed, type: .albums, limit: 10)
-            async let playlistsTask = try? NeteaseAPI.search(trimmed, type: .playlists, limit: 10)
+            async let playlistsTask = try? LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 12)
             songs = await songsTask ?? []
-            artists = (await artistsTask)?.artists ?? []
-            albums = (await albumsTask)?.albums ?? []
-            playlists = (await playlistsTask)?.playlists ?? []
+            playlists = await playlistsTask ?? []
         case .songs:
             songs = (try? await LXCatalogService.search(trimmed, platform: platform, limit: 100)) ?? songs
-        case .artists:
-            artists = (try? await NeteaseAPI.search(trimmed, type: .artists, limit: 50))?.artists ?? artists
-        case .albums:
-            albums = (try? await NeteaseAPI.search(trimmed, type: .albums, limit: 50))?.albums ?? albums
         case .playlists:
-            playlists = (try? await NeteaseAPI.search(trimmed, type: .playlists, limit: 50))?.playlists ?? playlists
+            playlists = (try? await LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 100)) ?? playlists
         }
+        loadedTabs.insert(tab)
+    }
+
+    func loadHotKeywords() async {
+        guard hotKeywords.isEmpty else { return }
+        isLoadingHot = true
+        defer { isLoadingHot = false }
+        hotKeywords = (try? await LXCatalogService.hotKeywords(platform: platform)) ?? []
     }
 }
 
@@ -88,7 +83,6 @@ struct SearchView: View {
 
     @StateObject private var model: SearchViewModel
     @State private var searchText: String = ""
-    @EnvironmentObject private var player: PlayerService
 
     init(query: String) {
         self.initialQuery = query
@@ -99,18 +93,9 @@ struct SearchView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     platformPicker
-
-                    Picker("", selection: $model.tab) {
-                        ForEach(SearchViewModel.Tab.allCases) { tab in
-                            Text(tab.displayName).tag(tab)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .padding(.horizontal, Theme.Layout.contentInset)
-                    .padding(.top, 12)
+                    tabPicker
 
                     if model.isLoading && currentEmpty {
                         ProgressView()
@@ -120,11 +105,12 @@ struct SearchView: View {
                     }
                 } else {
                     emptySearchPrompt
+                    hotSearches
                 }
                 PlayerClearanceSpacer()
             }
         }
-        .searchable(text: $searchText, prompt: "搜索歌曲、歌手、专辑、歌单")
+        .searchable(text: $searchText, prompt: "搜索歌曲或歌单")
         .onSubmit(of: .search) {
             model.setQuery(searchText)
             Task { await model.load(tab: model.tab) }
@@ -133,63 +119,105 @@ struct SearchView: View {
             model.setQuery(newValue)
             Task {
                 try? await Task.sleep(nanoseconds: 400_000_000)
-                if searchText == newValue {
-                    await model.load(tab: model.tab)
-                }
+                guard searchText == newValue else { return }
+                await model.load(tab: model.tab)
             }
         }
-        .navigationTitle(searchText.isEmpty ? "搜索" : String(localized: "搜索：\(searchText)"))
+        .navigationTitle(searchText.isEmpty ? "搜索" : "搜索：\(searchText)")
         .task(id: "\(model.tab.rawValue)-\(model.platform.rawValue)") {
             await model.load(tab: model.tab)
         }
+        .task {
+            await model.loadHotKeywords()
+        }
+    }
+
+    private var tabPicker: some View {
+        Picker("搜索类型", selection: $model.tab) {
+            ForEach(SearchViewModel.Tab.allCases) { tab in
+                Text(tab.displayName).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, Theme.Layout.contentInset)
     }
 
     private var platformPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(LXCatalogPlatform.allCases) { platform in
-                    Button {
-                        model.setPlatform(platform)
-                    } label: {
-                        Text(platform.displayName)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(model.platform == platform ? .white : .primary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(model.platform == platform ? Color.accentColor : Color.secondary.opacity(0.12))
-                            .clipShape(Capsule())
+        VStack(alignment: .leading, spacing: 8) {
+            Text("搜索平台")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(LXCatalogPlatform.allCases) { platform in
+                        Button {
+                            model.setPlatform(platform)
+                        } label: {
+                            Text(platform.displayName)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(model.platform == platform ? .white : .primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(model.platform == platform ? Color.accentColor : Color.secondary.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .frame(minHeight: 44)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, Theme.Layout.contentInset)
             }
-            .padding(.horizontal, Theme.Layout.contentInset)
         }
         .padding(.top, 12)
     }
 
     private var emptySearchPrompt: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(.tertiary)
-                .padding(.top, 60)
-            Text("探索海量华语流行与经典音乐")
+                .padding(.top, 44)
+            Text("搜索歌曲和歌单")
                 .font(.headline)
                 .foregroundStyle(.secondary)
-            Text("输入歌曲名称、歌手名或歌单关键字开始搜索")
+            Text("聚合搜索只在搜索页使用；首页推荐按你设置的平台单独加载。")
                 .font(.subheadline)
                 .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 32)
     }
 
+    private var hotSearches: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("热门搜索")
+                .font(.headline)
+                .padding(.horizontal, Theme.Layout.contentInset)
+            if model.isLoadingHot && model.hotKeywords.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 80)
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 10)], spacing: 10) {
+                    ForEach(Array(model.hotKeywords.prefix(20)), id: \.self) { keyword in
+                        Button(keyword) {
+                            searchText = keyword
+                            model.setQuery(keyword)
+                            Task { await model.load(tab: model.tab) }
+                        }
+                        .buttonStyle(.bordered)
+                        .frame(minHeight: 44)
+                    }
+                }
+                .padding(.horizontal, Theme.Layout.contentInset)
+            }
+        }
+    }
+
     private var currentEmpty: Bool {
         switch model.tab {
-        case .all: return model.songs.isEmpty && model.artists.isEmpty
+        case .all: return model.songs.isEmpty && model.playlists.isEmpty
         case .songs: return model.songs.isEmpty
-        case .artists: return model.artists.isEmpty
-        case .albums: return model.albums.isEmpty
         case .playlists: return model.playlists.isEmpty
         }
     }
@@ -200,22 +228,10 @@ struct SearchView: View {
         case .all:
             if !model.songs.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: "单曲") {
-                        model.tab = .songs
-                    }
-                    .padding(.horizontal, Theme.Layout.contentInset)
+                    SectionHeader(title: "歌曲") { model.tab = .songs }
+                        .padding(.horizontal, Theme.Layout.contentInset)
                     TrackListView(tracks: Array(model.songs.prefix(6)))
                         .padding(.horizontal, Theme.Layout.contentInset - 10)
-                }
-            }
-            if !model.artists.isEmpty {
-                Shelf(title: "歌手", seeAll: { model.tab = .artists }) {
-                    artistCards(model.artists.prefix(8))
-                }
-            }
-            if !model.albums.isEmpty {
-                Shelf(title: "专辑", seeAll: { model.tab = .albums }) {
-                    albumCards(model.albums.prefix(8))
                 }
             }
             if !model.playlists.isEmpty {
@@ -230,16 +246,6 @@ struct SearchView: View {
         case .songs:
             TrackListView(tracks: model.songs)
                 .padding(.horizontal, Theme.Layout.contentInset - 10)
-        case .artists:
-            CardGrid(minWidth: 140) {
-                artistCards(model.artists)
-            }
-            .padding(.horizontal, Theme.Layout.contentInset)
-        case .albums:
-            CardGrid {
-                albumCards(model.albums)
-            }
-            .padding(.horizontal, Theme.Layout.contentInset)
         case .playlists:
             CardGrid {
                 playlistCards(model.playlists)
@@ -248,49 +254,13 @@ struct SearchView: View {
         }
     }
 
-    private func artistCards(_ items: some Collection<ArtistSummary>) -> some View {
-        ForEach(Array(items)) { artist in
-            NavigationLink {
-                ArtistDetailView(artistID: artist.id)
-            } label: {
-                VStack(spacing: 10) {
-                    CachedAsyncImage(url: artist.picUrl?.resizedImageURL(256))
-                        .frame(width: 128, height: 128)
-                        .clipShape(Circle())
-                    Text(artist.name)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                }
-                .frame(width: 140)
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private func albumCards(_ items: some Collection<AlbumSummary>) -> some View {
-        ForEach(Array(items)) { album in
-            NavigationLink {
-                AlbumDetailView(albumID: album.id)
-            } label: {
-                CoverCardBody(
-                    coverURL: album.picUrl?.resizedImageURL(384),
-                    title: album.name,
-                    subtitle: album.artistName
-                )
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private func playlistCards(_ items: some Collection<PlaylistSummary>) -> some View {
+    private func playlistCards(_ items: some Collection<LXPlaylistSummary>) -> some View {
         ForEach(Array(items)) { playlist in
-            NavigationLink {
-                PlaylistDetailView(playlistID: playlist.id)
-            } label: {
+            NavigationLink(value: Destination.lxPlaylist(source: playlist.source, id: playlist.id)) {
                 CoverCardBody(
                     coverURL: playlist.coverURL?.resizedImageURL(384),
                     title: playlist.name,
+                    subtitle: [playlist.source.displayName, playlist.author].compactMap { $0 }.joined(separator: " · "),
                     playCount: playlist.playCount
                 )
             }

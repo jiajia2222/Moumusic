@@ -84,6 +84,32 @@ struct PlaylistSummary: Decodable, Hashable, Identifiable {
     var isLikedSongsList: Bool { specialType == 5 }
 }
 
+/// LX catalogue playlist. Unlike a NetEase playlist, its identifier is a
+/// source-owned string and must travel with the platform that returned it.
+struct LXPlaylistSummary: Hashable, Identifiable {
+    let id: String
+    let name: String
+    let coverURL: String?
+    let playCount: Int
+    let trackCount: Int
+    let description: String?
+    let author: String?
+    let source: LXCatalogPlatform
+}
+
+struct LXPlaylistDetail: Hashable {
+    let id: String
+    let name: String
+    let coverURL: String?
+    let description: String?
+    let author: String?
+    let playCount: Int
+    let tracks: [Track]
+    let source: LXCatalogPlatform
+
+    var trackCount: Int { tracks.count }
+}
+
 struct TrackIDRef: Codable, Hashable {
     let id: Int
 }
