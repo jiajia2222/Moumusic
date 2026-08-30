@@ -61,7 +61,7 @@ enum LXCatalogService {
                        page: Int = 1, limit: Int = 30) async throws -> [Track] {
         if platform == .aggregate {
             let results = await withTaskGroup(of: [Track].self, returning: [[Track]].self) { group in
-                for item in LXCatalogPlatform.allCases where item != .aggregate {
+                for item in LXCatalogPlatform.allCases where item != .aggregate && item != .wy {
                     group.addTask {
                         (try? await search(keyword, platform: item, page: page, limit: limit)) ?? []
                     }
@@ -76,6 +76,8 @@ enum LXCatalogService {
                 return seen.insert(key).inserted
             }
         }
+
+        guard platform != .wy else { throw LXCatalogError.unsupported }
 
         switch platform {
         case .kw: return try await searchKuwo(keyword, page: page, limit: limit)
@@ -95,6 +97,7 @@ enum LXCatalogService {
         guard let platform = LXCatalogPlatform(rawValue: platform), platform != .aggregate else {
             return nil
         }
+        guard platform != .wy else { return nil }
         let keyword = [sourceTrack.name, sourceTrack.artistNames]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -539,7 +542,7 @@ enum LXCatalogService {
     /// also guarantees that a home recommendation never loses its platform.
     static func recommendedContent(platform: LXCatalogPlatform, limit: Int = 30)
         async -> (playlists: [LXPlaylistSummary], tracks: [Track]) {
-        guard platform != .aggregate else { return ([], []) }
+        guard platform != .aggregate, platform != .wy else { return ([], []) }
 
         let playlists = (try? await recommendedSonglists(platform: platform, limit: limit)) ?? []
         let candidates = Array(playlists.prefix(3))
@@ -569,7 +572,7 @@ enum LXCatalogService {
     }
 
     static func recommendedTracks(platform: LXCatalogPlatform, limit: Int = 30) async throws -> [Track] {
-        guard platform != .aggregate else { throw LXCatalogError.unsupported }
+        guard platform != .aggregate, platform != .wy else { throw LXCatalogError.unsupported }
         let content = await recommendedContent(platform: platform, limit: limit)
         return content.tracks
     }
@@ -734,7 +737,7 @@ enum LXCatalogService {
     /// keyword into fake recommendations.
     static func recommendedSonglists(platform: LXCatalogPlatform, limit: Int = 30)
         async throws -> [LXPlaylistSummary] {
-        guard platform != .aggregate else { throw LXCatalogError.unsupported }
+        guard platform != .aggregate, platform != .wy else { throw LXCatalogError.unsupported }
 
         switch platform {
         case .kw:
@@ -753,13 +756,7 @@ enum LXCatalogService {
                 ? try await searchSonglists("热门", platform: .tx, limit: limit)
                 : lists
         case .wy:
-            let items = try await NeteaseAPI.personalizedPlaylists(limit: limit)
-            return items.map {
-                LXPlaylistSummary(id: String($0.id), name: $0.name, coverURL: $0.coverURL,
-                                  playCount: $0.playCount, trackCount: $0.trackCount,
-                                  description: $0.copywriter, author: $0.creator?.nickname,
-                                  source: .wy)
-            }
+            throw LXCatalogError.unsupported
         case .mg:
             let lists = (try? await recommendedMiguSonglists(limit: limit)) ?? []
             return lists.isEmpty
@@ -907,7 +904,7 @@ enum LXCatalogService {
         if platform == .aggregate {
             let results = await withTaskGroup(of: [LXPlaylistSummary].self,
                                               returning: [[LXPlaylistSummary]].self) { group in
-                for item in LXCatalogPlatform.allCases where item != .aggregate {
+                for item in LXCatalogPlatform.allCases where item != .aggregate && item != .wy {
                     group.addTask {
                         (try? await searchSonglists(keyword, platform: item, page: page, limit: limit)) ?? []
                     }
@@ -922,6 +919,8 @@ enum LXCatalogService {
                 return seen.insert("\($0.name.lowercased())|\(author)").inserted
             }
         }
+
+        guard platform != .wy else { throw LXCatalogError.unsupported }
 
         switch platform {
         case .kw: return try await searchKuwoSonglists(keyword, page: page, limit: limit)
@@ -1053,7 +1052,7 @@ enum LXCatalogService {
     static func hotKeywords(platform: LXCatalogPlatform) async throws -> [String] {
         if platform == .aggregate {
             let results = await withTaskGroup(of: [String].self, returning: [[String]].self) { group in
-                for item in LXCatalogPlatform.allCases where item != .aggregate {
+                for item in LXCatalogPlatform.allCases where item != .aggregate && item != .wy {
                     group.addTask { (try? await hotKeywords(platform: item)) ?? [] }
                 }
                 var all: [[String]] = []
@@ -1063,6 +1062,8 @@ enum LXCatalogService {
             var seen = Set<String>()
             return results.flatMap { $0 }.filter { seen.insert($0.lowercased()).inserted }
         }
+
+        guard platform != .wy else { throw LXCatalogError.unsupported }
 
         switch platform {
         case .kw:
@@ -1099,6 +1100,8 @@ enum LXCatalogService {
     // MARK: - Songlist details
 
     static func playlistDetail(source: LXCatalogPlatform, id: String) async throws -> LXPlaylistDetail {
+        guard source != .wy else { throw LXCatalogError.unsupported }
+
         switch source {
         case .wy:
             guard let neteaseID = Int(id) else { throw LXCatalogError.invalidResponse }

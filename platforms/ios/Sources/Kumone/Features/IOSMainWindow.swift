@@ -197,11 +197,11 @@ public struct IOSMainWindow: View {
     private var iOS26TabView: some View {
         TabView(selection: $selectedTab) {
             Tab("推荐", systemImage: "house", value: .home) {
-                tabStack(.home) { RecommendationView() }
+                tabStack(.home) { HomeView() }
             }
 
             Tab("发现", systemImage: "square.grid.2x2", value: .explore) {
-                tabStack(.explore) { SourceDashboardView(title: "发现") }
+                tabStack(.explore) { ExploreView() }
             }
 
             Tab("歌单", systemImage: "music.note.list", value: .playlists) {
@@ -249,9 +249,9 @@ public struct IOSMainWindow: View {
     private var selectedPage: some View {
         switch selectedTab {
         case .home:
-            tabStack(.home) { RecommendationView() }
+            tabStack(.home) { HomeView() }
         case .explore:
-            tabStack(.explore) { SourceDashboardView(title: "发现") }
+            tabStack(.explore) { ExploreView() }
         case .search:
             tabStack(.search) { SearchView(query: "") }
         case .playlists:

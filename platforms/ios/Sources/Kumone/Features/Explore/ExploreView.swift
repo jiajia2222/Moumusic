@@ -145,7 +145,7 @@ struct ExploreView: View {
                 .foregroundStyle(.secondary)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
-                    ForEach(LXCatalogPlatform.allCases.filter { $0 != .aggregate }) { platform in
+                    ForEach(LXCatalogPlatform.allCases.filter { $0 != .aggregate && $0 != .wy }) { platform in
                         Button { model.selectPlatform(platform) } label: {
                             Text(platform.displayName)
                                 .font(.system(size: 13, weight: .medium))

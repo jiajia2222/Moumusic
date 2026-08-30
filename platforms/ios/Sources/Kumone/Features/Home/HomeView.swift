@@ -205,7 +205,7 @@ struct HomeView: View {
     }
 
     private var homePlatforms: [LXCatalogPlatform] {
-        LXCatalogPlatform.allCases.filter { $0 != .aggregate }
+        LXCatalogPlatform.allCases.filter { $0 != .aggregate && $0 != .wy }
     }
 
     private func isHomePlatform(_ platform: LXCatalogPlatform) -> Bool {
