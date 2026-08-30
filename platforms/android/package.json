@@ -1,7 +1,7 @@
 {
   "name": "moumusic-mobile",
-  "version": "0.5.4",
-  "versionCode": 14,
+  "version": "0.5.5",
+  "versionCode": 15,
   "private": true,
   "scripts": {
     "dev": "react-native run-android --active-arch-only",
