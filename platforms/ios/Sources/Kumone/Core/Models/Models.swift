@@ -464,11 +464,15 @@ enum Formatters {
 }
 
 extension String {
-    /// NetEase image CDN resize convention: `<picUrl>?param=<W>y<H>`.
-    /// Also upgrades `http:` to `https:`.
+    /// Applies NetEase's resize query only to NetEase URLs. Other providers
+    /// either encode the size in the path (Kuwo/Kugou) or ignore the query,
+    /// and some of them reject the extra `param` item altogether.
     func resizedImageURL(_ size: Int) -> URL? {
         var s = replacingOccurrences(of: "http://", with: "https://")
-        s += s.contains("?") ? "&param=\(size)y\(size)" : "?param=\(size)y\(size)"
+            .replacingOccurrences(of: "{size}", with: String(size))
+        if s.contains("music.126.net") {
+            s += s.contains("?") ? "&param=\(size)y\(size)" : "?param=\(size)y\(size)"
+        }
         return URL(string: s)
     }
 }

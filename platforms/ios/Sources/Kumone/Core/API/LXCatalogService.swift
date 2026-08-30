@@ -94,7 +94,7 @@ enum LXCatalogService {
     }
 
     private static func searchKuwo(_ keyword: String, page: Int, limit: Int) async throws -> [Track] {
-        var components = URLComponents(string: "http://search.kuwo.cn/r.s")!
+        var components = URLComponents(string: "https://search.kuwo.cn/r.s")!
         components.queryItems = [
             URLQueryItem(name: "client", value: "kt"),
             URLQueryItem(name: "all", value: keyword),
@@ -119,15 +119,18 @@ enum LXCatalogService {
         return items.compactMap { item in
             guard let rawID = text(item["MUSICRID"]),
                   let id = Int(rawID.replacingOccurrences(of: "MUSIC_", with: "")) else { return nil }
-            let metadata = [
+            let image = kuwoImageURL(item["web_albumpic_short"] ?? item["albumpic"]
+                                     ?? item["MVPIC"] ?? item["PICPATH"])
+            var metadata = [
                 "songmid": String(id),
                 "albumId": text(item["ALBUMID"]) ?? "",
             ]
+            if let image { metadata["coverURL"] = image }
             return Track(id: id,
                          name: text(item["SONGNAME"]) ?? "",
                          artists: artists(from: text(item["ARTIST"])),
                          album: AlbumRef(id: Int(text(item["ALBUMID"]) ?? "") ?? 0,
-                                        name: text(item["ALBUM"]) ?? "", picUrl: nil),
+                                         name: text(item["ALBUM"]) ?? "", picUrl: image),
                          durationMS: seconds(item["DURATION"]) * 1000,
                          source: "kw", sourceMetadata: metadata)
         }
@@ -156,15 +159,18 @@ enum LXCatalogService {
             guard let id = int(item["Audioid"]), id > 0 else { continue }
             let hash = text(item["FileHash"]) ?? ""
             guard seen.insert("\(id)-\(hash)").inserted else { continue }
+            let image = kugouImageURL(item)
+            var metadata = ["songmid": String(id), "hash": hash,
+                            "albumId": text(item["AlbumID"]) ?? ""]
+            if let image { metadata["coverURL"] = image }
             output.append(Track(id: id,
                                 name: text(item["SongName"]) ?? "",
                                 artists: artists(from: text(item["Singers"])),
                                 album: AlbumRef(id: int(item["AlbumID"]) ?? 0,
-                                               name: text(item["AlbumName"]) ?? "", picUrl: nil),
+                                               name: text(item["AlbumName"]) ?? "", picUrl: image),
                                 durationMS: seconds(item["Duration"]) * 1000,
                                 source: "kg",
-                                sourceMetadata: ["songmid": String(id), "hash": hash,
-                                                 "albumId": text(item["AlbumID"]) ?? ""]))
+                                sourceMetadata: metadata))
         }
         return output
     }
@@ -195,7 +201,7 @@ enum LXCatalogService {
             guard let item = value as? [String: Any],
                   let rawID = text(item["songId"]), let id = Int(rawID), id > 0 else { return nil }
             let image = text(item["img3"]) ?? text(item["img2"]) ?? text(item["img1"])
-            let imageURL = image.map { $0.hasPrefix("http") ? $0 : "http://d.musicapp.migu.cn\($0)" }
+            let imageURL = miguImageURL(image)
             return Track(id: id, name: text(item["name"]) ?? "",
                          artists: artists(from: text(item["singerList"])),
                          album: AlbumRef(id: int(item["albumId"]) ?? 0,
@@ -344,9 +350,52 @@ enum LXCatalogService {
         }.joined(separator: "\n")
     }
 
+    private static func normalizedImageURL(_ value: String?, size: Int = 500) -> String? {
+        guard var value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        if value.hasPrefix("//") { value = "https:" + value }
+        value = value.replacingOccurrences(of: "http://", with: "https://")
+        value = value.replacingOccurrences(of: "{size}", with: String(size))
+        return URL(string: value) == nil ? nil : value
+    }
+
+    private static func kuwoImageURL(_ value: Any?, size: Int = 500) -> String? {
+        guard let raw = text(value), !raw.isEmpty else { return nil }
+        if raw.contains("://") || raw.hasPrefix("//") {
+            return normalizedImageURL(raw, size: size)
+        }
+
+        var path = raw.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let parts = path.split(separator: "/", maxSplits: 1).map(String.init)
+        if parts.count == 2, Int(parts[0]) != nil {
+            path = "\(size)/\(parts[1])"
+        }
+        return normalizedImageURL("https://img1.kuwo.cn/star/albumcover/\(path)", size: size)
+    }
+
+    private static func kugouImageURL(_ item: [String: Any], size: Int = 500) -> String? {
+        let transParam = item["trans_param"] as? [String: Any]
+        return normalizedImageURL(
+            text(item["Image"]) ?? text(item["image"]) ?? text(item["AlbumImage"])
+                ?? text(item["img"]) ?? text(item["imgurl"])
+                ?? text(transParam?["union_cover"]),
+            size: size
+        )
+    }
+
+    private static func miguImageURL(_ value: String?, size: Int = 500) -> String? {
+        guard var value else { return nil }
+        if value.hasPrefix("/") { value = "https://d.musicapp.migu.cn\(value)" }
+        return normalizedImageURL(value, size: size)
+    }
+
     private static func text(_ value: Any?) -> String? {
         switch value {
-        case let value as String: return value
+        case let value as String:
+            return value
+                .replacingOccurrences(of: "&nbsp;", with: " ")
+                .replacingOccurrences(of: "&#39;", with: "'")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         case let value as NSNumber: return value.stringValue
         case let value as [String: Any]:
             if let name = value["name"] { return text(name) }
@@ -657,17 +706,17 @@ enum LXCatalogService {
 
         switch platform {
         case .kw:
-            let lists = try await recommendedKuwoSonglists(limit: limit)
+            let lists = (try? await recommendedKuwoSonglists(limit: limit)) ?? []
             return lists.isEmpty
                 ? try await searchSonglists("热门", platform: .kw, limit: limit)
                 : lists
         case .kg:
-            let lists = try await recommendedKugouSonglists(limit: limit)
+            let lists = (try? await recommendedKugouSonglists(limit: limit)) ?? []
             return lists.isEmpty
                 ? try await searchSonglists("热门", platform: .kg, limit: limit)
                 : lists
         case .tx:
-            let lists = try await recommendedQQSonglists(limit: limit)
+            let lists = (try? await recommendedQQSonglists(limit: limit)) ?? []
             return lists.isEmpty
                 ? try await searchSonglists("热门", platform: .tx, limit: limit)
                 : lists
@@ -680,7 +729,7 @@ enum LXCatalogService {
                                   source: .wy)
             }
         case .mg:
-            let lists = try await recommendedMiguSonglists(limit: limit)
+            let lists = (try? await recommendedMiguSonglists(limit: limit)) ?? []
             return lists.isEmpty
                 ? try await searchSonglists("热门", platform: .mg, limit: limit)
                 : lists
@@ -690,14 +739,16 @@ enum LXCatalogService {
     }
 
     private static func recommendedKuwoSonglists(limit: Int) async throws -> [LXPlaylistSummary] {
-        var components = URLComponents(string: "http://wapi.kuwo.cn/api/pc/classify/playlist/getRcmPlayList")!
+        var components = URLComponents(string: "https://wapi.kuwo.cn/api/pc/classify/playlist/getRcmPlayList")!
         components.queryItems = [
             URLQueryItem(name: "loginUid", value: "0"),
             URLQueryItem(name: "loginSid", value: "0"),
             URLQueryItem(name: "appUid", value: "76039576"),
             URLQueryItem(name: "pn", value: "1"),
             URLQueryItem(name: "rn", value: String(limit)),
-            URLQueryItem(name: "order", value: "5"),
+            // LX uses the source's textual sort id. Numeric values return an
+            // HTTP 200 response with an empty data array.
+            URLQueryItem(name: "order", value: "hot"),
         ]
         let root = try await fetchObject(components.url!) as? [String: Any]
         let data = root?["data"] as? [String: Any]
@@ -713,7 +764,7 @@ enum LXCatalogService {
                 id = rawID
             }
             return LXPlaylistSummary(id: id, name: text(item["name"]) ?? "",
-                                     coverURL: text(item["img"]),
+                                      coverURL: kuwoImageURL(item["img"]),
                                      playCount: int(item["listencnt"]) ?? int(item["playcnt"]) ?? 0,
                                      trackCount: int(item["total"]) ?? int(item["songnum"]) ?? 0,
                                      description: text(item["desc"]), author: text(item["uname"]),
@@ -746,7 +797,7 @@ enum LXCatalogService {
         return items.prefix(limit).compactMap { item in
             guard let id = int(item["specialid"]) else { return nil }
             return LXPlaylistSummary(id: "id_\(id)", name: text(item["specialname"]) ?? "",
-                                     coverURL: text(item["img"]) ?? text(item["imgurl"]),
+                                      coverURL: normalizedImageURL(text(item["img"]) ?? text(item["imgurl"])),
                                      playCount: int(item["total_play_count"]) ?? int(item["play_count"]) ?? int(item["collectcount"]) ?? 0,
                                      trackCount: int(item["songcount"]) ?? int(item["song_count"]) ?? 0,
                                      description: text(item["intro"]), author: text(item["nickname"]),
@@ -787,7 +838,7 @@ enum LXCatalogService {
             guard let id = int(item["tid"]) else { return nil }
             let creator = (item["creator_info"] as? [String: Any]).flatMap { text($0["nick"]) }
             return LXPlaylistSummary(id: String(id), name: text(item["title"]) ?? "",
-                                     coverURL: text(item["cover_url_medium"]) ?? text(item["cover_url"]),
+                                      coverURL: normalizedImageURL(text(item["cover_url_medium"]) ?? text(item["cover_url"])),
                                      playCount: int(item["access_num"]) ?? 0,
                                      trackCount: (item["song_ids"] as? [Any])?.count ?? 0,
                                      description: text(item["desc"]), author: creator, source: .tx)
@@ -861,7 +912,7 @@ enum LXCatalogService {
     }
 
     private static func searchKuwoSonglists(_ keyword: String, page: Int, limit: Int) async throws -> [LXPlaylistSummary] {
-        var components = URLComponents(string: "http://search.kuwo.cn/r.s")!
+        var components = URLComponents(string: "https://search.kuwo.cn/r.s")!
         components.queryItems = [
             URLQueryItem(name: "all", value: keyword),
             URLQueryItem(name: "pn", value: String(max(0, page - 1))),
@@ -875,7 +926,7 @@ enum LXCatalogService {
         return items.compactMap { item in
             guard let id = text(item["playlistid"]) ?? text(item["id"]) else { return nil }
             return LXPlaylistSummary(id: id, name: text(item["name"]) ?? "",
-                                     coverURL: text(item["pic"]),
+                                      coverURL: kuwoImageURL(item["pic"]),
                                      playCount: int(item["playcnt"]) ?? 0,
                                      trackCount: int(item["songnum"]) ?? 0,
                                      description: text(item["intro"]),
@@ -909,7 +960,7 @@ enum LXCatalogService {
     }
 
     private static func searchQQSonglists(_ keyword: String, page: Int, limit: Int) async throws -> [LXPlaylistSummary] {
-        var components = URLComponents(string: "http://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist")!
+        var components = URLComponents(string: "https://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist")!
         components.queryItems = [
             URLQueryItem(name: "page_no", value: String(max(0, page - 1))),
             URLQueryItem(name: "num_per_page", value: String(limit)),
@@ -917,13 +968,16 @@ enum LXCatalogService {
             URLQueryItem(name: "query", value: keyword),
             URLQueryItem(name: "remoteplace", value: "txt.yqq.playlist"),
         ]
-        let root = try await fetchObject(components.url!, headers: ["Referer": "http://y.qq.com/portal/search.html"]) as? [String: Any]
+        let root = try await fetchObject(components.url!, headers: [
+            "Origin": "https://y.qq.com",
+            "Referer": "https://y.qq.com/portal/search.html",
+        ]) as? [String: Any]
         let data = root?["data"] as? [String: Any]
         let items = data?["list"] as? [[String: Any]] ?? []
         return items.compactMap { item in
             guard let id = text(item["dissid"]) else { return nil }
             return LXPlaylistSummary(id: id, name: text(item["dissname"]) ?? "",
-                                     coverURL: text(item["imgurl"]),
+                                      coverURL: normalizedImageURL(text(item["imgurl"])),
                                      playCount: int(item["listennum"]) ?? 0,
                                      trackCount: int(item["song_count"]) ?? 0,
                                      description: text(item["introduction"]),
@@ -955,7 +1009,7 @@ enum LXCatalogService {
         return items.compactMap { item in
             guard let id = text(item["id"]) else { return nil }
             return LXPlaylistSummary(id: id, name: text(item["name"]) ?? "",
-                                     coverURL: text(item["musicListPicUrl"]),
+                                      coverURL: miguImageURL(text(item["musicListPicUrl"])),
                                      playCount: int(item["playNum"]) ?? 0,
                                      trackCount: int(item["musicNum"]) ?? 0,
                                      description: nil, author: text(item["userName"]), source: .mg)
@@ -1029,48 +1083,64 @@ enum LXCatalogService {
                                     tracks: tracks.map { $0.withSource("wy") }, source: .wy)
         case .kw:
             let listID = id.components(separatedBy: "__").last ?? id
-            let url = URL(string: "http://nplserver.kuwo.cn/pl.svc?op=getlistinfo&pid=\(listID)&pn=0&rn=1000&encode=utf8&keyset=pl2012&identity=kuwo&pcmp4=1&vipver=MUSIC_9.0.5.0_W1&newver=1")!
+            let url = URL(string: "https://nplserver.kuwo.cn/pl.svc?op=getlistinfo&pid=\(listID)&pn=0&rn=1000&encode=utf8&keyset=pl2012&identity=kuwo&pcmp4=1&vipver=MUSIC_9.0.5.0_W1&newver=1")!
             let root = try await fetchObject(url) as? [String: Any]
             let rawTracks = root?["musiclist"] as? [[String: Any]] ?? []
+            guard !rawTracks.isEmpty else { throw LXCatalogError.invalidResponse }
+            let tracks = rawTracks.compactMap { track(from: $0, source: .kw) }
+            guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
             return LXPlaylistDetail(id: id, name: text(root?["name"]) ?? text(root?["title"]) ?? "酷我歌单",
-                                    coverURL: text(root?["pic"]), description: text(root?["intro"]),
+                                    coverURL: normalizedImageURL(text(root?["pic"])), description: text(root?["intro"]),
                                     author: text(root?["uname"]), playCount: int(root?["playnum"]) ?? 0,
-                                    tracks: rawTracks.compactMap { track(from: $0, source: .kw) }, source: .kw)
+                                    tracks: tracks, source: .kw)
         case .tx:
             let url = URL(string: "https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?type=1&json=1&utf8=1&onlysong=0&new_format=1&disstid=\(id)&loginUin=0&hostUin=0&format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0")!
-            let root = try await fetchObject(url) as? [String: Any]
+            let root = try await fetchObject(url, headers: [
+                "Origin": "https://y.qq.com",
+                "Referer": "https://y.qq.com/n/yqq/playsquare/\(id).html",
+            ]) as? [String: Any]
             let cd = ((root?["cdlist"] as? [[String: Any]]) ?? []).first
             let rawTracks = cd?["songlist"] as? [[String: Any]] ?? []
+            guard !rawTracks.isEmpty else { throw LXCatalogError.invalidResponse }
+            let tracks = rawTracks.compactMap { track(from: $0, source: .tx) }
+            guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
             return LXPlaylistDetail(id: id, name: text(cd?["dissname"]) ?? "QQ 音乐歌单",
-                                    coverURL: text(cd?["logo"]), description: text(cd?["desc"]),
+                                    coverURL: normalizedImageURL(text(cd?["logo"])), description: text(cd?["desc"]),
                                     author: text(cd?["nickname"]), playCount: int(cd?["visitnum"]) ?? 0,
-                                    tracks: rawTracks.compactMap { track(from: $0, source: .tx) }, source: .tx)
+                                    tracks: tracks, source: .tx)
         case .mg:
             let url = URL(string: "https://app.c.nf.migu.cn/MIGUM3.0/resource/playlist/song/v2.0?pageNo=1&pageSize=1000&playlistId=\(id)")!
             let root = try await fetchObject(url, headers: ["Referer": "https://m.music.migu.cn/"]) as? [String: Any]
             let data = root?["data"] as? [String: Any]
             let rawTracks = data?["songList"] as? [[String: Any]] ?? []
+            guard !rawTracks.isEmpty else { throw LXCatalogError.invalidResponse }
+            let tracks = rawTracks.compactMap { track(from: $0, source: .mg) }
+            guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
             let infoObject = try? await fetchObject(URL(string: "https://c.musicapp.migu.cn/MIGUM3.0/resource/playlist/v2.0?playlistId=\(id)")!, headers: ["Referer": "https://m.music.migu.cn/"])
             let info = (infoObject as? [String: Any])?["data"] as? [String: Any]
             return LXPlaylistDetail(id: id, name: text(info?["title"]) ?? "咪咕歌单",
-                                    coverURL: text((info?["imgItem"] as? [String: Any])?["img"]),
+                                    coverURL: normalizedImageURL(text((info?["imgItem"] as? [String: Any])?["img"])),
                                     description: text(info?["summary"]), author: text(info?["ownerName"]),
                                     playCount: int((info?["opNumItem"] as? [String: Any])?["playNum"]) ?? 0,
-                                    tracks: rawTracks.compactMap { track(from: $0, source: .mg) }, source: .mg)
+                                    tracks: tracks, source: .mg)
         case .kg:
             let cleanID = id.replacingOccurrences(of: "id_", with: "")
             let url = URL(string: "https://www.kugou.com/yy/special/single/\(cleanID).html")!
             let html = try await fetchText(url)
-            guard let json = firstCapture(#"global\.data = (\[.+\]);"#, in: html),
+            guard let json = firstCapture(#"var\s+data\s*=\s*(\[[\s\S]*?\])\s*,\s*specialData"#, in: html),
                   let data = json.data(using: .utf8),
                   let rawTracks = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
                 throw LXCatalogError.invalidResponse
             }
-            let name = firstCapture(#"name:\s*\"([^\"]+)\""#, in: html) ?? "酷狗歌单"
-            let cover = firstCapture(#"pic:\s*\"([^\"]+)\""#, in: html)
+            guard !rawTracks.isEmpty else { throw LXCatalogError.invalidResponse }
+            let tracks = rawTracks.compactMap { track(from: $0, source: .kg) }
+            guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
+            let name = firstCapture(#"<title>\s*(.*?)\s*(?:_精选集|</title>)"#, in: html)
+                ?? "酷狗歌单"
+            let cover = kugouImageURL(rawTracks[0])
             return LXPlaylistDetail(id: id, name: name, coverURL: cover, description: nil,
                                     author: nil, playCount: 0,
-                                    tracks: rawTracks.compactMap { track(from: $0, source: .kg) }, source: .kg)
+                                    tracks: tracks, source: .kg)
         case .aggregate: throw LXCatalogError.unsupported
         }
     }
@@ -1084,6 +1154,7 @@ enum LXCatalogService {
         let albumID: Int
         let albumName: String
         let durationValue: Any?
+        let albumImageURL: String?
         var metadata: [String: String] = [:]
 
         switch source {
@@ -1094,7 +1165,10 @@ enum LXCatalogService {
             albumID = int(item["albumid"]) ?? int(item["ALBUMID"]) ?? 0
             albumName = text(item["album"]) ?? text(item["ALBUM"]) ?? ""
             durationValue = item["duration"] ?? item["DURATION"]
+            albumImageURL = kuwoImageURL(item["albumpic"] ?? item["web_albumpic_short"]
+                                         ?? item["MVPIC"] ?? item["PICPATH"])
             if let rawID { metadata["songmid"] = rawID; metadata["albumId"] = String(albumID) }
+            if let albumImageURL { metadata["coverURL"] = albumImageURL }
         case .kg:
             let hash = text(item["hash"]) ?? text(item["FileHash"]) ?? ""
             rawID = text(item["audio_id"]) ?? text(item["Audioid"]) ?? text(item["songid"]) ?? hash
@@ -1102,10 +1176,14 @@ enum LXCatalogService {
             artistText = text(item["singername"]) ?? text(item["Singers"])
             albumID = int(item["album_id"]) ?? int(item["AlbumID"]) ?? 0
             albumName = text(item["album_name"]) ?? text(item["AlbumName"]) ?? ""
-            durationValue = item["duration"] ?? item["Duration"]
+            durationValue = item["timelength"] ?? item["timelength_320"] ?? item["duration"] ?? item["Duration"]
+            albumImageURL = kugouImageURL(item)
             if !hash.isEmpty { metadata["hash"] = hash }
             if let rawID { metadata["songmid"] = rawID }
             metadata["albumId"] = String(albumID)
+            if let hash320 = text(item["hash_320"]), !hash320.isEmpty { metadata["hash320"] = hash320 }
+            if let hashFlac = text(item["hash_flac"]), !hashFlac.isEmpty { metadata["hashflac"] = hashFlac }
+            if let albumImageURL { metadata["coverURL"] = albumImageURL }
         case .tx:
             rawID = text(item["mid"]) ?? text(item["songmid"]) ?? text(item["id"])
             name = text(item["title"]) ?? text(item["name"]) ?? ""
@@ -1113,9 +1191,14 @@ enum LXCatalogService {
             albumID = int(nestedAlbum?["id"]) ?? int(nestedAlbum?["mid"]) ?? 0
             albumName = text(nestedAlbum?["name"]) ?? text(item["albumname"]) ?? ""
             durationValue = item["interval"] ?? item["duration"]
+            let albumMid = text(nestedAlbum?["mid"]) ?? ""
+            albumImageURL = albumMid.isEmpty ? nil
+                : normalizedImageURL("https://y.gtimg.cn/music/photo_new/T002R500x500M000\(albumMid).jpg")
             if let rawID { metadata["songmid"] = rawID }
+            if let id = text(item["id"]) { metadata["id"] = id }
             metadata["strMediaMid"] = text(nestedFile?["media_mid"]) ?? ""
-            metadata["albumMid"] = text(nestedAlbum?["mid"]) ?? ""
+            metadata["albumMid"] = albumMid
+            if let albumImageURL { metadata["coverURL"] = albumImageURL }
         case .mg:
             rawID = text(item["songId"]) ?? text(item["copyrightId"]) ?? text(item["contentId"])
             name = text(item["songName"]) ?? text(item["name"]) ?? ""
@@ -1123,8 +1206,14 @@ enum LXCatalogService {
             albumID = int(item["albumId"]) ?? 0
             albumName = text(item["albumName"]) ?? text(item["album"]) ?? ""
             durationValue = item["duration"] ?? item["length"]
+            albumImageURL = miguImageURL(text(item["img3"]) ?? text(item["img2"]) ?? text(item["img1"])
+                                         ?? text(item["albumPicUrl"]) ?? text(item["cover"]))
             if let rawID { metadata["songmid"] = rawID }
             metadata["copyrightId"] = text(item["copyrightId"]) ?? ""
+            for key in ["lrcUrl", "mrcUrl", "trcUrl"] {
+                if let value = text(item[key]), !value.isEmpty { metadata[key] = value }
+            }
+            if let albumImageURL { metadata["coverURL"] = albumImageURL }
         case .aggregate, .wy:
             return nil
         }
@@ -1133,9 +1222,16 @@ enum LXCatalogService {
         let numericID = Int(rawID) ?? abs(rawID.hashValue)
         guard numericID > 0 else { return nil }
         return Track(id: numericID, name: name, artists: artists(from: artistText),
-                     album: AlbumRef(id: albumID, name: albumName, picUrl: nil),
-                     durationMS: seconds(durationValue) * 1000,
+                     album: AlbumRef(id: albumID, name: albumName, picUrl: albumImageURL),
+                     durationMS: durationSeconds(durationValue, source: source) * 1000,
                      source: source.sourceID, sourceMetadata: metadata)
+    }
+
+    private static func durationSeconds(_ value: Any?, source: LXCatalogPlatform) -> Int {
+        if source == .kg, let value = int(value), value > 10_000 {
+            return value / 1000
+        }
+        return seconds(value)
     }
 
     private static func firstCapture(_ pattern: String, in text: String) -> String? {
