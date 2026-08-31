@@ -30,7 +30,7 @@ final class DownloadManager: NSObject, ObservableObject {
     @Published private(set) var activeDownloads: [String: ActiveDownload] = [:]
 
     private var tasks: [String: Task<Void, Never>] = [:]
-    private var continuations: [Int: CheckedContinuation<URL, Error>] = [:]
+    private var continuations: [Int: CheckedContinuation<(URL, URLResponse), Error>] = [:]
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 30
