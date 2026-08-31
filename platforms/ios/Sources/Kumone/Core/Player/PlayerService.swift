@@ -425,6 +425,7 @@ final class PlayerService: ObservableObject {
         let index = lyrics?.activeIndex(at: seconds)
         if index != lyricsCursor.activeIndex {
             lyricsCursor.activeIndex = index
+            WidgetSnapshotStore.update(track: currentTrack, lyric: index.flatMap { lyrics?.lines[$0].text })
         }
     }
 
@@ -633,6 +634,7 @@ final class PlayerService: ObservableObject {
         let track = track.normalizedForLXPlayback()
         scrobbleIfNeeded(completed: false)
         currentTrack = track
+        WidgetSnapshotStore.update(track: track, lyric: nil)
         progress = resumeAt ?? 0
         pendingSeek = resumeAt
         duration = track.duration

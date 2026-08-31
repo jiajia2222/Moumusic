@@ -19,6 +19,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Generate Xcode project
+        working-directory: platforms/ios/ios
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
       - name: Run launch UI test on the latest simulator
         working-directory: platforms/ios/ios
         run: |

@@ -10,6 +10,7 @@ Moumusic does not bundle or distribute third-party source URLs and does not prov
 - Kuwo, Kugou, QQ Music, NetEase, Migu and LX aggregate search
 - Source-resolved playback, lyrics, artwork, quality and source labels
 - Native iOS player, synced lyrics, queue, lock-screen and Control Center controls
+- iOS WidgetKit lyrics widget for Home Screen and Lock Screen sizes
 - Public NetEase recommendations, discovery, playlists, comments and playlist import
 - Chinese and English interfaces
 

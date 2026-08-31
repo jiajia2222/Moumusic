@@ -37,11 +37,25 @@ targets:
       Release: Config/Tests.xcconfig
     dependencies:
       - target: KumoneIOS
+  MoumusicWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - MoumusicWidget
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jiajia2222.moumusic.ios.widget
+        INFOPLIST_KEY_CFBundleDisplayName: Moumusic 歌词
+        CODE_SIGN_ENTITLEMENTS: Config/MoumusicWidget.entitlements
 schemes:
   KumoneIOS:
     build:
       targets:
         KumoneIOS: all
+        MoumusicWidget: all
     run:
       config: Debug
     test:

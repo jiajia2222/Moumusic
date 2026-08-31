@@ -62,7 +62,7 @@ final class NowPlayingManager {
         info = [
             MPMediaItemPropertyTitle: track.name,
             MPMediaItemPropertyArtist: track.artistNames,
-            MPMediaItemPropertyAlbumTitle: "\(track.album.name) · 来源：\(sourceName(track.source))",
+            MPMediaItemPropertyAlbumTitle: track.album.name,
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: 0.0,
             MPNowPlayingInfoPropertyPlaybackRate: 1.0,
@@ -93,15 +93,10 @@ final class NowPlayingManager {
         }
     }
 
-    /// Adds the actually served LX quality to the system metadata after the
-    /// URL has resolved. This is what Control Center and the lock screen can
-    /// display; the requested setting is not necessarily the served quality.
-    func updateResolvedQuality(_ quality: String?, for track: Track) {
-        guard track.id == player?.currentTrack?.id else { return }
-        let qualityText = quality.map { qualityName($0) } ?? "解析中"
-        info[MPMediaItemPropertyAlbumTitle] = "\(baseAlbumTitle) · 来源：\(sourceName(track.source)) · 音质：\(qualityText)"
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-    }
+    /// The Control Center uses Apple's standard title/artist/album fields.
+    /// Source and resolved quality belong in the in-app player, not in the
+    /// lock-screen metadata requested by Moumusic.
+    func updateResolvedQuality(_ quality: String?, for track: Track) {}
 
     private static func fallbackArtworkURL(for track: Track) async -> URL? {
         let query = [track.name, track.artistNames]
@@ -110,21 +105,6 @@ final class NowPlayingManager {
         guard let result = try? await NeteaseAPI.search(query, type: .songs, limit: 6),
               let match = result.songs?.first(where: { $0.name == track.name }) ?? result.songs?.first else { return nil }
         return match.album.picUrl?.resizedImageURL(1024)
-    }
-
-    private func sourceName(_ source: String?) -> String {
-        switch source?.lowercased() {
-        case "wy", "netease", "163": return "网易云"
-        case "kw", "kuwo": return "酷我"
-        case "kg", "kugou": return "酷狗"
-        case "tx", "qq", "qqmusic": return "QQ音乐"
-        case "mg", "migu": return "咪咕"
-        default: return source?.isEmpty == false ? source! : "未知"
-        }
-    }
-
-    private func qualityName(_ value: String) -> String {
-        AudioQuality(lxType: value)?.displayName ?? value.uppercased()
     }
 
     func updateElapsed(_ elapsed: TimeInterval, rate: Double) {
