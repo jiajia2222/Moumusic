@@ -425,8 +425,14 @@ final class PlayerService: ObservableObject {
         let index = lyrics?.activeIndex(at: seconds)
         if index != lyricsCursor.activeIndex {
             lyricsCursor.activeIndex = index
-            WidgetSnapshotStore.update(track: currentTrack, lyric: index.flatMap { lyrics?.lines[$0].text })
         }
+        // Keep the widget's three fields independent. Before the first timed
+        // line starts, use the first lyric line instead of leaving the widget
+        // with a stale placeholder (or making it look like metadata shifted
+        // into the lyric/artist field).
+        let snapshotLyric = index.flatMap { lyrics?.lines[$0].text }
+            ?? lyrics?.lines.first?.text
+        WidgetSnapshotStore.update(track: currentTrack, lyric: snapshotLyric)
     }
 
     func seek(to seconds: TimeInterval, completion: (@MainActor () -> Void)? = nil) {
