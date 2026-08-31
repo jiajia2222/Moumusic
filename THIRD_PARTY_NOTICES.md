@@ -1,8 +1,8 @@
 # Third-party notices
 
-Moumusic's original code is licensed under GPL-3.0-only. The licenses below
-continue to apply to upstream code and assets; the project license does not
-replace those file-level obligations.
+Moumusic's new code is licensed as declared per file under LGPL-3.0-only or
+GPL-3.0-only. The licenses below continue to apply to upstream code and
+assets; the project licenses do not replace those file-level obligations.
 
 ## Kumone
 

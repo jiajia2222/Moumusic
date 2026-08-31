@@ -40,4 +40,4 @@ xcodebuild -project KumoneIOS.xcodeproj -scheme KumoneIOS -configuration Release
 - [Kumone](https://github.com/missuo/kumone)
 - [LX Music Mobile](https://github.com/lyswhut/lx-music-mobile)
 
-Moumusic 新增及独立代码遵循 [GPL-3.0](LICENSE)。上游文件保留其原始 LGPL、Apache 等许可证义务，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+Moumusic 的新增代码按文件声明使用 [LGPL-3.0-only](LICENSE) 或 [GPL-3.0-only](COPYING)。仓库同时附带两份完整许可证文本；上游文件保留其原始 LGPL、Apache 等许可证义务，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

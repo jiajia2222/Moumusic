@@ -84,4 +84,4 @@ platforms/ios/ios/MoumusicWidget/  WidgetKit 当前歌词小组件
 
 ## 许可证
 
-Moumusic 新增及独立编写的代码以 [GNU GPL v3.0](LICENSE) 发布。Kumone、LX Music Mobile 以及其他上游文件继续遵守其原始许可证；GPL 许可证不替代这些文件原有的 LGPL、Apache 或其他许可义务。
+Moumusic 的新增代码按文件声明使用 [LGPL-3.0-only](LICENSE) 或 [GPL-3.0-only](COPYING)。仓库同时附带两份完整许可证文本；Kumone、LX Music Mobile 以及其他上游文件继续遵守其原始 LGPL、Apache 或其他许可义务，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
