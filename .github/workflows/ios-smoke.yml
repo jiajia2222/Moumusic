@@ -31,7 +31,7 @@ jobs:
           xcodebuild test \
             -project KumoneIOS.xcodeproj \
             -scheme KumoneIOS \
-            -destination 'platform=iOS Simulator,OS=26.5,name=iPhone 17' \
+            -destination 'platform=iOS Simulator,name=iPhone 17' \
             -derivedDataPath smoke-build \
             -only-testing:KumoneIOSUITests/KumoneIOSUITests/testExample \
             CODE_SIGNING_ALLOWED=NO \

@@ -1,53 +1,28 @@
-<div align="right">[English](README.en.md) · **简体中文**</div>
-
-<div align="center">
-
-<img src="platforms/ios/ios/KumoneIOS/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="140" alt="Moumusic" />
-
 # Moumusic
 
-**跨平台多音源音乐客户端**
+<div align="right">[简体中文](README_CN.md) · **English**</div>
 
-SwiftUI iOS 客户端 · LX User API 音源 · React Native Android 客户端
+[![LGPL-3.0](https://img.shields.io/badge/license-LGPL--3.0-orange)](LICENSE) [![GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange)](COPYING)
 
-[![Platform](https://img.shields.io/badge/platform-iOS%2016%2B%20%7C%20Android-blue?logo=apple)](#构建) [![LGPL-3.0](https://img.shields.io/badge/license-LGPL--3.0-orange)](LICENSE) [![GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange)](COPYING)
+Moumusic is an open-source music client for iOS and Android. It combines Kumone’s native SwiftUI player experience on iOS with LX Music Mobile’s user-source protocol and Android client. Discovery uses public catalog data; playback is resolved only through sources imported and enabled by the user.
 
-</div>
+Moumusic does not bundle or distribute third-party source URLs and does not provide NetEase login. Add only sources you are authorized to use and follow the applicable service terms and copyright rules.
 
-Moumusic 是一个面向 iOS 与 Android 的开源音乐客户端。它把 Kumone 的原生 SwiftUI 播放体验与 LX Music Mobile 的用户音源协议结合起来：目录、推荐、搜索和歌单用于发现音乐，实际播放由用户自行导入并启用的 LX User API 音源完成。
+## Features
 
-> 本项目不内置、不分发第三方音源地址，也不提供网易云登录。请仅添加你有权使用的音源，并遵守相关平台服务条款与版权规定。
+- Import, test, enable, switch and remove LX User API sources
+- Kuwo, Kugou, QQ Music, NetEase, Migu and LX aggregate search
+- Source-resolved playback, lyrics, artwork, quality and source labels
+- Native iOS player, synced lyrics, queue, lock-screen and Control Center controls
+- iOS WidgetKit lyrics widget for Home Screen and Lock Screen sizes
+- Public NetEase recommendations, discovery, playlists, comments and playlist import
+- Chinese and English interfaces
 
-[简体中文](README.zh-CN.md) · [English](README.en.md) · [更新日志](CHANGELOG.md) · [发布页](https://github.com/jiajia2222/Moumusic/releases)
+## Add a source
 
-## 功能
+On iOS, open “Library → Settings → LX Sources”, choose “Import from File” or “Import from Online URL”, then select and test the source. On Android, use the original LX Music Mobile source-management screen.
 
-- LX User API 音源的导入、检测、启用、切换与删除
-- 酷我、酷狗、QQ 音乐、网易云、咪咕和 LX 聚合搜索
-- 用户音源解析播放、歌词、封面、音质与来源展示
-- iOS 原生播放页、歌词同步、队列、锁屏/控制中心播放控制
-- iOS WidgetKit 歌词小组件，支持主屏幕与锁屏组件尺寸
-- 网易云公开目录的推荐、发现、歌单、评论和歌单导入
-- iOS 与 Android 分别保留 Kumone、LX Music Mobile 的成熟原生体验
-- 中文与英文界面
-
-## 名字由来
-
-Moumusic 取自 Mou 与 Music，代表一个属于 Mou 的音乐客户端。项目保留 Kumone 的原生播放体验，同时接入 LX User API，让用户自己选择和管理音源。
-
-## 添加音源
-
-iOS：打开“我的 → 设置 → LX 音源 → 从文件导入”或“从在线链接导入”，导入 LX User API 导出的 JSON/JavaScript，然后在音源列表中选择并检测。
-
-Android：使用 LX Music Mobile 原有的音源管理页面添加和启用音源。
-
-## 安装
-
-从 [Releases](https://github.com/jiajia2222/Moumusic/releases) 下载对应平台的构建产物。iOS 发布的是未签名 IPA，需要使用自己的证书、AltStore、SideStore、TrollStore 或其他侧载工具安装。
-
-## 构建
-
-### Android
+## Build
 
 ```sh
 cd platforms/android
@@ -55,33 +30,16 @@ npm ci
 npm run pack:android
 ```
 
-### iOS
-
-需要 macOS 与 Xcode：
+iOS requires macOS and Xcode:
 
 ```sh
 cd platforms/ios/ios
 xcodebuild -project KumoneIOS.xcodeproj -scheme KumoneIOS -configuration Release -sdk iphoneos build
 ```
 
-构建 iOS 时会同时生成 Moumusic 主应用和歌词 WidgetKit 扩展；使用 XcodeGen 时请先执行 `xcodegen generate`。
+## Upstream projects and license
 
-## 项目结构
+- [Kumone](https://github.com/missuo/kumone)
+- [LX Music Mobile](https://github.com/lyswhut/lx-music-mobile)
 
-```text
-platforms/ios/Sources/Kumone/       iOS SwiftUI 客户端与 LX 适配层
-platforms/ios/Sources/Kumone/Core/  API、音源、播放器、歌词和存储
-platforms/android/                  LX Music Mobile React Native 客户端
-platforms/ios/ios/MoumusicWidget/  WidgetKit 当前歌词小组件
-```
-
-## 上游项目与致谢
-
-- [Kumone](https://github.com/missuo/kumone)：iOS SwiftUI 界面与播放器基础
-- [LX Music Mobile](https://github.com/lyswhut/lx-music-mobile)：用户音源协议与 Android 客户端
-
-源码来源、修改范围和各组件许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-## 许可证
-
-Moumusic 的新增代码按文件声明使用 [LGPL-3.0-only](LICENSE) 或 [GPL-3.0-only](COPYING)。仓库同时附带两份完整许可证文本；Kumone、LX Music Mobile 以及其他上游文件继续遵守其原始 LGPL、Apache 或其他许可义务，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+New Moumusic code is licensed per-file under [LGPL-3.0-only](LICENSE) or [GPL-3.0-only](COPYING). Both complete license texts are included. Upstream files retain their original LGPL, Apache and other obligations; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
