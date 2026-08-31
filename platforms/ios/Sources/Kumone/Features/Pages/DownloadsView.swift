@@ -10,8 +10,19 @@ struct DownloadsView: View {
         NavigationStack {
             Group {
                 if downloads.records.isEmpty {
-                    ContentUnavailableView("暂无下载", systemImage: "arrow.down.circle",
-                                           description: Text("在歌曲列表或播放页的“更多操作”中选择下载"))
+                    VStack(spacing: 12) {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 42))
+                            .foregroundStyle(.secondary)
+                        Text("暂无下载")
+                            .font(.headline)
+                        Text("在歌曲列表或播放页的“更多操作”中选择下载")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
                 } else {
                     List {
                         ForEach(downloads.records) { record in
