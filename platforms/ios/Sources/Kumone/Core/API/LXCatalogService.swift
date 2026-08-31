@@ -103,20 +103,7 @@ enum LXCatalogService {
               let candidates = try? await search(keyword, platform: platform, page: 1, limit: 12),
               !candidates.isEmpty else { return nil }
 
-        let targetDuration = sourceTrack.duration
-        func score(_ candidate: Track) -> Double {
-            let namePenalty = candidate.name.caseInsensitiveCompare(sourceTrack.name) == .orderedSame ? 0 : 100
-            let artistPenalty = candidate.artistNames.caseInsensitiveCompare(sourceTrack.artistNames) == .orderedSame ? 0 : 30
-            let durationPenalty = targetDuration > 0 && candidate.duration > 0
-                ? min(abs(candidate.duration - targetDuration), 60)
-                : 20
-            return Double(namePenalty + artistPenalty) + durationPenalty
-        }
-        guard let best = candidates.min(by: { score($0) < score($1) }) else { return nil }
-        let sameName = best.name.caseInsensitiveCompare(sourceTrack.name) == .orderedSame
-        let closeDuration = targetDuration <= 0 || best.duration <= 0
-            || abs(best.duration - targetDuration) <= 8
-        return sameName || closeDuration ? best : nil
+        return NeteaseTrackMatcher.bestCandidate(for: sourceTrack, in: candidates)
     }
 
     private static func searchNetease(_ keyword: String, page: Int, limit: Int) async throws -> [Track] {

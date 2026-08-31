@@ -840,6 +840,24 @@ final class PlayerService: ObservableObject {
             }
         }
 
+        // QQ's public lyric endpoint is the most consistent cross-provider
+        // lyric source. Resolve a QQ mid by metadata first; never reuse the
+        // Kuwo/Kugou/Migu/NetEase ID as a QQ identifier.
+        if track.source?.lowercased() != "tx",
+           let qqTrack = await LXCatalogService.matchingTrack(track, on: "tx"),
+           let qqNative = try? await LXCatalogService.nativeLyrics(for: qqTrack) {
+            let parsed = LyricsParser.parseLX(lyric: qqNative.lyric,
+                                               tlyric: qqNative.tlyric,
+                                               rlyric: qqNative.rlyric,
+                                               lxlyric: qqNative.lxlyric)
+            if !parsed.isEmpty {
+                guard generation == resolveGeneration else { return }
+                lyrics = parsed
+                updateLyricsCursor(at: progress)
+                return
+            }
+        }
+
         // Catalogue lyrics are metadata only. Playback is still resolved by
         // the selected LX User API source in resolveAndLoad(_:generation:).
         if track.source != nil,
