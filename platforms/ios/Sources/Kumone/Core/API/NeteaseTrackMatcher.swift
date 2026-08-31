@@ -7,17 +7,22 @@ import Foundation
 /// artist and duration keeps lyric/comment metadata attached to the right
 /// recording.
 enum NeteaseTrackMatcher {
+    private struct ScoredCandidate {
+        let candidate: Track
+        let score: Int
+    }
+
     static func bestCandidate(for track: Track, in candidates: [Track]) -> Track? {
         let targetTitle = normalizedTitle(track.name)
         guard !targetTitle.isEmpty else { return nil }
 
-        return candidates.compactMap { candidate in
+        return candidates.compactMap { candidate -> ScoredCandidate? in
             guard let score = score(track: track, candidate: candidate,
                                     targetTitle: targetTitle) else { return nil }
-            return (candidate, score)
+            return ScoredCandidate(candidate: candidate, score: score)
         }
-        .max { lhs, rhs in lhs.1 < rhs.1 }
-        .map(\.0)
+        .max { lhs, rhs in lhs.score < rhs.score }
+        .map(\.candidate)
     }
 
     private static func score(track: Track, candidate: Track,
