@@ -31,6 +31,9 @@ struct TrackRow: View {
     @ScaledMetric(relativeTo: .body) private var compactAlbumRowHeight: CGFloat = 50
     @State private var isHovering = false
     @State private var showAddToPlaylist = false
+    #if os(iOS)
+    @State private var showDownloadOptions = false
+    #endif
 
     private var isCurrent: Bool { player.currentTrack?.id == track.id }
     private var isPlayable: Bool { playability == .playable }
@@ -145,6 +148,11 @@ struct TrackRow: View {
         .sheet(isPresented: $showAddToPlaylist) {
             AddToPlaylistSheet(track: track)
         }
+        #if os(iOS)
+        .sheet(isPresented: $showDownloadOptions) {
+            DownloadOptionsSheet(tracks: [track])
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -235,7 +243,7 @@ struct TrackRow: View {
         }
 #if os(iOS)
         Button("下载") {
-            DownloadManager.shared.download(track)
+            showDownloadOptions = true
         }
 #endif
         Divider()
@@ -452,11 +460,36 @@ struct TrackListView: View {
     var removableFromPlaylistID: Int?
     var onRemoved: ((Track) -> Void)?
 
+    #if os(iOS)
+    @State private var showBatchDownload = false
+    #endif
+
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
 
     var body: some View {
-        LazyVStack(spacing: 1) {
+        VStack(spacing: 4) {
+            #if os(iOS)
+            if tracks.count > 1 {
+                HStack {
+                    Text("\(tracks.count) 首歌曲")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        showBatchDownload = true
+                    } label: {
+                        Label("批量下载", systemImage: "arrow.down.circle")
+                            .font(.footnote.weight(.medium))
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+            }
+            #endif
+
+            LazyVStack(spacing: 1) {
             ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                 TrackRow(
                     track: track,
@@ -470,7 +503,13 @@ struct TrackListView: View {
                                 context: context)
                 }
             }
+            }
         }
+        #if os(iOS)
+        .sheet(isPresented: $showBatchDownload) {
+            DownloadOptionsSheet(tracks: tracks)
+        }
+        #endif
     }
 
     private var playableTracks: [Track] {

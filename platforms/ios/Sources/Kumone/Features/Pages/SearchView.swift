@@ -56,18 +56,31 @@ final class SearchViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        var didLoad = false
         switch tab {
         case .all:
             async let songsTask = try? LXCatalogService.search(trimmed, platform: platform, limit: 12)
             async let playlistsTask = try? LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 12)
-            songs = await songsTask ?? []
-            playlists = await playlistsTask ?? []
+            if let result = await songsTask {
+                songs = result
+                didLoad = true
+            }
+            if let result = await playlistsTask {
+                playlists = result
+                didLoad = true
+            }
         case .songs:
-            songs = (try? await LXCatalogService.search(trimmed, platform: platform, limit: 100)) ?? songs
+            if let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100) {
+                songs = result
+                didLoad = true
+            }
         case .playlists:
-            playlists = (try? await LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 100)) ?? playlists
+            if let result = try? await LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 100) {
+                playlists = result
+                didLoad = true
+            }
         }
-        loadedTabs.insert(tab)
+        if didLoad { loadedTabs.insert(tab) }
     }
 
     func loadHotKeywords() async {
@@ -133,7 +146,7 @@ struct SearchView: View {
                 .textFieldStyle(.plain)
                 .submitLabel(.search)
                 .focused($searchFocused)
-                .onSubmit { performSearch() }
+                .onSubmit { submitSearchAfterInputMethodCommits() }
                 .accessibilityLabel("搜索关键词")
 
             if !searchText.isEmpty {
@@ -169,6 +182,15 @@ struct SearchView: View {
         searchFocused = false
         model.setQuery(query)
         Task { await model.load(tab: model.tab, force: true) }
+    }
+
+    /// IMEs such as WeChat Input can fire `.onSubmit` while marked text has
+    /// not yet been committed to the SwiftUI binding. Waiting one main-loop
+    /// turn lets the composed Chinese text arrive before reading it.
+    private func submitSearchAfterInputMethodCommits() {
+        DispatchQueue.main.async {
+            performSearch()
+        }
     }
 
     private var tabPicker: some View {

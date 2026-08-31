@@ -176,6 +176,18 @@ final class NeteaseClient: @unchecked Sendable {
         return try await perform(request)
     }
 
+    /// Unencrypted public API request used only for read-only metadata. Some
+    /// comment endpoints reject the encrypted route even though comments are
+    /// public, so callers can fall back without requiring a login.
+    func publicGet(_ path: String) async throws -> Data {
+        let url = URL(string: "https://music.163.com/api\(path)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://music.163.com", forHTTPHeaderField: "Referer")
+        return try await perform(request)
+    }
+
     private func perform(_ request: URLRequest) async throws -> Data {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw NeteaseAPIError.http(-1) }

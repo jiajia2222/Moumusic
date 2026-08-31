@@ -2,10 +2,11 @@
 import Combine
 import Foundation
 
-/// Downloads audio through the selected LX User API and keeps a small local
-/// manifest so downloaded tracks can be played even when the source is down.
+/// Downloads audio through the selected LX User API.  A download is resolved
+/// at the quality chosen by the user; the provider's returned quality is
+/// stored so the library never claims a quality the source did not serve.
 @MainActor
-final class DownloadManager: ObservableObject {
+final class DownloadManager: NSObject, ObservableObject {
     struct Record: Codable, Identifiable, Hashable {
         let id: String
         let track: Track
@@ -16,12 +17,26 @@ final class DownloadManager: ObservableObject {
         var fileURL: URL { DownloadManager.downloadDirectory.appendingPathComponent(fileName) }
     }
 
+    struct ActiveDownload: Identifiable {
+        let id: String
+        let track: Track
+        let requestedQuality: AudioQuality
+        var fraction: Double?
+    }
+
     static let shared = DownloadManager()
 
     @Published private(set) var records: [Record] = []
-    @Published private(set) var downloadingKeys: Set<String> = []
+    @Published private(set) var activeDownloads: [String: ActiveDownload] = [:]
 
     private var tasks: [String: Task<Void, Never>] = [:]
+    private var continuations: [Int: CheckedContinuation<URL, Error>] = [:]
+    private lazy var session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 60 * 60
+        return URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+    }()
 
     private nonisolated static var applicationDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -36,7 +51,8 @@ final class DownloadManager: ObservableObject {
         applicationDirectory.appendingPathComponent("downloads.json")
     }
 
-    private init() {
+    private override init() {
+        super.init()
         try? FileManager.default.createDirectory(at: Self.downloadDirectory,
                                                  withIntermediateDirectories: true)
         load()
@@ -48,32 +64,35 @@ final class DownloadManager: ObservableObject {
     }
 
     func isDownloading(_ track: Track) -> Bool {
-        downloadingKeys.contains(track.normalizedForLXPlayback().playbackKey)
+        activeDownloads[track.normalizedForLXPlayback().playbackKey] != nil
     }
 
-    func download(_ track: Track) {
+    func download(_ track: Track, quality: AudioQuality? = nil) {
         let normalized = track.normalizedForLXPlayback()
         let key = normalized.playbackKey
         guard record(for: normalized) == nil else {
-            ToastCenter.shared.show("歌曲已下载")
+            ToastCenter.shared.show("歌曲已经下载")
             return
         }
         guard tasks[key] == nil else { return }
 
-        downloadingKeys.insert(key)
-        ToastCenter.shared.show("正在解析并下载《\(normalized.name)》")
+        let requestedQuality = quality ?? SettingsManager.shared.audioQuality
+        activeDownloads[key] = ActiveDownload(id: key, track: normalized,
+                                              requestedQuality: requestedQuality,
+                                              fraction: nil)
+        ToastCenter.shared.show("正在解析并下载 \(normalized.name)")
+
         let task = Task { [weak self] in
             guard let self else { return }
             defer {
-                self.downloadingKeys.remove(key)
+                self.activeDownloads[key] = nil
                 self.tasks[key] = nil
             }
             do {
                 let resolved = try await LXUserAPIService.shared.resolveMusicURL(
-                    for: normalized,
-                    quality: SettingsManager.shared.audioQuality.rawValue
-                )
-                let (temporaryURL, response) = try await URLSession.shared.download(from: resolved.url)
+                    for: normalized, quality: requestedQuality.rawValue)
+                let (temporaryURL, response) = try await self.downloadFile(from: resolved.url,
+                                                                            key: key)
                 if let response = response as? HTTPURLResponse,
                    !(200..<300).contains(response.statusCode) {
                     throw DownloadError.http(response.statusCode)
@@ -90,7 +109,7 @@ final class DownloadManager: ObservableObject {
                                   fileName: fileName, createdAt: Date())
                 records.insert(item, at: 0)
                 save()
-                ToastCenter.shared.show("已下载《\(normalized.name)》")
+                ToastCenter.shared.show("已下载 \(normalized.name)")
             } catch is CancellationError {
                 // A cancelled task is silent; the user can start it again.
             } catch {
@@ -100,12 +119,40 @@ final class DownloadManager: ObservableObject {
         tasks[key] = task
     }
 
+    func downloadBatch(_ tracks: [Track], quality: AudioQuality) {
+        for track in tracks { download(track, quality: quality) }
+    }
+
+    func availableQualities(for track: Track) async -> [AudioQuality] {
+        let names = await LXUserAPIService.shared.availableQualityNames(for: track)
+        let result = AudioQuality.allCases.filter { names.contains($0.lxType) }
+        return result.isEmpty ? AudioQuality.allCases : result
+    }
+
     func delete(_ record: Record) {
         tasks[record.id]?.cancel()
         tasks[record.id] = nil
+        activeDownloads[record.id] = nil
         try? FileManager.default.removeItem(at: record.fileURL)
         records.removeAll { $0.id == record.id }
         save()
+    }
+
+    private func downloadFile(from url: URL, key: String) async throws -> (URL, URLResponse) {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let task = session.downloadTask(with: url)
+                task.taskDescription = key
+                continuations[task.taskIdentifier] = continuation
+                task.resume()
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.session.getAllTasks { tasks in
+                    tasks.first(where: { $0.taskDescription == key })?.cancel()
+                }
+            }
+        }
     }
 
     private func load() {
@@ -127,11 +174,60 @@ final class DownloadManager: ObservableObject {
 
     private enum DownloadError: LocalizedError {
         case http(Int)
+        case temporaryFile
 
         var errorDescription: String? {
             switch self {
             case .http(let status): return "服务器返回 HTTP \(status)"
+            case .temporaryFile: return "无法保存下载文件"
             }
+        }
+    }
+}
+
+extension DownloadManager: URLSessionDownloadDelegate {
+    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                                didWriteData bytesWritten: Int64,
+                                totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        guard let key = downloadTask.taskDescription else { return }
+        let fraction = totalBytesExpectedToWrite > 0
+            ? min(max(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite), 0), 1)
+            : nil
+        Task { @MainActor [weak self] in
+            guard let self, var item = self.activeDownloads[key] else { return }
+            item.fraction = fraction
+            self.activeDownloads[key] = item
+        }
+    }
+
+    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                                didFinishDownloadingTo location: URL) {
+        // URLSession deletes its temporary file after this callback returns.
+        // Move it to a stable staging path before resuming the continuation.
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Moumusic-\(UUID().uuidString).download")
+        let moved = (try? {
+            try FileManager.default.moveItem(at: location, to: destination)
+            return true
+        }()) ?? false
+        Task { @MainActor [weak self] in
+            guard let self, let continuation = self.continuations.removeValue(forKey: downloadTask.taskIdentifier) else { return }
+            if moved {
+                let response = downloadTask.response ?? URLResponse(
+                    url: downloadTask.currentRequest?.url ?? URL(string: "about:blank")!,
+                    mimeType: nil, expectedContentLength: 0, textEncodingName: nil)
+                continuation.resume(returning: (destination, response))
+            } else {
+                continuation.resume(throwing: DownloadError.temporaryFile)
+            }
+        }
+    }
+
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask,
+                                didCompleteWithError error: Error?) {
+        guard let error else { return }
+        Task { @MainActor [weak self] in
+            self?.continuations.removeValue(forKey: task.taskIdentifier)?.resume(throwing: error)
         }
     }
 }

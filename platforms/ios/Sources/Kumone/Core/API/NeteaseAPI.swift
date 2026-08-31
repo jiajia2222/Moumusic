@@ -457,18 +457,28 @@ enum NeteaseAPI {
     /// Public comments are metadata only and do not require a NetEase login.
     static func comments(for songID: Int, limit: Int = 50, offset: Int = 0) async throws -> CommentResponse {
         let threadID = "R_SO_4_\(songID)"
-        do {
-            return try await weapi(CommentResponse.self, "/comment/resource/comments/get",
-                                    ["rid": threadID, "threadId": threadID,
-                                     "pageNo": offset / max(limit, 1) + 1,
-                                     "pageSize": limit, "cursor": "-1",
-                                     "offset": offset, "orderType": 1])
-        } catch {
-            // Keep a fallback for older servers and cached song IDs.
-            return try await weapi(CommentResponse.self, "/comment/music",
-                                   ["id": songID, "limit": limit, "offset": offset,
-                                    "total": true, "before": 0])
+        let payload: [String: Any] = ["rid": threadID, "threadId": threadID,
+                                      "pageNo": offset / max(limit, 1) + 1,
+                                      "pageSize": limit, "cursor": "-1",
+                                      "offset": offset, "orderType": 1]
+
+        // The newer endpoint can return an empty payload for public IDs. Try
+        // the legacy encrypted route, then the public REST route.
+        if let response = try? await weapi(CommentResponse.self,
+                                           "/comment/resource/comments/get", payload),
+           !response.comments.isEmpty {
+            return response
         }
+        if let response = try? await weapi(CommentResponse.self, "/comment/music",
+                                           ["id": songID, "limit": limit,
+                                            "offset": offset, "total": true, "before": 0]),
+           !response.comments.isEmpty {
+            return response
+        }
+
+        let publicData = try await client.publicGet(
+            "/v1/resource/comments/\(threadID)?limit=\(limit)&offset=\(offset)")
+        return try client.decoded(CommentResponse.self, from: publicData)
     }
 
     struct FMResponse: Decodable {

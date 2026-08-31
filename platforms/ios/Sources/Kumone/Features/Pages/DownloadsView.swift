@@ -9,7 +9,7 @@ struct DownloadsView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if downloads.records.isEmpty {
+                if downloads.records.isEmpty && downloads.activeDownloads.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "arrow.down.circle")
                             .font(.system(size: 42))
@@ -25,6 +25,36 @@ struct DownloadsView: View {
                     .padding()
                 } else {
                     List {
+                        if !downloads.activeDownloads.isEmpty {
+                            Section("正在下载") {
+                                ForEach(Array(downloads.activeDownloads.values)) { item in
+                                    HStack(spacing: 12) {
+                                        CachedAsyncImage(url: item.track.album.picUrl?.resizedImageURL(128))
+                                            .frame(width: 52, height: 52)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            Text(item.track.name)
+                                                .lineLimit(1)
+                                            Text("请求音质：\(item.requestedQuality.displayName)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            if let fraction = item.fraction {
+                                                ProgressView(value: fraction)
+                                            } else {
+                                                ProgressView()
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        if let fraction = item.fraction {
+                                            Text("\(Int(fraction * 100))%")
+                                                .font(.caption.monospacedDigit())
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         ForEach(downloads.records) { record in
                             Button {
                                 player.playTrack(record.track)

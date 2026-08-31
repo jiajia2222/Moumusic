@@ -44,13 +44,13 @@ final class HomeViewModel: ObservableObject {
               platform: LXCatalogPlatform) async {
         if loadedMode == mode, loadedPlatform == platform, case .loaded = state { return }
         // The first catalogue request can race app/network startup. Retry one
-        // time before exposing the error state; this is the same transient
-        // failure users currently work around by pulling to refresh.
-        for attempt in 0..<2 {
+        // time before exposing the error state; this removes the need to
+        // manually pull-to-refresh after a cold launch.
+        for attempt in 0..<3 {
             await loadOnce(loggedIn: loggedIn, mode: mode, platform: platform)
             if case .loaded = state { return }
-            if attempt == 0 {
-                try? await Task.sleep(for: .milliseconds(450))
+            if attempt < 2 {
+                try? await Task.sleep(for: .milliseconds(attempt == 0 ? 450 : 900))
                 loadedMode = nil
                 loadedPlatform = nil
             }
@@ -103,7 +103,8 @@ final class HomeViewModel: ObservableObject {
             }
             await loadRadarPlaylists()
         }
-        state = recommendPlaylists.isEmpty && newAlbums.isEmpty && toplists.isEmpty
+        state = recommendPlaylists.isEmpty && recommendTracks.isEmpty
+            && newAlbums.isEmpty && toplists.isEmpty && topArtists.isEmpty
             ? .error("网易云推荐暂时不可用，请检查网络后重试")
             : .loaded
     }

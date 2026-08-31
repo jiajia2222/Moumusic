@@ -25,6 +25,9 @@ struct NowPlayingView: View {
     @State private var showQualityPicker = false
     @State private var showComments = false
     #if os(iOS)
+    @State private var showDownloadOptions = false
+    #endif
+    #if os(iOS)
     @State private var showQueueOnMobile = false
     #endif
 
@@ -135,6 +138,13 @@ struct NowPlayingView: View {
                 SongCommentsSheet(track: track)
             }
         }
+        #if os(iOS)
+        .sheet(isPresented: $showDownloadOptions) {
+            if let track = player.currentTrack {
+                DownloadOptionsSheet(tracks: [track])
+            }
+        }
+        #endif
     }
 
     private var hasLyricsColumn: Bool {
@@ -1305,7 +1315,7 @@ private struct CompactTrackHeader: View {
 
 #if os(iOS)
                         Button {
-                            DownloadManager.shared.download(track)
+                            showDownloadOptions = true
                         } label: {
                             Label("下载", systemImage: "arrow.down.circle")
                         }
@@ -1771,7 +1781,7 @@ private struct IOSMinimalLyricsColumn: View {
                             )
                         }
                         .onAppear {
-            activeIndex = lyrics.activeIndex(at: clock.progress)
+                            activeIndex = lyricsCursor.activeIndex
                             if let activeIndex {
                                 Task { @MainActor in
                                     await Task.yield()
@@ -1779,8 +1789,7 @@ private struct IOSMinimalLyricsColumn: View {
                                 }
                             }
                         }
-                        .onChange(of: clock.progress) { _ in
-            let index = lyrics.activeIndex(at: clock.progress)
+                        .onChange(of: lyricsCursor.activeIndex) { index in
                             guard index != activeIndex else { return }
                             activeIndex = index
                             guard !suppressesAutoScroll,
