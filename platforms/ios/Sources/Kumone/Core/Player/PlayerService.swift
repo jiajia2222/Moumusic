@@ -433,6 +433,9 @@ final class PlayerService: ObservableObject {
         let snapshotLyric = index.flatMap { lyrics?.lines[$0].text }
             ?? lyrics?.lines.first?.text
         WidgetSnapshotStore.update(track: currentTrack, lyric: snapshotLyric)
+        #if os(iOS)
+        NowPlayingManager.shared.updateCurrentLyric(snapshotLyric)
+        #endif
     }
 
     func seek(to seconds: TimeInterval, completion: (@MainActor () -> Void)? = nil) {
