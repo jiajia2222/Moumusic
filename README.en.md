@@ -1,5 +1,3 @@
-<div align="right">[简体中文](README_CN.md) · **English**</div>
-
 <div align="center">
 
 <img src="platforms/ios/docs/icon.png" width="140" alt="Moumusic" />
@@ -16,6 +14,8 @@ SwiftUI on iOS · LX User API sources · LX Music Mobile on Android
 [![GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange)](COPYING)
 
 </div>
+
+[简体中文](README_CN.md) · **English**
 
 Moumusic is an independent cross-platform music client. It uses Kumone's native SwiftUI experience as the iOS foundation and LX Music Mobile's source protocol and Android client. Public catalog data is used for discovery; audio playback is resolved through LX User API sources imported and enabled by the user.
 
