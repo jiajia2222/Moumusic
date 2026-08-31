@@ -417,26 +417,58 @@ enum NeteaseAPI {
         let time: Int64?
 
         private enum CodingKeys: String, CodingKey { case id, content, likedCount, user, time }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(Int.self, forKey: .id)
+            content = (try? container.decode(String.self, forKey: .content)) ?? ""
+            likedCount = (try? container.decode(Int.self, forKey: .likedCount)) ?? 0
+            user = try? container.decode(CommentUser.self, forKey: .user)
+            time = try? container.decode(Int64.self, forKey: .time)
+        }
     }
 
     struct CommentResponse: Decodable {
         let comments: [CommentItem]
         let total: Int?
 
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            comments = (try? container.decode([CommentItem].self, forKey: .comments)) ?? []
-            total = try? container.decode(Int.self, forKey: .total)
+        private struct CommentData: Decodable {
+            let comments: [CommentItem]?
+            let hotComments: [CommentItem]?
+            let total: Int?
         }
 
-        private enum CodingKeys: String, CodingKey { case comments, total }
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let direct = (try? container.decode([CommentItem].self, forKey: .comments)) ?? []
+            let data = try? container.decode(CommentData.self, forKey: .data)
+            let nested = (data?.hotComments ?? []) + (data?.comments ?? [])
+
+            // New responses nest hot and normal comments below `data`; older
+            // responses put `comments` at the top level.
+            var seen = Set<Int>()
+            comments = (nested + direct).filter { seen.insert($0.id).inserted }
+            total = (try? container.decode(Int.self, forKey: .total)) ?? data?.total
+        }
+
+        private enum CodingKeys: String, CodingKey { case comments, total, data }
     }
 
     /// Public comments are metadata only and do not require a NetEase login.
     static func comments(for songID: Int, limit: Int = 50, offset: Int = 0) async throws -> CommentResponse {
-        try await weapi(CommentResponse.self, "/comment/music",
-                        ["id": songID, "limit": limit, "offset": offset,
-                         "total": true, "before": 0])
+        let threadID = "R_SO_4_\(songID)"
+        do {
+            return try await weapi(CommentResponse.self, "/comment/resource/comments/get",
+                                    ["rid": threadID, "threadId": threadID,
+                                     "pageNo": offset / max(limit, 1) + 1,
+                                     "pageSize": limit, "cursor": "-1",
+                                     "offset": offset, "orderType": 1])
+        } catch {
+            // Keep a fallback for older servers and cached song IDs.
+            return try await weapi(CommentResponse.self, "/comment/music",
+                                   ["id": songID, "limit": limit, "offset": offset,
+                                    "total": true, "before": 0])
+        }
     }
 
     struct FMResponse: Decodable {
@@ -579,9 +611,19 @@ enum NeteaseAPI {
             .joined(separator: " ")
         guard !query.isEmpty else { return nil }
         let result = try await search(query, type: .songs, limit: limit)
-        return requireDuration
+        let match = requireDuration
             ? NeteaseTrackMatcher.bestCandidate(for: track, in: result.songs ?? [])
             : NeteaseTrackMatcher.bestMetadataCandidate(for: track, in: result.songs ?? [])
+        if let match { return match }
+
+        // LX providers can format artist names differently. Retry by title;
+        // the matcher still checks the title and any available artist tokens.
+        let title = track.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title != query else { return nil }
+        let titleResult = try await search(title, type: .songs, limit: limit)
+        return requireDuration
+            ? NeteaseTrackMatcher.bestCandidate(for: track, in: titleResult.songs ?? [])
+            : NeteaseTrackMatcher.bestMetadataCandidate(for: track, in: titleResult.songs ?? [])
     }
 
     struct SearchSuggestResponse: Decodable {

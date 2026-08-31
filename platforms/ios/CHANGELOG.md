@@ -422,3 +422,14 @@ counterparts. 段落格式：`## <版本号> - <日期>`，条目必须写成单
 - 搜索：综合 / 单曲 / 歌手 / 专辑 / 歌单
 - 系统集成：媒体键、控制中心 Now Playing、听歌打卡
 - 内置 Sparkle 自动更新
+## 0.6.13 - 2026-08-31
+
+### Added / 新增
+
+  * iOS: playback mode menu with sequential, repeat-all, repeat-one, shuffle, and shuffle-repeat modes.
+  * iOS：新增播放器模式菜单，支持顺序播放、列表循环、单曲循环、随机播放和随机循环。
+
+### Fixed / 修复
+
+  * iOS: load NetEase comments from the current nested response format, keep compatibility with the legacy endpoint, and add retry/refresh controls.
+  * iOS：兼容网易云新版评论返回结构，保留旧接口回退，并新增重试与下拉刷新。

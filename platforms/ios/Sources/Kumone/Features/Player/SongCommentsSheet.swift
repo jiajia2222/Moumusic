@@ -8,6 +8,7 @@ struct SongCommentsSheet: View {
     @State private var comments: [NeteaseAPI.CommentItem] = []
     @State private var isLoading = true
     @State private var error: String?
+    @State private var retryToken = 0
 
     var body: some View {
         NavigationStack {
@@ -15,7 +16,11 @@ struct SongCommentsSheet: View {
                 if isLoading {
                     ProgressView("正在加载评论…")
                 } else if let error {
-                    emptyState(title: "评论加载失败", detail: error, icon: "wifi.exclamationmark")
+                    VStack(spacing: 14) {
+                        emptyState(title: "评论加载失败", detail: error, icon: "wifi.exclamationmark")
+                        Button("重新加载") { retryToken += 1 }
+                            .buttonStyle(.borderedProminent)
+                    }
                 } else if comments.isEmpty {
                     emptyState(title: "暂无评论", detail: nil, icon: "text.bubble")
                 } else {
@@ -45,37 +50,40 @@ struct SongCommentsSheet: View {
                 }
             }
         }
-        .task(id: track.playbackKey) {
-            isLoading = true
-            error = nil
-            comments = []
-            do {
-                let source = track.source?.lowercased()
-                let neteaseID: Int?
-                if let explicit = track.sourceMetadata["neteaseId"]
-                    ?? track.sourceMetadata["wyId"],
-                   let id = Int(explicit) {
-                    neteaseID = id
-                } else if source == nil || source == "wy" || source == "netease" {
-                    neteaseID = track.id
-                } else {
-                    // Comments are metadata, so allow a different edit length
-                    // while keeping the exact title/artist match requirement.
-                    neteaseID = try await NeteaseAPI.matchingSong(
-                        for: track, requireDuration: false
-                    )?.id
-                }
-
-                guard let neteaseID else {
-                    throw SongCommentsError.noMatchingSong
-                }
-                comments = try await NeteaseAPI.comments(for: neteaseID).comments
-            } catch {
-                self.error = error.localizedDescription
-            }
-            isLoading = false
-        }
+        .task(id: "\(track.playbackKey)-\(retryToken)") { await loadComments() }
+        .refreshable { await loadComments() }
         .presentationDetents([.medium, .large])
+    }
+
+    private func loadComments() async {
+        isLoading = true
+        error = nil
+        comments = []
+        do {
+            let source = track.source?.lowercased()
+            let neteaseID: Int?
+            if let explicit = track.sourceMetadata["neteaseId"]
+                ?? track.sourceMetadata["wyId"],
+               let id = Int(explicit) {
+                neteaseID = id
+            } else if source == nil || source == "wy" || source == "netease" {
+                neteaseID = track.id
+            } else {
+                // Comments are metadata, so allow a different edit length
+                // while keeping the title/artist matching safeguards.
+                neteaseID = try await NeteaseAPI.matchingSong(
+                    for: track, requireDuration: false
+                )?.id
+            }
+
+            guard let neteaseID else { throw SongCommentsError.noMatchingSong }
+            comments = try await NeteaseAPI.comments(for: neteaseID).comments
+        } catch is CancellationError {
+            return
+        } catch {
+            self.error = error.localizedDescription
+        }
+        isLoading = false
     }
 
     private func emptyState(title: String, detail: String?, icon: String) -> some View {

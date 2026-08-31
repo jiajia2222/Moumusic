@@ -2222,7 +2222,15 @@ private struct MinimalTransportControls: View {
             Color.clear
                 .frame(height: 44)
         } else {
-            Button(action: player.cyclePlaybackMode) {
+            Menu {
+                ForEach(PlaybackMode.allCases) { mode in
+                    Button {
+                        player.setPlaybackMode(mode)
+                    } label: {
+                        Label(mode.title, systemImage: mode.icon)
+                    }
+                }
+            } label: {
                 Image(systemName: playbackModeIcon)
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(playbackModeTint)
@@ -2234,27 +2242,15 @@ private struct MinimalTransportControls: View {
     }
 
     private var playbackModeIcon: String {
-        if player.shuffleEnabled { return "shuffle" }
-        switch player.repeatMode {
-        case .off: return "repeat"
-        case .all: return "repeat"
-        case .one: return "repeat.1"
-        }
+        player.playbackMode.icon
     }
 
     private var playbackModeTint: Color {
-        (player.shuffleEnabled || player.repeatMode != .off)
-            ? Theme.accent
-            : .white.opacity(0.88)
+        player.playbackMode == .sequential ? .white.opacity(0.88) : Theme.accent
     }
 
     private var playbackModeLabel: String {
-        if player.shuffleEnabled { return "随机播放" }
-        switch player.repeatMode {
-        case .off: return "顺序播放"
-        case .all: return "列表循环"
-        case .one: return "单曲循环"
-        }
+        player.playbackMode.title
     }
 }
 

@@ -13,6 +13,53 @@ enum RepeatMode: String, CaseIterable {
     }
 }
 
+/// User-facing playback modes. The two shuffle variants are kept separate so
+/// users can choose either a one-pass random order or a random order that
+/// loops when the queue is exhausted.
+enum PlaybackMode: String, CaseIterable, Identifiable {
+    case sequential
+    case repeatAll
+    case repeatOne
+    case shuffle
+    case shuffleRepeat
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .sequential: return "顺序播放"
+        case .repeatAll: return "列表循环"
+        case .repeatOne: return "单曲循环"
+        case .shuffle: return "随机播放"
+        case .shuffleRepeat: return "随机循环"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .sequential: return "arrow.right"
+        case .repeatAll: return "repeat"
+        case .repeatOne: return "repeat.1"
+        case .shuffle, .shuffleRepeat: return "shuffle"
+        }
+    }
+
+    var shuffleEnabled: Bool { self == .shuffle || self == .shuffleRepeat }
+
+    var repeatMode: RepeatMode {
+        switch self {
+        case .sequential, .shuffle: return .off
+        case .repeatAll, .shuffleRepeat: return .all
+        case .repeatOne: return .one
+        }
+    }
+
+    var next: PlaybackMode {
+        let all = Self.allCases
+        return all[(all.firstIndex(of: self)! + 1) % all.count]
+    }
+}
+
 /// Where the current queue came from — used for scrobbling and UI affordances.
 enum PlaySource: Equatable {
     case playlist(Int)
@@ -134,7 +181,20 @@ final class PlayerService: ObservableObject {
         didSet { UserDefaults.standard.set(repeatMode.rawValue, forKey: "player.repeat") }
     }
 
-    @Published private(set) var shuffleEnabled = false
+    @Published private(set) var shuffleEnabled = false {
+        didSet { UserDefaults.standard.set(shuffleEnabled, forKey: "player.shuffle") }
+    }
+
+    var playbackMode: PlaybackMode {
+        if shuffleEnabled {
+            return repeatMode == .all ? .shuffleRepeat : .shuffle
+        }
+        switch repeatMode {
+        case .off: return .sequential
+        case .all: return .repeatAll
+        case .one: return .repeatOne
+        }
+    }
     @Published var volume: Float = 1 {
         didSet {
 #if os(iOS)
@@ -223,6 +283,7 @@ final class PlayerService: ObservableObject {
 #endif
         repeatMode = UserDefaults.standard.string(forKey: "player.repeat")
             .flatMap(RepeatMode.init) ?? .off
+        shuffleEnabled = UserDefaults.standard.bool(forKey: "player.shuffle")
     }
 
     /// Starts the parts of the player that touch system audio and media
@@ -470,20 +531,16 @@ final class PlayerService: ObservableObject {
     /// sequential → loop all → loop one → shuffle → sequential.
     func cyclePlaybackMode() {
         guard !isFMMode else { return }
-        if shuffleEnabled {
+        setPlaybackMode(playbackMode.next)
+    }
+
+    func setPlaybackMode(_ mode: PlaybackMode) {
+        guard !isFMMode else { return }
+        if mode.shuffleEnabled != shuffleEnabled {
             toggleShuffle()
-            repeatMode = .off
-        } else {
-            switch repeatMode {
-            case .off:
-                repeatMode = .all
-            case .all:
-                repeatMode = .one
-            case .one:
-                repeatMode = .off
-                toggleShuffle()
-            }
         }
+        repeatMode = mode.repeatMode
+        if !queue.isEmpty { persistState() }
     }
 
     /// Jump to a track in the upcoming list (queue panel click).
