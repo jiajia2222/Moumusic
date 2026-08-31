@@ -132,11 +132,33 @@ struct Track: Codable, Hashable, Identifiable {
     /// marker. Mark those results as WY before they enter the queue so iOS
     /// always asks the selected LX User API for the actual audio URL.
     func normalizedForLXPlayback() -> Track {
-        guard source?.isEmpty != false else { return self }
+        let rawSource = source?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? sourceMetadata["source"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let rawSource, !rawSource.isEmpty else {
+            var copy = self
+            copy.source = "wy"
+            var metadata = sourceMetadata
+            metadata["songmid"] = metadata["songmid"] ?? String(id)
+            copy.sourceMetadata = metadata
+            return copy
+        }
+        let normalized: String
+        switch rawSource.lowercased() {
+        case "163", "netease", "neteasecloudmusic", "netease-cloud-music", "cloudmusic": normalized = "wy"
+        case "kuwo": normalized = "kw"
+        case "kugou": normalized = "kg"
+        case "qq", "qqmusic", "qq-music": normalized = "tx"
+        case "migu": normalized = "mg"
+        default: normalized = rawSource.lowercased()
+        }
         var copy = self
-        copy.source = "wy"
+        copy.source = normalized
         var metadata = sourceMetadata
-        metadata["songmid"] = metadata["songmid"] ?? String(id)
+        switch normalized {
+        case "wy", "kw", "tx", "mg":
+            metadata["songmid"] = metadata["songmid"] ?? String(id)
+        default: break
+        }
         copy.sourceMetadata = metadata
         return copy
     }

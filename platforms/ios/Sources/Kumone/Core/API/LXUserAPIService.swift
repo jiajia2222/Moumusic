@@ -127,25 +127,46 @@ final class LXUserAPIService: ObservableObject {
         guard capabilities.values.contains(where: { $0.contains("musicUrl") }) else {
             throw LXError.sourceUnavailable(statusMessage)
         }
-        guard let platform = sourceCandidates(for: track).first else {
-            throw LXError.resolveFailed(["歌曲没有平台标识；请导入包含 source 和 sourceMetadata 的歌单 JSON"])
+        let primarySource = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
+        var failures: [String] = []
+
+        for platform in sourceCandidates(for: track, action: "musicUrl") {
+            let platformName = LXCatalogPlatform(rawValue: platform)?.displayName ?? platform
+            let requestTrack: Track
+            if platform == primarySource {
+                requestTrack = track
+            } else {
+                // IDs are platform-specific. A Kuwo RID cannot be sent to a
+                // Kugou/QQ/NetEase source, so look up a matching result first.
+                guard let matched = await LXCatalogService.matchingTrack(track, on: platform) else {
+                    failures.append("\(platformName)：找不到对应歌曲")
+                    continue
+                }
+                requestTrack = matched
+            }
+
+            let requestedQuality = Self.lxQuality(for: quality,
+                                                  supported: qualityCapabilities[platform] ?? [])
+            do {
+                let response = try await request(source: platform, action: "musicUrl",
+                                                 info: ["type": requestedQuality,
+                                                        "musicInfo": musicInfo(for: requestTrack, platform: platform)])
+                guard let data = response["data"] as? [String: Any],
+                      let rawURL = data["url"] as? String,
+                      let url = URL(string: rawURL),
+                      let scheme = url.scheme?.lowercased(),
+                      scheme == "http" || scheme == "https" else {
+                    failures.append("\(platformName)：没有返回有效播放地址")
+                    continue
+                }
+                return ResolvedURL(url: url, quality: (data["type"] as? String) ?? requestedQuality)
+            } catch {
+                failures.append("\(platformName)：\(error.localizedDescription)")
+            }
         }
-        guard capabilities[platform]?.contains("musicUrl") == true else {
-            throw LXError.resolveFailed(["当前 LX 音源不支持 \(platform) 的播放地址解析"])
-        }
-        let requestedQuality = Self.lxQuality(for: quality,
-                                              supported: qualityCapabilities[platform] ?? [])
-        let response = try await request(source: platform, action: "musicUrl",
-                                         info: ["type": requestedQuality,
-                                                "musicInfo": musicInfo(for: track, platform: platform)])
-        guard let data = response["data"] as? [String: Any],
-              let rawURL = data["url"] as? String,
-              let url = URL(string: rawURL),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            throw LXError.resolveFailed(["LX 音源没有返回有效播放地址"])
-        }
-        return ResolvedURL(url: url, quality: (data["type"] as? String) ?? requestedQuality)
+        throw LXError.resolveFailed(failures.isEmpty
+            ? ["当前音源没有可用的 musicUrl 平台"]
+            : failures)
     }
 
     /// Performs a real, read-only musicUrl request against the selected LX
@@ -185,7 +206,15 @@ final class LXUserAPIService: ObservableObject {
             if let current = PlayerService.shared.currentTrack, current.source == platform {
                 track = current
             } else {
-                track = sourceCheckTrack(for: platform)
+                let catalogPlatform = LXCatalogPlatform(rawValue: platform)
+                let result: [Track]?
+                if let catalogPlatform {
+                    result = try? await LXCatalogService.search("周杰伦 晴天", platform: catalogPlatform,
+                                                               page: 1, limit: 1)
+                } else {
+                    result = nil
+                }
+                track = result?.first ?? sourceCheckTrack(for: platform)
             }
 
             let requestedQuality = Self.lxQuality(for: SettingsManager.shared.audioQuality.rawValue,
@@ -227,15 +256,28 @@ final class LXUserAPIService: ObservableObject {
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
         guard context != nil else { throw LXError.noSource }
-        for platform in sourceCandidates(for: track) {
+        let primarySource = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
+        for platform in sourceCandidates(for: track, action: "lyric") {
             guard capabilities[platform]?.contains("lyric") == true else { continue }
-            guard let response = try? await request(source: platform, action: "lyric",
-                                                    info: ["type": "lyric", "musicInfo": musicInfo(for: track, platform: platform)]),
-                  let data = response["data"] as? [String: Any],
-                  let lyric = data["lyric"] as? String,
-                  !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-            return ResolvedLyrics(lyric: lyric, tlyric: data["tlyric"] as? String,
-                                  rlyric: data["rlyric"] as? String, lxlyric: data["lxlyric"] as? String)
+            let requestTrack: Track
+            if platform == primarySource {
+                requestTrack = track
+            } else {
+                guard let matched = await LXCatalogService.matchingTrack(track, on: platform) else { continue }
+                requestTrack = matched
+            }
+            for attempt in 0..<2 {
+                guard let response = try? await request(source: platform, action: "lyric",
+                                                        info: ["type": "lyric", "musicInfo": musicInfo(for: requestTrack, platform: platform)]),
+                      let data = response["data"] as? [String: Any],
+                      let lyric = data["lyric"] as? String,
+                      !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    if attempt == 0 { try? await Task.sleep(for: .milliseconds(350)) }
+                    continue
+                }
+                return ResolvedLyrics(lyric: lyric, tlyric: data["tlyric"] as? String,
+                                      rlyric: data["rlyric"] as? String, lxlyric: data["lxlyric"] as? String)
+            }
         }
         throw LXError.resolveFailed([])
     }
@@ -369,18 +411,35 @@ final class LXUserAPIService: ObservableObject {
     private func sendScriptRequest(requestKey: String, url: URL, options: [String: Any]) {
         var request = URLRequest(url: url)
         request.httpMethod = (options["method"] as? String ?? "GET").uppercased()
-        if options["headers"] == nil {
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-        }
+        // Match LX Mobile's request helper. A number of source backends reject
+        // URLSession's default identity or return HTML without these headers.
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
+                         forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let headers = options["headers"] as? [String: Any] {
             headers.forEach { request.setValue(String(describing: $0.value), forHTTPHeaderField: $0.key) }
         }
+        let method = request.httpMethod ?? "GET"
         if let body = options["body"], !(body is NSNull) {
-            if let string = body as? String { request.httpBody = Data(string.utf8) }
-            else if JSONSerialization.isValidJSONObject(body) { request.httpBody = try? JSONSerialization.data(withJSONObject: body) }
+            if let string = body as? String {
+                request.httpBody = Data(string.utf8)
+            } else if JSONSerialization.isValidJSONObject(body) {
+                request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            }
+            if request.value(forHTTPHeaderField: "Content-Type") == nil,
+               method == "POST" || method == "PUT" || method == "PATCH" {
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            }
         } else if let form = options["form"] as? [String: Any] {
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
             request.httpBody = Data(form.map { "\($0.key.lxFormEncoded)=\(String(describing: $0.value).lxFormEncoded)" }.joined(separator: "&").utf8)
+        } else if let formData = options["formData"] as? String {
+            // Some older LX sources pass an already encoded formData string.
+            // Preserve it instead of silently dropping the POST body.
+            request.httpBody = Data(formData.utf8)
+            if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            }
         }
         if let timeout = options["timeout"] as? Double, timeout > 0 { request.timeoutInterval = min(timeout / 1000, 60) }
 
@@ -409,7 +468,9 @@ final class LXUserAPIService: ObservableObject {
                     "response": ["statusCode": http?.statusCode ?? 0,
                                   "statusMessage": HTTPURLResponse.localizedString(forStatusCode: http?.statusCode ?? 0),
                                   "headers": (http?.allHeaderFields ?? [:]).reduce(into: [:]) { $0[String(describing: $1.key)] = String(describing: $1.value) },
-                                  "body": body],
+                                  "body": body,
+                                  "url": http?.url?.absoluteString ?? url.absoluteString,
+                                  "ok": (200..<300).contains(http?.statusCode ?? 0)],
                 ]
                 if let error { result["error"] = error.localizedDescription }
                 self.callJS(action: "response", data: result)
@@ -427,9 +488,10 @@ final class LXUserAPIService: ObservableObject {
             callJS(action: "request", data: ["requestKey": requestKey,
                                                 "data": ["source": source, "action": action, "info": info]])
             Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(12))
+                try? await Task.sleep(for: .seconds(20))
                 guard let self,
-                      let pendingRequest = self.pending.removeValue(forKey: requestKey) else { return }
+                       let pendingRequest = self.pending.removeValue(forKey: requestKey) else { return }
+                self.tasks.removeValue(forKey: requestKey)?.cancel()
                 pendingRequest.resume(throwing: LXError.requestTimedOut)
             }
         }
@@ -474,11 +536,30 @@ final class LXUserAPIService: ObservableObject {
         _ = function.call(withArguments: encoded == nil ? [key, action] : [key, action, encoded!])
     }
 
-    private func sourceCandidates(for track: Track) -> [String] {
-        guard let source = track.source?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !source.isEmpty,
-              capabilities[source] != nil else { return [] }
-        return [source]
+    private func sourceCandidates(for track: Track, action: String = "musicUrl") -> [String] {
+        let primary = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
+        var values = [primary]
+        if SettingsManager.shared.enableSourcePlatformFallback {
+            values.append(contentsOf: ["wy", "kw", "kg", "tx", "mg"])
+        }
+        var seen = Set<String>()
+        return values.filter { platform in
+            capabilities[platform]?.contains(action) == true && seen.insert(platform).inserted
+        }
+    }
+
+    private func canonicalPlatform(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !value.isEmpty else { return nil }
+        switch value {
+        case "wy", "163", "netease", "neteasecloudmusic", "netease-cloud-music", "cloudmusic":
+            return "wy"
+        case "kw", "kuwo": return "kw"
+        case "kg", "kugou": return "kg"
+        case "tx", "qq", "qqmusic", "qq-music": return "tx"
+        case "mg", "migu": return "mg"
+        default: return value
+        }
     }
 
     /// This is only request metadata for the source's health check. It is not
@@ -505,7 +586,7 @@ final class LXUserAPIService: ObservableObject {
         ensureSelectedSourceLoaded()
         guard LXSourceStore.shared.selectedSource != nil else { return [] }
         var names: [String] = []
-        for platform in sourceCandidates(for: track) {
+        for platform in sourceCandidates(for: track, action: "musicUrl") {
             names.append(contentsOf: qualityCapabilities[platform] ?? [])
         }
         let order = ["128k", "320k", "flac", "flac24bit"]
