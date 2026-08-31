@@ -141,7 +141,7 @@ extension IOSUpdater: URLSessionDownloadDelegate {
                                 didFinishDownloadingTo location: URL) {
         // Move to a stable .ipa path before the temp file is reaped.
         let dest = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Kumone-update.ipa")
+            .appendingPathComponent("Moumusic-update.ipa")
         try? FileManager.default.removeItem(at: dest)
         let moved = (try? { try FileManager.default.moveItem(at: location, to: dest); return true }()) ?? false
         let result = moved ? dest : location

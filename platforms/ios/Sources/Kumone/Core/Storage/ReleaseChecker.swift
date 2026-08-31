@@ -11,14 +11,15 @@ enum ReleaseChecker {
         let ipaURL: URL?
     }
 
-    static let releasesPage = URL(string: "https://github.com/missuo/kumone/releases/latest")!
+    private static let repository = "jiajia2222/Moumusic"
+    static let releasesPage = URL(string: "https://github.com/\(repository)/releases/latest")!
 
     static var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
     }
 
     static func latest() async throws -> Release {
-        var request = URLRequest(url: URL(string: "https://api.github.com/repos/missuo/kumone/releases/latest")!)
+        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 15
         let (data, _) = try await URLSession.shared.data(for: request)

@@ -19,7 +19,7 @@ BUILD_NUMBER="1"
 [ -n "$ENV_MARKETING_VERSION" ] && MARKETING_VERSION="$ENV_MARKETING_VERSION"
 [ -n "$ENV_BUILD_NUMBER" ] && BUILD_NUMBER="$ENV_BUILD_NUMBER"
 
-SPARKLE_FEED_URL="https://github.com/missuo/kumone/releases/latest/download/appcast.xml"
+SPARKLE_FEED_URL="https://github.com/jiajia2222/Moumusic/releases/latest/download/appcast.xml"
 SPARKLE_PUBLIC_ED_KEY="RHEhllstUuuVrVDCPGrbhg/8LivSzpuZB9X3u3xdV5o="
 
 BUILD_DIR="$ROOT/.build/app"
