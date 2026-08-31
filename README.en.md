@@ -1,5 +1,7 @@
 # Moumusic
 
+[![LGPL-3.0](https://img.shields.io/badge/license-LGPL--3.0-orange)](LICENSE) [![GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange)](COPYING)
+
 Moumusic is an open-source music client for iOS and Android. It combines Kumone’s native SwiftUI player experience on iOS with LX Music Mobile’s user-source protocol and Android client. Discovery uses public catalog data; playback is resolved only through sources imported and enabled by the user.
 
 Moumusic does not bundle or distribute third-party source URLs and does not provide NetEase login. Add only sources you are authorized to use and follow the applicable service terms and copyright rules.

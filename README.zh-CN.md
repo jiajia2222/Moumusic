@@ -1,5 +1,7 @@
 # Moumusic
 
+[![LGPL-3.0](https://img.shields.io/badge/license-LGPL--3.0-orange)](LICENSE) [![GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange)](COPYING)
+
 Moumusic 是一个跨平台开源音乐客户端。iOS 使用 Kumone 的原生 SwiftUI 播放体验，Android 使用 LX Music Mobile 客户端；音乐目录和推荐用于发现内容，实际播放由用户自行导入并启用的 LX User API 音源完成。
 
 本项目不内置或分发第三方音源地址，也不提供网易云登录。请只添加你有权使用的音源，并遵守平台服务条款与版权规定。

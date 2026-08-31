@@ -10,7 +10,7 @@
 
 SwiftUI iOS 客户端 · LX User API 音源 · React Native Android 客户端
 
-[![Platform](https://img.shields.io/badge/platform-iOS%2016%2B%20%7C%20Android-blue?logo=apple)](#构建) [![License](https://img.shields.io/badge/license-GPL--3.0-orange)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-iOS%2016%2B%20%7C%20Android-blue?logo=apple)](#构建) [![LGPL-3.0](https://img.shields.io/badge/license-LGPL--3.0-orange)](LICENSE) [![GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange)](COPYING)
 
 </div>
 
