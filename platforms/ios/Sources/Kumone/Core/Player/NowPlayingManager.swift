@@ -10,6 +10,8 @@ final class NowPlayingManager {
     private var artworkTask: Task<Void, Never>?
     private var info: [String: Any] = [:]
     private var baseAlbumTitle = ""
+    private var baseArtist = ""
+    private var currentLyric = ""
 
     private init() {}
 
@@ -59,6 +61,8 @@ final class NowPlayingManager {
 
     func updateMetadata(for track: Track, duration: TimeInterval) {
         baseAlbumTitle = track.album.name
+        baseArtist = track.artistNames
+        currentLyric = ""
         info = [
             MPMediaItemPropertyTitle: track.name,
             MPMediaItemPropertyArtist: track.artistNames,
@@ -92,6 +96,19 @@ final class NowPlayingManager {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = self.info
         }
     }
+
+    #if os(iOS)
+    /// NetEase displays the current lyric in the system Now Playing artist
+    /// row. Mirror that behavior on iOS while retaining the real artist as a
+    /// fallback whenever lyrics are unavailable or the track changes.
+    func updateCurrentLyric(_ lyric: String?) {
+        let value = lyric?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard value != currentLyric else { return }
+        currentLyric = value
+        info[MPMediaItemPropertyArtist] = value.isEmpty ? baseArtist : value
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+    #endif
 
     /// The Control Center uses Apple's standard title/artist/album fields.
     /// Source and resolved quality belong in the in-app player, not in the
