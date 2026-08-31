@@ -210,9 +210,12 @@ struct ImportPlaylistSheet: View {
         isImporting = true
         Task {
             do {
-                _ = try await store.importPlaylist(from: input)
+                let playlistID = try await store.importPlaylist(from: input)
                 isImporting = false
                 dismiss()
+                if let playlist = store.playlist(id: playlistID) {
+                    ToastCenter.shared.show("已导入歌单：\(playlist.name)（\(playlist.tracks.count) 首）")
+                }
             } catch {
                 isImporting = false
                 errorMessage = error.localizedDescription
