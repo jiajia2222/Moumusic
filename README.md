@@ -1,4 +1,18 @@
+<div align="right">[English](README.en.md) · **简体中文**</div>
+
+<div align="center">
+
+<img src="platforms/ios/ios/KumoneIOS/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="140" alt="Moumusic" />
+
 # Moumusic
+
+**跨平台多音源音乐客户端**
+
+SwiftUI iOS 客户端 · LX User API 音源 · React Native Android 客户端
+
+[![Platform](https://img.shields.io/badge/platform-iOS%2016%2B%20%7C%20Android-blue?logo=apple)](#构建) [![License](https://img.shields.io/badge/license-GPL--3.0-orange)](LICENSE)
+
+</div>
 
 Moumusic 是一个面向 iOS 与 Android 的开源音乐客户端。它把 Kumone 的原生 SwiftUI 播放体验与 LX Music Mobile 的用户音源协议结合起来：目录、推荐、搜索和歌单用于发现音乐，实际播放由用户自行导入并启用的 LX User API 音源完成。
 
@@ -16,6 +30,10 @@ Moumusic 是一个面向 iOS 与 Android 的开源音乐客户端。它把 Kumon
 - 网易云公开目录的推荐、发现、歌单、评论和歌单导入
 - iOS 与 Android 分别保留 Kumone、LX Music Mobile 的成熟原生体验
 - 中文与英文界面
+
+## 名字由来
+
+Moumusic 取自 Mou 与 Music，代表一个属于 Mou 的音乐客户端。项目保留 Kumone 的原生播放体验，同时接入 LX User API，让用户自己选择和管理音源。
 
 ## 添加音源
 
@@ -46,12 +64,15 @@ cd platforms/ios/ios
 xcodebuild -project KumoneIOS.xcodeproj -scheme KumoneIOS -configuration Release -sdk iphoneos build
 ```
 
+构建 iOS 时会同时生成 Moumusic 主应用和歌词 WidgetKit 扩展；使用 XcodeGen 时请先执行 `xcodegen generate`。
+
 ## 项目结构
 
 ```text
 platforms/ios/Sources/Kumone/       iOS SwiftUI 客户端与 LX 适配层
 platforms/ios/Sources/Kumone/Core/  API、音源、播放器、歌词和存储
 platforms/android/                  LX Music Mobile React Native 客户端
+platforms/ios/ios/MoumusicWidget/  WidgetKit 当前歌词小组件
 ```
 
 ## 上游项目与致谢
