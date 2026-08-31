@@ -23,16 +23,16 @@ final class DownloadManager: ObservableObject {
 
     private var tasks: [String: Task<Void, Never>] = [:]
 
-    private static var applicationDirectory: URL {
+    private nonisolated static var applicationDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Moumusic", isDirectory: true)
     }
 
-    static var downloadDirectory: URL {
+    nonisolated static var downloadDirectory: URL {
         applicationDirectory.appendingPathComponent("Downloads", isDirectory: true)
     }
 
-    private static var manifestURL: URL {
+    private nonisolated static var manifestURL: URL {
         applicationDirectory.appendingPathComponent("downloads.json")
     }
 
