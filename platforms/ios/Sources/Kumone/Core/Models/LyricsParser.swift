@@ -60,7 +60,7 @@ enum LyricsParser {
 
         // Some LX sources expose NetEase-style verbatim lyrics in a separate
         // `yrc` field. Prefer those exact word/run timings over line-level LRC.
-        let verbatimLines = parseYRC(yrc ?? lyric)
+        let verbatimLines = parseYRC(yrc ?? lxlyric ?? lyric)
         if !verbatimLines.isEmpty { lines = verbatimLines }
 
         func merge(_ body: String?, into keyPath: WritableKeyPath<LyricLine, String?>) {
@@ -178,8 +178,12 @@ enum LyricsParser {
         out.contributor = response.lyricUser?.nickname
         out.translationContributor = response.transUser?.nickname
 
-        guard let raw = response.lrc?.lyric, !raw.isEmpty else { return out }
-        var main = parseLRC(raw)
+        let lrcRaw = response.lrc?.lyric
+        let yrcRaw = response.yrc?.lyric
+        guard [lrcRaw, yrcRaw]
+            .compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .contains(where: { !$0.isEmpty }) else { return out }
+        var main = lrcRaw.map(parseLRC) ?? []
 
         // Instrumental marker handling (mirrors YesPlayMusic).
         let instrumentalMarker = "纯音乐，请欣赏"
@@ -199,7 +203,7 @@ enum LyricsParser {
             LyricLine(id: idx, time: pair.time, text: pair.text)
         }
         // Prefer verbatim (word-by-word) lines when the song has them.
-        if let yrcRaw = response.yrc?.lyric, !yrcRaw.isEmpty {
+        if let yrcRaw, !yrcRaw.isEmpty {
             let yrcLines = parseYRC(yrcRaw)
             if !yrcLines.isEmpty { lines = yrcLines }
         }

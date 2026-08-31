@@ -422,6 +422,14 @@ enum NeteaseAPI {
     struct CommentResponse: Decodable {
         let comments: [CommentItem]
         let total: Int?
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            comments = (try? container.decode([CommentItem].self, forKey: .comments)) ?? []
+            total = try? container.decode(Int.self, forKey: .total)
+        }
+
+        private enum CodingKeys: String, CodingKey { case comments, total }
     }
 
     /// Public comments are metadata only and do not require a NetEase login.
@@ -563,14 +571,17 @@ enum NeteaseAPI {
 
     /// Finds the NetEase metadata record for a song returned by an LX source.
     /// The returned ID is safe to use for public lyrics and comments.
-    static func matchingSong(for track: Track, limit: Int = 12) async throws -> Track? {
+    static func matchingSong(for track: Track, limit: Int = 12,
+                             requireDuration: Bool = true) async throws -> Track? {
         let query = [track.name, track.artistNames]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: " ")
         guard !query.isEmpty else { return nil }
         let result = try await search(query, type: .songs, limit: limit)
-        return NeteaseTrackMatcher.bestCandidate(for: track, in: result.songs ?? [])
+        return requireDuration
+            ? NeteaseTrackMatcher.bestCandidate(for: track, in: result.songs ?? [])
+            : NeteaseTrackMatcher.bestMetadataCandidate(for: track, in: result.songs ?? [])
     }
 
     struct SearchSuggestResponse: Decodable {

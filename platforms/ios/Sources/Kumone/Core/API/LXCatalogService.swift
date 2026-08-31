@@ -289,7 +289,7 @@ enum LXCatalogService {
 
     private static func fetchObject(_ url: URL, method: String = "GET", body: Data? = nil,
                                     headers: [String: String] = [:]) async throws -> Any {
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: secureURL(url))
         request.httpMethod = method
         request.httpBody = body
         request.setValue("Moumusic/0.4", forHTTPHeaderField: "User-Agent")
@@ -303,7 +303,7 @@ enum LXCatalogService {
 
     private static func fetchData(_ url: URL, method: String = "GET", body: Data? = nil,
                                   headers: [String: String] = [:]) async throws -> Data {
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: secureURL(url))
         request.httpMethod = method
         request.httpBody = body
         request.setValue("Moumusic/0.5", forHTTPHeaderField: "User-Agent")
@@ -316,7 +316,7 @@ enum LXCatalogService {
     }
 
     private static func fetchText(_ url: URL) async throws -> String {
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: secureURL(url))
         request.setValue("Moumusic/0.5", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
@@ -324,6 +324,18 @@ enum LXCatalogService {
             throw LXCatalogError.invalidResponse
         }
         return text
+    }
+
+    /// iOS App Transport Security rejects plain HTTP before a request reaches
+    /// the provider. Prefer the HTTPS endpoint when a legacy catalogue URL
+    /// still advertises `http`.
+    private static func secureURL(_ url: URL) -> URL {
+        guard url.scheme?.lowercased() == "http",
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.scheme = "https"
+        return components.url ?? url
     }
 
     private static func inflateZlib(_ data: Data) -> Data? {
@@ -602,7 +614,7 @@ enum LXCatalogService {
         let key = Array("yeelion".utf8)
         let encoded = Data(params.utf8).enumerated().map { $0.element ^ key[$0.offset % key.count] }
         let query = Data(encoded).base64EncodedString()
-        let url = URL(string: "http://newlyric.kuwo.cn/newlyric.lrc?\(query)")!
+        let url = URL(string: "https://newlyric.kuwo.cn/newlyric.lrc?\(query)")!
         let data = try await fetchData(url)
         guard let delimiter = data.range(of: Data("\r\n\r\n".utf8)) else {
             throw LXCatalogError.invalidResponse
@@ -624,7 +636,7 @@ enum LXCatalogService {
         guard let hash = track.sourceMetadata["hash"], !hash.isEmpty else {
             throw LXCatalogError.invalidResponse
         }
-        var searchURL = URLComponents(string: "http://lyrics.kugou.com/search")!
+        var searchURL = URLComponents(string: "https://lyrics.kugou.com/search")!
         searchURL.queryItems = [
             URLQueryItem(name: "ver", value: "1"),
             URLQueryItem(name: "man", value: "yes"),
@@ -641,7 +653,7 @@ enum LXCatalogService {
             throw LXCatalogError.invalidResponse
         }
         let isKRC = int(candidate["krctype"]) == 1 && int(candidate["contenttype"]) != 1
-        var downloadURL = URLComponents(string: "http://lyrics.kugou.com/download")!
+        var downloadURL = URLComponents(string: "https://lyrics.kugou.com/download")!
         downloadURL.queryItems = [
             URLQueryItem(name: "ver", value: "1"),
             URLQueryItem(name: "client", value: "pc"),
