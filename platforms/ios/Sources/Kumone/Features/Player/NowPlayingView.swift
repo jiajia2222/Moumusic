@@ -1229,6 +1229,7 @@ private struct CompactTrackHeader: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
     @State private var showAddToPlaylist = false
+    @State private var showComments = false
 
     let showsExpandedArtwork: Bool
 
@@ -1296,6 +1297,12 @@ private struct CompactTrackHeader: View {
                             Label("加入歌单…", systemImage: "music.note.list")
                         }
 
+                        Button {
+                            showComments = true
+                        } label: {
+                            Label("查看评论", systemImage: "text.bubble")
+                        }
+
 #if os(iOS)
                         Button {
                             DownloadManager.shared.download(track)
@@ -1331,6 +1338,11 @@ private struct CompactTrackHeader: View {
         .sheet(isPresented: $showAddToPlaylist) {
             if let track = player.currentTrack {
                 AddToPlaylistSheet(track: track)
+            }
+        }
+        .sheet(isPresented: $showComments) {
+            if let track = player.currentTrack {
+                SongCommentsSheet(track: track)
             }
         }
     }

@@ -45,17 +45,25 @@ struct SongCommentsSheet: View {
                 }
             }
         }
-        .task(id: "\(track.source ?? "wy")-\(track.id)") {
+        .task(id: track.playbackKey) {
             isLoading = true
             error = nil
             comments = []
             do {
                 let source = track.source?.lowercased()
                 let neteaseID: Int?
-                if source == nil || source == "wy" || source == "netease" {
+                if let explicit = track.sourceMetadata["neteaseId"]
+                    ?? track.sourceMetadata["wyId"],
+                   let id = Int(explicit) {
+                    neteaseID = id
+                } else if source == nil || source == "wy" || source == "netease" {
                     neteaseID = track.id
                 } else {
-                    neteaseID = try await NeteaseAPI.matchingSong(for: track)?.id
+                    // Comments are metadata, so allow a different edit length
+                    // while keeping the exact title/artist match requirement.
+                    neteaseID = try await NeteaseAPI.matchingSong(
+                        for: track, requireDuration: false
+                    )?.id
                 }
 
                 guard let neteaseID else {

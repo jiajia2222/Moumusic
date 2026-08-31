@@ -13,12 +13,26 @@ enum NeteaseTrackMatcher {
     }
 
     static func bestCandidate(for track: Track, in candidates: [Track]) -> Track? {
+        bestCandidate(for: track, in: candidates, requireDuration: true)
+    }
+
+    /// Metadata such as comments can still be useful when an LX provider's
+    /// recording duration differs from NetEase's edit by more than 12 seconds.
+    /// Keep the exact title/artist checks, but do not reject that version solely
+    /// because of duration.
+    static func bestMetadataCandidate(for track: Track, in candidates: [Track]) -> Track? {
+        bestCandidate(for: track, in: candidates, requireDuration: false)
+    }
+
+    private static func bestCandidate(for track: Track, in candidates: [Track],
+                                      requireDuration: Bool) -> Track? {
         let targetTitle = normalizedTitle(track.name)
         guard !targetTitle.isEmpty else { return nil }
 
         return candidates.compactMap { candidate -> ScoredCandidate? in
             guard let score = score(track: track, candidate: candidate,
-                                    targetTitle: targetTitle) else { return nil }
+                                    targetTitle: targetTitle,
+                                    requireDuration: requireDuration) else { return nil }
             return ScoredCandidate(candidate: candidate, score: score)
         }
         .max { lhs, rhs in lhs.score < rhs.score }
@@ -26,7 +40,7 @@ enum NeteaseTrackMatcher {
     }
 
     private static func score(track: Track, candidate: Track,
-                              targetTitle: String) -> Int? {
+                              targetTitle: String, requireDuration: Bool) -> Int? {
         guard normalizedTitle(candidate.name) == targetTitle else { return nil }
 
         let targetArtists = artistTokens(track.artistNames)
@@ -43,7 +57,7 @@ enum NeteaseTrackMatcher {
 
         if track.duration > 0, candidate.duration > 0 {
             let difference = abs(track.duration - candidate.duration)
-            guard difference <= 12 else { return nil }
+            if requireDuration { guard difference <= 12 else { return nil } }
             result += max(0, 30 - Int(difference.rounded()) * 3)
         }
 
