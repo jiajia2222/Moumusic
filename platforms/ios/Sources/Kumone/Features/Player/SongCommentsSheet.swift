@@ -25,7 +25,7 @@ struct SongCommentsSheet: View {
                                 Text(comment.user?.nickname ?? "匿名用户")
                                     .font(.subheadline.weight(.medium))
                                 Spacer()
-                                Text("赞 (comment.likedCount)")
+                                Text("赞 \(comment.likedCount)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -45,9 +45,23 @@ struct SongCommentsSheet: View {
                 }
             }
         }
-        .task(id: track.id) {
+        .task(id: "\(track.source ?? "wy")-\(track.id)") {
+            isLoading = true
+            error = nil
+            comments = []
             do {
-                comments = try await NeteaseAPI.comments(for: track.id).comments
+                let source = track.source?.lowercased()
+                let neteaseID: Int?
+                if source == nil || source == "wy" || source == "netease" {
+                    neteaseID = track.id
+                } else {
+                    neteaseID = try await NeteaseAPI.matchingSong(for: track)?.id
+                }
+
+                guard let neteaseID else {
+                    throw SongCommentsError.noMatchingSong
+                }
+                comments = try await NeteaseAPI.comments(for: neteaseID).comments
             } catch {
                 self.error = error.localizedDescription
             }
@@ -64,5 +78,13 @@ struct SongCommentsSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(32)
+    }
+}
+
+private enum SongCommentsError: LocalizedError {
+    case noMatchingSong
+
+    var errorDescription: String? {
+        "未找到对应的网易云歌曲，暂时无法显示评论"
     }
 }

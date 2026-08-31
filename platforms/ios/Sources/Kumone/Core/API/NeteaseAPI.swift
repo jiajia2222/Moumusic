@@ -561,6 +561,18 @@ enum NeteaseAPI {
                                            songCount: nil, albumCount: nil, artistCount: nil, playlistCount: nil)
     }
 
+    /// Finds the NetEase metadata record for a song returned by an LX source.
+    /// The returned ID is safe to use for public lyrics and comments.
+    static func matchingSong(for track: Track, limit: Int = 12) async throws -> Track? {
+        let query = [track.name, track.artistNames]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !query.isEmpty else { return nil }
+        let result = try await search(query, type: .songs, limit: limit)
+        return NeteaseTrackMatcher.bestCandidate(for: track, in: result.songs ?? [])
+    }
+
     struct SearchSuggestResponse: Decodable {
         struct Body: Decodable {
             let songs: [Track]?
