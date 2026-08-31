@@ -21,12 +21,6 @@ Moumusic is an independent cross-platform music client. It uses Kumone's native 
 
 > Moumusic does not bundle third-party source URLs or provide NetEase login. Add only sources you are authorized to use and follow the terms and copyright rules of each service.
 
-<div align="center">
-<img src="platforms/ios/docs/screenshot-home.png" width="31%" alt="Home" />
-<img src="platforms/ios/docs/screenshot-nowplaying.png" width="31%" alt="Now playing" />
-<img src="platforms/ios/docs/screenshot-lyrics.png" width="31%" alt="Lyrics" />
-</div>
-
 ## Features
 
 - LX User API source import from JSON, JavaScript or an online URL
