@@ -179,7 +179,7 @@ final class PlayerService: ObservableObject {
         // Keep the picker reachable while a source is still loading or has
         // not declared capabilities. LXUserAPIService performs the final
         // downgrade to a supported quality when it resolves the URL.
-        return available.isEmpty ? AudioQuality.allCases : available
+        return available
 #else
         return AudioQuality.allCases
 #endif
@@ -349,13 +349,13 @@ final class PlayerService: ObservableObject {
             reshuffle(keeping: startTrack)
             currentIndex = 0
         } else {
-            currentIndex = tracks.firstIndex(where: { $0.id == startTrack.id }) ?? 0
+            currentIndex = tracks.firstIndex(where: { $0.playbackKey == startTrack.playbackKey }) ?? 0
         }
         startPlaying(activeQueue[currentIndex])
     }
 
     func playTrack(_ track: Track) {
-        if let idx = activeQueue.firstIndex(where: { $0.id == track.id }) {
+        if let idx = activeQueue.firstIndex(where: { $0.playbackKey == track.playbackKey }) {
             currentIndex = idx
             startPlaying(track)
         } else {
@@ -448,7 +448,7 @@ final class PlayerService: ObservableObject {
             reshuffle(keeping: current)
             currentIndex = 0
         } else {
-            currentIndex = queue.firstIndex(where: { $0.id == current.id }) ?? 0
+            currentIndex = queue.firstIndex(where: { $0.playbackKey == current.playbackKey }) ?? 0
         }
     }
 
@@ -479,26 +479,26 @@ final class PlayerService: ObservableObject {
 
     /// Jump to a track in the upcoming list (queue panel click).
     func jumpTo(_ track: Track) {
-        if let nextIdx = playNextList.firstIndex(where: { $0.id == track.id }) {
+        if let nextIdx = playNextList.firstIndex(where: { $0.playbackKey == track.playbackKey }) {
             playNextList.removeSubrange(0...nextIdx)
             startPlaying(track, indexUnchanged: true)
             return
         }
-        if let idx = activeQueue.firstIndex(where: { $0.id == track.id }) {
+        if let idx = activeQueue.firstIndex(where: { $0.playbackKey == track.playbackKey }) {
             currentIndex = idx
             startPlaying(track)
         }
     }
 
     func removeFromUpcoming(_ track: Track) {
-        if let idx = playNextList.firstIndex(where: { $0.id == track.id }) {
+        if let idx = playNextList.firstIndex(where: { $0.playbackKey == track.playbackKey }) {
             playNextList.remove(at: idx)
             return
         }
-        if let idx = queue.firstIndex(where: { $0.id == track.id }), idx != currentIndex || shuffleEnabled {
+        if let idx = queue.firstIndex(where: { $0.playbackKey == track.playbackKey }), idx != currentIndex || shuffleEnabled {
             queue.remove(at: idx)
         }
-        if let idx = shuffledQueue.firstIndex(where: { $0.id == track.id }) {
+        if let idx = shuffledQueue.firstIndex(where: { $0.playbackKey == track.playbackKey }) {
             shuffledQueue.remove(at: idx)
         }
     }
@@ -632,6 +632,15 @@ final class PlayerService: ObservableObject {
     private func startPlaying(_ track: Track, indexUnchanged: Bool = false,
                               resumeAt: TimeInterval? = nil) {
         let track = track.normalizedForLXPlayback()
+        // Stop and detach the previous item before starting an asynchronous
+        // URL/lyric resolution. Otherwise a fast next/previous tap leaves the
+        // old AVPlayerItem audible until the new source responds.
+        engine.pause()
+        engine.replaceCurrentItem(with: nil)
+        if let old = endObserver {
+            NotificationCenter.default.removeObserver(old)
+            endObserver = nil
+        }
         scrobbleIfNeeded(completed: false)
         currentTrack = track
         WidgetSnapshotStore.update(track: track, lyric: nil)
@@ -679,25 +688,31 @@ final class PlayerService: ObservableObject {
         // Every online track, including a NetEase catalogue result, must use
         // the selected LX User API. There is intentionally no native NetEase
         // URL fallback and no third-party Kuwo/unblock fallback on iOS.
-        guard LXSourceStore.shared.selectedSource != nil else {
-            guard generation == resolveGeneration else { return }
-            ToastCenter.shared.show("请先在设置 → LX 音源中选择播放音源")
-            isPlaying = false
-            return
-        }
-        do {
-            let lx = try await LXUserAPIService.shared.resolveMusicURL(for: track, quality: quality)
-            resolvedURL = lx.url
-            servedByLXQuality = lx.quality
-        } catch {
-            guard generation == resolveGeneration else { return }
-            consecutiveFailures += 1
-            ToastCenter.shared.show("《\(track.name)》播放失败：\(error.localizedDescription)")
-            // A source-level error is not fixed by immediately trying five
-            // more queue entries. Keep the current song visible so the user
-            // can adjust the source or retry after reading the real error.
-            isPlaying = false
-            return
+        if let local = DownloadManager.shared.record(for: track),
+           FileManager.default.fileExists(atPath: local.fileURL.path) {
+            resolvedURL = local.fileURL
+            servedByLXQuality = local.quality
+        } else {
+            guard LXSourceStore.shared.selectedSource != nil else {
+                guard generation == resolveGeneration else { return }
+                ToastCenter.shared.show("请先在设置 → LX 音源中选择播放音源")
+                isPlaying = false
+                return
+            }
+            do {
+                let lx = try await LXUserAPIService.shared.resolveMusicURL(for: track, quality: quality)
+                resolvedURL = lx.url
+                servedByLXQuality = lx.quality
+            } catch {
+                guard generation == resolveGeneration else { return }
+                consecutiveFailures += 1
+                ToastCenter.shared.show("《\(track.name)》播放失败：\(error.localizedDescription)")
+                // A source-level error is not fixed by immediately trying five
+                // more queue entries. Keep the current song visible so the user
+                // can adjust the source or retry after reading the real error.
+                isPlaying = false
+                return
+            }
         }
 #else
         if resolvedURL == nil, !isLXCatalogTrack {
@@ -878,7 +893,8 @@ final class PlayerService: ObservableObject {
            let lx = try? await LXUserAPIService.shared.resolveLyrics(for: track) {
             guard generation == resolveGeneration else { return }
             let parsed = LyricsParser.parseLX(lyric: lx.lyric, tlyric: lx.tlyric,
-                                               rlyric: lx.rlyric, lxlyric: lx.lxlyric)
+                                               rlyric: lx.rlyric, lxlyric: lx.lxlyric,
+                                               yrc: lx.yrc)
             if !parsed.isEmpty {
                 lyrics = parsed
                 updateLyricsCursor(at: progress)
@@ -1058,6 +1074,7 @@ final class PlayerService: ObservableObject {
     private struct PersistedState: Codable {
         var queue: [Track]
         var currentID: Int?
+        var currentKey: String?
         var repeatMode: String
         var shuffle: Bool
         /// Optional so state files written before recents existed still decode.
@@ -1068,6 +1085,7 @@ final class PlayerService: ObservableObject {
         let state = PersistedState(
             queue: Array(queue.prefix(1000)),
             currentID: currentTrack?.id,
+            currentKey: currentTrack?.playbackKey,
             repeatMode: repeatMode.rawValue,
             shuffle: shuffleEnabled,
             recentContexts: recentContexts
@@ -1093,8 +1111,11 @@ final class PlayerService: ObservableObject {
         if shuffleEnabled {
             shuffledQueue = queue.shuffled()
         }
-        if let id = state.currentID,
-           let idx = activeQueue.firstIndex(where: { $0.id == id }) {
+        if let idx = state.currentKey.flatMap({ key in
+            activeQueue.firstIndex(where: { $0.playbackKey == key })
+        }) ?? state.currentID.flatMap({ id in
+            activeQueue.firstIndex(where: { $0.id == id })
+        }) {
             currentIndex = idx
             currentTrack = activeQueue[idx]
             duration = activeQueue[idx].duration

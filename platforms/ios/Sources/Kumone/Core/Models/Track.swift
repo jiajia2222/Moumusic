@@ -64,6 +64,19 @@ struct Track: Codable, Hashable, Identifiable {
     var duration: TimeInterval { TimeInterval(durationMS) / 1000 }
     var subtitle: String? { transNames.first ?? alias.first }
 
+    /// Queue identity must include the catalogue platform. NetEase, QQ and
+    /// Kuwo commonly reuse the same numeric IDs, so comparing `id` alone can
+    /// make a rapid tap jump to (or keep) the wrong song.
+    var playbackKey: String {
+        let sourceKey = source?.lowercased() ?? sourceMetadata["source"]?.lowercased() ?? "wy"
+        let providerID = sourceMetadata["songmid"]
+            ?? sourceMetadata["songId"]
+            ?? sourceMetadata["hash"]
+            ?? sourceMetadata["copyrightId"]
+            ?? String(id)
+        return "\(sourceKey):\(providerID):\(name):\(artistNames)"
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id, name
         case ar, artists

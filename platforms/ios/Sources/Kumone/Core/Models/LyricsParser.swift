@@ -49,13 +49,19 @@ enum LyricsParser {
     /// NetEase's response model.  LX sources may return translated or romaji
     /// lines alongside the main LRC body.
     static func parseLX(lyric: String, tlyric: String? = nil,
-                        rlyric: String? = nil, lxlyric: String? = nil) -> ParsedLyrics {
+                        rlyric: String? = nil, lxlyric: String? = nil,
+                        yrc: String? = nil) -> ParsedLyrics {
         var result = ParsedLyrics()
         let timedMain = parseLRC(lyric).filter { !$0.text.isEmpty }
         let main = timedMain.isEmpty ? parsePlainText(lyric) : timedMain
         var lines = main.enumerated().map { index, line in
             LyricLine(id: index, time: line.time, text: line.text)
         }
+
+        // Some LX sources expose NetEase-style verbatim lyrics in a separate
+        // `yrc` field. Prefer those exact word/run timings over line-level LRC.
+        let verbatimLines = parseYRC(yrc ?? lyric)
+        if !verbatimLines.isEmpty { lines = verbatimLines }
 
         func merge(_ body: String?, into keyPath: WritableKeyPath<LyricLine, String?>) {
             guard let body, !body.isEmpty else { return }

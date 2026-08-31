@@ -3,17 +3,27 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
 #if os(iOS)
+    @EnvironmentObject private var player: PlayerService
     @StateObject private var lxStore = LXSourceStore.shared
 #endif
     @State private var cacheSize = "计算中…"
 #if os(iOS)
     @State private var showSourceManager = false
+    @State private var showDownloads = false
 #endif
 
     var body: some View {
         Form {
             Section("播放") {
-                Text("音频、歌词和封面只通过已导入的 LX 音源解析。为避免后台请求预置音乐平台，已取消跨平台自动回退。")
+#if os(iOS)
+                Toggle("播放失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
+                Text(settings.enableSourcePlatformFallback
+                     ? "当前平台无法播放时，允许音源尝试其他平台的同名歌曲。"
+                     : "单平台模式：只使用歌曲标记的平台，不跨平台匹配。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+#endif
+                Text("音频通过已导入的 LX 音源解析；歌词和封面按歌曲平台获取。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("音质在歌曲播放页调整；可用档位由当前 LX 音源声明。")
@@ -66,6 +76,13 @@ struct SettingsView: View {
             Section("存储") {
                 LabeledContent("图片缓存", value: cacheSize)
                 Button("清除缓存") { clearCache() }
+#if os(iOS)
+                Button {
+                    showDownloads = true
+                } label: {
+                    Label("下载管理", systemImage: "arrow.down.circle")
+                }
+#endif
             }
 
             Section("更新") {
@@ -96,6 +113,10 @@ struct SettingsView: View {
             NavigationStack {
                 LXSourceManagerView()
             }
+        }
+        .sheet(isPresented: $showDownloads) {
+            DownloadsView()
+                .environmentObject(player)
         }
 #endif
     }
