@@ -78,8 +78,12 @@ final class NowPlayingManager {
         // 1024px: the lock screen's tap-to-fullscreen artwork presentation
         // needs high-resolution art to engage.
         artworkTask = Task { [weak self] in
-            let url = track.album.picUrl?.resizedImageURL(1024)
-                ?? await Self.fallbackArtworkURL(for: track)
+        let url: URL?
+        if let directURL = track.album.picUrl?.resizedImageURL(1024) {
+            url = directURL
+        } else {
+            url = await Self.fallbackArtworkURL(for: track)
+        }
             guard let url,
                   let image = await ImageCache.shared.image(for: url),
                   let self, !Task.isCancelled else { return }
