@@ -20,12 +20,6 @@ Moumusic 是一个独立的跨平台音乐客户端：iOS 以 Kumone 的原生 S
 
 > 本项目不内置或分发第三方音源地址，也不提供网易云登录。请只添加你有权使用的音源，并遵守相关服务条款和版权规定。
 
-<div align="center">
-<img src="platforms/ios/docs/screenshot-home.png" width="31%" alt="首页" />
-<img src="platforms/ios/docs/screenshot-nowplaying.png" width="31%" alt="播放页" />
-<img src="platforms/ios/docs/screenshot-lyrics.png" width="31%" alt="歌词" />
-</div>
-
 ## 功能
 
 - 从 JSON、JavaScript 或在线链接导入 LX User API 音源
