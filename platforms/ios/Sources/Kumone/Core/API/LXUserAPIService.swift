@@ -127,8 +127,12 @@ final class LXUserAPIService: ObservableObject {
         guard capabilities.values.contains(where: { $0.contains("musicUrl") }) else {
             throw LXError.sourceUnavailable(statusMessage)
         }
-        let primarySource = track.source?.trimmingCharacters(in: .whitespacesAndNewlines)
-            .flatMap { $0.isEmpty ? nil : $0 } ?? "wy"
+        let primarySource: String
+        if let source = track.source?.trimmingCharacters(in: .whitespacesAndNewlines), !source.isEmpty {
+            primarySource = source
+        } else {
+            primarySource = "wy"
+        }
         var failures: [String] = []
 
         for platform in sourceCandidates(for: track, action: "musicUrl") {
@@ -257,8 +261,12 @@ final class LXUserAPIService: ObservableObject {
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
         guard context != nil else { throw LXError.noSource }
-        let primarySource = track.source?.trimmingCharacters(in: .whitespacesAndNewlines)
-            .flatMap { $0.isEmpty ? nil : $0 } ?? "wy"
+        let primarySource: String
+        if let source = track.source?.trimmingCharacters(in: .whitespacesAndNewlines), !source.isEmpty {
+            primarySource = source
+        } else {
+            primarySource = "wy"
+        }
         for platform in sourceCandidates(for: track, action: "lyric") {
             guard capabilities[platform]?.contains("lyric") == true else { continue }
             let requestTrack: Track
@@ -524,8 +532,12 @@ final class LXUserAPIService: ObservableObject {
     }
 
     private func sourceCandidates(for track: Track, action: String = "musicUrl") -> [String] {
-        let primary = track.source?.trimmingCharacters(in: .whitespacesAndNewlines)
-            .flatMap { $0.isEmpty ? nil : $0 } ?? "wy"
+        let primary: String
+        if let source = track.source?.trimmingCharacters(in: .whitespacesAndNewlines), !source.isEmpty {
+            primary = source
+        } else {
+            primary = "wy"
+        }
         var values = [primary]
         if SettingsManager.shared.enableSourcePlatformFallback {
             values.append(contentsOf: ["wy", "kw", "kg", "tx", "mg"])
