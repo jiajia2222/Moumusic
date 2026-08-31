@@ -1240,6 +1240,9 @@ private struct CompactTrackHeader: View {
     @EnvironmentObject private var account: AccountStore
     @State private var showAddToPlaylist = false
     @State private var showComments = false
+    #if os(iOS)
+    @State private var showDownloadOptions = false
+    #endif
 
     let showsExpandedArtwork: Bool
 
@@ -1355,6 +1358,13 @@ private struct CompactTrackHeader: View {
                 SongCommentsSheet(track: track)
             }
         }
+        #if os(iOS)
+        .sheet(isPresented: $showDownloadOptions) {
+            if let track = player.currentTrack {
+                DownloadOptionsSheet(tracks: [track])
+            }
+        }
+        #endif
     }
 }
 
@@ -1698,6 +1708,7 @@ private struct CompactQueueRow: View {
 private struct IOSMinimalLyricsColumn: View {
     @EnvironmentObject private var player: PlayerService
     @ObservedObject private var clock = PlayerService.shared.clock
+    @ObservedObject private var lyricsCursor = PlayerService.shared.lyricsCursor
     @EnvironmentObject private var settings: SettingsManager
 
     let onClose: () -> Void
