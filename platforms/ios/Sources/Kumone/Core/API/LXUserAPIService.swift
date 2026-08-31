@@ -159,7 +159,11 @@ final class LXUserAPIService: ObservableObject {
                     failures.append("\(platformName)：没有返回有效播放地址")
                     continue
                 }
-                return ResolvedURL(url: url, quality: (data["type"] as? String) ?? requestedQuality)
+                let actualQuality = (data["type"] as? String)
+                    ?? (data["quality"] as? String)
+                    ?? (data["format"] as? String)
+                    ?? requestedQuality
+                return ResolvedURL(url: url, quality: actualQuality)
             } catch {
                 failures.append("\(platformName)：\(error.localizedDescription)")
             }
@@ -269,17 +273,54 @@ final class LXUserAPIService: ObservableObject {
             for attempt in 0..<2 {
                 guard let response = try? await request(source: platform, action: "lyric",
                                                         info: ["type": "lyric", "musicInfo": musicInfo(for: requestTrack, platform: platform)]),
-                      let data = response["data"] as? [String: Any],
-                      let lyric = data["lyric"] as? String,
-                      !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                      let lyrics = await lyricPayload(from: response) else {
                     if attempt == 0 { try? await Task.sleep(for: .milliseconds(350)) }
                     continue
                 }
-                return ResolvedLyrics(lyric: lyric, tlyric: data["tlyric"] as? String,
-                                      rlyric: data["rlyric"] as? String, lxlyric: data["lxlyric"] as? String)
+                return lyrics
             }
         }
         throw LXError.resolveFailed([])
+    }
+
+    /// LX source scripts do not all return the same lyric shape. In the wild
+    /// `data` may be a string, an object with `lyric`/`lrc`, or an object that
+    /// points to a separate LRC URL. Accept all of those forms so Kuwo,
+    /// Kugou, QQ and Migu sources are not incorrectly reported as lyric-less.
+    private func lyricPayload(from response: [String: Any]) async -> ResolvedLyrics? {
+        let raw = response["data"]
+        let object = raw as? [String: Any]
+        var lyric = raw as? String
+        var tlyric: String?
+        var rlyric: String?
+        var lxlyric: String?
+
+        if let object {
+            func text(_ keys: [String]) -> String? {
+                for key in keys {
+                    if let value = object[key] as? String,
+                       !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return value }
+                    if let nested = object[key] as? [String: Any],
+                       let value = nested["lyric"] as? String { return value }
+                }
+                return nil
+            }
+            lyric = text(["lyric", "lrc", "lyricText", "content", "text"])
+            tlyric = text(["tlyric", "translation", "translatedLyric"])
+            rlyric = text(["rlyric", "romalrc", "romaji"])
+            lxlyric = text(["lxlyric"])
+
+            if lyric == nil,
+               let urlString = text(["lrcUrl", "lyricUrl", "url"]),
+               let url = URL(string: urlString),
+               let (data, response) = try? await URLSession.shared.data(from: url),
+               (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true {
+                lyric = String(data: data, encoding: .utf8)
+            }
+        }
+
+        guard let lyric, !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return ResolvedLyrics(lyric: lyric, tlyric: tlyric, rlyric: rlyric, lxlyric: lxlyric)
     }
 
     enum LXError: LocalizedError {

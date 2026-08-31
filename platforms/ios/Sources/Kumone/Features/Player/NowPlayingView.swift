@@ -23,6 +23,7 @@ struct NowPlayingView: View {
     @State private var resumeTask: Task<Void, Never>?
     @State private var showLyricsOnMobile = false
     @State private var showQualityPicker = false
+    @State private var showComments = false
     #if os(iOS)
     @State private var showQueueOnMobile = false
     #endif
@@ -126,6 +127,11 @@ struct NowPlayingView: View {
                 .environmentObject(player)
                 .environmentObject(settings)
         }
+        .sheet(isPresented: $showComments) {
+            if let track = player.currentTrack {
+                SongCommentsSheet(track: track)
+            }
+        }
     }
 
     private var hasLyricsColumn: Bool {
@@ -191,8 +197,20 @@ struct NowPlayingView: View {
     }
 
     private func loadArtwork() async {
-        guard let urlString = player.currentTrack?.album.picUrl,
-              let url = urlString.resizedImageURL(768) else {
+        guard let track = player.currentTrack else {
+            artworkImage = nil
+            colors = .fallback
+            return
+        }
+        var urlString = track.album.picUrl
+        if urlString == nil {
+            let query = [track.name, track.artistNames].filter { !$0.isEmpty }.joined(separator: " ")
+            if let result = try? await NeteaseAPI.search(query, type: .songs, limit: 6),
+               let match = result.songs?.first(where: { $0.name == track.name }) ?? result.songs?.first {
+                urlString = match.album.picUrl
+            }
+        }
+        guard let urlString, let url = urlString.resizedImageURL(768) else {
             artworkImage = nil
             colors = .fallback
             return
@@ -486,18 +504,28 @@ struct NowPlayingView: View {
                 showQueue: $showQueueOnMobile
             )
                 .padding(.horizontal, 2)
-            Button {
-                showQualityPicker = true
-            } label: {
-                Label("音质：\(player.currentQuality.badge)", systemImage: "waveform")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 44)
-                    .background(.white.opacity(0.12), in: Capsule())
+            HStack(spacing: 8) {
+                Button { showQualityPicker = true } label: {
+                    Label("音质：\(player.servedQuality.map { AudioQuality(lxType: $0)?.displayName ?? $0 } ?? player.currentQuality.badge)", systemImage: "waveform")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 44)
+                        .background(.white.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.pressable)
+                .accessibilityLabel("选择播放音质")
+
+                Button { showComments = true } label: {
+                    Label("评论", systemImage: "text.bubble")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 44)
+                        .background(.white.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.pressable)
             }
-            .buttonStyle(.pressable)
-            .accessibilityLabel("选择播放音质")
         }
         .accessibilityIdentifier("immersiveControls")
     }
@@ -530,6 +558,17 @@ struct NowPlayingView: View {
     #endif
 
     // MARK: - Views
+
+    private func sourceName(_ source: String?) -> String {
+        switch source?.lowercased() {
+        case "wy", "netease", "163": return "网易云"
+        case "kw", "kuwo": return "酷我"
+        case "kg", "kugou": return "酷狗"
+        case "tx", "qq", "qqmusic": return "QQ音乐"
+        case "mg", "migu": return "咪咕"
+        default: return source?.isEmpty == false ? source! : "未知"
+        }
+    }
 
     private func artworkView(size: CGFloat) -> some View {
         Group {
@@ -569,11 +608,14 @@ struct NowPlayingView: View {
                 .font(.system(size: 13.5))
                 .foregroundStyle(.white.opacity(0.65))
                 .lineLimit(1)
+            Text("来源：\(player.currentTrack.map { sourceName($0.source) } ?? "未知")")
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.5))
 
             Button {
                 showQualityPicker = true
             } label: {
-                Label("音质：\(player.currentQuality.badge)", systemImage: "waveform")
+                Label("音质：\(player.servedQuality.map { AudioQuality(lxType: $0)?.displayName ?? $0 } ?? player.currentQuality.badge)", systemImage: "waveform")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.9))
                     .padding(.horizontal, 12)
@@ -582,6 +624,16 @@ struct NowPlayingView: View {
             }
             .buttonStyle(.pressable)
             .accessibilityLabel("选择播放音质")
+
+            Button { showComments = true } label: {
+                Label("查看评论", systemImage: "text.bubble")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 44)
+                    .background(.white.opacity(0.12), in: Capsule())
+            }
+            .buttonStyle(.pressable)
         }
         .frame(maxWidth: 400)
     }
@@ -1637,7 +1689,7 @@ private struct IOSMinimalLyricsColumn: View {
                             )
                         }
                         .onAppear {
-                            activeIndex = lyrics.activeIndex(at: clock.progress + 0.2)
+            activeIndex = lyrics.activeIndex(at: clock.progress)
                             if let activeIndex {
                                 Task { @MainActor in
                                     await Task.yield()
@@ -1646,7 +1698,7 @@ private struct IOSMinimalLyricsColumn: View {
                             }
                         }
                         .onChange(of: clock.progress) { _ in
-                            let index = lyrics.activeIndex(at: clock.progress + 0.2)
+            let index = lyrics.activeIndex(at: clock.progress)
                             guard index != activeIndex else { return }
                             activeIndex = index
                             guard !suppressesAutoScroll,

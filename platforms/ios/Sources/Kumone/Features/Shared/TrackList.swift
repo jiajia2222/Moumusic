@@ -82,6 +82,14 @@ struct TrackRow: View {
                     .font(isCompact ? .footnote : .system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text("来源：\(sourceName)")
+                    Text("·")
+                    Text("音质：\(qualityName)")
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -199,6 +207,24 @@ struct TrackRow: View {
                 .foregroundStyle(.tertiary)
                 .frame(width: 36, alignment: .trailing)
         }
+    }
+
+    private var sourceName: String {
+        switch track.source?.lowercased() {
+        case "wy", "netease", "163": return "网易云"
+        case "kw", "kuwo": return "酷我"
+        case "kg", "kugou": return "酷狗"
+        case "tx", "qq", "qqmusic": return "QQ音乐"
+        case "mg", "migu": return "咪咕"
+        default: return track.source?.isEmpty == false ? track.source! : "未知"
+        }
+    }
+
+    private var qualityName: String {
+        if isCurrent, let served = player.servedQuality {
+            return AudioQuality(lxType: served)?.displayName ?? served.uppercased()
+        }
+        return "目标 \(SettingsManager.shared.audioQuality.displayName)"
     }
 
     @ViewBuilder

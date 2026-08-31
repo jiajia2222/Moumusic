@@ -65,11 +65,19 @@ final class HomeViewModel: ObservableObject {
         // No account or NetEase audio URL is used here; queued tracks are
         // resolved by the selected LX User API in PlayerService.
         async let playlistsTask = fetchRecommendPlaylists(loggedIn: loggedIn)
+        async let hotSongsTask = try? NeteaseAPI.personalizedNewSongs(limit: 30)
         async let toplistsTask = try? NeteaseAPI.toplists()
         async let albumsTask = try? NeteaseAPI.newAlbums(limit: 20)
         async let artistsTask = try? NeteaseAPI.topArtists()
 
         recommendPlaylists = await playlistsTask
+        let hotSongs = await hotSongsTask ?? []
+        if hotSongs.isEmpty,
+           let search = try? await NeteaseAPI.search("热歌榜", type: .songs, limit: 30) {
+            recommendTracks = (search.songs ?? []).map { $0.normalizedForLXPlayback() }
+        } else {
+            recommendTracks = hotSongs.map { $0.normalizedForLXPlayback() }
+        }
         toplists = Array((await toplistsTask ?? []).prefix(12))
         newAlbums = await albumsTask ?? []
         topArtists = Array((await artistsTask ?? []).prefix(12))
@@ -282,6 +290,13 @@ struct HomeView: View {
                             .staggeredAppearance(index: index, id: "home-rec-\(playlist.id)")
                     }
                 }
+            }
+
+            if !model.recommendTracks.isEmpty {
+                SectionHeader(title: "热门歌曲")
+                    .padding(.horizontal, Theme.Layout.contentInset)
+                TrackListView(tracks: model.recommendTracks)
+                    .padding(.horizontal, Theme.Layout.contentInset - 10)
             }
 
             if !model.radarPlaylists.isEmpty {
