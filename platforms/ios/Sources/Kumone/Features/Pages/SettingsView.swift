@@ -59,7 +59,7 @@ struct SettingsView: View {
                     }
                 }
 #if os(iOS)
-                Picker("播放页模式", selection: $settings.nowPlayingMode) {
+                Picker("播放器模式", selection: $settings.nowPlayingMode) {
                     ForEach(NowPlayingMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
                     }
@@ -68,6 +68,22 @@ struct SettingsView: View {
                 Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
                 Toggle("逐字歌词（卡拉 OK）", isOn: $settings.verbatimLyrics)
                 Toggle("显示日文歌词罗马音", isOn: $settings.showLyricsRomaji)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("歌词同步")
+                        Spacer()
+                        Text(String(format: "%+.2f 秒", settings.lyricsOffset))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: $settings.lyricsOffset, in: -2...2, step: 0.05)
+                        .onChange(of: settings.lyricsOffset) { _ in
+                            player.refreshLyricsCursor()
+                        }
+                    Text("正值让歌词提前，负值让歌词延后；不同音源版本可分别试听调整。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 #if os(macOS)
                 Toggle("桌面歌词", isOn: $settings.showDesktopLyrics)
 #endif

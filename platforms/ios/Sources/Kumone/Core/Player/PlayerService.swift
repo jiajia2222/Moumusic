@@ -483,7 +483,7 @@ final class PlayerService: ObservableObject {
     /// Recomputes the current lyric line, publishing only on a change.
     /// The lead makes a line light up just before it is sung.
     private func updateLyricsCursor(at seconds: TimeInterval) {
-        let index = lyrics?.activeIndex(at: seconds)
+        let index = lyrics?.activeIndex(at: seconds + SettingsManager.shared.lyricsOffset)
         if index != lyricsCursor.activeIndex {
             lyricsCursor.activeIndex = index
         }
@@ -497,6 +497,53 @@ final class PlayerService: ObservableObject {
         #if os(iOS)
         NowPlayingManager.shared.updateCurrentLyric(snapshotLyric)
         #endif
+    }
+
+    func refreshLyricsCursor() {
+        updateLyricsCursor(at: livePlaybackTime)
+    }
+
+    private func publishLyrics(_ parsed: ParsedLyrics, for track: Track, generation: Int) {
+        lyrics = parsed
+        updateLyricsCursor(at: livePlaybackTime)
+
+        // Many source adapters provide the original lyrics but omit the
+        // translation field. Enrich the already-visible lyrics from a public
+        // NetEase metadata match so English/Japanese songs can show a
+        // translation when one exists, without delaying first paint.
+        guard parsed.lines.contains(where: { $0.translation == nil }) else { return }
+        Task { [weak self] in
+            await self?.enrichTranslation(for: track, base: parsed, generation: generation)
+        }
+    }
+
+    private func enrichTranslation(for track: Track, base: ParsedLyrics,
+                                   generation: Int) async {
+        let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
+        let candidate: Track?
+        if ["wy", "netease", "163"].contains(source) {
+            candidate = track
+        } else {
+            candidate = try? await NeteaseAPI.matchingSong(for: track,
+                                                           requireDuration: false)
+        }
+        guard let candidate,
+              let response = try? await NeteaseAPI.lyric(id: candidate.id) else { return }
+        let metadata = LyricsParser.parse(response, includeVerbatim: false)
+        guard !metadata.isEmpty, generation == resolveGeneration else { return }
+
+        var merged = base
+        var changed = false
+        for index in merged.lines.indices where merged.lines[index].translation == nil {
+            guard let nearest = metadata.lines.min(by: {
+                abs($0.time - merged.lines[index].time) < abs($1.time - merged.lines[index].time)
+            }), abs(nearest.time - merged.lines[index].time) < 0.5,
+                  let translation = nearest.translation, !translation.isEmpty else { continue }
+            merged.lines[index].translation = translation
+            changed = true
+        }
+        guard changed, generation == resolveGeneration else { return }
+        lyrics = merged
     }
 
     func seek(to seconds: TimeInterval, completion: (@MainActor () -> Void)? = nil) {
@@ -910,78 +957,76 @@ final class PlayerService: ObservableObject {
 
     private func loadLyrics(for track: Track, generation: Int) async {
 #if os(iOS)
-        if track.source == "wy",
+        let sourceKey = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
+        if ["wy", "netease", "163"].contains(sourceKey),
            let response = try? await NeteaseAPI.lyric(id: track.id) {
             guard generation == resolveGeneration else { return }
             let parsed = LyricsParser.parse(response)
             if !parsed.isEmpty {
-                lyrics = parsed
-                updateLyricsCursor(at: progress)
+                publishLyrics(parsed, for: track, generation: generation)
                 return
             }
         }
 
-
-        // Catalogue lyrics are metadata only. Playback is still resolved by
-        // the selected LX User API source in resolveAndLoad(_:generation:).
-        if track.source != nil,
-           let native = try? await LXCatalogService.nativeLyrics(for: track) {
-            guard generation == resolveGeneration else { return }
-            let parsed = LyricsParser.parseLX(lyric: native.lyric, tlyric: native.tlyric,
-                                               rlyric: native.rlyric, lxlyric: native.lxlyric)
-            if !parsed.isEmpty {
-                lyrics = parsed
-                updateLyricsCursor(at: progress)
-                return
-            }
-        }
-
-        // QQ's public lyric endpoint is a cross-platform fallback. Resolve a
-        // QQ mid by metadata first; never reuse the original provider ID as a
-        // QQ identifier. Its line timestamps are useful, but its word timing
-        // can belong to a different recording, so parse it as line lyrics.
-        if track.source?.lowercased() != "tx",
-           let qqTrack = await LXCatalogService.matchingTrack(track, on: "tx"),
-           let qqNative = try? await LXCatalogService.nativeLyrics(for: qqTrack) {
-            let parsed = LyricsParser.parseLX(lyric: qqNative.lyric,
-                                               tlyric: qqNative.tlyric,
-                                               rlyric: qqNative.rlyric,
-                                               lxlyric: nil)
-            if !parsed.isEmpty {
-                guard generation == resolveGeneration else { return }
-                lyrics = parsed
-                updateLyricsCursor(at: progress)
-                return
-            }
-        }
-
-        // Imported LX sources may provide a lyric action. Try it after the
-        // catalogue adapter because many sources only expose musicUrl.
-        if LXSourceStore.shared.selectedSource != nil,
+        // Prefer the selected LX source's own lyric action. It may expose
+        // yrc/lxlyric word timings that the catalogue adapters do not have.
+        if !sourceKey.isEmpty,
+           LXSourceStore.shared.selectedSource != nil,
            let lx = try? await LXUserAPIService.shared.resolveLyrics(for: track) {
             guard generation == resolveGeneration else { return }
             let parsed = LyricsParser.parseLX(lyric: lx.lyric, tlyric: lx.tlyric,
                                                rlyric: lx.rlyric, lxlyric: lx.lxlyric,
                                                yrc: lx.yrc)
             if !parsed.isEmpty {
-                lyrics = parsed
-                updateLyricsCursor(at: progress)
-                return
+               publishLyrics(parsed, for: track, generation: generation)
+               return
+            }
+        }
+
+        // Catalogue lyrics are metadata only. Playback is still resolved by
+        // the selected LX User API source in resolveAndLoad(_:generation:).
+        if !sourceKey.isEmpty,
+           let native = try? await LXCatalogService.nativeLyrics(for: track) {
+            guard generation == resolveGeneration else { return }
+            let parsed = LyricsParser.parseLX(lyric: native.lyric, tlyric: native.tlyric,
+                                               rlyric: native.rlyric, lxlyric: native.lxlyric)
+            if !parsed.isEmpty {
+               publishLyrics(parsed, for: track, generation: generation)
+               return
+            }
+        }
+
+        // If this platform has no lyric endpoint or no result, search every
+        // supported catalogue platform by metadata. IDs are never reused
+        // across platforms, so a matched track is required before fetching.
+        let fallbackPlatforms = ["tx", "wy", "kw", "kg", "mg"]
+        for platform in fallbackPlatforms where platform != sourceKey {
+            guard let matched = await LXCatalogService.matchingTrack(track, on: platform),
+                  let native = try? await LXCatalogService.nativeLyrics(for: matched) else {
+                continue
+            }
+            let parsed = LyricsParser.parseLX(lyric: native.lyric,
+                                               tlyric: native.tlyric,
+                                               rlyric: native.rlyric,
+                                               lxlyric: native.lxlyric)
+            if !parsed.isEmpty {
+                guard generation == resolveGeneration else { return }
+               publishLyrics(parsed, for: track, generation: generation)
+               return
             }
         }
 
         // LX catalogue IDs are platform-specific. If the selected source has
         // no lyric implementation, use a public NetEase catalogue match only
         // for lyric metadata; audio still comes exclusively from LX.
-        if track.source != nil {
+        if !sourceKey.isEmpty {
             if let candidate = try? await NeteaseAPI.matchingSong(for: track),
                let response = try? await NeteaseAPI.lyric(id: candidate.id) {
                 let parsed = LyricsParser.parse(response, includeVerbatim: false)
                 if !parsed.isEmpty {
                     guard generation == resolveGeneration else { return }
-                    lyrics = parsed
-                    updateLyricsCursor(at: progress)
-                    return
+               publishLyrics(parsed, for: track, generation: generation)
+               return
                 }
             }
         }
@@ -1008,9 +1053,8 @@ final class PlayerService: ObservableObject {
         if let response {
             let parsed = LyricsParser.parse(response)
             if !parsed.isEmpty {
-                lyrics = parsed
-                updateLyricsCursor(at: progress)
-                return
+               publishLyrics(parsed, for: track, generation: generation)
+               return
             }
         }
 
@@ -1026,9 +1070,8 @@ final class PlayerService: ObservableObject {
                                                lxlyric: native.lxlyric)
             if !parsed.isEmpty {
                 guard generation == resolveGeneration else { return }
-                lyrics = parsed
-                updateLyricsCursor(at: progress)
-                return
+               publishLyrics(parsed, for: track, generation: generation)
+               return
             }
         }
 
@@ -1038,9 +1081,8 @@ final class PlayerService: ObservableObject {
                 let parsed = LyricsParser.parse(response)
                 if !parsed.isEmpty {
                     guard generation == resolveGeneration else { return }
-                    lyrics = parsed
-                    updateLyricsCursor(at: progress)
-                    return
+               publishLyrics(parsed, for: track, generation: generation)
+               return
                 }
             }
         }

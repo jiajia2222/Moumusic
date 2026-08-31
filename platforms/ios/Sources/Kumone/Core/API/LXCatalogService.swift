@@ -587,12 +587,14 @@ enum LXCatalogService {
     /// advertise `musicUrl`; treating them as lyric providers always returns
     /// an empty panel.
     static func nativeLyrics(for track: Track) async throws -> NativeLyrics {
-        switch track.source {
-        case "kw": return try await nativeKuwoLyrics(for: track)
-        case "kg": return try await nativeKugouLyrics(for: track)
-        case "tx": return try await nativeQQLyrics(for: track)
-        case "wy": return try await nativeNeteaseLyrics(for: track)
-        case "mg": return try await nativeMiguLyrics(for: track)
+        let source = (track.source ?? track.sourceMetadata["source"] ?? "")
+            .lowercased()
+        switch source {
+        case "kw", "kuwo": return try await nativeKuwoLyrics(for: track)
+        case "kg", "kugou": return try await nativeKugouLyrics(for: track)
+        case "tx", "qq", "qqmusic": return try await nativeQQLyrics(for: track)
+        case "wy", "netease", "163": return try await nativeNeteaseLyrics(for: track)
+        case "mg", "migu": return try await nativeMiguLyrics(for: track)
         default: throw LXCatalogError.unsupported
         }
     }

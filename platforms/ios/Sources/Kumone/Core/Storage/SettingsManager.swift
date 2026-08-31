@@ -76,6 +76,8 @@ enum NowPlayingMode: String, CaseIterable, Identifiable {
     case classic
     case immersive
     case minimal
+    case lyrics
+    case vinyl
 
     var id: String { rawValue }
 
@@ -84,6 +86,8 @@ enum NowPlayingMode: String, CaseIterable, Identifiable {
         case .classic: return String(localized: "经典模式")
         case .immersive: return String(localized: "沉浸模式")
         case .minimal: return String(localized: "简洁模式")
+        case .lyrics: return String(localized: "歌词模式")
+        case .vinyl: return String(localized: "唱片模式")
         }
     }
 }
@@ -119,6 +123,7 @@ final class SettingsManager: ObservableObject {
         static let showTranslation = "settings.showLyricsTranslation"
         static let showRomaji = "settings.showLyricsRomaji"
         static let verbatimLyrics = "settings.verbatimLyrics"
+        static let lyricsOffset = "settings.lyricsOffset"
         static let volume = "settings.volume"
         static let fmMode = "settings.fmMode"
         static let unblock = "settings.enableUnblock"
@@ -169,6 +174,12 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(verbatimLyrics, forKey: Keys.verbatimLyrics) }
     }
 
+    /// Positive values move the displayed lyric forward to compensate for a
+    /// source whose timestamps arrive slightly behind its audio.
+    @Published var lyricsOffset: Double {
+        didSet { UserDefaults.standard.set(lyricsOffset, forKey: Keys.lyricsOffset) }
+    }
+
     /// Resolve gray tracks from third-party sources (UnblockNeteaseMusic-style).
     @Published var enableUnblock: Bool {
         didSet { UserDefaults.standard.set(enableUnblock, forKey: Keys.unblock) }
@@ -205,6 +216,7 @@ final class SettingsManager: ObservableObject {
         showLyricsTranslation = defaults.object(forKey: Keys.showTranslation) as? Bool ?? true
         showLyricsRomaji = defaults.object(forKey: Keys.showRomaji) as? Bool ?? false
         verbatimLyrics = defaults.object(forKey: Keys.verbatimLyrics) as? Bool ?? true
+        lyricsOffset = defaults.object(forKey: Keys.lyricsOffset) as? Double ?? 0
         enableUnblock = defaults.object(forKey: Keys.unblock) as? Bool ?? false
         autoCheckUpdates = defaults.object(forKey: Keys.autoCheckUpdates) as? Bool ?? true
         showDesktopLyrics = defaults.object(forKey: Keys.desktopLyrics) as? Bool ?? false

@@ -296,6 +296,10 @@ struct NowPlayingView: View {
             immersiveCompactLayout(size: size)
         case .minimal:
             minimalCompactLayout(size: size)
+        case .lyrics:
+            lyricsCompactLayout(size: size)
+        case .vinyl:
+            vinylCompactLayout(size: size)
         }
         #else
         classicCompactLayout(size: size)
@@ -331,6 +335,45 @@ struct NowPlayingView: View {
                 controls
             }
             .padding(.bottom, 24)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private func lyricsCompactLayout(size: CGSize) -> some View {
+        VStack(spacing: 14) {
+            trackMetaView
+                .padding(.top, 38)
+            lyricsColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            NowPlayingScrubber()
+                .padding(.horizontal, 20)
+            CompactVolumeControl()
+                .padding(.horizontal, 20)
+            controls
+                .padding(.bottom, 20)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private func vinylCompactLayout(size: CGSize) -> some View {
+        let artworkDim = min(size.width - 72, size.height * 0.43, 310)
+        return VStack(spacing: 16) {
+            Spacer().frame(height: 34)
+            artworkView(size: artworkDim)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(.white.opacity(0.22), lineWidth: 1))
+                .rotationEffect(.degrees(player.isPlaying ? 360 : 0))
+                .animation(.linear(duration: 18).repeatForever(autoreverses: false),
+                           value: player.isPlaying)
+            trackMetaView
+            MiniLyricsView {
+                showLyricsOnMobile = true
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            NowPlayingScrubber()
+                .padding(.horizontal, 20)
+            controls
+                .padding(.bottom, 20)
         }
         .padding(.horizontal, 16)
     }
@@ -949,16 +992,22 @@ struct LyricMainText: View {
     var inactiveOpacity: Double = 0.45
 
     @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var settings: SettingsManager
 
     var body: some View {
         if isActive, verbatim, let words = line.words, !words.isEmpty {
             TimelineView(.animation(paused: !player.isPlaying)) { _ in
-                karaoke(words, at: player.livePlaybackTime).font(font)
+                karaoke(words, at: player.livePlaybackTime + settings.lyricsOffset).font(font)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
         } else {
             Text(line.text.isEmpty ? "♪" : line.text)
                 .font(font)
                 .foregroundStyle(.white.opacity(isActive ? 1 : inactiveOpacity))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .minimumScaleFactor(0.72)
         }
     }
 
