@@ -60,7 +60,14 @@ enum LyricsParser {
 
         // Some LX sources expose NetEase-style verbatim lyrics in a separate
         // `yrc` field. Prefer those exact word/run timings over line-level LRC.
-        let verbatimLines = parseYRC(yrc ?? lxlyric ?? lyric)
+        let verbatimLines = [
+            parseYRC(yrc),
+            parseLXVerbatim(lxlyric),
+            parseLXVerbatim(yrc),
+            parseYRC(lxlyric),
+            parseLXVerbatim(lyric),
+            parseYRC(lyric),
+        ].first(where: { !$0.isEmpty }) ?? []
         if !verbatimLines.isEmpty { lines = verbatimLines }
 
         func merge(_ body: String?, into keyPath: WritableKeyPath<LyricLine, String?>) {
@@ -147,21 +154,29 @@ enum LyricsParser {
     /// `[lineStartMs,lineDurMs](wStartMs,wDurMs,0)word(...)word…`. JSON metadata
     /// (credits) lines at the top don't match the `[num,num]` head and are
     /// skipped.
-    static func parseYRC(_ yrc: String) -> [LyricLine] {
+    static func parseYRC(_ yrc: String?) -> [LyricLine] {
+        guard let yrc, !yrc.isEmpty else { return [] }
         let lineTag = #/^\[(\d+),(\d+)\]/#
-        let wordTag = #/\((\d+),(\d+),\d+\)([^(]*)/#
+        let wordTag = #/\((\d+),(\d+),\d+\)/#
         var lines: [LyricLine] = []
         var idx = 0
         for raw in yrc.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             guard let head = line.firstMatch(of: lineTag) else { continue }
             let lineStart = (Double(head.output.1) ?? 0) / 1000
+            let contentStart = head.range.upperBound
+            let content = line[contentStart...]
+            let matches = content.matches(of: wordTag)
             var words: [LyricWord] = []
             var text = ""
-            for w in line.matches(of: wordTag) {
+            for (offset, w) in matches.enumerated() {
                 let start = (Double(w.output.1) ?? 0) / 1000
                 let duration = (Double(w.output.2) ?? 0) / 1000
-                let piece = String(w.output.3)
+                let pieceStart = w.range.upperBound
+                let pieceEnd = offset + 1 < matches.count
+                    ? matches[offset + 1].range.lowerBound
+                    : content.endIndex
+                let piece = String(content[pieceStart..<pieceEnd])
                 words.append(LyricWord(text: piece, start: start, duration: duration))
                 text += piece
             }
@@ -173,7 +188,53 @@ enum LyricsParser {
         return lines
     }
 
-    static func parse(_ response: LyricResponse) -> ParsedLyrics {
+    /// Parses LX Music's native `lxlyric` format:
+    /// `[00:00.000]<0,36>?<36,36>?<50,60>??`.
+    /// Word offsets are relative to the line start, unlike NetEase YRC's
+    /// absolute word timestamps.
+    static func parseLXVerbatim(_ body: String?) -> [LyricLine] {
+        guard let body, !body.isEmpty else { return [] }
+        let lineTag = #/^\[(\d+):(\d+)(?:[.:](\d+))?\]/#
+        let wordTag = #/<(\d+),(\d+)>/#
+        var lines: [LyricLine] = []
+        var idx = 0
+
+        for raw in normalize(body).components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard let head = line.firstMatch(of: lineTag) else { continue }
+            let minutes = Double(head.output.1) ?? 0
+            let seconds = Double(head.output.2) ?? 0
+            let fraction = head.output.3.map { value in
+                (Double(value) ?? 0) / pow(10, Double(value.count))
+            } ?? 0
+            let lineStart = minutes * 60 + seconds + fraction
+            let content = line[head.range.upperBound...]
+            let matches = content.matches(of: wordTag)
+            guard !matches.isEmpty else { continue }
+
+            var words: [LyricWord] = []
+            var text = ""
+            for (offset, match) in matches.enumerated() {
+                let start = lineStart + (Double(match.output.1) ?? 0) / 1000
+                let duration = (Double(match.output.2) ?? 0) / 1000
+                let pieceStart = match.range.upperBound
+                let pieceEnd = offset + 1 < matches.count
+                    ? matches[offset + 1].range.lowerBound
+                    : content.endIndex
+                let piece = String(content[pieceStart..<pieceEnd])
+                words.append(LyricWord(text: piece, start: start, duration: duration))
+                text += piece
+            }
+
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !words.isEmpty else { continue }
+            lines.append(LyricLine(id: idx, time: lineStart, text: trimmed, words: words))
+            idx += 1
+        }
+        return lines
+    }
+
+    static func parse(_ response: LyricResponse, includeVerbatim: Bool = true) -> ParsedLyrics {
         var out = ParsedLyrics()
         out.contributor = response.lyricUser?.nickname
         out.translationContributor = response.transUser?.nickname
@@ -203,7 +264,7 @@ enum LyricsParser {
             LyricLine(id: idx, time: pair.time, text: pair.text)
         }
         // Prefer verbatim (word-by-word) lines when the song has them.
-        if let yrcRaw, !yrcRaw.isEmpty {
+        if includeVerbatim, let yrcRaw, !yrcRaw.isEmpty {
             let yrcLines = parseYRC(yrcRaw)
             if !yrcLines.isEmpty { lines = yrcLines }
         }

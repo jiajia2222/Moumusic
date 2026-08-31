@@ -864,23 +864,6 @@ final class PlayerService: ObservableObject {
             }
         }
 
-        // QQ's public lyric endpoint is the most consistent cross-provider
-        // lyric source. Resolve a QQ mid by metadata first; never reuse the
-        // Kuwo/Kugou/Migu/NetEase ID as a QQ identifier.
-        if track.source?.lowercased() != "tx",
-           let qqTrack = await LXCatalogService.matchingTrack(track, on: "tx"),
-           let qqNative = try? await LXCatalogService.nativeLyrics(for: qqTrack) {
-            let parsed = LyricsParser.parseLX(lyric: qqNative.lyric,
-                                               tlyric: qqNative.tlyric,
-                                               rlyric: qqNative.rlyric,
-                                               lxlyric: qqNative.lxlyric)
-            if !parsed.isEmpty {
-                guard generation == resolveGeneration else { return }
-                lyrics = parsed
-                updateLyricsCursor(at: progress)
-                return
-            }
-        }
 
         // Catalogue lyrics are metadata only. Playback is still resolved by
         // the selected LX User API source in resolveAndLoad(_:generation:).
@@ -890,6 +873,25 @@ final class PlayerService: ObservableObject {
             let parsed = LyricsParser.parseLX(lyric: native.lyric, tlyric: native.tlyric,
                                                rlyric: native.rlyric, lxlyric: native.lxlyric)
             if !parsed.isEmpty {
+                lyrics = parsed
+                updateLyricsCursor(at: progress)
+                return
+            }
+        }
+
+        // QQ's public lyric endpoint is a cross-platform fallback. Resolve a
+        // QQ mid by metadata first; never reuse the original provider ID as a
+        // QQ identifier. Its line timestamps are useful, but its word timing
+        // can belong to a different recording, so parse it as line lyrics.
+        if track.source?.lowercased() != "tx",
+           let qqTrack = await LXCatalogService.matchingTrack(track, on: "tx"),
+           let qqNative = try? await LXCatalogService.nativeLyrics(for: qqTrack) {
+            let parsed = LyricsParser.parseLX(lyric: qqNative.lyric,
+                                               tlyric: qqNative.tlyric,
+                                               rlyric: qqNative.rlyric,
+                                               lxlyric: nil)
+            if !parsed.isEmpty {
+                guard generation == resolveGeneration else { return }
                 lyrics = parsed
                 updateLyricsCursor(at: progress)
                 return
@@ -917,7 +919,7 @@ final class PlayerService: ObservableObject {
         if track.source != nil {
             if let candidate = try? await NeteaseAPI.matchingSong(for: track),
                let response = try? await NeteaseAPI.lyric(id: candidate.id) {
-                let parsed = LyricsParser.parse(response)
+                let parsed = LyricsParser.parse(response, includeVerbatim: false)
                 if !parsed.isEmpty {
                     guard generation == resolveGeneration else { return }
                     lyrics = parsed
