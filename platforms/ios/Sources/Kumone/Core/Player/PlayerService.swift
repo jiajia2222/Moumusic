@@ -872,20 +872,14 @@ final class PlayerService: ObservableObject {
         // no lyric implementation, use a public NetEase catalogue match only
         // for lyric metadata; audio still comes exclusively from LX.
         if track.source != nil {
-            let query = [track.name, track.artistNames]
-                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .joined(separator: " ")
-            if let result = try? await NeteaseAPI.search(query, type: .songs, limit: 6),
-               let candidates = result.songs {
-                for candidate in candidates {
-                    guard let response = try? await NeteaseAPI.lyric(id: candidate.id) else { continue }
-                    let parsed = LyricsParser.parse(response)
-                    if !parsed.isEmpty {
-                        guard generation == resolveGeneration else { return }
-                        lyrics = parsed
-                        updateLyricsCursor(at: progress)
-                        return
-                    }
+            if let candidate = try? await NeteaseAPI.matchingSong(for: track),
+               let response = try? await NeteaseAPI.lyric(id: candidate.id) {
+                let parsed = LyricsParser.parse(response)
+                if !parsed.isEmpty {
+                    guard generation == resolveGeneration else { return }
+                    lyrics = parsed
+                    updateLyricsCursor(at: progress)
+                    return
                 }
             }
         }
@@ -937,20 +931,14 @@ final class PlayerService: ObservableObject {
         }
 
         if track.source != nil {
-            let query = [track.name, track.artistNames]
-                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .joined(separator: " ")
-            if let result = try? await NeteaseAPI.search(query, type: .songs, limit: 6),
-               let candidates = result.songs {
-                for candidate in candidates {
-                    guard let response = try? await NeteaseAPI.lyric(id: candidate.id) else { continue }
-                    let parsed = LyricsParser.parse(response)
-                    if !parsed.isEmpty {
-                        guard generation == resolveGeneration else { return }
-                        lyrics = parsed
-                        updateLyricsCursor(at: progress)
-                        return
-                    }
+            if let candidate = try? await NeteaseAPI.matchingSong(for: track),
+               let response = try? await NeteaseAPI.lyric(id: candidate.id) {
+                let parsed = LyricsParser.parse(response)
+                if !parsed.isEmpty {
+                    guard generation == resolveGeneration else { return }
+                    lyrics = parsed
+                    updateLyricsCursor(at: progress)
+                    return
                 }
             }
         }

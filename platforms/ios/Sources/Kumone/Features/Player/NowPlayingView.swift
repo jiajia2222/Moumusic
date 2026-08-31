@@ -31,10 +31,13 @@ struct NowPlayingView: View {
     var body: some View {
         GeometryReader { geo in
             let isCompact = geo.size.width < 720
+            let phoneLandscape = isPhoneLandscape(size: geo.size)
             ZStack {
                 backdrop
 
-                if isCompact {
+                if phoneLandscape {
+                    phoneLandscapeLayout(size: geo.size)
+                } else if isCompact {
                     compactLayout(size: geo.size)
                 } else {
                     regularLayout(size: geo.size)
@@ -223,6 +226,40 @@ struct NowPlayingView: View {
 
     // MARK: - Layouts
 
+    @ViewBuilder
+    private func phoneLandscapeLayout(size: CGSize) -> some View {
+        let artworkSize = min(190, max(120, size.height - 175))
+
+        VStack(spacing: 6) {
+            HStack(spacing: 18) {
+                VStack(spacing: 7) {
+                    artworkView(size: artworkSize)
+                    trackMetaView
+                }
+                .frame(maxWidth: .infinity)
+
+                if hasLyricsColumn {
+                    lyricsColumn
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Color.clear
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(maxHeight: .infinity)
+
+            VStack(spacing: 4) {
+                NowPlayingScrubber()
+                    .padding(.horizontal, 24)
+                CompactTransportControls()
+                    .frame(maxWidth: 360)
+            }
+            .padding(.bottom, 6)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 10)
+    }
+
     private func regularLayout(size: CGSize) -> some View {
         // Everything below the artwork needs ~300pt; shrink the artwork on
         // short displays (iPhone landscape) instead of clipping it.
@@ -353,6 +390,7 @@ struct NowPlayingView: View {
                 showsLyrics: showLyricsOnMobile,
                 showsQueue: showQueueOnMobile,
                 onShowQuality: { showQualityPicker = true },
+                onShowComments: { showComments = true },
                 onToggleLyrics: toggleImmersiveLyrics,
                 onToggleQueue: toggleImmersiveQueue
             )
@@ -570,6 +608,15 @@ struct NowPlayingView: View {
         }
     }
 
+    private func isPhoneLandscape(size: CGSize) -> Bool {
+        #if os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .phone
+            && size.width > size.height
+        #else
+        return false
+        #endif
+    }
+
     private func artworkView(size: CGFloat) -> some View {
         Group {
             if let artworkImage {
@@ -612,30 +659,40 @@ struct NowPlayingView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.5))
 
-            Button {
-                showQualityPicker = true
-            } label: {
-                Label("音质：\(player.servedQuality.map { AudioQuality(lxType: $0)?.displayName ?? $0 } ?? player.currentQuality.badge)", systemImage: "waveform")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 44)
-                    .background(.white.opacity(0.12), in: Capsule())
+            HStack(spacing: 8) {
+                qualityButton
+                commentsButton
             }
-            .buttonStyle(.pressable)
-            .accessibilityLabel("选择播放音质")
-
-            Button { showComments = true } label: {
-                Label("查看评论", systemImage: "text.bubble")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 44)
-                    .background(.white.opacity(0.12), in: Capsule())
-            }
-            .buttonStyle(.pressable)
         }
         .frame(maxWidth: 400)
+    }
+
+    private var qualityButton: some View {
+        Button {
+            showQualityPicker = true
+        } label: {
+            Label("音质：\(player.servedQuality.map { AudioQuality(lxType: $0)?.displayName ?? $0 } ?? player.currentQuality.badge)", systemImage: "waveform")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.9))
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(.white.opacity(0.12), in: Capsule())
+        }
+        .buttonStyle(.pressable)
+        .accessibilityLabel("选择播放音质")
+    }
+
+    private var commentsButton: some View {
+        Button { showComments = true } label: {
+            Label("评论", systemImage: "text.bubble")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.9))
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(.white.opacity(0.12), in: Capsule())
+        }
+        .buttonStyle(.pressable)
+        .accessibilityLabel("查看评论")
     }
 
     private func leftColumn(artworkSize: CGFloat) -> some View {
@@ -1409,6 +1466,7 @@ private struct CompactSecondaryControls: View {
     let showsLyrics: Bool
     let showsQueue: Bool
     let onShowQuality: () -> Void
+    let onShowComments: () -> Void
     let onToggleLyrics: () -> Void
     let onToggleQueue: () -> Void
 
@@ -1418,6 +1476,12 @@ private struct CompactSecondaryControls: View {
                 icon: "waveform",
                 label: "选择播放音质",
                 action: onShowQuality
+            )
+
+            secondaryButton(
+                icon: "text.bubble",
+                label: "查看评论",
+                action: onShowComments
             )
 
             secondaryButton(
