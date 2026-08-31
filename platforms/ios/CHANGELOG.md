@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.6 - 2026-08-31
+
+### Fixed
+
+- iOS: synced the upstream Kumone iOS card-grid, image-cache, and mini-player transition fixes from the current upstream line.
+- iOS: update checks and IPA downloads now use the Moumusic GitHub repository.
+
+### Improved
+
+- iPhone: compact card shelves use a real two-column flexible layout, including playlist and album artwork.
+
 ## 0.5.0 - 2026-08-30
 
 ### Fixed

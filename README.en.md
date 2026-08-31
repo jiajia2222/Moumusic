@@ -1,30 +1,28 @@
 # Moumusic
 
-Moumusic is an independent cross-platform music client. iOS uses Kumone’s native SwiftUI interface, while Android uses the native LX Music Mobile client. The app does not bundle third-party providers; users add their own sources.
+[![LGPL-3.0](https://img.shields.io/badge/license-LGPL--3.0-orange)](LICENSE) [![GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange)](COPYING)
+
+Moumusic is an open-source music client for iOS and Android. It combines Kumone’s native SwiftUI player experience on iOS with LX Music Mobile’s user-source protocol and Android client. Discovery uses public catalog data; playback is resolved only through sources imported and enabled by the user.
+
+Moumusic does not bundle or distribute third-party source URLs and does not provide NetEase login. Add only sources you are authorized to use and follow the applicable service terms and copyright rules.
 
 ## Features
 
-- Import, enable, switch and remove LX User API sources
-- Aggregate search with platform selection for Kuwo, Kugou, QQ Music, NetEase and Migu
-- Playback, lyrics and quality resolution through the user-selected source
-- Kumone iOS player, lyrics, queue, lock-screen controls and Liquid Glass-style UI
-- Native LX Mobile Android source management, search, lyrics, downloads and playback
-- LX aggregate recommendations by default on iOS, with an explicit platform selector in Settings
-- Chinese and English UI resources
+- Import, test, enable, switch and remove LX User API sources
+- Kuwo, Kugou, QQ Music, NetEase, Migu and LX aggregate search
+- Source-resolved playback, lyrics, artwork, quality and source labels
+- Native iOS player, synced lyrics, queue, lock-screen and Control Center controls
+- iOS WidgetKit lyrics widget for Home Screen and Lock Screen sizes
+- Public NetEase recommendations, discovery, playlists, comments and playlist import
+- Chinese and English interfaces
 
 ## Add a source
 
-On iOS, open “Library → Settings → LX Sources → Import LX User API”, choose an LX-exported JSON or raw JavaScript file, then enable it under “Current Source”.
-
-On Android, use the original LX Mobile source-management screen.
-
-This repository does not ship or distribute third-party provider URLs. Only add sources you are authorized to use, and follow the relevant service terms and copyright rules.
+On iOS, open “Library → Settings → LX Sources”, choose “Import from File” or “Import from Online URL”, then select and test the source. On Android, use the original LX Music Mobile source-management screen.
 
 ## Build
 
-Android:
-
-```powershell
+```sh
 cd platforms/android
 npm ci
 npm run pack:android
@@ -37,11 +35,9 @@ cd platforms/ios/ios
 xcodebuild -project KumoneIOS.xcodeproj -scheme KumoneIOS -configuration Release -sdk iphoneos build
 ```
 
-The unsigned IPA must be installed with your own signing certificate, AltStore, TrollStore or another sideloading tool.
-
-## Upstream projects and licensing
+## Upstream projects and license
 
 - [Kumone](https://github.com/missuo/kumone)
 - [LX Music Mobile](https://github.com/lyswhut/lx-music-mobile)
 
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source and license notices.
+New Moumusic code is licensed per-file under [LGPL-3.0-only](LICENSE) or [GPL-3.0-only](COPYING). Both complete license texts are included. Upstream files retain their original LGPL, Apache and other obligations; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

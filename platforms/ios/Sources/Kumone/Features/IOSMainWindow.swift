@@ -175,22 +175,17 @@ public struct IOSMainWindow: View {
     /// translucent accessory platter above the tab bar when idle (#35), so we
     /// apply it conditionally.
     @available(iOS 26.0, *)
-    @ViewBuilder
     private var iOS26TabInterface: some View {
-        let base = iOS26TabView.tabBarMinimizeBehavior(.onScrollDown)
-        if player.hasCurrentTrack {
-            base
-                .tabViewBottomAccessory {
-                    IOSMiniPlayerAccessory(transitionNamespace: nowPlayingTransition)
-                        // Pin the scheme so the search-active tab environment
-                        // doesn't flip the bar's text to white (#31).
-                        .environment(\.colorScheme, resolvedColorScheme)
-                }
-                .animation(AppAnimation.standard, value: player.hasCurrentTrack)
-        } else {
-            base
-                .animation(AppAnimation.standard, value: player.hasCurrentTrack)
-        }
+        iOS26TabView
+            .tabBarMinimizeBehavior(.onScrollDown)
+            // Keep one TabView identity while the accessory appears/disappears.
+            // This preserves the iOS 26 matched-transition zoom anchor.
+            .modifier(MiniPlayerAccessoryModifier(
+                isActive: player.hasCurrentTrack,
+                transitionNamespace: nowPlayingTransition,
+                colorScheme: resolvedColorScheme
+            ))
+            .animation(AppAnimation.standard, value: player.hasCurrentTrack)
     }
 
     @available(iOS 26.0, *)
@@ -322,6 +317,25 @@ private enum NowPlayingTransitionID {
 }
 
 // MARK: - Mini player bar for iOS
+
+@available(iOS 26.0, *)
+private struct MiniPlayerAccessoryModifier: ViewModifier {
+    let isActive: Bool
+    let transitionNamespace: Namespace.ID
+    let colorScheme: ColorScheme
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isActive {
+            content.tabViewBottomAccessory {
+                IOSMiniPlayerAccessory(transitionNamespace: transitionNamespace)
+                    .environment(\.colorScheme, colorScheme)
+            }
+        } else {
+            content
+        }
+    }
+}
 
 @available(iOS 26.0, *)
 private struct IOSMiniPlayerAccessory: View {

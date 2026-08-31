@@ -422,9 +422,10 @@ final class PlayerService: ObservableObject {
     /// Recomputes the current lyric line, publishing only on a change.
     /// The lead makes a line light up just before it is sung.
     private func updateLyricsCursor(at seconds: TimeInterval) {
-        let index = lyrics?.activeIndex(at: seconds + 0.2)
+        let index = lyrics?.activeIndex(at: seconds)
         if index != lyricsCursor.activeIndex {
             lyricsCursor.activeIndex = index
+            WidgetSnapshotStore.update(track: currentTrack, lyric: index.flatMap { lyrics?.lines[$0].text })
         }
     }
 
@@ -633,6 +634,7 @@ final class PlayerService: ObservableObject {
         let track = track.normalizedForLXPlayback()
         scrobbleIfNeeded(completed: false)
         currentTrack = track
+        WidgetSnapshotStore.update(track: track, lyric: nil)
         progress = resumeAt ?? 0
         pendingSeek = resumeAt
         duration = track.duration
@@ -740,6 +742,7 @@ final class PlayerService: ObservableObject {
         consecutiveFailures = 0
 #if os(iOS)
         servedQuality = servedByLXQuality
+        NowPlayingManager.shared.updateResolvedQuality(servedQuality, for: track)
 #else
         servedQuality = servedByLXQuality ?? data?.level
         if data?.freeTrialInfo != nil {
@@ -862,6 +865,28 @@ final class PlayerService: ObservableObject {
                 lyrics = parsed
                 updateLyricsCursor(at: progress)
                 return
+            }
+        }
+
+        // LX catalogue IDs are platform-specific. If the selected source has
+        // no lyric implementation, use a public NetEase catalogue match only
+        // for lyric metadata; audio still comes exclusively from LX.
+        if track.source != nil {
+            let query = [track.name, track.artistNames]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: " ")
+            if let result = try? await NeteaseAPI.search(query, type: .songs, limit: 6),
+               let candidates = result.songs {
+                for candidate in candidates {
+                    guard let response = try? await NeteaseAPI.lyric(id: candidate.id) else { continue }
+                    let parsed = LyricsParser.parse(response)
+                    if !parsed.isEmpty {
+                        guard generation == resolveGeneration else { return }
+                        lyrics = parsed
+                        updateLyricsCursor(at: progress)
+                        return
+                    }
+                }
             }
         }
 

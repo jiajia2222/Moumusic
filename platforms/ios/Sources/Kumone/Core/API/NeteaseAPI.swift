@@ -405,6 +405,32 @@ enum NeteaseAPI {
                                ["id": id, "lv": -1, "kv": -1, "tv": -1, "rv": -1])
     }
 
+    struct CommentUser: Decodable {
+        let nickname: String?
+    }
+
+    struct CommentItem: Decodable, Identifiable {
+        let id: Int
+        let content: String
+        let likedCount: Int
+        let user: CommentUser?
+        let time: Int64?
+
+        private enum CodingKeys: String, CodingKey { case id, content, likedCount, user, time }
+    }
+
+    struct CommentResponse: Decodable {
+        let comments: [CommentItem]
+        let total: Int?
+    }
+
+    /// Public comments are metadata only and do not require a NetEase login.
+    static func comments(for songID: Int, limit: Int = 50, offset: Int = 0) async throws -> CommentResponse {
+        try await weapi(CommentResponse.self, "/comment/music",
+                        ["id": songID, "limit": limit, "offset": offset,
+                         "total": true, "before": 0])
+    }
+
     struct FMResponse: Decodable {
         let data: [Track]?
     }

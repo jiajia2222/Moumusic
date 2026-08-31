@@ -65,11 +65,19 @@ final class HomeViewModel: ObservableObject {
         // No account or NetEase audio URL is used here; queued tracks are
         // resolved by the selected LX User API in PlayerService.
         async let playlistsTask = fetchRecommendPlaylists(loggedIn: loggedIn)
+        async let hotSongsTask = try? NeteaseAPI.personalizedNewSongs(limit: 30)
         async let toplistsTask = try? NeteaseAPI.toplists()
         async let albumsTask = try? NeteaseAPI.newAlbums(limit: 20)
         async let artistsTask = try? NeteaseAPI.topArtists()
 
         recommendPlaylists = await playlistsTask
+        let hotSongs = await hotSongsTask ?? []
+        if hotSongs.isEmpty,
+           let search = try? await NeteaseAPI.search("热歌榜", type: .songs, limit: 30) {
+            recommendTracks = (search.songs ?? []).map { $0.normalizedForLXPlayback() }
+        } else {
+            recommendTracks = hotSongs.map { $0.normalizedForLXPlayback() }
+        }
         toplists = Array((await toplistsTask ?? []).prefix(12))
         newAlbums = await albumsTask ?? []
         topArtists = Array((await artistsTask ?? []).prefix(12))
@@ -282,6 +290,13 @@ struct HomeView: View {
                             .staggeredAppearance(index: index, id: "home-rec-\(playlist.id)")
                     }
                 }
+            }
+
+            if !model.recommendTracks.isEmpty {
+                SectionHeader(title: "热门歌曲")
+                    .padding(.horizontal, Theme.Layout.contentInset)
+                TrackListView(tracks: model.recommendTracks)
+                    .padding(.horizontal, Theme.Layout.contentInset - 10)
             }
 
             if !model.radarPlaylists.isEmpty {
@@ -566,12 +581,12 @@ struct CoverCardBody: View {
     var onPlay: (() -> Void)?
 
     @State private var isHovering = false
+    @Environment(\.flexibleCardWidth) private var flexibleWidth
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .bottomLeading) {
-                CachedAsyncImage(url: coverURL)
-                    .frame(width: size, height: size)
+                artwork
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.standard, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: Theme.Radius.standard, style: .continuous)
@@ -587,26 +602,37 @@ struct CoverCardBody: View {
                         .padding(8)
                 }
             }
-            .frame(width: size, height: size)
 
             Text(title)
                 .font(.system(size: 13, weight: .medium))
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .foregroundStyle(.primary)
-                .frame(maxWidth: size, alignment: .leading)
+                .frame(maxWidth: flexibleWidth ? .infinity : size, alignment: .leading)
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
                     .font(.system(size: 11))
                     .lineLimit(1)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: size, alignment: .leading)
+                    .frame(maxWidth: flexibleWidth ? .infinity : size, alignment: .leading)
             }
         }
-        .frame(width: size, alignment: .leading)
+        .frame(maxWidth: flexibleWidth ? .infinity : size, alignment: .leading)
         .contentShape(Rectangle())
         #if os(macOS)
         .onHover { isHovering = $0 }
         #endif
+    }
+
+    @ViewBuilder
+    private var artwork: some View {
+        if flexibleWidth {
+            CachedAsyncImage(url: coverURL)
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+        } else {
+            CachedAsyncImage(url: coverURL)
+                .frame(width: size, height: size)
+        }
     }
 }

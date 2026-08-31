@@ -9,6 +9,7 @@ final class NowPlayingManager {
     private weak var player: PlayerService?
     private var artworkTask: Task<Void, Never>?
     private var info: [String: Any] = [:]
+    private var baseAlbumTitle = ""
 
     private init() {}
 
@@ -57,6 +58,7 @@ final class NowPlayingManager {
     }
 
     func updateMetadata(for track: Track, duration: TimeInterval) {
+        baseAlbumTitle = track.album.name
         info = [
             MPMediaItemPropertyTitle: track.name,
             MPMediaItemPropertyArtist: track.artistNames,
@@ -75,14 +77,34 @@ final class NowPlayingManager {
         artworkTask?.cancel()
         // 1024px: the lock screen's tap-to-fullscreen artwork presentation
         // needs high-resolution art to engage.
-        guard let url = track.album.picUrl?.resizedImageURL(1024) else { return }
         artworkTask = Task { [weak self] in
-            guard let image = await ImageCache.shared.image(for: url),
+        let url: URL?
+        if let directURL = track.album.picUrl?.resizedImageURL(1024) {
+            url = directURL
+        } else {
+            url = await Self.fallbackArtworkURL(for: track)
+        }
+            guard let url,
+                  let image = await ImageCache.shared.image(for: url),
                   let self, !Task.isCancelled else { return }
             let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
             self.info[MPMediaItemPropertyArtwork] = artwork
             MPNowPlayingInfoCenter.default().nowPlayingInfo = self.info
         }
+    }
+
+    /// The Control Center uses Apple's standard title/artist/album fields.
+    /// Source and resolved quality belong in the in-app player, not in the
+    /// lock-screen metadata requested by Moumusic.
+    func updateResolvedQuality(_ quality: String?, for track: Track) {}
+
+    private static func fallbackArtworkURL(for track: Track) async -> URL? {
+        let query = [track.name, track.artistNames]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard let result = try? await NeteaseAPI.search(query, type: .songs, limit: 6),
+              let match = result.songs?.first(where: { $0.name == track.name }) ?? result.songs?.first else { return nil }
+        return match.album.picUrl?.resizedImageURL(1024)
     }
 
     func updateElapsed(_ elapsed: TimeInterval, rate: Double) {

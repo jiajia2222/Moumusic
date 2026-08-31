@@ -64,7 +64,7 @@ brew install owo-network/brew/kumone --cask
 
 ### 手动下载
 
-从 [Releases](https://github.com/missuo/kumone/releases/latest) 下载最新的
+从 [Releases](https://github.com/jiajia2222/Moumusic/releases/latest) 下载最新的
 `Kumone-x.y.z.zip`，解压后拖入「应用程序」。
 
 应用已使用 Developer ID 签名并通过 Apple 公证，内置 Sparkle 自动更新

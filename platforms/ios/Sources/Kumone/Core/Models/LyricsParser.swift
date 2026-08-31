@@ -107,11 +107,18 @@ enum LyricsParser {
     /// per line and both `.` / `:` millisecond separators.
     static func parseLRC(_ lrc: String) -> [(time: TimeInterval, text: String)] {
         var result: [(TimeInterval, String)] = []
+        var offset = 0.0
         let timeTag = #/\[(\d+):(\d+)(?:[.:](\d+))?\]/#
 
         for rawLine in normalize(lrc).components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
+            if line.lowercased().hasPrefix("[offset:"),
+               let end = line.firstIndex(of: "]"),
+               let milliseconds = Double(line[line.index(line.startIndex, offsetBy: 8)..<end]) {
+                offset = milliseconds / 1000
+                continue
+            }
             let matches = line.matches(of: timeTag)
             guard !matches.isEmpty else { continue }
             guard let lastMatch = matches.last else { continue }
@@ -124,7 +131,7 @@ enum LyricsParser {
                 if let msStr = match.output.3, let ms = Double(msStr) {
                     frac = ms / pow(10, Double(msStr.count))
                 }
-                result.append((min * 60 + sec + frac, content))
+                result.append((min * 60 + sec + frac + offset, content))
             }
         }
         return result.sorted { $0.0 < $1.0 }
