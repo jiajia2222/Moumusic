@@ -2,31 +2,64 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
-    @EnvironmentObject private var account: AccountStore
+#if os(iOS)
+    @StateObject private var lxStore = LXSourceStore.shared
+#endif
     @State private var cacheSize = "计算中…"
+#if os(iOS)
+    @State private var showSourceManager = false
+#endif
 
     var body: some View {
         Form {
-            Section("播放") {
-                Toggle("播放源失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
-                Text("音质和实际播放源请在歌曲播放页调整；音频始终由已启用的 LX 音源返回。")
+            Section("首页推荐") {
+                Picker("推荐来源", selection: $settings.homeRecommendationMode) {
+                    ForEach(HomeRecommendationMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                if settings.homeRecommendationMode == .lx {
+                    Picker("LX 平台", selection: $settings.homeRecommendationPlatform) {
+                        ForEach(LXCatalogPlatform.allCases.filter { $0 != .aggregate && $0 != .wy }) { platform in
+                            Text(platform.displayName).tag(platform)
+                        }
+                    }
+                } else {
+                    Text("网易云推荐只提供公开目录、歌单和歌曲信息；播放地址仍由下方导入的 LX 音源解析。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Toggle("播放失败时跨平台匹配", isOn: $settings.enableSourcePlatformFallback)
+                Text("开启后，音源不支持歌曲原平台时，会按歌曲名和歌手在其他可用平台重新匹配。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
 
-                Toggle("播放源失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
-                Text("默认开启；当前平台或 LX 音源无法解析时，会按可用平台继续尝试。")
+            Section("播放") {
+                Text("音频只通过已导入的 LX 音源解析；网易云仅作为公开目录和歌词来源，不使用网易云登录或内置播放接口。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("音质在歌曲播放页调整；可用档位由当前 LX 音源声明。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
 #if os(iOS)
-            Section("首页推荐") {
-                Picker("首页推荐平台", selection: homePlatformSelection) {
-                    ForEach(LXCatalogPlatform.allCases.filter { $0 != .aggregate }) { platform in
-                        Text(platform.displayName).tag(platform)
+            Section("LX 音源") {
+                Button {
+                    showSourceManager = true
+                } label: {
+                    HStack {
+                        Label("管理 / 导入 LX 音源", systemImage: "waveform.badge.plus")
+                        Spacer()
+                        Text(lxStore.selectedSource?.name ?? "未启用")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
-                Text("首页和精选使用这里选择的平台；搜索页仍可单独使用聚合搜索。音源脚本只负责播放、歌词和封面解析。")
+                .frame(minHeight: 44)
+                Text("音源管理是独立页面：可导入文件或在线链接、切换当前音源，并测试 musicUrl 接口。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -58,17 +91,6 @@ struct SettingsView: View {
                 Button("清除缓存") { clearCache() }
             }
 
-            Section("账号") {
-                if let profile = account.profile {
-                    LabeledContent("当前账号", value: profile.nickname)
-                    Button("退出登录", role: .destructive) {
-                        Task { await AccountStore.shared.logout() }
-                    }
-                } else {
-                    Text("未登录").foregroundStyle(.secondary)
-                }
-            }
-
             Section("更新") {
                 Toggle("启动时自动检查更新", isOn: $settings.autoCheckUpdates)
 #if os(iOS)
@@ -82,7 +104,7 @@ struct SettingsView: View {
 
             Section("关于") {
                 LabeledContent("Moumusic", value: appVersion)
-                Text("播放、歌词和封面支持用户导入的 LX User API 音源。LX 音源管理位于“我的”页面的独立入口。")
+                Text("播放、歌词和封面支持用户导入的 LX User API 音源。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -92,25 +114,18 @@ struct SettingsView: View {
         .frame(width: 440, height: 520)
 #endif
         .task { updateCacheSize() }
+#if os(iOS)
+        .sheet(isPresented: $showSourceManager) {
+            NavigationStack {
+                LXSourceManagerView()
+            }
+        }
+#endif
     }
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
-
-#if os(iOS)
-    private var homePlatformSelection: Binding<LXCatalogPlatform> {
-        Binding(
-            get: {
-                settings.homeRecommendationPlatform
-            },
-            set: { platform in
-                settings.homeRecommendationPlatform = platform
-                settings.homeRecommendationMode = .lx
-            }
-        )
-    }
-#endif
 
     private var cacheDirectory: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]

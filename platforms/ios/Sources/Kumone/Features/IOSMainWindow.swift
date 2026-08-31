@@ -17,12 +17,10 @@ public struct IOSMainWindow: View {
     }
 
     @State private var selectedTab: IOSTab = .home
-    @State private var showLogin = false
     @State private var homePath = NavigationPath()
     @State private var explorePath = NavigationPath()
-    @State private var fmPath = NavigationPath()
     @State private var searchPath = NavigationPath()
-    @State private var libraryPath = NavigationPath()
+    @State private var playlistsPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
 
     public init() {}
@@ -35,7 +33,9 @@ public struct IOSMainWindow: View {
             .environmentObject(toasts)
             .tint(Theme.accent)
             .preferredColorScheme(settings.appearance.colorScheme)
-            .environment(\.openLogin, { showLogin = true })
+            // iOS is source-only: no provider account or built-in catalogue
+            // session is started from the app shell.
+            .environment(\.openLogin, {})
             .task {
                 // Let the first scene commit before touching AVAudioSession,
                 // MPRemoteCommandCenter, persisted playback state, or a user
@@ -43,18 +43,12 @@ public struct IOSMainWindow: View {
                 // still keeps all runtime setup on the main actor.
                 await Task.yield()
                 player.startRuntime()
-                await account.bootstrap()
                 if settings.autoCheckUpdates {
                     IOSUpdater.shared.check(interactive: false)
                 }
             }
             .sheet(isPresented: $updater.showSheet) {
                 IOSUpdaterSheet()
-            }
-            .sheet(isPresented: $showLogin) {
-                LoginSheet()
-                    .environmentObject(account)
-                    .environmentObject(toasts)
             }
             .overlay(alignment: .top) {
                 if let toast = toasts.current {
@@ -141,11 +135,10 @@ public struct IOSMainWindow: View {
 
     @ViewBuilder
     private var appContent: some View {
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            MainWindow()
-        } else {
-            tabInterface
-        }
+        // Keep every iOS form factor on the same source-only surface. The
+        // old split view still contains the desktop/provider navigation and
+        // would reintroduce those entry points on iPad.
+        tabInterface
     }
 
     private func nowPlayingPresentation(
@@ -167,13 +160,10 @@ public struct IOSMainWindow: View {
 
     @ViewBuilder
     private var tabInterface: some View {
-        // Keep the custom glass shell on iOS 27 until the native iOS 26 tab
-        // accessory path has a real iOS 27 device smoke test.  It provides
-        // the same tabs and mini-player without relying on the newer system
-        // tab container during launch.
-        if #available(iOS 27.0, *) {
-            customTabInterface
-        } else if #available(iOS 26.0, *) {
+        // iOS 26 and later supply the real system Liquid Glass through
+        // TabView and its bottom accessory. Do not substitute a custom
+        // Material tab bar on iOS 27, otherwise the system effect is lost.
+        if #available(iOS 26.0, *) {
             iOS26TabInterface
         } else {
             customTabInterface
@@ -210,16 +200,12 @@ public struct IOSMainWindow: View {
                 tabStack(.home) { HomeView() }
             }
 
-            Tab("精选", systemImage: "square.grid.2x2", value: .explore) {
+            Tab("发现", systemImage: "square.grid.2x2", value: .explore) {
                 tabStack(.explore) { ExploreView() }
             }
 
-            Tab("漫游", systemImage: "wave.3.right.circle", value: .fm) {
-                tabStack(.fm) { FMView() }
-            }
-
-            Tab("我的", systemImage: "person.crop.circle", value: .library) {
-                tabStack(.library) { IOSLibraryView(showLogin: $showLogin) }
+            Tab("歌单", systemImage: "music.note.list", value: .playlists) {
+                tabStack(.playlists) { LocalPlaylistsView() }
             }
 
             Tab("设置", systemImage: "gearshape", value: .settings) {
@@ -237,7 +223,7 @@ public struct IOSMainWindow: View {
     private var customTabInterface: some View {
         ZStack(alignment: .bottom) {
             // Construct only the selected page.  The previous ZStack built
-            // all five page trees during launch, including the library's LX
+            // all five page trees during launch, including the playlist's LX
             // source store and the search/FM state, even though the user had
             // not opened those tabs yet.
             selectedPage
@@ -266,12 +252,10 @@ public struct IOSMainWindow: View {
             tabStack(.home) { HomeView() }
         case .explore:
             tabStack(.explore) { ExploreView() }
-        case .fm:
-            tabStack(.fm) { FMView() }
         case .search:
             tabStack(.search) { SearchView(query: "") }
-        case .library:
-            tabStack(.library) { IOSLibraryView(showLogin: $showLogin) }
+        case .playlists:
+            tabStack(.playlists) { LocalPlaylistsView() }
         case .settings:
             tabStack(.settings) { SettingsView() }
         }
@@ -281,9 +265,8 @@ public struct IOSMainWindow: View {
         switch tab {
         case .home: homePath = NavigationPath()
         case .explore: explorePath = NavigationPath()
-        case .fm: fmPath = NavigationPath()
         case .search: searchPath = NavigationPath()
-        case .library: libraryPath = NavigationPath()
+        case .playlists: playlistsPath = NavigationPath()
         case .settings: settingsPath = NavigationPath()
         }
     }
@@ -313,25 +296,23 @@ public struct IOSMainWindow: View {
         switch tab {
         case .home: return $homePath
         case .explore: return $explorePath
-        case .fm: return $fmPath
         case .search: return $searchPath
-        case .library: return $libraryPath
+        case .playlists: return $playlistsPath
         case .settings: return $settingsPath
         }
     }
 }
 
 enum IOSTab: Hashable {
-    case home, explore, fm, search, library, settings
+    case home, explore, search, playlists, settings
 }
 
 extension IOSMainWindow {
     static let tabItems: [GlassTabBar.Item] = [
         .init(tab: .home, title: "推荐", icon: "house"),
-        .init(tab: .explore, title: "精选", icon: "square.grid.2x2"),
-        .init(tab: .fm, title: "漫游", icon: "dot.radiowaves.left.and.right"),
+        .init(tab: .explore, title: "发现", icon: "square.grid.2x2"),
         .init(tab: .search, title: "搜索", icon: "magnifyingglass"),
-        .init(tab: .library, title: "我的", icon: "person.crop.circle"),
+        .init(tab: .playlists, title: "歌单", icon: "music.note.list"),
         .init(tab: .settings, title: "设置", icon: "gearshape"),
     ]
 }
@@ -540,7 +521,10 @@ struct IOSMiniPlayerBar: View {
     }
 }
 
-// MARK: - iOS Library View
+// The previous account/library surface contained the NetEase login and
+// provider playlist actions. It is intentionally not part of the iOS target.
+#if false
+// MARK: - Removed iOS provider library
 
 struct IOSLibraryView: View {
     @Binding var showLogin: Bool
@@ -751,4 +735,5 @@ struct IOSLibraryView: View {
         }
     }
 }
+#endif
 #endif

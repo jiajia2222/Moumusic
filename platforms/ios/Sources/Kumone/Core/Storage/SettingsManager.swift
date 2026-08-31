@@ -94,12 +94,14 @@ enum NowPlayingMode: String, CaseIterable, Identifiable {
 /// accidentally becomes the home page provider.
 enum HomeRecommendationMode: String, CaseIterable, Identifiable {
     case lx
+    case netease
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
         case .lx: return "LX 推荐"
+        case .netease: return "网易云推荐"
         }
     }
 }
@@ -207,10 +209,12 @@ final class SettingsManager: ObservableObject {
         autoCheckUpdates = defaults.object(forKey: Keys.autoCheckUpdates) as? Bool ?? true
         showDesktopLyrics = defaults.object(forKey: Keys.desktopLyrics) as? Bool ?? false
         homeRecommendationMode = defaults.string(forKey: Keys.homeRecommendationMode)
-            .flatMap(HomeRecommendationMode.init) ?? .lx
+            .flatMap(HomeRecommendationMode.init) ?? .netease
         let storedPlatform = defaults.string(forKey: Keys.homeRecommendationPlatform)
             .flatMap(LXCatalogPlatform.init)
-        homeRecommendationPlatform = storedPlatform.flatMap { $0 == .aggregate ? nil : $0 } ?? .kw
+        homeRecommendationPlatform = storedPlatform.flatMap {
+            $0 == .aggregate ? nil : $0
+        } ?? .wy
         enableSourcePlatformFallback = defaults.object(forKey: Keys.sourcePlatformFallback) as? Bool ?? true
     }
 }

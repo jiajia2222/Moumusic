@@ -12,6 +12,8 @@ final class ExploreViewModel: ObservableObject {
     @Published var platform: LXCatalogPlatform = .kw
     @Published var selectedCategory = "推荐"
     @Published var playlists: [LXPlaylistSummary] = []
+    @Published var tracks: [Track] = []
+    @Published var toplists: [ToplistItem] = []
     @Published var isLoading = false
     @Published var hasMore = true
     @Published var errorMessage: String?
@@ -23,6 +25,8 @@ final class ExploreViewModel: ObservableObject {
         guard platform != self.platform else { return }
         self.platform = platform
         playlists = []
+        tracks = []
+        toplists = []
         page = 1
         hasMore = true
         errorMessage = nil
@@ -39,6 +43,8 @@ final class ExploreViewModel: ObservableObject {
         guard category != selectedCategory || playlists.isEmpty else { return }
         selectedCategory = category
         playlists = []
+        tracks = []
+        toplists = []
         page = 1
         hasMore = true
         errorMessage = nil
@@ -55,6 +61,10 @@ final class ExploreViewModel: ObservableObject {
             let result: [LXPlaylistSummary]
             if selectedCategory == "推荐" && page == 1 {
                 result = try await LXCatalogService.recommendedSonglists(platform: platform, limit: 30)
+                if platform == .wy {
+                    toplists = Array(((try? await NeteaseAPI.toplists()) ?? []).prefix(10))
+                    tracks = (try? await LXCatalogService.recommendedTracks(platform: .wy, limit: 30)) ?? []
+                }
             } else {
                 let keyword: String
                 switch selectedCategory {
@@ -97,6 +107,20 @@ struct ExploreView: View {
                     }
                     .frame(minHeight: 300)
                 } else {
+                    if model.platform == .wy && !model.toplists.isEmpty {
+                        SectionHeader(title: "网易云排行榜")
+                            .padding(.horizontal, Theme.Layout.contentInset)
+                        ToplistGrid(toplists: model.toplists)
+                            .padding(.horizontal, Theme.Layout.contentInset)
+                    }
+
+                    if model.platform == .wy && !model.tracks.isEmpty {
+                        SectionHeader(title: "网易云热门歌曲")
+                            .padding(.horizontal, Theme.Layout.contentInset)
+                        TrackListView(tracks: model.tracks)
+                            .padding(.horizontal, Theme.Layout.contentInset - 10)
+                    }
+
                     CardGrid {
                         ForEach(Array(model.playlists.enumerated()), id: \.element.id) { index, playlist in
                             NavigationLink(value: Destination.lxPlaylist(source: playlist.source, id: playlist.id)) {
@@ -140,7 +164,7 @@ struct ExploreView: View {
 
     private var platformPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("歌单平台")
+            Text("发现平台")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
             ScrollView(.horizontal, showsIndicators: false) {

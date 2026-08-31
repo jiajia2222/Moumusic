@@ -45,28 +45,15 @@ final class NowPlayingManager {
             return .success
         }
 
-        // Like feedback (Control Center long-press / CarPlay; isActive = hearted)
-        center.likeCommand.isEnabled = true
-        center.likeCommand.localizedTitle = String(localized: "喜欢")
-        center.likeCommand.localizedShortTitle = String(localized: "喜欢")
-        center.likeCommand.addTarget { [weak player] _ in
-            guard let track = player?.currentTrack else { return .noActionableNowPlayingItem }
-            Task { @MainActor in
-                await AccountStore.shared.toggleLike(trackID: track.id)
-                NowPlayingManager.shared.refreshLikeState()
-            }
-            return .success
-        }
+        // Liking is tied to the removed provider account system. Keep the
+        // Control Center command unavailable rather than opening a hidden
+        // built-in account request from a source-only player.
+        center.likeCommand.isEnabled = false
     }
 
     /// Reflects the current track's hearted state on the like command.
     func refreshLikeState() {
-        guard let track = player?.currentTrack else {
-            MPRemoteCommandCenter.shared().likeCommand.isActive = false
-            return
-        }
-        MPRemoteCommandCenter.shared().likeCommand.isActive =
-            AccountStore.shared.isLiked(track.id)
+        MPRemoteCommandCenter.shared().likeCommand.isActive = false
     }
 
     func updateMetadata(for track: Track, duration: TimeInterval) {

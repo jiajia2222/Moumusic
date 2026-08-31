@@ -592,9 +592,21 @@ enum LXCatalogService {
         case "kw": return try await nativeKuwoLyrics(for: track)
         case "kg": return try await nativeKugouLyrics(for: track)
         case "tx": return try await nativeQQLyrics(for: track)
+        case "wy": return try await nativeNeteaseLyrics(for: track)
         case "mg": return try await nativeMiguLyrics(for: track)
         default: throw LXCatalogError.unsupported
         }
+    }
+
+    private static func nativeNeteaseLyrics(for track: Track) async throws -> NativeLyrics {
+        let response = try await NeteaseAPI.lyric(id: track.id)
+        guard response.lrc?.lyric?.isEmpty == false || response.yrc?.lyric?.isEmpty == false else {
+            throw LXCatalogError.invalidResponse
+        }
+        return NativeLyrics(lyric: response.lrc?.lyric ?? response.yrc?.lyric ?? "",
+                            tlyric: response.tlyric?.lyric,
+                            rlyric: response.romalrc?.lyric,
+                            lxlyric: response.yrc?.lyric)
     }
 
     private static func nativeKuwoLyrics(for track: Track) async throws -> NativeLyrics {

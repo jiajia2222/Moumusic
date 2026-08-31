@@ -33,8 +33,8 @@ final class HomeViewModel: ObservableObject {
     @Published var newAlbums: [AlbumSummary] = []
     @Published var topArtists: [ArtistSummary] = []
     @Published var dailyFirstCover: String?
-    @Published private(set) var activeMode: HomeRecommendationMode = .lx
-    @Published private(set) var activePlatform: LXCatalogPlatform = .kw
+    @Published private(set) var activeMode: HomeRecommendationMode = .netease
+    @Published private(set) var activePlatform: LXCatalogPlatform = .wy
     @Published var recommendTracks: [Track] = []
     @Published var lxRecommendPlaylists: [LXPlaylistSummary] = []
     private var loadedMode: HomeRecommendationMode?
@@ -44,21 +44,44 @@ final class HomeViewModel: ObservableObject {
               platform: LXCatalogPlatform) async {
         if loadedMode == mode, loadedPlatform == platform, case .loaded = state { return }
         activeMode = mode
-        activePlatform = platform
+        activePlatform = mode == .netease ? .wy : platform
         loadedMode = mode
         loadedPlatform = platform
         state = .loading
 
-        // Home recommendations always come from the LX catalogue path. The
-        // selected platform controls the catalogue request, while the actual
-        // audio URL is still resolved by the imported LX User API.
-        let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
-        lxRecommendPlaylists = content.playlists
-        recommendTracks = content.tracks
-        state = recommendTracks.isEmpty && lxRecommendPlaylists.isEmpty
-            ? .error("LX 暂无推荐结果，请检查网络或切换推荐平台")
+        if mode == .lx {
+            // LX recommendations are catalogue-only. The selected source is
+            // still the only component allowed to resolve audio on iOS.
+            let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
+            lxRecommendPlaylists = content.playlists
+            recommendTracks = content.tracks
+            state = recommendTracks.isEmpty && lxRecommendPlaylists.isEmpty
+                ? .error("LX 暂无推荐结果，请检查网络或切换推荐平台")
+                : .loaded
+            return
+        }
+
+        // Public NetEase recommendations are restored as a catalogue family.
+        // No account or NetEase audio URL is used here; queued tracks are
+        // resolved by the selected LX User API in PlayerService.
+        async let playlistsTask = fetchRecommendPlaylists(loggedIn: loggedIn)
+        async let toplistsTask = try? NeteaseAPI.toplists()
+        async let albumsTask = try? NeteaseAPI.newAlbums(limit: 20)
+        async let artistsTask = try? NeteaseAPI.topArtists()
+
+        recommendPlaylists = await playlistsTask
+        toplists = Array((await toplistsTask ?? []).prefix(12))
+        newAlbums = await albumsTask ?? []
+        topArtists = Array((await artistsTask ?? []).prefix(12))
+        if loggedIn {
+            if let daily = try? await NeteaseAPI.dailyRecommendSongs() {
+                dailyFirstCover = daily.first?.album.picUrl
+            }
+            await loadRadarPlaylists()
+        }
+        state = recommendPlaylists.isEmpty && newAlbums.isEmpty && toplists.isEmpty
+            ? .error("网易云推荐暂时不可用，请检查网络后重试")
             : .loaded
-        return
     }
 
     func reload(loggedIn: Bool, mode: HomeRecommendationMode,
@@ -209,12 +232,14 @@ struct HomeView: View {
     }
 
     private func isHomePlatform(_ platform: LXCatalogPlatform) -> Bool {
-        return settings.homeRecommendationPlatform == platform
+        if platform == .wy { return settings.homeRecommendationMode == .netease }
+        return settings.homeRecommendationMode == .lx
+            && settings.homeRecommendationPlatform == platform
     }
 
     private func selectHomePlatform(_ platform: LXCatalogPlatform) {
         settings.homeRecommendationPlatform = platform
-        settings.homeRecommendationMode = .lx
+        settings.homeRecommendationMode = platform == .wy ? .netease : .lx
     }
 
     private func lxPlaylistCard(_ playlist: LXPlaylistSummary) -> some View {

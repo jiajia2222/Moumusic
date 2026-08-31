@@ -28,8 +28,8 @@ enum PlaylistImportError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .emptyInput: return "请输入歌单链接、JSON 文件内容或歌曲列表"
-        case .unsupportedLink: return "暂不支持这个歌单链接，请粘贴歌单 JSON 或歌曲列表"
+        case .emptyInput: return "请输入歌单 JSON 文件内容"
+        case .unsupportedLink: return "只支持网易云公开歌单链接；其他软件请导出 JSON 后导入"
         case .invalidFormat: return "无法识别歌单格式"
         case .noTracks: return "歌单中没有可导入的歌曲"
         }
@@ -148,7 +148,7 @@ private enum PlaylistImportService {
 
         if let url = URL(string: value), let scheme = url.scheme?.lowercased(),
            scheme == "http" || scheme == "https" {
-            return try await importURL(url)
+            return try await importNeteasePlaylist(from: url)
         }
 
         if let data = value.data(using: .utf8),
@@ -156,62 +156,105 @@ private enum PlaylistImportService {
             return try importJSON(object)
         }
 
-        return try await importTextLines(value)
+        throw PlaylistImportError.invalidFormat
     }
 
-    private static func importURL(_ url: URL) async throws -> ImportedPlaylist {
-        let absolute = url.absoluteString
-        guard let descriptor = descriptor(for: absolute) else {
+    private static func importNeteasePlaylist(from url: URL) async throws -> ImportedPlaylist {
+        let resolvedURL = (try? await resolveRedirect(from: url)) ?? url
+        guard let host = resolvedURL.host?.lowercased(),
+              host.contains("163cn.tv") || host.contains("music.163.com"),
+              let playlistID = neteasePlaylistID(from: resolvedURL)
+                ?? neteasePlaylistID(from: url) else {
             throw PlaylistImportError.unsupportedLink
         }
 
-        let detail = try await LXCatalogService.playlistDetail(source: descriptor.source,
-                                                                 id: descriptor.id)
-        guard !detail.tracks.isEmpty else { throw PlaylistImportError.noTracks }
-        return ImportedPlaylist(name: detail.name, coverURL: detail.coverURL,
-                                sourceName: detail.source.displayName, tracks: detail.tracks)
+        var components = URLComponents(string: "https://music.163.com/api/v6/playlist/detail")!
+        components.queryItems = [
+            URLQueryItem(name: "id", value: String(playlistID)),
+            URLQueryItem(name: "n", value: "1000"),
+        ]
+        let root = try await fetchJSONObject(components.url!)
+        if let code = integer(root["code"]), code != 200 {
+            throw PlaylistImportError.invalidFormat
+        }
+        guard let playlist = (root["playlist"] as? [String: Any])
+                ?? ((root["result"] as? [String: Any])?["playlist"] as? [String: Any]) else {
+            throw PlaylistImportError.invalidFormat
+        }
+
+        var tracks = collectTracks(from: playlist["tracks"] ?? [], defaultSource: "wy")
+        let ids = (playlist["trackIds"] as? [[String: Any]])?
+            .compactMap { string($0["id"]) }
+            .filter { !$0.isEmpty } ?? []
+        // The v6 endpoint deliberately returns only a preview in `tracks`
+        // even when n=1000. Fetch the full trackIds list so a shared playlist
+        // is not silently truncated to ten songs.
+        if tracks.count < ids.count, !ids.isEmpty {
+            var detailComponents = URLComponents(string: "https://music.163.com/api/song/detail")!
+            detailComponents.queryItems = [
+                URLQueryItem(name: "ids", value: "[\(ids.joined(separator: ","))]"),
+            ]
+            if let details = try? await fetchJSONObject(detailComponents.url!) {
+                let detailedTracks = collectTracks(from: details["songs"] ?? details["data"] ?? details,
+                                                    defaultSource: "wy")
+                if !detailedTracks.isEmpty { tracks = detailedTracks }
+            }
+        }
+        guard !tracks.isEmpty else { throw PlaylistImportError.noTracks }
+
+        let name = string(playlist["name"]) ?? "网易云歌单 \(playlistID)"
+        let cover = string(playlist["coverImgUrl"])
+            ?? string(playlist["picUrl"])
+            ?? string(playlist["cover"])
+        return ImportedPlaylist(name: name, coverURL: cover,
+                                sourceName: "网易云", tracks: tracks)
     }
 
-    private struct Descriptor {
-        let source: LXCatalogPlatform
-        let id: String
+    private static func resolveRedirect(from url: URL) async throws -> URL {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+                         forHTTPHeaderField: "User-Agent")
+        let (_, response) = try await URLSession.shared.data(for: request)
+        return response.url ?? url
     }
 
-    private static func descriptor(for value: String) -> Descriptor? {
-        let lowercased = value.lowercased()
-        if lowercased.contains("music.163.com") || lowercased.contains("163cn.tv") {
-            if let id = firstCapture(#"(?:[?&#]|playlist%3fid=|playlist\?id=)(\d+)"#, in: value) {
-                return Descriptor(source: .wy, id: id)
-            }
-            if let id = queryValue("id", in: value) { return Descriptor(source: .wy, id: id) }
+    private static func fetchJSONObject(_ url: URL) async throws -> [String: Any] {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+                         forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw PlaylistImportError.invalidFormat
         }
-        if lowercased.contains("y.qq.com") || lowercased.contains("qq.com") {
-            if let id = firstCapture(#"(?:playlist|dissid)[/=:](\d+)"#, in: value)
-                ?? queryValue("dissid", in: value) {
-                return Descriptor(source: .tx, id: id)
-            }
+        return object
+    }
+
+    private static func neteasePlaylistID(from url: URL) -> Int? {
+        func queryID(_ components: URLComponents?) -> Int? {
+            components?.queryItems?.first(where: { $0.name.lowercased() == "id" })?.value
+                .flatMap(Int.init)
         }
-        if lowercased.contains("kuwo.cn") {
-            if let id = queryValue("playlistid", in: value) ?? queryValue("pid", in: value) {
-                return Descriptor(source: .kw, id: id)
-            }
+
+        if let id = queryID(URLComponents(url: url, resolvingAgainstBaseURL: false)) {
+            return id
         }
-        if lowercased.contains("kugou.com") {
-            if let id = firstCapture(#"(?:single|specialid)[/=](\d+)"#, in: value)
-                ?? queryValue("specialid", in: value) {
-                return Descriptor(source: .kg, id: "id_\(id)")
-            }
+        if let fragment = url.fragment,
+           let id = queryID(URLComponents(string: fragment)) {
+            return id
         }
-        if lowercased.contains("migu.cn") || lowercased.contains("miguvideo.com") {
-            if let id = queryValue("playlistId", in: value) ?? queryValue("playlistid", in: value) {
-                return Descriptor(source: .mg, id: id)
-            }
+        let parts = url.path.split(separator: "/").map(String.init)
+        if let index = parts.firstIndex(where: { $0.lowercased() == "playlist" }),
+           index + 1 < parts.count {
+            return Int(parts[index + 1])
         }
         return nil
     }
 
-    private static func importJSON(_ object: Any) throws -> ImportedPlaylist {
-        let tracks = collectTracks(from: object)
+    private static func importJSON(_ object: Any, defaultSource: String? = nil) throws -> ImportedPlaylist {
+        let tracks = collectTracks(from: object, defaultSource: defaultSource)
         guard !tracks.isEmpty else { throw PlaylistImportError.noTracks }
         let root = object as? [String: Any]
         let name = string(root?["name"])
@@ -226,24 +269,24 @@ private enum PlaylistImportService {
                                 sourceName: string(root?["source"]), tracks: tracks)
     }
 
-    private static func collectTracks(from object: Any) -> [Track] {
+    private static func collectTracks(from object: Any, defaultSource: String? = nil) -> [Track] {
         if let array = object as? [Any] {
-            return array.flatMap(collectTracks)
+            return array.flatMap { collectTracks(from: $0, defaultSource: defaultSource) }
         }
         guard let dictionary = object as? [String: Any] else { return [] }
-        if let track = makeTrack(dictionary) { return [track] }
+        if let track = makeTrack(dictionary, defaultSource: defaultSource) { return [track] }
 
         let keys = ["tracks", "songs", "musicList", "musiclist", "list", "playlist", "data", "result"]
         for key in keys {
             if let nested = dictionary[key] {
-                let tracks = collectTracks(from: nested)
+                let tracks = collectTracks(from: nested, defaultSource: defaultSource)
                 if !tracks.isEmpty { return tracks }
             }
         }
         return []
     }
 
-    private static func makeTrack(_ value: [String: Any]) -> Track? {
+    private static func makeTrack(_ value: [String: Any], defaultSource: String? = nil) -> Track? {
         let name = string(value["name"]) ?? string(value["songName"])
             ?? string(value["SongName"]) ?? string(value["title"])
             ?? string(value["songname"])
@@ -283,36 +326,12 @@ private enum PlaylistImportService {
                     "albumId", "strMediaMid", "albumMid", "id"] {
             if let value = string(value[key]), !value.isEmpty { metadata[key] = value }
         }
-        let source = string(value["source"])?.lowercased()
+        let source = string(value["source"])?.lowercased() ?? defaultSource
         return Track(id: id, name: name, artists: artists,
                      album: AlbumRef(id: Int(string(albumDictionary?["id"]) ?? "") ?? 0,
                                     name: albumName, picUrl: cover),
                      durationMS: durationMS(value), source: source,
                      sourceMetadata: metadata)
-    }
-
-    private static func importTextLines(_ value: String) async throws -> ImportedPlaylist {
-        let lines = value.components(separatedBy: .newlines).map {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines)
-        }.filter { !$0.isEmpty && !$0.hasPrefix("#") }
-        guard !lines.isEmpty else { throw PlaylistImportError.invalidFormat }
-
-        let tracks = await withTaskGroup(of: Track?.self, returning: [Track].self) { group in
-            for line in lines.prefix(100) {
-                group.addTask {
-                    let query = line.components(separatedBy: " - ").first ?? line
-                    return (try? await LXCatalogService.search(query, platform: .aggregate, limit: 1))?.first
-                }
-            }
-            var result: [Track] = []
-            for await track in group {
-                if let track { result.append(track) }
-            }
-            return result
-        }
-        guard !tracks.isEmpty else { throw PlaylistImportError.noTracks }
-        return ImportedPlaylist(name: "导入歌单", coverURL: nil,
-                                sourceName: "聚合搜索匹配", tracks: tracks)
     }
 
     private static func durationMS(_ value: [String: Any]) -> Int {
@@ -334,23 +353,17 @@ private enum PlaylistImportService {
         return nil
     }
 
+    private static func integer(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) }
+        return nil
+    }
+
     private static func stableID(_ value: String) -> Int {
         var hash: UInt64 = 2_166_136_261
         for byte in value.utf8 { hash = (hash ^ UInt64(byte)) &* 16_777_619 }
         return Int(hash & 0x7fff_ffff)
     }
 
-    private static func queryValue(_ key: String, in value: String) -> String? {
-        guard let components = URLComponents(string: value) else { return nil }
-        return components.queryItems?.first(where: { $0.name.lowercased() == key.lowercased() })?.value
-            ?? firstCapture("(?:[?&#])\(NSRegularExpression.escapedPattern(for: key))=([A-Za-z0-9_-]+)", in: value)
-    }
-
-    private static func firstCapture(_ pattern: String, in value: String) -> String? {
-        guard let expression = try? NSRegularExpression(pattern: pattern),
-              let match = expression.firstMatch(in: value, range: NSRange(location: 0, length: value.utf16.count)),
-              match.numberOfRanges > 1,
-              let range = Range(match.range(at: 1), in: value) else { return nil }
-        return String(value[range])
-    }
 }

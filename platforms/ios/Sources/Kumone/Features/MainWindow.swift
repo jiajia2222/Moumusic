@@ -1,5 +1,7 @@
 import SwiftUI
 
+#if os(macOS)
+
 struct MainWindow: View {
 #if os(macOS)
     @Environment(\.openWindow) private var openWindow
@@ -160,7 +162,7 @@ struct SearchFieldView: View {
     let onSubmit: (String) -> Void
 
     @State private var text = ""
-    @State private var placeholder = "搜索音乐、歌手、专辑"
+    @State private var placeholder = "搜索本地歌曲、歌手或歌单"
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -175,9 +177,8 @@ struct SearchFieldView: View {
                 .frame(width: 168)
                 .onSubmit {
                     let query = text.trimmingCharacters(in: .whitespaces)
-                    let effective = query.isEmpty ? placeholderQuery : query
-                    guard !effective.isEmpty else { return }
-                    onSubmit(effective)
+                    guard !query.isEmpty else { return }
+                    onSubmit(query)
                     focused = false
                 }
         }
@@ -186,16 +187,10 @@ struct SearchFieldView: View {
         .background(.primary.opacity(0.05), in: Capsule())
         .overlay(Capsule().strokeBorder(.primary.opacity(focused ? 0.18 : 0.08), lineWidth: 1))
         .animation(AppAnimation.quick, value: focused)
-        .task {
-            if let keyword = try? await NeteaseAPI.searchDefaultKeyword(), !keyword.isEmpty {
-                placeholder = keyword
-                placeholderQuery = keyword
-            }
-        }
     }
-
-    @State private var placeholderQuery = ""
 }
+
+#endif
 
 // MARK: - Toast
 

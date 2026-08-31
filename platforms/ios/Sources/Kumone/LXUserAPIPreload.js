@@ -87,7 +87,8 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
     tagret.callback(...tagret.params)
   }
 
-  // 灏嗗瓧鑺傛暟缁勮В鐮佷负瀛楃涓诧紙UTF-8锛?  function bytesToString(bytes) {
+  // Decode a UTF-8 byte array into a string.
+  function bytesToString(bytes) {
     let result = ''
     let i = 0
     while (i < bytes.length) {
@@ -105,7 +106,8 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
     }
     return result
   }
-  // 灏嗗瓧绗︿覆缂栫爜涓哄瓧鑺傛暟缁勶紙UTF-8锛?  function stringToBytes(inputString) {
+  // Encode a string as a UTF-8 byte array.
+  function stringToBytes(inputString) {
     const bytes = []
     for (let i = 0; i < inputString.length; i++) {
       const charCode = inputString.charCodeAt(i)
@@ -369,7 +371,8 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
       randomBytes(size) {
         const byteArray = new Uint8Array(size)
         for (let i = 0; i < size; i++) {
-          byteArray[i] = Math.floor(Math.random() * 256) // 闅忔満鐢熸垚涓€涓瓧鑺傜殑鍊硷紙0-255锛?        }
+          byteArray[i] = Math.floor(Math.random() * 256) // Random byte (0-255).
+        }
         return byteArray
       },
       md5(str) {

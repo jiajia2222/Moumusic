@@ -137,8 +137,15 @@ final class PlayerService: ObservableObject {
     @Published private(set) var shuffleEnabled = false
     @Published var volume: Float = 1 {
         didSet {
+#if os(iOS)
+            // iOS output volume is owned by the system. The visible control
+            // is MPVolumeView; keep AVPlayer at unity gain so it cannot cap
+            // the system volume behind the user's back.
+            engine.volume = 1
+#else
             engine.volume = volume
             UserDefaults.standard.set(volume, forKey: "player.volume")
+#endif
         }
     }
 
@@ -168,7 +175,11 @@ final class PlayerService: ObservableObject {
         guard let track = currentTrack else { return [] }
 #if os(iOS)
         let names = await LXUserAPIService.shared.availableQualityNames(for: track)
-        return AudioQuality.allCases.filter { names.contains($0.lxType) }
+        let available = AudioQuality.allCases.filter { names.contains($0.lxType) }
+        // Keep the picker reachable while a source is still loading or has
+        // not declared capabilities. LXUserAPIService performs the final
+        // downgrade to a supported quality when it resolves the URL.
+        return available.isEmpty ? AudioQuality.allCases : available
 #else
         return AudioQuality.allCases
 #endif
@@ -203,8 +214,13 @@ final class PlayerService: ObservableObject {
 
     private init() {
         engine.actionAtItemEnd = .pause
+#if os(iOS)
+        volume = 1
+        engine.volume = 1
+#else
         volume = UserDefaults.standard.object(forKey: "player.volume") as? Float ?? 0.8
         engine.volume = volume
+#endif
         repeatMode = UserDefaults.standard.string(forKey: "player.repeat")
             .flatMap(RepeatMode.init) ?? .off
     }
@@ -667,9 +683,19 @@ final class PlayerService: ObservableObject {
             isPlaying = false
             return
         }
-        if let lx = try? await LXUserAPIService.shared.resolveMusicURL(for: track, quality: quality) {
+        do {
+            let lx = try await LXUserAPIService.shared.resolveMusicURL(for: track, quality: quality)
             resolvedURL = lx.url
             servedByLXQuality = lx.quality
+        } catch {
+            guard generation == resolveGeneration else { return }
+            consecutiveFailures += 1
+            ToastCenter.shared.show("《\(track.name)》播放失败：\(error.localizedDescription)")
+            // A source-level error is not fixed by immediately trying five
+            // more queue entries. Keep the current song visible so the user
+            // can adjust the source or retry after reading the real error.
+            isPlaying = false
+            return
         }
 #else
         if resolvedURL == nil, !isLXCatalogTrack {
@@ -766,9 +792,11 @@ final class PlayerService: ObservableObject {
 
         if !startScrobbled {
             startScrobbled = true
+#if !os(iOS)
             let tid = track.id
             let sid = source.sourceID
             Task.detached { await NeteaseAPI.scrobbleStart(trackID: tid, sourceID: sid) }
+#endif
         }
 
 #if os(macOS)
@@ -798,6 +826,33 @@ final class PlayerService: ObservableObject {
 
     private func loadLyrics(for track: Track, generation: Int) async {
 #if os(iOS)
+        if track.source == "wy",
+           let response = try? await NeteaseAPI.lyric(id: track.id) {
+            guard generation == resolveGeneration else { return }
+            let parsed = LyricsParser.parse(response)
+            if !parsed.isEmpty {
+                lyrics = parsed
+                updateLyricsCursor(at: progress)
+                return
+            }
+        }
+
+        // Catalogue lyrics are metadata only. Playback is still resolved by
+        // the selected LX User API source in resolveAndLoad(_:generation:).
+        if track.source != nil,
+           let native = try? await LXCatalogService.nativeLyrics(for: track) {
+            guard generation == resolveGeneration else { return }
+            let parsed = LyricsParser.parseLX(lyric: native.lyric, tlyric: native.tlyric,
+                                               rlyric: native.rlyric, lxlyric: native.lxlyric)
+            if !parsed.isEmpty {
+                lyrics = parsed
+                updateLyricsCursor(at: progress)
+                return
+            }
+        }
+
+        // Imported LX sources may provide a lyric action. Try it after the
+        // catalogue adapter because many sources only expose musicUrl.
         if LXSourceStore.shared.selectedSource != nil,
            let lx = try? await LXUserAPIService.shared.resolveLyrics(for: track) {
             guard generation == resolveGeneration else { return }
@@ -809,7 +864,14 @@ final class PlayerService: ObservableObject {
                 return
             }
         }
-#endif
+
+        // Do not leave the lyric panel in a permanent loading state when no
+        // provider has lyrics for this track.
+        guard generation == resolveGeneration else { return }
+        lyrics = ParsedLyrics()
+        updateLyricsCursor(at: progress)
+        return
+#else
 
         // LX song IDs belong to their own platform and must not be sent
         // directly to NetEase. For an LX result, search NetEase by metadata
@@ -869,6 +931,8 @@ final class PlayerService: ObservableObject {
         }
 #endif
 
+#endif
+
         guard generation == resolveGeneration else { return }
         // A completed lookup should render an empty state instead of leaving
         // the lyric panel in an infinite loading spinner.
@@ -883,9 +947,11 @@ final class PlayerService: ObservableObject {
         scrobbled = true
         let seconds = completed ? Int(duration) : Int(progress)
         let sourceID = source.sourceID
+#if !os(iOS)
         Task.detached {
             await NeteaseAPI.scrobbleFinish(trackID: track.id, sourceID: sourceID, seconds: seconds)
         }
+#endif
     }
 
     // MARK: - Shuffle helpers

@@ -77,7 +77,6 @@ final class SearchViewModel: ObservableObject {
         hotKeywords = (try? await LXCatalogService.hotKeywords(platform: platform)) ?? []
     }
 }
-
 struct SearchView: View {
     let initialQuery: String
 

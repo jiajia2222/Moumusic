@@ -1,4 +1,8 @@
 import SwiftUI
+#if os(iOS)
+import MediaPlayer
+import UIKit
+#endif
 
 struct PlayerBar: View {
     @EnvironmentObject private var player: PlayerService
@@ -344,6 +348,20 @@ struct VolumeControl: View {
     @State private var showPopover = false
 
     var body: some View {
+#if os(iOS)
+        HStack(spacing: 6) {
+            Image(systemName: "speaker.fill")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            PlayerBarSystemVolumeSlider()
+                .frame(width: 96, height: 28)
+            Image(systemName: "speaker.wave.3.fill")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("系统音量")
+#else
         PlayerIconButton(icon: volumeIcon, size: 13) {
             showPopover.toggle()
         }
@@ -353,6 +371,7 @@ struct VolumeControl: View {
                 .padding(.horizontal, 10)
         }
         .help("音量")
+#endif
     }
 
     private var volumeIcon: String {
@@ -364,6 +383,20 @@ struct VolumeControl: View {
         }
     }
 }
+
+#if os(iOS)
+private struct PlayerBarSystemVolumeSlider: UIViewRepresentable {
+    func makeUIView(context: Context) -> MPVolumeView {
+        let view = MPVolumeView(frame: .zero)
+        view.showsRouteButton = false
+        view.showsVolumeSlider = true
+        view.tintColor = .secondaryLabel
+        return view
+    }
+
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
+}
+#endif
 
 struct VolumeSlider: View {
     @EnvironmentObject private var player: PlayerService

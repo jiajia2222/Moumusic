@@ -123,44 +123,59 @@ final class LXUserAPIService: ObservableObject {
     func resolveMusicURL(for track: Track, quality: String) async throws -> ResolvedURL {
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
-        enableCompatibilityProbeIfNeeded()
         guard context != nil else { throw LXError.noSource }
-        let primarySource = track.source?.isEmpty == false ? track.source! : "wy"
-        for platform in sourceCandidates(for: track) {
-            guard capabilities[platform]?.contains("musicUrl") == true else { continue }
+        guard capabilities.values.contains(where: { $0.contains("musicUrl") }) else {
+            throw LXError.sourceUnavailable(statusMessage)
+        }
+        let primarySource = track.source?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .flatMap { $0.isEmpty ? nil : $0 } ?? "wy"
+        var failures: [String] = []
+
+        for platform in sourceCandidates(for: track, action: "musicUrl") {
+            let platformName = LXCatalogPlatform(rawValue: platform)?.displayName ?? platform
             let requestTrack: Track
             if platform == primarySource {
                 requestTrack = track
             } else {
-                // Platform fallback must use a newly searched result with IDs
-                // belonging to that platform, never the original track's ID.
+                // IDs are platform-specific. A Kuwo RID cannot be sent to a
+                // Kugou/QQ/NetEase source, so look up a matching result first.
                 guard let matched = await LXCatalogService.matchingTrack(track, on: platform) else {
+                    failures.append("\(platformName)：找不到对应歌曲")
                     continue
                 }
                 requestTrack = matched
             }
+
             let requestedQuality = Self.lxQuality(for: quality,
                                                   supported: qualityCapabilities[platform] ?? [])
-            let info = musicInfo(for: requestTrack, platform: platform)
-            if let response = try? await request(source: platform, action: "musicUrl",
-                                                 info: ["type": requestedQuality, "musicInfo": info]),
-               let data = response["data"] as? [String: Any],
-               let rawURL = data["url"] as? String,
-               let url = URL(string: rawURL) {
+            do {
+                let response = try await request(source: platform, action: "musicUrl",
+                                                 info: ["type": requestedQuality,
+                                                        "musicInfo": musicInfo(for: requestTrack, platform: platform)])
+                guard let data = response["data"] as? [String: Any],
+                      let rawURL = data["url"] as? String,
+                      let url = URL(string: rawURL),
+                      let scheme = url.scheme?.lowercased(),
+                      scheme == "http" || scheme == "https" else {
+                    failures.append("\(platformName)：没有返回有效播放地址")
+                    continue
+                }
                 return ResolvedURL(url: url, quality: (data["type"] as? String) ?? requestedQuality)
+            } catch {
+                failures.append("\(platformName)：\(error.localizedDescription)")
             }
         }
-        throw LXError.resolveFailed
+        throw LXError.resolveFailed(failures.isEmpty
+            ? ["当前音源没有可用的 musicUrl 平台"]
+            : failures)
     }
 
     /// Performs a real, read-only musicUrl request against the selected LX
-    /// source. This deliberately checks a catalogue result and validates the
-    /// returned URL instead of treating script initialization alone as proof
-    /// that playback works.
+    /// source. The test metadata is bundled locally so health checks never
+    /// call a built-in music-platform catalogue endpoint.
     func checkSelectedSource() async -> SourceCheckResult {
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
-        enableCompatibilityProbeIfNeeded()
         guard LXSourceStore.shared.selectedSource != nil else {
             return SourceCheckResult(status: .unavailable,
                                      message: "未选择音源",
@@ -188,44 +203,46 @@ final class LXUserAPIService: ObservableObject {
         var failures: [String] = []
         for platform in supportedPlatforms {
             let platformName = LXCatalogPlatform(rawValue: platform)?.displayName ?? platform
-            let track: Track?
+            let track: Track
             if let current = PlayerService.shared.currentTrack, current.source == platform {
                 track = current
             } else {
-                let results = try? await LXCatalogService.search(
-                    "周杰伦 晴天",
-                    platform: LXCatalogPlatform(rawValue: platform)!,
-                    page: 1,
-                    limit: 1
-                )
-                track = results?.first
-            }
-            guard let track else {
-                failures.append("\(platformName)：找不到测试歌曲")
-                continue
+                let catalogPlatform = LXCatalogPlatform(rawValue: platform)
+                let result: [Track]?
+                if let catalogPlatform {
+                    result = try? await LXCatalogService.search("周杰伦 晴天", platform: catalogPlatform,
+                                                               page: 1, limit: 1)
+                } else {
+                    result = nil
+                }
+                track = result?.first ?? sourceCheckTrack(for: platform)
             }
 
             let requestedQuality = Self.lxQuality(for: SettingsManager.shared.audioQuality.rawValue,
                                                    supported: qualityCapabilities[platform] ?? [])
             let info = musicInfo(for: track, platform: platform)
-            guard let response = try? await request(source: platform, action: "musicUrl",
-                                                    info: ["type": requestedQuality, "musicInfo": info]),
-                  let data = response["data"] as? [String: Any],
-                  let rawURL = data["url"] as? String,
-                  let url = URL(string: rawURL),
-                  let scheme = url.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else {
-                failures.append("\(platformName)：没有返回有效播放地址")
-                continue
-            }
+            do {
+                let response = try await request(source: platform, action: "musicUrl",
+                                                 info: ["type": requestedQuality, "musicInfo": info])
+                guard let data = response["data"] as? [String: Any],
+                      let rawURL = data["url"] as? String,
+                      let url = URL(string: rawURL),
+                      let scheme = url.scheme?.lowercased(),
+                      scheme == "http" || scheme == "https" else {
+                    failures.append("\(platformName)：没有返回有效播放地址")
+                    continue
+                }
 
-            let actualQuality = (data["type"] as? String) ?? requestedQuality
-            let detail = "已通过 \(platformName) 的 musicUrl 接口，音质：\(actualQuality)"
-            let result = SourceCheckResult(status: .available,
-                                           message: "音源可用",
-                                           detail: detail)
-            statusMessage = "\(result.message)：\(detail)"
-            return result
+                let actualQuality = (data["type"] as? String) ?? requestedQuality
+                let detail = "已通过 \(platformName) 的 musicUrl 接口，音质：\(actualQuality)"
+                let result = SourceCheckResult(status: .available,
+                                               message: "音源可用",
+                                               detail: detail)
+                statusMessage = "\(result.message)：\(detail)"
+                return result
+            } catch {
+                failures.append("\(platformName)：\(error.localizedDescription)")
+            }
         }
 
         let detail = failures.isEmpty ? "音源没有返回可播放地址。" : failures.joined(separator: "；")
@@ -240,29 +257,48 @@ final class LXUserAPIService: ObservableObject {
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
         guard context != nil else { throw LXError.noSource }
-        for platform in sourceCandidates(for: track) {
+        let primarySource = track.source?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .flatMap { $0.isEmpty ? nil : $0 } ?? "wy"
+        for platform in sourceCandidates(for: track, action: "lyric") {
             guard capabilities[platform]?.contains("lyric") == true else { continue }
-            guard let response = try? await request(source: platform, action: "lyric",
-                                                    info: ["type": "lyric", "musicInfo": musicInfo(for: track, platform: platform)]),
-                  let data = response["data"] as? [String: Any],
-                  let lyric = data["lyric"] as? String,
-                  !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-            return ResolvedLyrics(lyric: lyric, tlyric: data["tlyric"] as? String,
-                                  rlyric: data["rlyric"] as? String, lxlyric: data["lxlyric"] as? String)
+            let requestTrack: Track
+            if platform == primarySource {
+                requestTrack = track
+            } else {
+                guard let matched = await LXCatalogService.matchingTrack(track, on: platform) else { continue }
+                requestTrack = matched
+            }
+            for attempt in 0..<2 {
+                guard let response = try? await request(source: platform, action: "lyric",
+                                                        info: ["type": "lyric", "musicInfo": musicInfo(for: requestTrack, platform: platform)]),
+                      let data = response["data"] as? [String: Any],
+                      let lyric = data["lyric"] as? String,
+                      !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    if attempt == 0 { try? await Task.sleep(for: .milliseconds(350)) }
+                    continue
+                }
+                return ResolvedLyrics(lyric: lyric, tlyric: data["tlyric"] as? String,
+                                      rlyric: data["rlyric"] as? String, lxlyric: data["lxlyric"] as? String)
+            }
         }
-        throw LXError.resolveFailed
+        throw LXError.resolveFailed([])
     }
 
     enum LXError: LocalizedError {
         case noSource
-        case resolveFailed
+        case resolveFailed([String])
+        case sourceUnavailable(String)
         case requestTimedOut
         case javascript(String)
 
         var errorDescription: String? {
             switch self {
-            case .noSource: return "请先在“我的 → LX 音源”中导入并启用音源"
-            case .resolveFailed: return "LX 音源没有返回可播放地址"
+            case .noSource: return "请先在“设置 → LX 音源”中导入并启用音源"
+            case .resolveFailed(let failures):
+                guard !failures.isEmpty else { return "LX 音源没有返回可播放地址" }
+                return failures.prefix(2).joined(separator: "；")
+            case .sourceUnavailable(let status):
+                return status.isEmpty ? "LX 音源尚未返回可用播放接口" : status
             case .javascript(let message): return message
             case .requestTimedOut: return "LX 音源请求超时，请检查音源服务器和网络后重试"
             }
@@ -353,7 +389,6 @@ final class LXUserAPIService: ObservableObject {
                     ? "音源已加载，但没有可用接口"
                     : "音源已加载（\(active.joined(separator: "；"))）"
             }
-            enableCompatibilityProbeIfNeeded()
         case "request":
             if let requestKey = payload["requestKey"] as? String,
                let url = payload["url"] as? String,
@@ -378,9 +413,11 @@ final class LXUserAPIService: ObservableObject {
     private func sendScriptRequest(requestKey: String, url: URL, options: [String: Any]) {
         var request = URLRequest(url: url)
         request.httpMethod = (options["method"] as? String ?? "GET").uppercased()
-        if options["headers"] == nil {
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-        }
+        // Match LX Mobile's request helper. A number of source backends reject
+        // URLSession's default identity or return HTML without these headers.
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
+                         forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let headers = options["headers"] as? [String: Any] {
             headers.forEach { request.setValue(String(describing: $0.value), forHTTPHeaderField: $0.key) }
         }
@@ -418,7 +455,9 @@ final class LXUserAPIService: ObservableObject {
                     "response": ["statusCode": http?.statusCode ?? 0,
                                   "statusMessage": HTTPURLResponse.localizedString(forStatusCode: http?.statusCode ?? 0),
                                   "headers": (http?.allHeaderFields ?? [:]).reduce(into: [:]) { $0[String(describing: $1.key)] = String(describing: $1.value) },
-                                  "body": body],
+                                  "body": body,
+                                  "url": http?.url?.absoluteString ?? url.absoluteString,
+                                  "ok": (200..<300).contains(http?.statusCode ?? 0)],
                 ]
                 if let error { result["error"] = error.localizedDescription }
                 self.callJS(action: "response", data: result)
@@ -436,57 +475,41 @@ final class LXUserAPIService: ObservableObject {
             callJS(action: "request", data: ["requestKey": requestKey,
                                                 "data": ["source": source, "action": action, "info": info]])
             Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(12))
+                try? await Task.sleep(for: .seconds(20))
                 guard let self,
-                      let pendingRequest = self.pending.removeValue(forKey: requestKey) else { return }
+                       let pendingRequest = self.pending.removeValue(forKey: requestKey) else { return }
+                self.tasks.removeValue(forKey: requestKey)?.cancel()
                 pendingRequest.resume(throwing: LXError.requestTimedOut)
             }
         }
     }
 
-    /// `init` is delivered through a main-actor callback. Resolution can start
-    /// in the same run-loop turn as source loading, so wait briefly for the
-    /// imported script's capability table before treating it as empty.
+    /// `init` is delivered through a main-actor callback. A number of user API
+    /// sources initialise through a short network request, so do not reject
+    /// the first playback request before that response has had a chance to
+    /// arrive.  We still stop after a bounded interval and report the source
+    /// state instead of inventing capabilities.
     private func waitForSourceReady() async {
         guard LXSourceStore.shared.selectedSource != nil else { return }
-        for _ in 0..<24 {
-            if !capabilities.isEmpty || context == nil { return }
+        for _ in 0..<120 {
+            if !capabilities.isEmpty || context == nil || pendingInitializationID == nil { return }
             try? await Task.sleep(for: .milliseconds(50))
         }
     }
 
-    /// Some legacy LX scripts register a request handler but never send an
-    /// `inited` capability table (or their remote init endpoint is slow).
-    /// Do not leave the UI in a permanent loading state: enable a conservative
-    /// probe mode so playback and the test action can ask the script directly.
-    /// A source is only reported as usable after it returns a real music URL.
+    /// Never leave the manager in a permanent loading state.  Crucially this
+    /// timeout must not manufacture a platform/quality capability table: that
+    /// made unsupported routes appear selectable and broke genuine playback.
     private func scheduleInitializationFallback(for sourceID: String) {
         sourceInitializationTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(4))
+            try? await Task.sleep(for: .seconds(6))
             guard !Task.isCancelled,
                   let self,
                   self.pendingInitializationID == sourceID,
                   self.loadedID == sourceID else { return }
-            self.enableCompatibilityProbeIfNeeded()
             self.pendingInitializationID = nil
+            self.statusMessage = "音源未在 6 秒内返回平台能力，请重新加载或更换音源"
         }
-    }
-
-    private func enableCompatibilityProbeIfNeeded() {
-        guard context != nil else { return }
-        let hasMusicURL = capabilities.values.contains { $0.contains("musicUrl") }
-        guard !hasMusicURL,
-              let source = LXSourceStore.shared.selectedSource,
-              source.id == loadedID,
-              source.script.range(of: "musicUrl", options: .caseInsensitive) != nil else {
-            return
-        }
-
-        let platforms = ["wy", "kw", "kg", "tx", "mg"]
-        let qualities = ["128k", "320k", "flac", "flac24bit"]
-        capabilities = Dictionary(uniqueKeysWithValues: platforms.map { ($0, ["musicUrl"]) })
-        qualityCapabilities = Dictionary(uniqueKeysWithValues: platforms.map { ($0, qualities) })
-        statusMessage = "音源未返回能力清单，已启用兼容探测"
     }
 
     private func callJS(action: String, data: Any? = nil) {
@@ -500,26 +523,51 @@ final class LXUserAPIService: ObservableObject {
         _ = function.call(withArguments: encoded == nil ? [key, action] : [key, action, encoded!])
     }
 
-    private func sourceCandidates(for track: Track) -> [String] {
-        var values: [String] = []
-        if let source = track.source, !source.isEmpty { values.append(source) }
+    private func sourceCandidates(for track: Track, action: String = "musicUrl") -> [String] {
+        let primary = track.source?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .flatMap { $0.isEmpty ? nil : $0 } ?? "wy"
+        var values = [primary]
         if SettingsManager.shared.enableSourcePlatformFallback {
             values.append(contentsOf: ["wy", "kw", "kg", "tx", "mg"])
         }
         var seen = Set<String>()
-        return values.filter { capabilities[$0] != nil && seen.insert($0).inserted }
+        return values.filter { platform in
+            capabilities[platform]?.contains(action) == true && seen.insert(platform).inserted
+        }
+    }
+
+    /// This is only request metadata for the source's health check. It is not
+    /// a playback catalogue and it never leaves the device except as part of
+    /// the user-selected source's own `musicUrl` request.
+    private func sourceCheckTrack(for platform: String) -> Track {
+        Track(
+            id: 186_016,
+            name: "晴天",
+            artists: [ArtistRef(id: 1, name: "周杰伦")],
+            album: AlbumRef(id: 0, name: "音源连通性测试", picUrl: nil),
+            durationMS: 269_000,
+            source: platform,
+            sourceMetadata: [
+                "id": "186016",
+                "songmid": "186016",
+                "songId": "186016",
+                "copyrightId": "186016",
+            ]
+        )
     }
 
     func availableQualityNames(for track: Track) async -> [String] {
         ensureSelectedSourceLoaded()
-        await waitForSourceReady()
-        enableCompatibilityProbeIfNeeded()
+        guard LXSourceStore.shared.selectedSource != nil else { return [] }
         var names: [String] = []
-        for platform in sourceCandidates(for: track) {
+        for platform in sourceCandidates(for: track, action: "musicUrl") {
             names.append(contentsOf: qualityCapabilities[platform] ?? [])
         }
         let order = ["128k", "320k", "flac", "flac24bit"]
-        return order.filter { names.contains($0) }
+        // Source capabilities may still be arriving when the user opens the
+        // song page. Keep the quality control usable; resolution will request
+        // the chosen type and transparently choose the closest declared type.
+        return names.isEmpty ? order : order.filter { names.contains($0) }
     }
 
     private func musicInfo(for track: Track, platform: String) -> [String: Any] {
