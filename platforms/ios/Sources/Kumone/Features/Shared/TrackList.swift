@@ -233,6 +233,11 @@ struct TrackRow: View {
         Button("下一首播放") {
             player.addToPlayNext(track)
         }
+#if os(iOS)
+        Button("下载") {
+            DownloadManager.shared.download(track)
+        }
+#endif
         Divider()
         Button("收藏到歌单…") {
             showAddToPlaylist = true

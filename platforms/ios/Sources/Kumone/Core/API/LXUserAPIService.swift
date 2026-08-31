@@ -19,6 +19,7 @@ final class LXUserAPIService: ObservableObject {
         let tlyric: String?
         let rlyric: String?
         let lxlyric: String?
+        let yrc: String?
     }
 
     struct SourceCheckResult: Equatable {
@@ -159,10 +160,10 @@ final class LXUserAPIService: ObservableObject {
                     failures.append("\(platformName)：没有返回有效播放地址")
                     continue
                 }
-                let actualQuality = (data["type"] as? String)
+                let actualQuality = Self.normalizedQuality((data["type"] as? String)
                     ?? (data["quality"] as? String)
                     ?? (data["format"] as? String)
-                    ?? requestedQuality
+                    ?? requestedQuality)
                 return ResolvedURL(url: url, quality: actualQuality)
             } catch {
                 failures.append("\(platformName)：\(error.localizedDescription)")
@@ -294,6 +295,7 @@ final class LXUserAPIService: ObservableObject {
         var tlyric: String?
         var rlyric: String?
         var lxlyric: String?
+        var yrc: String?
 
         if let object {
             func text(_ keys: [String]) -> String? {
@@ -309,6 +311,7 @@ final class LXUserAPIService: ObservableObject {
             tlyric = text(["tlyric", "translation", "translatedLyric"])
             rlyric = text(["rlyric", "romalrc", "romaji"])
             lxlyric = text(["lxlyric"])
+            yrc = text(["yrc", "verbatim", "wordLyric"])
 
             if lyric == nil,
                let urlString = text(["lrcUrl", "lyricUrl", "url"]),
@@ -319,8 +322,10 @@ final class LXUserAPIService: ObservableObject {
             }
         }
 
-        guard let lyric, !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return ResolvedLyrics(lyric: lyric, tlyric: tlyric, rlyric: rlyric, lxlyric: lxlyric)
+        guard let lyric = lyric ?? yrc,
+              !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return ResolvedLyrics(lyric: lyric, tlyric: tlyric, rlyric: rlyric,
+                              lxlyric: lxlyric, yrc: yrc)
     }
 
     enum LXError: LocalizedError {
@@ -625,16 +630,17 @@ final class LXUserAPIService: ObservableObject {
 
     func availableQualityNames(for track: Track) async -> [String] {
         ensureSelectedSourceLoaded()
+        await waitForSourceReady()
         guard LXSourceStore.shared.selectedSource != nil else { return [] }
-        var names: [String] = []
-        for platform in sourceCandidates(for: track, action: "musicUrl") {
-            names.append(contentsOf: qualityCapabilities[platform] ?? [])
-        }
+        let primary = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
+        // The picker describes the requested track's platform. Do not union
+        // fallback platforms, otherwise it offers FLAC/Hi-Res that the active
+        // source cannot actually serve.
+        let names = qualityCapabilities[primary] ?? []
         let order = ["128k", "320k", "flac", "flac24bit"]
-        // Source capabilities may still be arriving when the user opens the
-        // song page. Keep the quality control usable; resolution will request
-        // the chosen type and transparently choose the closest declared type.
-        return names.isEmpty ? order : order.filter { names.contains($0) }
+        // An undeclared capability is conservatively treated as standard
+        // quality. The resolver applies the same downgrade at request time.
+        return names.isEmpty ? ["128k"] : order.filter { names.contains($0) }
     }
 
     private func musicInfo(for track: Track, platform: String) -> [String: Any] {
@@ -689,12 +695,23 @@ final class LXUserAPIService: ObservableObject {
         case "hires": requested = "flac24bit"
         default: requested = "320k"
         }
-        guard !supported.isEmpty else { return requested }
+        guard !supported.isEmpty else { return "128k" }
         let order = ["128k", "320k", "flac", "flac24bit"]
         guard let requestedIndex = order.firstIndex(of: requested) else { return supported[0] }
         return order[...requestedIndex].reversed().first(where: supported.contains)
             ?? supported.first
             ?? "128k"
+    }
+
+    private static func normalizedQuality(_ value: String) -> String {
+        let value = value.lowercased().replacingOccurrences(of: " ", with: "")
+        switch value {
+        case "128", "128k", "mp3": return "128k"
+        case "320", "320k": return "320k"
+        case "flac", "lossless", "ape": return "flac"
+        case "flac24", "flac24bit", "hires", "highres": return "flac24bit"
+        default: return value
+        }
     }
 }
 

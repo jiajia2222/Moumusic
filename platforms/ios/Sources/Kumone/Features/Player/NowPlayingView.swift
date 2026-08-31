@@ -952,24 +952,22 @@ struct LyricMainText: View {
         }
     }
 
-    /// One concatenated `Text` (so it wraps) with per-character opacity: sung
-    /// characters are bright, the current one fades in, unsung stay dim.
-    private func karaoke(_ words: [LyricWord], at time: TimeInterval) -> Text {
-        let unsung = 0.28
-        var out = Text(verbatim: "")
-        for word in words {
-            let chars = Array(word.text)
-            let per = chars.isEmpty ? word.duration : word.duration / Double(chars.count)
-            for (i, ch) in chars.enumerated() {
-                let charStart = word.start + per * Double(i)
-                let frac = per > 0 ? min(max((time - charStart) / per, 0), 1)
-                                   : (time >= charStart ? 1 : 0)
-                let alpha = unsung + (1 - unsung) * frac
-                out = out + Text(verbatim: String(ch)).foregroundColor(.white.opacity(alpha))
-            }
-        }
-        return out
-    }
+      /// One concatenated `Text` (so it wraps) with the exact opacity of each
+      /// source-timed word/run. LX/NetEase verbatim data already contains the
+      /// timing for each run; subdividing it by character creates drift.
+      private func karaoke(_ words: [LyricWord], at time: TimeInterval) -> Text {
+          let unsung = 0.28
+          var out = Text(verbatim: "")
+          for word in words {
+              let fraction = word.duration > 0
+                  ? min(max((time - word.start) / word.duration, 0), 1)
+                  : (time >= word.start ? 1 : 0)
+              let alpha = unsung + (1 - unsung) * fraction
+              out = out + Text(verbatim: word.text)
+                  .foregroundColor(.white.opacity(alpha))
+          }
+          return out
+      }
 }
 
 private struct QualityPickerSheet: View {
@@ -1297,6 +1295,14 @@ private struct CompactTrackHeader: View {
                         } label: {
                             Label("加入歌单…", systemImage: "music.note.list")
                         }
+
+#if os(iOS)
+                        Button {
+                            DownloadManager.shared.download(track)
+                        } label: {
+                            Label("下载", systemImage: "arrow.down.circle")
+                        }
+#endif
 
                         Divider()
 

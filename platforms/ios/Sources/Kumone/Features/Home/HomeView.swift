@@ -43,6 +43,22 @@ final class HomeViewModel: ObservableObject {
     func load(loggedIn: Bool, mode: HomeRecommendationMode,
               platform: LXCatalogPlatform) async {
         if loadedMode == mode, loadedPlatform == platform, case .loaded = state { return }
+        // The first catalogue request can race app/network startup. Retry one
+        // time before exposing the error state; this is the same transient
+        // failure users currently work around by pulling to refresh.
+        for attempt in 0..<2 {
+            await loadOnce(loggedIn: loggedIn, mode: mode, platform: platform)
+            if case .loaded = state { return }
+            if attempt == 0 {
+                try? await Task.sleep(for: .milliseconds(450))
+                loadedMode = nil
+                loadedPlatform = nil
+            }
+        }
+    }
+
+    private func loadOnce(loggedIn: Bool, mode: HomeRecommendationMode,
+                          platform: LXCatalogPlatform) async {
         activeMode = mode
         activePlatform = mode == .netease ? .wy : platform
         loadedMode = mode
