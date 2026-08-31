@@ -4,6 +4,8 @@
 
 # Moumusic
 
+# 仅供学习使用，请在24h内删除
+
 **面向 iOS 与 Android 的多音源音乐客户端**
 
 iOS 原生 SwiftUI · LX User API 音源 · Android LX Music Mobile
