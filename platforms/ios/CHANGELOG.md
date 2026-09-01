@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.0 - 2026-09-01
+
+### Added
+
+- iOS: embed the Moumusic lyrics widget extension in the application target and share the current lyric through the App Group.
+- iOS: imported LX source metadata now accepts numeric versions, nested `info` exports, JSON arrays, BOMs, and JSON wrapped by comments.
+
+### Fixed
+
+- iOS: imported source versions are preserved and displayed from the source export instead of being silently dropped.
+- Android and iOS: synchronize the application version and build number for the 1.0.0 release.
+
 ## 0.6.6 - 2026-08-31
 
 ### Fixed

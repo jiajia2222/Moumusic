@@ -12,7 +12,12 @@ struct LyricsWidgetEntry: TimelineEntry {
 
 struct LyricsWidgetProvider: TimelineProvider {
     func placeholder(in context: Context) -> LyricsWidgetEntry {
-        LyricsWidgetEntry(date: .now, title: "Moumusic", artist: "", lyric: "播放歌曲后显示实时歌词")
+        LyricsWidgetEntry(
+            date: .now,
+            title: "Moumusic",
+            artist: "",
+            lyric: "播放歌曲后显示实时歌词"
+        )
     }
 
     func getSnapshot(in context: Context, completion: @escaping (LyricsWidgetEntry) -> Void) {
@@ -58,7 +63,11 @@ struct MoumusicLyricsWidgetView: View {
             }
         }
         .background {
-            LinearGradient(colors: [.pink.opacity(0.24), .orange.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(
+                colors: [.pink.opacity(0.24), .orange.opacity(0.14)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
     }
 }
@@ -72,7 +81,7 @@ struct MoumusicLyricsWidget: Widget {
             MoumusicLyricsWidgetView(entry: entry)
         }
         .configurationDisplayName("Moumusic 歌词")
-        .description("显示当前播放歌曲的同步歌词")
+        .description("显示当前播放歌曲的实时歌词")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline])
     }
 }

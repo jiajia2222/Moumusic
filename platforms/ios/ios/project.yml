@@ -23,6 +23,7 @@ targets:
     dependencies:
       - package: KumoneIOSPackage
         product: KumoneIOSFeature
+      - target: MoumusicWidget
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: Config/KumoneIOS.entitlements
