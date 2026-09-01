@@ -438,6 +438,8 @@ enum NeteaseAPI {
 
     struct CommentResponse: Decodable {
         let comments: [CommentItem]
+        let hotComments: [CommentItem]
+        let topComments: [CommentItem]
         let total: Int?
 
         private struct CommentData: Decodable {
@@ -452,12 +454,15 @@ enum NeteaseAPI {
             let directHot = (try? container.decode([CommentItem].self, forKey: .hotComments)) ?? []
             let directTop = (try? container.decode([CommentItem].self, forKey: .topComments)) ?? []
             let data = try? container.decode(CommentData.self, forKey: .data)
-            let nested = directTop + directHot + (data?.hotComments ?? []) + (data?.comments ?? [])
-
-            // New responses nest hot and normal comments below `data`; older
-            // responses put `comments` at the top level.
-            var seen = Set<Int>()
-            comments = (nested + direct).filter { seen.insert($0.id).inserted }
+            // Keep latest, popular, and pinned comments separate so the UI
+            // can switch modes without mixing the server's result sets.
+            func unique(_ values: [CommentItem]) -> [CommentItem] {
+                var seen = Set<Int>()
+                return values.filter { seen.insert($0.id).inserted }
+            }
+            comments = unique(direct + (data?.comments ?? []))
+            hotComments = unique(directHot + (data?.hotComments ?? []))
+            topComments = unique(directTop)
             total = (try? container.decode(Int.self, forKey: .total)) ?? data?.total
         }
 
@@ -467,12 +472,18 @@ enum NeteaseAPI {
     }
 
     /// Public comments are metadata only and do not require a NetEase login.
-    static func comments(for songID: Int, limit: Int = 50, offset: Int = 0) async throws -> CommentResponse {
+    enum CommentOrder: Int {
+        case hot = 1
+        case latest = 2
+    }
+
+    static func comments(for songID: Int, limit: Int = 50, offset: Int = 0,
+                         order: CommentOrder = .hot) async throws -> CommentResponse {
         let threadID = "R_SO_4_\(songID)"
         let payload: [String: Any] = ["rid": threadID, "threadId": threadID,
                                       "pageNo": offset / max(limit, 1) + 1,
                                       "pageSize": limit, "cursor": "-1",
-                                      "offset": offset, "orderType": 1]
+                                      "offset": offset, "orderType": order.rawValue]
 
         // The newer endpoint can return an empty payload for public IDs. Try
         // the legacy encrypted route, then the public REST route.
@@ -489,7 +500,7 @@ enum NeteaseAPI {
         }
 
         let publicData = try await client.publicGet(
-            "/v1/resource/comments/\(threadID)?limit=\(limit)&offset=\(offset)")
+            "/v1/resource/comments/\(threadID)?limit=\(limit)&offset=\(offset)&orderType=\(order.rawValue)")
         return try client.decoded(CommentResponse.self, from: publicData)
     }
 

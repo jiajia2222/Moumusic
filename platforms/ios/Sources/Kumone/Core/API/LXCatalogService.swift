@@ -437,6 +437,10 @@ enum LXCatalogService {
         }
     }
 
+    private static func firstText(_ values: Any?...) -> String? {
+        values.compactMap { text($0) }.first { !$0.isEmpty }
+    }
+
     private static func int(_ value: Any?) -> Int? {
         if let value = value as? Int { return value }
         if let value = value as? NSNumber { return value.intValue }
@@ -1127,10 +1131,60 @@ enum LXCatalogService {
                                     playCount: response.playlist.playCount,
                                     tracks: tracks.map { $0.withSource("wy") }, source: .wy)
         case .kw:
-            let listID = id.components(separatedBy: "__").last ?? id
-            let url = URL(string: "https://nplserver.kuwo.cn/pl.svc?op=getlistinfo&pid=\(listID)&pn=0&rn=1000&encode=utf8&keyset=pl2012&identity=kuwo&pcmp4=1&vipver=MUSIC_9.0.5.0_W1&newver=1")!
-            let root = try await fetchObject(url) as? [String: Any]
-            let rawTracks = root?["musiclist"] as? [[String: Any]] ?? []
+            let parts = id.components(separatedBy: "__")
+            let listID = parts.last ?? id
+            let digest = parts.first?.hasPrefix("digest-") == true
+                ? parts.first?.replacingOccurrences(of: "digest-", with: "")
+                : nil
+
+            // LX's Kuwo adapter has two detail families. Digest 8 uses the
+            // playlist id directly; digest 5 (and old/unknown digest values)
+            // first resolves the public node through qukudata. Sending the
+            // original id directly makes those valid lists look malformed.
+            let detailID: String
+            if let digest, digest != "8" {
+                var resolver = URLComponents(string: "https://qukudata.kuwo.cn/q.k")!
+                resolver.queryItems = [
+                    URLQueryItem(name: "op", value: "query"),
+                    URLQueryItem(name: "cont", value: "ninfo"),
+                    URLQueryItem(name: "node", value: listID),
+                    URLQueryItem(name: "pn", value: "0"),
+                    URLQueryItem(name: "rn", value: "1"),
+                    URLQueryItem(name: "fmt", value: "json"),
+                    URLQueryItem(name: "src", value: "mbox"),
+                    URLQueryItem(name: "level", value: "2"),
+                ]
+                let resolverRoot = try await fetchObject(resolver.url!) as? [String: Any]
+                let children = resolverRoot?["child"] as? [[String: Any]] ?? []
+                guard let sourceID = text(children.first?["sourceid"]), !sourceID.isEmpty else {
+                    throw LXCatalogError.invalidResponse
+                }
+                detailID = sourceID
+            } else {
+                detailID = listID
+            }
+
+            var components = URLComponents(string: "https://nplserver.kuwo.cn/pl.svc")!
+            components.queryItems = [
+                URLQueryItem(name: "op", value: "getlistinfo"),
+                URLQueryItem(name: "pid", value: detailID),
+                URLQueryItem(name: "pn", value: "0"),
+                URLQueryItem(name: "rn", value: "1000"),
+                URLQueryItem(name: "encode", value: "utf8"),
+                URLQueryItem(name: "keyset", value: "pl2012"),
+                URLQueryItem(name: "identity", value: "kuwo"),
+                URLQueryItem(name: "pcmp4", value: "1"),
+                URLQueryItem(name: "vipver", value: "MUSIC_9.0.5.0_W1"),
+                URLQueryItem(name: "newver", value: "1"),
+            ]
+            let root = try await fetchObject(components.url!) as? [String: Any]
+            guard text(root?["result"]) == nil || text(root?["result"]) == "ok" else {
+                throw LXCatalogError.invalidResponse
+            }
+            let rawTracks = (root?["musiclist"] as? [[String: Any]])
+                ?? (root?["musiclist"] as? [Any])?.compactMap { $0 as? [String: Any] }
+                ?? (((root?["data"] as? [String: Any])?["musiclist"] as? [Any])?.compactMap { $0 as? [String: Any] })
+                ?? []
             guard !rawTracks.isEmpty else { throw LXCatalogError.invalidResponse }
             let tracks = rawTracks.compactMap { track(from: $0, source: .kw) }
             guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
@@ -1170,9 +1224,20 @@ enum LXCatalogService {
                                     tracks: tracks, source: .mg)
         case .kg:
             let cleanID = id.replacingOccurrences(of: "id_", with: "")
-            let url = URL(string: "https://www.kugou.com/yy/special/single/\(cleanID).html")!
-            let html = try await fetchText(url)
-            guard let json = firstCapture(#"var\s+data\s*=\s*(\[[\s\S]*?\])\s*,\s*specialData"#, in: html),
+            // This is the endpoint used by LX Mobile's Kugou adapter. The
+            // newer page exposes `global.data`; the legacy page exposes
+            // `var data`, so accept both during Kugou's gradual migration.
+            let primaryURL = URL(string: "http://www2.kugou.kugou.com/yueku/v9/special/single/\(cleanID)-5-9999.html")!
+            let legacyURL = URL(string: "https://www.kugou.com/yy/special/single/\(cleanID).html")!
+            let primaryHTML = try? await fetchText(primaryURL)
+            let html: String
+            if let primaryHTML,
+               firstCapture(#"(?:global\.data|var\s+data)\s*=\s*(\[[\s\S]*?\])(?:\s*;|\s*,\s*specialData)"#, in: primaryHTML) != nil {
+                html = primaryHTML
+            } else {
+                html = try await fetchText(legacyURL)
+            }
+            guard let json = firstCapture(#"(?:global\.data|var\s+data)\s*=\s*(\[[\s\S]*?\])(?:\s*;|\s*,\s*specialData)"#, in: html),
                   let data = json.data(using: .utf8),
                   let rawTracks = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
                 throw LXCatalogError.invalidResponse
@@ -1193,6 +1258,8 @@ enum LXCatalogService {
     private static func track(from item: [String: Any], source: LXCatalogPlatform) -> Track? {
         let nestedAlbum = item["album"] as? [String: Any]
         let nestedFile = item["file"] as? [String: Any]
+        let nestedAudio = item["audio_info"] as? [String: Any]
+        let nestedAlbumInfo = item["album_info"] as? [String: Any]
         let rawID: String?
         let name: String
         let artistText: String?
@@ -1215,19 +1282,29 @@ enum LXCatalogService {
             if let rawID { metadata["songmid"] = rawID; metadata["albumId"] = String(albumID) }
             if let albumImageURL { metadata["coverURL"] = albumImageURL }
         case .kg:
-            let hash = text(item["hash"]) ?? text(item["FileHash"]) ?? ""
-            rawID = text(item["audio_id"]) ?? text(item["Audioid"]) ?? text(item["songid"]) ?? hash
-            name = text(item["songname"]) ?? text(item["SongName"]) ?? text(item["filename"]) ?? ""
-            artistText = text(item["singername"]) ?? text(item["Singers"])
-            albumID = int(item["album_id"]) ?? int(item["AlbumID"]) ?? 0
-            albumName = text(item["album_name"]) ?? text(item["AlbumName"]) ?? ""
-            durationValue = item["timelength"] ?? item["timelength_320"] ?? item["duration"] ?? item["Duration"]
+            let hash = firstText(item["hash"], item["FileHash"], nestedAudio?["hash"]) ?? ""
+            rawID = firstText(item["audio_id"], item["Audioid"], item["songid"],
+                              nestedAudio?["audio_id"], nestedAudio?["songid"], hash)
+            name = firstText(item["songname"], item["SongName"], nestedAudio?["songname"],
+                             item["filename"]) ?? ""
+            artistText = firstText(item["singername"], item["Singers"], item["author_name"],
+                                   nestedAudio?["singername"], nestedAudio?["author_name"])
+            albumID = int(item["album_id"]) ?? int(item["AlbumID"])
+                ?? int(nestedAlbumInfo?["album_id"]) ?? 0
+            albumName = firstText(item["album_name"], item["AlbumName"],
+                                  nestedAlbumInfo?["album_name"]) ?? ""
+            durationValue = item["timelength"] ?? item["timelength_320"] ?? item["duration"]
+                ?? item["Duration"] ?? nestedAudio?["timelength"] ?? nestedAudio?["duration"]
             albumImageURL = kugouImageURL(item)
             if !hash.isEmpty { metadata["hash"] = hash }
             if let rawID { metadata["songmid"] = rawID }
             metadata["albumId"] = String(albumID)
-            if let hash320 = text(item["hash_320"]), !hash320.isEmpty { metadata["hash320"] = hash320 }
-            if let hashFlac = text(item["hash_flac"]), !hashFlac.isEmpty { metadata["hashflac"] = hashFlac }
+            if let hash320 = firstText(item["hash_320"], nestedAudio?["hash_320"]), !hash320.isEmpty {
+                metadata["hash320"] = hash320
+            }
+            if let hashFlac = firstText(item["hash_flac"], nestedAudio?["hash_flac"]), !hashFlac.isEmpty {
+                metadata["hashflac"] = hashFlac
+            }
             if let albumImageURL { metadata["coverURL"] = albumImageURL }
         case .tx:
             rawID = text(item["mid"]) ?? text(item["songmid"]) ?? text(item["id"])
@@ -1264,7 +1341,11 @@ enum LXCatalogService {
         }
 
         guard let rawID, !rawID.isEmpty else { return nil }
-        let numericID = Int(rawID) ?? abs(rawID.hashValue)
+        // `hashValue` is randomized by Swift for every process. It cannot be
+        // used as a queue identity: a persisted Kugou item would change IDs
+        // after relaunch and could be resolved as another song. Keep numeric
+        // provider ids, otherwise derive a stable positive FNV-1a value.
+        let numericID = Int(rawID) ?? stableNumericID(rawID)
         guard numericID > 0 else { return nil }
         return Track(id: numericID, name: name, artists: artists(from: artistText),
                      album: AlbumRef(id: albumID, name: albumName, picUrl: albumImageURL),
@@ -1277,6 +1358,15 @@ enum LXCatalogService {
             return value / 1000
         }
         return seconds(value)
+    }
+
+    private static func stableNumericID(_ value: String) -> Int {
+        var hash: UInt64 = 14695981039346656037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1099511628211
+        }
+        return Int(hash & 0x3fff_ffff_ffff_ffff) + 1
     }
 
     private static func firstCapture(_ pattern: String, in text: String) -> String? {
