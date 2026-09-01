@@ -489,13 +489,13 @@ enum NeteaseAPI {
         // the legacy encrypted route, then the public REST route.
         if let response = try? await weapi(CommentResponse.self,
                                            "/comment/resource/comments/get", payload),
-           !response.comments.isEmpty {
+           !response.comments.isEmpty || !response.hotComments.isEmpty || !response.topComments.isEmpty {
             return response
         }
         if let response = try? await weapi(CommentResponse.self, "/comment/music",
                                            ["id": songID, "limit": limit,
                                             "offset": offset, "total": true, "before": 0]),
-           !response.comments.isEmpty {
+           !response.comments.isEmpty || !response.hotComments.isEmpty || !response.topComments.isEmpty {
             return response
         }
 
