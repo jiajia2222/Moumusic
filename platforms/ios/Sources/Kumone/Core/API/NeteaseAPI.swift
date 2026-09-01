@@ -416,11 +416,16 @@ enum NeteaseAPI {
         let user: CommentUser?
         let time: Int64?
 
-        private enum CodingKeys: String, CodingKey { case id, content, likedCount, user, time }
+        private enum CodingKeys: String, CodingKey {
+            case id, commentId, content, likedCount, user, time
+        }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            id = try container.decode(Int.self, forKey: .id)
+            // The public resource endpoint calls this field `commentId`,
+            // while older encrypted responses used `id`.
+            id = (try? container.decode(Int.self, forKey: .commentId))
+                ?? container.decode(Int.self, forKey: .id)
             content = (try? container.decode(String.self, forKey: .content)) ?? ""
             likedCount = (try? container.decode(Int.self, forKey: .likedCount)) ?? 0
             user = try? container.decode(CommentUser.self, forKey: .user)
@@ -441,8 +446,10 @@ enum NeteaseAPI {
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             let direct = (try? container.decode([CommentItem].self, forKey: .comments)) ?? []
+            let directHot = (try? container.decode([CommentItem].self, forKey: .hotComments)) ?? []
+            let directTop = (try? container.decode([CommentItem].self, forKey: .topComments)) ?? []
             let data = try? container.decode(CommentData.self, forKey: .data)
-            let nested = (data?.hotComments ?? []) + (data?.comments ?? [])
+            let nested = directTop + directHot + (data?.hotComments ?? []) + (data?.comments ?? [])
 
             // New responses nest hot and normal comments below `data`; older
             // responses put `comments` at the top level.
@@ -451,7 +458,9 @@ enum NeteaseAPI {
             total = (try? container.decode(Int.self, forKey: .total)) ?? data?.total
         }
 
-        private enum CodingKeys: String, CodingKey { case comments, total, data }
+        private enum CodingKeys: String, CodingKey {
+            case comments, hotComments, topComments, total, data
+        }
     }
 
     /// Public comments are metadata only and do not require a NetEase login.

@@ -288,7 +288,11 @@ enum LyricsParser {
             }
         }
 
-        merge(response.ytlrc?.lyric ?? response.tlyric?.lyric, into: \.translation)
+        // Some responses include a partial ytlrc body and a complete tlyric
+        // body. Merge both instead of letting the first non-nil field hide
+        // translations that exist in the second one.
+        merge(response.ytlrc?.lyric, into: \.translation)
+        merge(response.tlyric?.lyric, into: \.translation)
         merge(response.yromalrc?.lyric ?? response.romalrc?.lyric, into: \.romaji)
 
         // Romaji is only meaningful for Japanese lyrics: fill the gaps Netease

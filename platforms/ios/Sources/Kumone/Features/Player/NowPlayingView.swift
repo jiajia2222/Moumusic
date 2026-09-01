@@ -973,7 +973,7 @@ struct NowPlayingView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .blur(radius: isActive ? 0 : 0.6)
-            .scaleEffect(isActive ? 1.02 : 1, anchor: .leading)
+            .scaleEffect(1, anchor: .leading)
         }
         .buttonStyle(.plain)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isActive)
@@ -998,6 +998,7 @@ struct LyricMainText: View {
         if isActive, verbatim, let words = line.words, !words.isEmpty {
             TimelineView(.animation(paused: !player.isPlaying)) { _ in
                 karaoke(words, at: player.livePlaybackTime + settings.lyricsOffset).font(font)
+                    .minimumScaleFactor(0.72)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
@@ -1243,7 +1244,9 @@ private struct IOSImmersiveLyricsColumn: View {
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .scaleEffect(isActive ? 1.07 : 0.82, anchor: .leading)
+            // Keep the focused line at its natural width. Scaling a long
+            // English line by 7% makes it clip at the phone edge.
+            .scaleEffect(isActive ? 1.0 : 0.82, anchor: .leading)
         }
         .buttonStyle(.plain)
         .animation(.spring(response: 0.28, dampingFraction: 0.9), value: isActive)
@@ -2047,7 +2050,7 @@ private struct IOSMinimalLyricsColumn: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
                         .fixedSize(horizontal: false, vertical: true)
-                        .scaleEffect(isActive ? 1.02 : 12.0 / 13.0, anchor: .leading)
+                        .scaleEffect(isActive ? 1 : 12.0 / 13.0, anchor: .leading)
                 }
 
                 LyricMainText(
@@ -2056,14 +2059,14 @@ private struct IOSMinimalLyricsColumn: View {
                     verbatim: settings.verbatimLyrics
                 )
                     .fixedSize(horizontal: false, vertical: true)
-                    .scaleEffect(isActive ? 1.02 : 16.0 / 17.0, anchor: .leading)
+                    .scaleEffect(isActive ? 1 : 16.0 / 17.0, anchor: .leading)
 
                 if settings.showLyricsTranslation, let translation = line.translation {
                     Text(translation)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
                         .fixedSize(horizontal: false, vertical: true)
-                        .scaleEffect(isActive ? 1.02 : 12.0 / 13.0, anchor: .leading)
+                        .scaleEffect(isActive ? 1 : 12.0 / 13.0, anchor: .leading)
                 }
             }
             .multilineTextAlignment(.leading)
@@ -2075,7 +2078,7 @@ private struct IOSMinimalLyricsColumn: View {
                     .fill(.white.opacity(isSelected ? 0.14 : 0))
             )
             .contentShape(Rectangle())
-            .padding(.trailing, availableWidth * (1 - 1 / 1.02))
+            .padding(.trailing, 0)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])

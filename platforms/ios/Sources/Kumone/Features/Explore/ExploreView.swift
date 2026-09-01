@@ -20,10 +20,14 @@ final class ExploreViewModel: ObservableObject {
 
     private var page = 1
     private var loadTask: Task<Void, Never>?
+    private var requestGeneration = 0
 
     func prepare(platform: LXCatalogPlatform) {
         guard platform != self.platform else { return }
         self.platform = platform
+        requestGeneration += 1
+        loadTask?.cancel()
+        isLoading = false
         playlists = []
         tracks = []
         toplists = []
@@ -40,7 +44,9 @@ final class ExploreViewModel: ObservableObject {
     }
 
     func select(_ category: String) {
-        guard category != selectedCategory || playlists.isEmpty else { return }
+        requestGeneration += 1
+        loadTask?.cancel()
+        isLoading = false
         selectedCategory = category
         playlists = []
         tracks = []
@@ -48,14 +54,32 @@ final class ExploreViewModel: ObservableObject {
         page = 1
         hasMore = true
         errorMessage = nil
+        loadTask = Task { await loadMore() }
+    }
+
+    /// Re-entering the Featured tab is an explicit refresh. Keep the source
+    /// and category, but discard the previous page so the user sees a fresh
+    /// recommendation request instead of the cached first page.
+    func refreshCurrent() {
+        requestGeneration += 1
         loadTask?.cancel()
+        isLoading = false
+        playlists = []
+        tracks = []
+        toplists = []
+        page = 1
+        hasMore = true
+        errorMessage = nil
         loadTask = Task { await loadMore() }
     }
 
     func loadMore() async {
         guard !isLoading, hasMore else { return }
+        let generation = requestGeneration
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if generation == requestGeneration { isLoading = false }
+        }
 
         do {
             let result: [LXPlaylistSummary]
@@ -76,12 +100,14 @@ final class ExploreViewModel: ObservableObject {
                                                                      page: page, limit: 30)
             }
 
+            guard generation == requestGeneration else { return }
             var seen = Set(playlists.map { "\($0.source.rawValue)|\($0.id)" })
             playlists += result.filter { seen.insert("\($0.source.rawValue)|\($0.id)").inserted }
             page += 1
             hasMore = selectedCategory != "推荐" && result.count >= 30 && page <= 6
             errorMessage = playlists.isEmpty ? "当前平台暂时没有歌单，请切换平台或稍后重试" : nil
         } catch {
+            guard generation == requestGeneration else { return }
             errorMessage = playlists.isEmpty ? error.localizedDescription : nil
             hasMore = false
         }
@@ -159,6 +185,10 @@ struct ExploreView: View {
         .task(id: "\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)") {
             model.prepare(platform: settings.homeRecommendationPlatform)
             await model.loadMore()
+        }
+        .onAppear {
+            guard !model.playlists.isEmpty || !model.tracks.isEmpty else { return }
+            model.refreshCurrent()
         }
     }
 

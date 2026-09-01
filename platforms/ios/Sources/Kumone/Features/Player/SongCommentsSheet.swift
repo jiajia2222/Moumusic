@@ -60,13 +60,13 @@ struct SongCommentsSheet: View {
         error = nil
         comments = []
         do {
-            let source = track.source?.lowercased()
+            let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
             let neteaseID: Int?
             if let explicit = track.sourceMetadata["neteaseId"]
                 ?? track.sourceMetadata["wyId"],
                let id = Int(explicit) {
                 neteaseID = id
-            } else if source == nil || source == "wy" || source == "netease" {
+            } else if source.isEmpty || source == "wy" || source == "netease" || source == "163" {
                 neteaseID = track.id
             } else {
                 // Comments are metadata, so allow a different edit length
