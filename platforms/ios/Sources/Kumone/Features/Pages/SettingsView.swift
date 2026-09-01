@@ -118,53 +118,6 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section {
-                Link(destination: donationURL) {
-                    HStack(spacing: 14) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Theme.accentGradient)
-                                .frame(width: 48, height: 48)
-                            Image(systemName: "heart.fill")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Support Moumusic")
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                            Text("If Moumusic helps you, support its development.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        Spacer(minLength: 8)
-                        Image(systemName: "arrow.up.right")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.accent)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .compatGlass(
-                        interactive: true,
-                        in: RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .frame(minHeight: 76)
-                .accessibilityLabel(Text("Support Moumusic"))
-                .accessibilityHint(Text("Open Afdian support page"))
-                .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
-                .listRowBackground(Color.clear)
-            } header: {
-                Text("Support the project")
-            } footer: {
-                Text("Your support helps keep Moumusic maintained.")
-            }
         }
         .formStyle(.grouped)
 #if os(macOS)
@@ -186,10 +139,6 @@ struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
-    }
-
-    private var donationURL: URL {
-        URL(string: "https://www.ifdian.net/a/moumou2026")!
     }
 
     private var cacheDirectory: URL {
