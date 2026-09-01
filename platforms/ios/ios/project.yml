@@ -27,6 +27,7 @@ targets:
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: Config/KumoneIOS.entitlements
+        PROVISIONING_PROFILE_SPECIFIER: $(MOU_APP_PROVISIONING_PROFILE)
         ENABLE_PREVIEWS: YES
   KumoneIOSUITests:
     type: bundle.ui-testing
@@ -55,6 +56,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.jiajia2222.moumusic.ios.widget
         INFOPLIST_KEY_CFBundleDisplayName: Moumusic 歌词
         CODE_SIGN_ENTITLEMENTS: Config/MoumusicWidget.entitlements
+        PROVISIONING_PROFILE_SPECIFIER: $(MOU_WIDGET_PROVISIONING_PROFILE)
 schemes:
   KumoneIOS:
     build:

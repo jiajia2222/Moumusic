@@ -1,0 +1,225 @@
+name: iOS signed build
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to publish to when enabled
+        required: false
+        default: v1.0.0
+        type: string
+      publish_release:
+        description: Upload the signed IPA to the selected public Release
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    runs-on: macos-26
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install XcodeGen
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
+
+      - name: Import signing assets and validate profiles
+        env:
+          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_WIDGET_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_WIDGET_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          : "${IOS_CERTIFICATE_P12_BASE64:?Missing IOS_CERTIFICATE_P12_BASE64 repository secret}"
+          : "${IOS_CERTIFICATE_PASSWORD:?Missing IOS_CERTIFICATE_PASSWORD repository secret}"
+          : "${IOS_PROVISIONING_PROFILE_BASE64:?Missing IOS_PROVISIONING_PROFILE_BASE64 repository secret}"
+
+          keychain_path="$RUNNER_TEMP/moumusic-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          certificate_path="$RUNNER_TEMP/moumusic-signing.p12"
+          app_profile_path="$RUNNER_TEMP/moumusic-app.mobileprovision"
+          app_profile_plist="$RUNNER_TEMP/moumusic-app-profile.plist"
+          widget_profile_path="$RUNNER_TEMP/moumusic-widget.mobileprovision"
+          widget_profile_plist="$RUNNER_TEMP/moumusic-widget-profile.plist"
+
+          printf '%s' "$IOS_CERTIFICATE_P12_BASE64" | base64 -D > "$certificate_path"
+          printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" | base64 -D > "$app_profile_path"
+          security cms -D -i "$app_profile_path" > "$app_profile_plist"
+
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -k "$keychain_path" -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+
+          profile_value() {
+            /usr/libexec/PlistBuddy -c "Print :$1" "$2" 2>/dev/null || true
+          }
+
+          profile_uuid="$(profile_value UUID "$app_profile_plist")"
+          team_id="$(profile_value Entitlements:com.apple.developer.team-identifier "$app_profile_plist")"
+          application_id="$(profile_value Entitlements:application-identifier "$app_profile_plist")"
+          profile_name="$(profile_value Name "$app_profile_plist")"
+
+          if [[ -z "$profile_uuid" || -z "$team_id" || -z "$application_id" ]]; then
+            echo 'The app provisioning profile is missing required signing metadata.' >&2
+            exit 1
+          fi
+
+          profile_allows_bundle() {
+            local profile_app_id="$1"
+            local bundle_id="$2"
+            local profile_suffix="${profile_app_id#${team_id}.}"
+            if [[ "$profile_suffix" == '*' ]]; then
+              return 0
+            fi
+            if [[ "$profile_suffix" == *'*' ]]; then
+              local prefix="${profile_suffix%\*}"
+              [[ "$bundle_id" == "$prefix"* ]]
+              return
+            fi
+            [[ "$profile_suffix" == "$bundle_id" ]]
+          }
+
+          app_bundle_id='com.jiajia2222.moumusic.ios'
+          widget_bundle_id='com.jiajia2222.moumusic.ios.widget'
+          app_group='group.com.jiajia2222.moumusic'
+
+          if ! profile_allows_bundle "$application_id" "$app_bundle_id"; then
+            echo "The app profile does not match $app_bundle_id (profile: $application_id)." >&2
+            exit 1
+          fi
+          if ! plutil -p "$app_profile_plist" | grep -Fq "$app_group"; then
+            echo "The app profile does not contain the required App Group: $app_group" >&2
+            exit 1
+          fi
+
+          widget_profile_uuid="$profile_uuid"
+          if [[ -n "${IOS_WIDGET_PROVISIONING_PROFILE_BASE64:-}" ]]; then
+            printf '%s' "$IOS_WIDGET_PROVISIONING_PROFILE_BASE64" | base64 -D > "$widget_profile_path"
+            security cms -D -i "$widget_profile_path" > "$widget_profile_plist"
+            widget_profile_uuid="$(profile_value UUID "$widget_profile_plist")"
+            widget_team_id="$(profile_value Entitlements:com.apple.developer.team-identifier "$widget_profile_plist")"
+            widget_application_id="$(profile_value Entitlements:application-identifier "$widget_profile_plist")"
+            if [[ "$widget_team_id" != "$team_id" ]] || ! profile_allows_bundle "$widget_application_id" "$widget_bundle_id"; then
+              echo "The widget profile does not match $widget_bundle_id." >&2
+              exit 1
+            fi
+            if ! plutil -p "$widget_profile_plist" | grep -Fq "$app_group"; then
+              echo "The widget profile does not contain the required App Group: $app_group" >&2
+              exit 1
+            fi
+          elif ! profile_allows_bundle "$application_id" "$widget_bundle_id"; then
+            echo 'The supplied profile only matches the main app. Add IOS_WIDGET_PROVISIONING_PROFILE_BASE64 for the widget profile.' >&2
+            exit 1
+          fi
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$app_profile_path" "$HOME/Library/MobileDevice/Provisioning Profiles/$profile_uuid.mobileprovision"
+          if [[ "$widget_profile_uuid" != "$profile_uuid" ]]; then
+            cp "$widget_profile_path" "$HOME/Library/MobileDevice/Provisioning Profiles/$widget_profile_uuid.mobileprovision"
+          fi
+
+          identity="$(security find-identity -v -p codesigning "$keychain_path" | sed -n 's/.*"\(.*\)".*/\1/p' | head -n 1)"
+          if [[ -z "$identity" ]]; then
+            echo 'No valid code-signing identity was found in the supplied P12.' >&2
+            exit 1
+          fi
+
+          if [[ "$identity" == *'Development:'* || "$identity" == *'iPhone Developer:'* ]]; then
+            export_method='development'
+            export_certificate='Apple Development'
+          elif plutil -p "$app_profile_plist" | grep -Fq 'ProvisionedDevices'; then
+            export_method='ad-hoc'
+            export_certificate='Apple Distribution'
+          else
+            export_method='app-store'
+            export_certificate='Apple Distribution'
+          fi
+
+          echo "MOU_APP_PROVISIONING_PROFILE=$profile_uuid" >> "$GITHUB_ENV"
+          echo "MOU_WIDGET_PROVISIONING_PROFILE=$widget_profile_uuid" >> "$GITHUB_ENV"
+          echo "MOU_TEAM_ID=$team_id" >> "$GITHUB_ENV"
+          echo "MOU_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "MOU_EXPORT_METHOD=$export_method" >> "$GITHUB_ENV"
+          echo "MOU_EXPORT_CERTIFICATE=$export_certificate" >> "$GITHUB_ENV"
+          echo "Validated profile: $profile_name ($application_id)"
+
+      - name: Generate Xcode project
+        working-directory: platforms/ios/ios
+        run: xcodegen generate
+
+      - name: Archive signed app
+        working-directory: platforms/ios/ios
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project KumoneIOS.xcodeproj \
+            -scheme KumoneIOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Moumusic.xcarchive" \
+            -derivedDataPath "$RUNNER_TEMP/moumusic-derived-data" \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$MOU_TEAM_ID" \
+            CODE_SIGN_IDENTITY="$MOU_SIGNING_IDENTITY" \
+            MOU_APP_PROVISIONING_PROFILE="$MOU_APP_PROVISIONING_PROFILE" \
+            MOU_WIDGET_PROVISIONING_PROFILE="$MOU_WIDGET_PROVISIONING_PROFILE"
+
+      - name: Export signed IPA
+        run: |
+          set -euo pipefail
+          export_options="$RUNNER_TEMP/Moumusic-ExportOptions.plist"
+          cat > "$export_options" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>$MOU_EXPORT_METHOD</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>$MOU_EXPORT_CERTIFICATE</string>
+            <key>teamID</key><string>$MOU_TEAM_ID</string>
+            <key>provisioningProfiles</key><dict>
+              <key>com.jiajia2222.moumusic.ios</key><string>$MOU_APP_PROVISIONING_PROFILE</string>
+              <key>com.jiajia2222.moumusic.ios.widget</key><string>$MOU_WIDGET_PROVISIONING_PROFILE</string>
+            </dict>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Moumusic.xcarchive" \
+            -exportPath "$RUNNER_TEMP/Moumusic-export" \
+            -exportOptionsPlist "$export_options"
+          signed_ipa="$(find "$RUNNER_TEMP/Moumusic-export" -maxdepth 1 -name '*.ipa' -print -quit)"
+          test -n "$signed_ipa"
+          cp "$signed_ipa" "$GITHUB_WORKSPACE/Moumusic-signed.ipa"
+
+      - name: Verify signed IPA
+        run: |
+          set -euo pipefail
+          verify_dir="$RUNNER_TEMP/moumusic-ipa-verify"
+          mkdir -p "$verify_dir"
+          unzip -q Moumusic-signed.ipa -d "$verify_dir"
+          codesign --verify --deep --strict --verbose=2 "$verify_dir/Payload/Moumusic.app"
+          test -d "$verify_dir/Payload/Moumusic.app/PlugIns/MoumusicWidget.appex"
+
+      - name: Upload signed IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Moumusic-ios-signed
+          path: Moumusic-signed.ipa
+          if-no-files-found: error
+
+      - name: Publish signed IPA to Release
+        if: ${{ inputs.publish_release && inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.release_tag }}" Moumusic-signed.ipa --clobber --repo "$GITHUB_REPOSITORY"
