@@ -424,8 +424,11 @@ enum NeteaseAPI {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             // The public resource endpoint calls this field `commentId`,
             // while older encrypted responses used `id`.
-            id = (try? container.decode(Int.self, forKey: .commentId))
-                ?? (try container.decode(Int.self, forKey: .id))
+            if let commentID = try? container.decode(Int.self, forKey: .commentId) {
+                id = commentID
+            } else {
+                id = try container.decode(Int.self, forKey: .id)
+            }
             content = (try? container.decode(String.self, forKey: .content)) ?? ""
             likedCount = (try? container.decode(Int.self, forKey: .likedCount)) ?? 0
             user = try? container.decode(CommentUser.self, forKey: .user)
