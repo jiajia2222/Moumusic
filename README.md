@@ -99,6 +99,12 @@ Moumusic-specific changes are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY
 
 Moumusic includes the complete [LGPL-3.0-only](LICENSE) and [GPL-3.0-only](COPYING) texts. Apply the license stated by each source file or component. Kumone code remains LGPL-3.0-only and LX Music Mobile code remains Apache-2.0; these obligations are not replaced by Moumusic's project documentation.
 
+## Support Moumusic
+
+If Moumusic is useful to you, you can support continued maintenance on [爱发电](https://www.ifdian.net/a/moumou2026).
+
+[![Support on Afdian](https://img.shields.io/badge/赞赏与支持-爱发电-ff5c5c?style=for-the-badge&logo=heart&logoColor=white)](https://www.ifdian.net/a/moumou2026)
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/image?repos=jiajia2222/Moumusic&type=Date)](https://www.star-history.com/#jiajia2222/Moumusic&Date)

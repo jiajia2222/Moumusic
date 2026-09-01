@@ -92,6 +92,12 @@ Moumusic 的修改范围见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，�
 
 仓库附带完整的 [LGPL-3.0-only](LICENSE) 和 [GPL-3.0-only](COPYING) 文本。各源文件和组件按其声明使用对应许可证：Kumone 代码继续遵守 LGPL-3.0-only，LX Music Mobile 代码继续遵守 Apache-2.0。
 
+## 支持 Moumusic
+
+如果 Moumusic 对你有帮助，欢迎在[爱发电](https://www.ifdian.net/a/moumou2026)支持项目持续维护。
+
+[![在爱发电支持项目](https://img.shields.io/badge/赞赏与支持-爱发电-ff5c5c?style=for-the-badge&logo=heart&logoColor=white)](https://www.ifdian.net/a/moumou2026)
+
 ## Star 趋势
 
 [![Star 趋势图](https://api.star-history.com/image?repos=jiajia2222/Moumusic&type=Date)](https://www.star-history.com/#jiajia2222/Moumusic&Date)
