@@ -41,6 +41,10 @@ export default memo(() => {
     void openUrl('https://github.com/lyswhut/lx-music-mobile#%E9%A1%B9%E7%9B%AE%E5%8D%8F%E8%AE%AE')
   }
 
+  const openDonationPage = () => {
+    void openUrl('https://www.ifdian.net/a/moumou2026')
+  }
+
   // const goToQQGroup = () => {
   //   openUrl(qqGroupUrl).catch(() => {
   //     void openUrl(qqGroupWebUrl)
@@ -114,6 +118,28 @@ export default memo(() => {
         <Text style={styles.text}>By: </Text>
         <Text style={styles.text}>落雪无痕</Text>
       </View>
+      <TouchableOpacity
+        activeOpacity={0.82}
+        accessibilityRole="link"
+        accessibilityLabel="赞赏与支持"
+        onPress={openDonationPage}
+        style={{
+          ...styles.donationCard,
+          backgroundColor: theme['c-primary-background'],
+          borderColor: theme['c-border-background'],
+        }}
+      >
+        <View style={{ ...styles.donationIcon, backgroundColor: theme['c-primary'] }}>
+          <Text style={styles.donationHeart}>♥</Text>
+        </View>
+        <View style={styles.donationContent}>
+          <Text style={{ ...styles.donationTitle, color: theme['c-font'] }}>赞赏与支持</Text>
+          <Text style={{ ...styles.donationSubtitle, color: theme['c-font-label'] }}>
+            如果 Moumusic 对你有帮助，欢迎支持项目开发
+          </Text>
+        </View>
+        <Text style={{ ...styles.donationArrow, color: theme['c-primary-font'] }}>›</Text>
+      </TouchableOpacity>
     </Section>
   )
 })
@@ -142,5 +168,50 @@ const styles = createStyle({
   },
   btn: {
     flexDirection: 'row',
+  },
+  donationCard: {
+    minHeight: 76,
+    marginLeft: 15,
+    marginRight: 15,
+    marginTop: 4,
+    marginBottom: 16,
+    paddingLeft: 14,
+    paddingRight: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  donationIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  donationHeart: {
+    color: '#FFFFFF',
+    fontSize: 21,
+    lineHeight: 24,
+  },
+  donationContent: {
+    flex: 1,
+  },
+  donationTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  donationSubtitle: {
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 3,
+  },
+  donationArrow: {
+    fontSize: 30,
+    lineHeight: 30,
+    marginLeft: 8,
   },
 })

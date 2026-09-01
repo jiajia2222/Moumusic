@@ -1,4 +1,9 @@
 /* Chinese fallback table. Keep source keys verbatim so SwiftUI never renders missing keys as question marks. */
+"Support the project" = "支持项目";
+"Support Moumusic" = "赞赏与支持";
+"If Moumusic helps you, support its development." = "如果 Moumusic 对你有帮助，欢迎支持项目开发。";
+"Open Afdian support page" = "打开爱发电支持页面";
+"Your support helps keep Moumusic maintained." = "你的支持会帮助 Moumusic 持续维护。";
 "推荐" = "推荐";
 "精选" = "精选";
 "漫游" = "漫游";
