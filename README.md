@@ -99,12 +99,19 @@ Moumusic-specific changes are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY
 
 Moumusic includes the complete [LGPL-3.0-only](LICENSE) and [GPL-3.0-only](COPYING) texts. Apply the license stated by each source file or component. Kumone code remains LGPL-3.0-only and LX Music Mobile code remains Apache-2.0; these obligations are not replaced by Moumusic's project documentation.
 
-## Support Moumusic
+<h2 align="center">💖 Support Moumusic</h2>
 
-If Moumusic is useful to you, you can support continued maintenance on [爱发电](https://www.ifdian.net/a/moumou2026).
+<p align="center">
+  If Moumusic is useful to you, support its continued maintenance on Afdian.<br />
+  <a href="https://www.ifdian.net/a/moumou2026">
+    <img src="https://img.shields.io/badge/Support%20on%20Afdian-ff5c5c?style=for-the-badge&logo=heart&logoColor=white" alt="Support on Afdian" height="36" />
+  </a>
+</p>
 
-[![Support on Afdian](https://img.shields.io/badge/赞赏与支持-爱发电-ff5c5c?style=for-the-badge&logo=heart&logoColor=white)](https://www.ifdian.net/a/moumou2026)
+<h2 align="center">⭐ Star History</h2>
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/image?repos=jiajia2222/Moumusic&type=Date)](https://www.star-history.com/#jiajia2222/Moumusic&Date)
+<p align="center">
+  <a href="https://www.star-history.com/#jiajia2222/Moumusic&Date">
+    <img src="https://api.star-history.com/image?repos=jiajia2222/Moumusic&type=Date" alt="Moumusic Star History Chart" width="700" />
+  </a>
+</p>
