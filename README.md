@@ -5,8 +5,6 @@
 # Moumusic
 
 
-# For learning purposes only, please delete within 24 hours
-
 **A source-driven music client for iOS and Android**
 
 SwiftUI on iOS · LX User API sources · LX Music Mobile on Android
