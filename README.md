@@ -98,3 +98,7 @@ Moumusic-specific changes are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY
 ## License
 
 Moumusic includes the complete [LGPL-3.0-only](LICENSE) and [GPL-3.0-only](COPYING) texts. Apply the license stated by each source file or component. Kumone code remains LGPL-3.0-only and LX Music Mobile code remains Apache-2.0; these obligations are not replaced by Moumusic's project documentation.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/image?repos=jiajia2222/Moumusic&type=Date)](https://www.star-history.com/#jiajia2222/Moumusic&Date)

@@ -91,3 +91,7 @@ Moumusic 的修改范围见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，�
 ## 许可证
 
 仓库附带完整的 [LGPL-3.0-only](LICENSE) 和 [GPL-3.0-only](COPYING) 文本。各源文件和组件按其声明使用对应许可证：Kumone 代码继续遵守 LGPL-3.0-only，LX Music Mobile 代码继续遵守 Apache-2.0。
+
+## Star 趋势
+
+[![Star 趋势图](https://api.star-history.com/image?repos=jiajia2222/Moumusic&type=Date)](https://www.star-history.com/#jiajia2222/Moumusic&Date)
