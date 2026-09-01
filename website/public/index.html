@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f6f3ef" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121519" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content="感谢每一位支持者，你的支持让我能够继续维护和创造更多项目。" />
+    <meta property="og:title" content="支持我 | MouMou" />
+    <meta property="og:description" content="感谢每一位支持者，你的支持让我能够继续维护和创造更多项目。" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="/aifadian" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>支持我 | MouMou</title>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-nav" aria-label="主导航">
+        <a class="brand" href="/aifadian" aria-label="Moumusic 主页">
+          <span class="brand-mark" aria-hidden="true">M</span>
+          <span>Moumusic</span>
+        </a>
+        <nav class="nav-links">
+          <a href="#sponsors">支持者</a>
+          <a href="/install">安装说明</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero-section" aria-labelledby="hero-title">
+          <div class="hero-card glass-card reveal" data-reveal>
+            <div class="hero-orbit" aria-hidden="true"></div>
+            <div class="hero-eyebrow">
+              <span class="eyebrow-dot"></span>
+              <span>个人支持页 · Moumusic</span>
+            </div>
+            <div class="hero-inner">
+              <div class="profile-avatar avatar avatar--hero" id="profile-avatar" aria-label="头像">
+                <span class="avatar-fallback" id="profile-avatar-fallback">M</span>
+              </div>
+              <div class="hero-copy">
+                <p class="kicker">THANK YOU FOR BEING HERE</p>
+                <h1 id="hero-title">支持 <span id="site-name">MouMou</span><span class="title-heart" aria-hidden="true">♥</span></h1>
+                <p class="hero-tagline" id="site-tagline">感谢你的支持，每一份心意都会变成继续维护和创造的动力。</p>
+                <div class="hero-actions">
+                  <a class="primary-button" id="support-link" href="#support" target="_blank" rel="noopener noreferrer">
+                    <span>在爱发电支持我</span>
+                    <span class="button-arrow" aria-hidden="true">↗</span>
+                  </a>
+                  <a class="quiet-button" href="/install">
+                    <span>了解 Moumusic</span>
+                    <span aria-hidden="true">→</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+            <div class="hero-footnote">
+              <span class="signal-icon" aria-hidden="true">⌁</span>
+              <span>你的支持会直接帮助项目持续维护</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="stats-grid" aria-label="支持数据" data-reveal>
+          <article class="stat-card glass-card">
+            <div class="stat-icon stat-icon--coral" aria-hidden="true">✦</div>
+            <div>
+              <p class="stat-label">支持者</p>
+              <p class="stat-value skeleton" id="supporter-count" aria-live="polite"></p>
+            </div>
+          </article>
+          <article class="stat-card glass-card">
+            <div class="stat-icon stat-icon--blue" aria-hidden="true">◷</div>
+            <div>
+              <p class="stat-label">最近支持</p>
+              <p class="stat-value stat-value--small skeleton" id="recent-support" aria-live="polite"></p>
+            </div>
+          </article>
+          <article class="stat-card glass-card">
+            <div class="stat-icon stat-icon--green" aria-hidden="true">∞</div>
+            <div>
+              <p class="stat-label">累计支持</p>
+              <p class="stat-value stat-value--small skeleton" id="total-support" aria-live="polite"></p>
+            </div>
+          </article>
+        </section>
+
+        <section class="content-section" aria-labelledby="recent-title" data-reveal>
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">RECENT NOTES</p>
+              <h2 id="recent-title">最近支持</h2>
+            </div>
+            <button class="refresh-button" id="refresh-button" type="button">
+              <span class="refresh-glyph" aria-hidden="true">↻</span>
+              <span>刷新</span>
+            </button>
+          </div>
+          <div class="sponsor-grid sponsor-grid--recent" id="recent-list" aria-live="polite">
+            <div class="sponsor-card skeleton-card" aria-hidden="true"></div>
+            <div class="sponsor-card skeleton-card" aria-hidden="true"></div>
+            <div class="sponsor-card skeleton-card" aria-hidden="true"></div>
+          </div>
+        </section>
+
+        <section class="content-section" id="sponsors" aria-labelledby="sponsors-title" data-reveal>
+          <div class="section-heading section-heading--stacked">
+            <div>
+              <p class="section-kicker">A LITTLE WALL OF THANKS</p>
+              <h2 id="sponsors-title">赞助者名单</h2>
+              <p class="section-description">每一个名字，都是 Moumusic 继续向前的理由。</p>
+            </div>
+            <span class="live-pill"><span class="live-dot"></span>持续更新</span>
+          </div>
+          <div class="sponsor-grid" id="sponsor-list" aria-live="polite">
+            <div class="sponsor-card skeleton-card" aria-hidden="true"></div>
+            <div class="sponsor-card skeleton-card" aria-hidden="true"></div>
+            <div class="sponsor-card skeleton-card" aria-hidden="true"></div>
+            <div class="sponsor-card skeleton-card" aria-hidden="true"></div>
+          </div>
+          <div class="empty-state glass-card" id="empty-state" hidden>
+            <div class="empty-icon" aria-hidden="true">♡</div>
+            <h3>还没有赞助记录</h3>
+            <p>感谢每一位未来的支持者 ❤️</p>
+          </div>
+          <div class="error-card glass-card" id="error-card" hidden role="alert">
+            <div class="error-icon" aria-hidden="true">!</div>
+            <div>
+              <h3>暂时无法获取赞助名单</h3>
+              <p>稍后再试，顶部的爱发电入口仍然可以正常使用。</p>
+            </div>
+            <button class="secondary-button" id="retry-button" type="button">重新加载</button>
+          </div>
+        </section>
+
+        <section class="closing-note glass-card" data-reveal>
+          <div class="closing-line" aria-hidden="true"></div>
+          <p id="site-thanks">感谢每一位支持者，让 Moumusic 可以持续更新。</p>
+          <span class="closing-heart" aria-hidden="true">♥</span>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <span>Made with <span class="footer-heart" aria-hidden="true">♥</span> for music</span>
+        <span class="footer-links">
+          <a id="footer-support-link" href="#support" target="_blank" rel="noopener noreferrer">前往爱发电</a>
+          <span aria-hidden="true">·</span>
+          <a href="/install">安装说明</a>
+        </span>
+      </footer>
+    </div>
+
+    <dialog class="sponsor-dialog" id="sponsor-dialog" aria-labelledby="dialog-name">
+      <div class="dialog-surface glass-card">
+        <button class="dialog-close" id="dialog-close" type="button" aria-label="关闭">×</button>
+        <div class="dialog-avatar avatar" id="dialog-avatar"><span class="avatar-fallback">M</span></div>
+        <p class="dialog-kicker">THANK YOU</p>
+        <h2 id="dialog-name">支持者</h2>
+        <p class="dialog-plan" id="dialog-plan">持续支持中</p>
+        <dl class="dialog-details">
+          <div><dt>最近支持</dt><dd id="dialog-time">—</dd></div>
+          <div id="dialog-amount-row"><dt>累计支持</dt><dd id="dialog-amount">—</dd></div>
+        </dl>
+        <p class="dialog-thanks">❤️ 感谢你的支持</p>
+      </div>
+    </dialog>
+
+    <script id="site-config" type="application/json">__SITE_CONFIG__</script>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

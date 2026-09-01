@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f6f3ef" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121519" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content="Moumusic iOS 与 Android 安装说明。" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>安装说明 | Moumusic</title>
+  </head>
+  <body>
+    <div class="page-shell install-shell">
+      <header class="site-nav" aria-label="主导航">
+        <a class="brand" href="/aifadian" aria-label="返回 Moumusic 支持页">
+          <span class="brand-mark" aria-hidden="true">M</span>
+          <span>Moumusic</span>
+        </a>
+        <nav class="nav-links">
+          <a href="/aifadian">支持页</a>
+          <a href="#downloads">下载</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="install-hero reveal is-visible" aria-labelledby="install-title">
+          <p class="section-kicker">GET STARTED</p>
+          <h1 id="install-title">安装 Moumusic</h1>
+          <p>选择你的设备，几分钟内开始播放。iOS 与 Android 安装包均来自项目 Release。</p>
+        </section>
+
+        <section class="notice-card glass-card" aria-labelledby="security-title">
+          <div class="notice-icon" aria-hidden="true">⌁</div>
+          <div>
+            <h2 id="security-title">先说清楚：请使用你自己的签名凭据</h2>
+            <p>本站不会托管或公开共享 P12、mobileprovision、企业证书或密码。iOS 未签名 IPA 请使用你自己的证书或可信的本地签名工具安装。</p>
+          </div>
+        </section>
+
+        <section class="install-grid" id="downloads" aria-label="安装方式">
+          <article class="install-card glass-card">
+            <div class="platform-line"><span class="platform-icon"></span><span>iPhone / iPad</span></div>
+            <h2>iOS 安装</h2>
+            <p class="install-lead">下载未签名 IPA，再用自己的签名方式安装。</p>
+            <ol class="steps">
+              <li><span>01</span><div>下载最新的 <strong>iOS IPA</strong>。</div></li>
+              <li><span>02</span><div>使用 AltStore、SideStore、Feather、Sideloadly 或你信任的签名工具导入。</div></li>
+              <li><span>03</span><div>完成签名后安装；首次使用按系统提示信任对应开发者。</div></li>
+            </ol>
+            <a class="primary-button install-button" id="ios-download" href="#download" target="_blank" rel="noopener noreferrer">下载 iOS IPA <span aria-hidden="true">↗</span></a>
+            <p class="install-footnote">IPA 未签名，无法直接通过系统安装。</p>
+          </article>
+
+          <article class="install-card glass-card">
+            <div class="platform-line"><span class="platform-icon platform-icon--android">◆</span><span>Android</span></div>
+            <h2>Android 安装</h2>
+            <p class="install-lead">下载 APK 后按系统提示完成安装。</p>
+            <ol class="steps">
+              <li><span>01</span><div>下载最新的 <strong>Android APK</strong>。</div></li>
+              <li><span>02</span><div>打开 APK；若系统提示，允许浏览器或文件管理器安装未知来源应用。</div></li>
+              <li><span>03</span><div>安装完成后打开 Moumusic，并在应用内导入你有权使用的音源。</div></li>
+            </ol>
+            <a class="primary-button install-button" id="android-download" href="#download" target="_blank" rel="noopener noreferrer">下载 Android APK <span aria-hidden="true">↗</span></a>
+            <p class="install-footnote">建议从本项目 GitHub Release 下载，核对文件名和版本号。</p>
+          </article>
+        </section>
+
+        <section class="troubleshooting glass-card" aria-labelledby="help-title">
+          <div>
+            <p class="section-kicker">TROUBLESHOOTING</p>
+            <h2 id="help-title">安装后遇到问题？</h2>
+          </div>
+          <div class="help-list">
+            <p><strong>iOS 无法打开：</strong>确认 IPA 已使用你自己的证书签名，并检查证书是否有效。</p>
+            <p><strong>播放没有声音：</strong>先在应用内添加并测试可用的 LX 音源。</p>
+            <p><strong>页面或名单加载失败：</strong>稍后刷新；爱发电支持入口不会受名单 API 影响。</p>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <span>需要帮助？先回到 <a href="/aifadian">支持页</a></span>
+        <a id="install-support" href="#support" target="_blank" rel="noopener noreferrer">前往爱发电</a>
+      </footer>
+    </div>
+    <script id="site-config" type="application/json">__SITE_CONFIG__</script>
+    <script src="/install.js" defer></script>
+  </body>
+</html>

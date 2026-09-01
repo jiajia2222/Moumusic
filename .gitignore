@@ -30,3 +30,7 @@ platforms/ios/.build/
 dist/
 *.ipa
 *.apk
+
+# Sponsor website secrets and local dependencies
+website/.env
+website/node_modules/
