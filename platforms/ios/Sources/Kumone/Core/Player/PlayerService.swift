@@ -487,15 +487,9 @@ final class PlayerService: ObservableObject {
         if index != lyricsCursor.activeIndex {
             lyricsCursor.activeIndex = index
         }
-        // Keep the widget's three fields independent. Before the first timed
-        // line starts, use the first lyric line instead of leaving the widget
-        // with a stale placeholder (or making it look like metadata shifted
-        // into the lyric/artist field).
-        let snapshotLyric = index.flatMap { lyrics?.lines[$0].text }
-            ?? lyrics?.lines.first?.text
-        WidgetSnapshotStore.update(track: currentTrack, lyric: snapshotLyric)
         #if os(iOS)
-        NowPlayingManager.shared.updateCurrentLyric(snapshotLyric)
+        NowPlayingManager.shared.updateCurrentLyric(index.flatMap { lyrics?.lines[$0].text }
+            ?? lyrics?.lines.first?.text)
         #endif
     }
 
@@ -756,7 +750,6 @@ final class PlayerService: ObservableObject {
         }
         scrobbleIfNeeded(completed: false)
         currentTrack = track
-        WidgetSnapshotStore.update(track: track, lyric: nil)
         progress = resumeAt ?? 0
         pendingSeek = resumeAt
         duration = track.duration
