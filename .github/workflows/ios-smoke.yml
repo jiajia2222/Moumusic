@@ -28,10 +28,17 @@ jobs:
       - name: Run launch UI test on the latest simulator
         working-directory: platforms/ios/ios
         run: |
+          SIMULATOR_ID=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ { print $2; exit }')
+          if [ -z "$SIMULATOR_ID" ]; then
+            echo "No available iPhone simulator was found"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Using iPhone simulator: $SIMULATOR_ID"
           xcodebuild test \
             -project KumoneIOS.xcodeproj \
             -scheme KumoneIOS \
-            -destination 'platform=iOS Simulator,name=iPhone 17' \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath smoke-build \
             -only-testing:KumoneIOSUITests/KumoneIOSUITests/testExample \
             CODE_SIGNING_ALLOWED=NO \
