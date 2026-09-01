@@ -133,7 +133,7 @@ final class LXSourceStore: ObservableObject {
     /// object, some are arrays, and older exports encode `version` as a
     /// number. Decode all of those without losing the metadata shown in the
     /// source manager.
-    private struct Export: Decodable {
+    private struct ExportMetadata: Decodable {
         let id: String?
         let name: String?
         let description: String?
@@ -144,11 +144,10 @@ final class LXSourceStore: ObservableObject {
         let script: String?
         let sourceURL: String?
         let url: String?
-        let info: Export?
 
         private enum CodingKeys: String, CodingKey {
             case id, name, description, desc, version, ver, sourceVersion
-            case author, homepage, script, sourceURL, sourceUrl, url, info
+            case author, homepage, script, sourceURL, sourceUrl, url
         }
 
         init(from decoder: Decoder) throws {
@@ -163,7 +162,6 @@ final class LXSourceStore: ObservableObject {
             script = Self.firstString(in: container, keys: [.script])
             sourceURL = Self.firstString(in: container, keys: [.sourceURL, .sourceUrl])
             url = Self.firstString(in: container, keys: [.url])
-            info = try? container.decode(Export.self, forKey: .info)
         }
 
         private static func firstString(
@@ -184,6 +182,32 @@ final class LXSourceStore: ObservableObject {
             }
             return nil
         }
+    }
+
+    private struct Export: Decodable {
+        private let metadata: ExportMetadata
+        let info: ExportMetadata?
+
+        init(from decoder: Decoder) throws {
+            metadata = try ExportMetadata(from: decoder)
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            info = try? container.decode(ExportMetadata.self, forKey: .info)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case info
+        }
+
+        var id: String? { metadata.id }
+        var name: String? { metadata.name }
+        var description: String? { metadata.description }
+        var desc: String? { metadata.desc }
+        var version: String? { metadata.version }
+        var author: String? { metadata.author }
+        var homepage: String? { metadata.homepage }
+        var script: String? { metadata.script }
+        var sourceURL: String? { metadata.sourceURL }
+        var url: String? { metadata.url }
     }
 
     private func decodeExport(_ raw: String, sourceURL: String?) -> Source? {
