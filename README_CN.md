@@ -4,6 +4,9 @@
 
 # Moumusic
 
+仅供学习，请支持正版！⚠️
+
+For educational purposes only. Please support the original work! ⚠️
 
 **面向 iOS 与 Android 的多音源音乐客户端**
 
