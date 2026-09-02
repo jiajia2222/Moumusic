@@ -13,6 +13,7 @@ enum WidgetSnapshotStore {
         defaults.set(track?.name ?? "", forKey: trackTitleKey)
         defaults.set(track?.artistNames ?? "", forKey: artistKey)
         defaults.set(lyric ?? "暂无歌词", forKey: lyricKey)
+        defaults.set(Date().timeIntervalSince1970, forKey: "widget.updatedAt")
         WidgetCenter.shared.reloadTimelines(ofKind: "MoumusicLyricsWidget")
     }
 }
