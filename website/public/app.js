@@ -81,7 +81,7 @@ function renderProfile() {
   setText('site-tagline', siteConfig.tagline || '感谢你的支持，每一份心意都会变成继续维护和创造的动力。')
   setText('site-thanks', siteConfig.thanks || '感谢每一位支持者，让 Moumusic 可以持续更新。')
   setProfileAvatar($('profile-avatar'), name, siteConfig.avatar)
-  for (const id of ['support-link', 'footer-support-link']) {
+  for (const id of ['support-link', 'banner-support-link', 'footer-support-link']) {
     const link = $(id)
     if (link) link.href = supportLink
   }
@@ -217,6 +217,7 @@ $('sponsor-dialog').addEventListener('click', event => {
   if (event.target === $('sponsor-dialog')) closeSponsor()
 })
 document.querySelectorAll('[data-reveal]').forEach((element, index) => {
+  element.classList.add('reveal')
   window.setTimeout(() => element.classList.add('is-visible'), 70 + index * 55)
 })
 loadSponsors()
