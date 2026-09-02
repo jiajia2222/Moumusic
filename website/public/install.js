@@ -10,6 +10,7 @@ const links = {
   'ios-download': config.iosDownloadUrl,
   'android-download': config.androidDownloadUrl,
   'install-support': config.afdianUrl,
+  'install-support-hero': config.afdianUrl,
 }
 
 for (const [id, href] of Object.entries(links)) {

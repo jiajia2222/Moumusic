@@ -251,6 +251,9 @@ button.sponsor-card { width: 100%; color: inherit; text-align: left; cursor: poi
 .install-hero { width: min(100%, 760px); margin: 52px auto 38px; text-align: center; }
 .install-hero h1 { margin: 10px 0 16px; font-size: clamp(44px, 8vw, 76px); }
 .install-hero p:last-child { max-width: 530px; margin: 0 auto; color: var(--muted); font-size: 15px; line-height: 1.7; }
+.install-support-callout { display: inline-flex; align-items: center; gap: 8px; margin-top: 24px; color: var(--home-coral-dark); font-size: clamp(22px, 3.8vw, 38px); font-weight: 760; letter-spacing: -0.06em; line-height: 1.12; text-decoration: none; }
+.install-support-callout span { font-size: 0.7em; transition: transform 180ms ease; }
+.install-support-callout:hover span { transform: translate(3px, -3px); }
 .notice-card { display: flex; align-items: flex-start; gap: 15px; width: min(100%, 860px); margin: 0 auto; padding: 20px 22px; border-radius: var(--radius-lg); }
 .notice-icon { display: grid; flex: 0 0 auto; width: 40px; height: 40px; place-items: center; color: var(--accent); font-size: 22px; border-radius: 13px; background: rgba(228,101,85,0.12); }
 .notice-card h2 { margin: 2px 0 7px; font-size: 15px; }
