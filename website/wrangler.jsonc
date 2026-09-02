@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "moumusic-sponsor",
+  "main": "worker/index.mjs",
+  "compatibility_date": "2026-09-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "music.nadev.xyz",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "vars": {
+    "SITE_NAME": "MouMou",
+    "AFDIAN_URL": "https://www.ifdian.net/a/moumou2026",
+    "SHOW_SPONSOR_AMOUNT": "false",
+    "IOS_DOWNLOAD_URL": "https://github.com/jiajia2222/Moumusic/releases/download/v1.0.1/Moumusic-unsigned.ipa",
+    "ANDROID_DOWNLOAD_URL": "https://github.com/jiajia2222/Moumusic/releases/download/v1.0.1/moumusic-mobile-v1.0.1-universal.apk"
+  }
+}

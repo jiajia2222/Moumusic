@@ -53,3 +53,17 @@ node --env-file=.env src/server.mjs
 ```sh
 npm test
 ```
+
+## Cloudflare 部署
+
+项目包含 `wrangler.jsonc` 和 Worker 入口，可将页面与服务端 API 一起部署到 Cloudflare Workers。配置中的 Custom Domain 是 `music.nadev.xyz`；该域名需要已经托管在当前 Cloudflare 账户，并且不能存在冲突的 CNAME。
+
+```sh
+npm install
+npx wrangler whoami
+npx wrangler deploy
+npx wrangler secret put AFDIAN_USER_ID
+npx wrangler secret put AFDIAN_TOKEN
+```
+
+设置密钥后，`/api/aifadian/*` 会通过官方 API 获取数据；密钥不会进入 Assets、HTML 或 API 响应。Cloudflare Secrets 官方说明：[Workers Secrets](https://developers.cloudflare.com/workers/configuration/secrets/)。

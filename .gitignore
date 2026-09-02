@@ -33,4 +33,6 @@ dist/
 
 # Sponsor website secrets and local dependencies
 website/.env
+website/.dev.vars
+website/.wrangler/
 website/node_modules/
