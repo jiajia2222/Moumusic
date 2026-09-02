@@ -1,6 +1,10 @@
 import { createHash, createHmac } from 'node:crypto'
 
-const AFDIAN_API_BASE = 'https://afdian.net/api/open'
+const AFDIAN_API_BASES = [
+  'https://afdian.com/api/open',
+  'https://ifdian.net/api/open',
+  'https://afdian.net/api/open',
+]
 const CACHE_TTL_SECONDS = 10 * 60
 const DEFAULT_AFDIAN_URL = 'https://www.ifdian.net/a/moumou2026'
 const DEFAULT_IOS_DOWNLOAD_URL = 'https://github.com/jiajia2222/Moumusic/releases/download/v1.0.1/Moumusic-unsigned.ipa'
@@ -138,21 +142,28 @@ async function requestAfdian(env, endpoint, params) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 12_000)
   try {
-    const response = await fetch(`${AFDIAN_API_BASE}/${endpoint}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    })
-    if (!response.ok) throw new AfdianError('UPSTREAM_HTTP', `Afdian returned HTTP ${response.status}.`)
-    let body
-    try {
-      body = await response.json()
-    } catch {
-      throw new AfdianError('UPSTREAM_INVALID_JSON', `Afdian returned invalid JSON for ${endpoint}.`)
+    let lastHttpStatus = null
+    for (const apiBase of AFDIAN_API_BASES) {
+      const response = await fetch(`${apiBase}/${endpoint}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+      if (!response.ok) {
+        lastHttpStatus = response.status
+        continue
+      }
+      let body
+      try {
+        body = await response.json()
+      } catch {
+        throw new AfdianError('UPSTREAM_INVALID_JSON', `Afdian returned invalid JSON for ${endpoint}.`)
+      }
+      if (body?.ec !== 200) throw new AfdianError('UPSTREAM_API', 'Afdian rejected the API request.')
+      return body.data || {}
     }
-    if (body?.ec !== 200) throw new AfdianError('UPSTREAM_API', 'Afdian rejected the API request.')
-    return body.data || {}
+    throw new AfdianError('UPSTREAM_HTTP', `Afdian returned HTTP ${lastHttpStatus || 502}.`)
   } catch (error) {
     if (error instanceof AfdianError) throw error
     if (error?.name === 'AbortError') throw new AfdianError('UPSTREAM_TIMEOUT', 'Afdian request timed out.')
