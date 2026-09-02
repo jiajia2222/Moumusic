@@ -108,10 +108,12 @@ Moumusic includes the complete [LGPL-3.0-only](LICENSE) and [GPL-3.0-only](COPYI
   </a>
 </p>
 
-<h2 align="center">⭐ Star History</h2>
+## Star History
 
-<p align="center">
-  <a href="https://www.star-history.com/#jiajia2222/Moumusic&Date">
-    <img src="https://api.star-history.com/image?repos=jiajia2222/Moumusic&type=Date" alt="Moumusic Star History Chart" width="700" />
-  </a>
-</p>
+<a href="https://www.star-history.com/?type=date&repos=jiajia2222%2FMoumusic">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jiajia2222/Moumusic&type=date&theme=dark&legend=top-left&sealed_token=7V-vJu1k6AepIoqrFLS3S_DCHmhVCY19DW-BjSBOohycTR2EimUmGUfb4oBZh4-uCd6-9dhU4c3uQEdcKsjrYn0D-zmPWVGpRHLEPiUn3MkSTCH7kxmoKQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jiajia2222/Moumusic&type=date&legend=top-left&sealed_token=7V-vJu1k6AepIoqrFLS3S_DCHmhVCY19DW-BjSBOohycTR2EimUmGUfb4oBZh4-uCd6-9dhU4c3uQEdcKsjrYn0D-zmPWVGpRHLEPiUn3MkSTCH7kxmoKQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jiajia2222/Moumusic&type=date&legend=top-left&sealed_token=7V-vJu1k6AepIoqrFLS3S_DCHmhVCY19DW-BjSBOohycTR2EimUmGUfb4oBZh4-uCd6-9dhU4c3uQEdcKsjrYn0D-zmPWVGpRHLEPiUn3MkSTCH7kxmoKQ" />
+ </picture>
+</a>
