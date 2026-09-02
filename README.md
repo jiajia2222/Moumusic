@@ -9,11 +9,9 @@
 
 SwiftUI on iOS · LX User API sources · LX Music Mobile on Android
 
-推荐您使用的音源 https://github.com/Macrohard0001/lx-ikun-music-sources
+仅供学习，请支持正版！⚠️
 
-
-I'd recommend this audio source for you
-https://github.com/Macrohard0001/lx-ikun-music-sources
+For educational purposes only. Please support the original work! ⚠️
 
 [![Platform](https://img.shields.io/badge/platform-iOS%2016%2B%20%7C%20Android-blue?logo=apple)](#build)
 [![Swift](https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white)](platforms/ios/Package.swift)
