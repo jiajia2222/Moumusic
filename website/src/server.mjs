@@ -14,10 +14,10 @@ const afdianApiBases = [
   'https://ifdian.net/api/open',
   'https://afdian.net/api/open',
 ]
+const githubLatestReleaseUrl = 'https://api.github.com/repos/jiajia2222/Moumusic/releases/latest'
 const defaultAfdianUrl = 'https://www.ifdian.net/a/moumou2026'
-const defaultIosDownloadUrl = 'https://github.com/jiajia2222/Moumusic/releases/download/v1.0.1/Moumusic-unsigned.ipa'
-const defaultAndroidDownloadUrl = 'https://github.com/jiajia2222/Moumusic/releases/download/v1.0.1/moumusic-mobile-v1.0.1-universal.apk'
 const cache = new Map()
+const latestReleaseCache = new Map()
 const rateBuckets = new Map()
 
 export class AfdianError extends Error {
@@ -47,7 +47,8 @@ function getConfig() {
   }
 }
 
-function getPublicConfig() {
+function getPublicConfig(baseUrl = `http://localhost:${port}`) {
+  const siteOrigin = new URL(baseUrl).origin
   return {
     name: process.env.SITE_NAME || 'MouMou',
     avatar: safeHttpUrl(process.env.SITE_AVATAR) || '',
@@ -55,9 +56,42 @@ function getPublicConfig() {
     thanks: process.env.SITE_THANKS || '感谢每一位支持者，让 Moumusic 可以持续更新。',
     afdianUrl: safeHttpUrl(process.env.AFDIAN_URL) || defaultAfdianUrl,
     showAmount: envBoolean(process.env.SHOW_SPONSOR_AMOUNT),
-    iosDownloadUrl: safeHttpUrl(process.env.IOS_DOWNLOAD_URL) || defaultIosDownloadUrl,
-    androidDownloadUrl: safeHttpUrl(process.env.ANDROID_DOWNLOAD_URL) || defaultAndroidDownloadUrl,
+    iosDownloadUrl: safeHttpUrl(process.env.IOS_DOWNLOAD_URL) || `${siteOrigin}/download/ios`,
+    androidDownloadUrl: safeHttpUrl(process.env.ANDROID_DOWNLOAD_URL) || `${siteOrigin}/download/android`,
   }
+}
+
+async function getLatestReleaseAsset(platform) {
+  const cached = latestReleaseCache.get(platform)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+
+  let response
+  try {
+    response = await fetch(githubLatestReleaseUrl, {
+      headers: { accept: 'application/vnd.github+json', 'user-agent': 'Moumusic-website' },
+    })
+  } catch {
+    throw new AfdianError('RELEASE_UNAVAILABLE', 'Latest GitHub release is unavailable.', 503)
+  }
+  if (!response.ok) throw new AfdianError('RELEASE_UNAVAILABLE', `GitHub returned HTTP ${response.status}.`, 503)
+
+  let release
+  try {
+    release = await response.json()
+  } catch {
+    throw new AfdianError('RELEASE_UNAVAILABLE', 'GitHub returned invalid release data.', 503)
+  }
+
+  const assets = Array.isArray(release?.assets) ? release.assets : []
+  const asset = platform === 'ios'
+    ? assets.find(item => item?.name === 'Moumusic-unsigned.ipa') || assets.find(item => /\.ipa$/i.test(item?.name || ''))
+    : assets.find(item => /universal\.apk$/i.test(item?.name || '')) || assets.find(item => /\.apk$/i.test(item?.name || ''))
+  const url = safeHttpUrl(asset?.browser_download_url)
+  if (!url) throw new AfdianError('RELEASE_ASSET_MISSING', `No ${platform} asset found in the latest release.`, 503)
+
+  const value = { url, version: String(release.tag_name || '') }
+  latestReleaseCache.set(platform, { value, expiresAt: Date.now() + cacheTtlMs })
+  return value
 }
 
 function assertAfdianConfig(config) {
@@ -246,9 +280,9 @@ function safeJson(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026')
 }
 
-async function renderPage(filename) {
+async function renderPage(filename, baseUrl) {
   const template = await readFile(join(publicRoot, filename), 'utf8')
-  return template.replace('__SITE_CONFIG__', safeJson(getPublicConfig()))
+  return template.replace('__SITE_CONFIG__', safeJson(getPublicConfig(baseUrl)))
 }
 
 function logEvent(event, fields = {}) {
@@ -268,6 +302,21 @@ function sendJson(response, status, body) {
   response.setHeader('content-type', 'application/json; charset=utf-8')
   response.setHeader('cache-control', 'no-store')
   response.end(JSON.stringify(body))
+}
+
+async function sendLatestReleaseRedirect(response, platform) {
+  try {
+    const asset = await getLatestReleaseAsset(platform)
+    response.statusCode = 302
+    response.setHeader('location', asset.url)
+    response.setHeader('cache-control', 'public, max-age=300, stale-while-revalidate=600')
+    response.end()
+  } catch (error) {
+    sendJson(response, error instanceof AfdianError ? error.status : 503, {
+      success: false,
+      error: { code: 'RELEASE_UNAVAILABLE', message: '暂时无法获取最新安装包，请稍后再试。' },
+    })
+  }
 }
 
 function checkRateLimit(request) {
@@ -328,7 +377,7 @@ async function handleRequest(request, response) {
   }
 
   if (pathname === '/' || pathname === '/aifadian') {
-    const html = await renderPage('index.html')
+    const html = await renderPage('index.html', url)
     response.statusCode = 200
     response.setHeader('content-type', 'text/html; charset=utf-8')
     response.setHeader('cache-control', 'no-cache')
@@ -336,11 +385,19 @@ async function handleRequest(request, response) {
     return
   }
   if (pathname === '/install') {
-    const html = await renderPage('install.html')
+    const html = await renderPage('install.html', url)
     response.statusCode = 200
     response.setHeader('content-type', 'text/html; charset=utf-8')
     response.setHeader('cache-control', 'no-cache')
     response.end(html)
+    return
+  }
+  if (pathname === '/download/ios') {
+    await sendLatestReleaseRedirect(response, 'ios')
+    return
+  }
+  if (pathname === '/download/android') {
+    await sendLatestReleaseRedirect(response, 'android')
     return
   }
   if (pathname === '/health') {
@@ -348,7 +405,7 @@ async function handleRequest(request, response) {
     return
   }
   if (pathname === '/api/site-config') {
-    sendJson(response, 200, { success: true, config: getPublicConfig() })
+    sendJson(response, 200, { success: true, config: getPublicConfig(url) })
     return
   }
 
