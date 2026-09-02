@@ -350,6 +350,16 @@ enum LXCatalogService {
               var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url
         }
+
+        // KuGou's legacy catalogue hosts still serve the working API over HTTP,
+        // while their HTTPS certificate does not match the requested hostname.
+        // Keep this exception scoped to KuGou; do not weaken transport security
+        // for other providers.
+        if let host = components.host?.lowercased(),
+           host == "kugou.com" || host.hasSuffix(".kugou.com") {
+            return url
+        }
+
         components.scheme = "https"
         return components.url ?? url
     }
@@ -909,42 +919,15 @@ enum LXCatalogService {
     }
 
     private static func recommendedKugouSonglists(limit: Int) async throws -> [LXPlaylistSummary] {
-        // This is LX Mobile's source-native recommendation call. The normal
-        // getSpecial endpoint is a tag listing and frequently returns an
-        // empty page for the default tag, which used to make Home look blank.
-        let body: [String: Any] = [
-            "appid": 1001,
-            "clienttime": 1566798337219,
-            "clientver": 8275,
-            "key": "f1f93580115bb106680d2375f8032d96",
-            "mid": "21511157a05844bd085308bc76ef3343",
-            "platform": "pc",
-            "userid": "262643156",
-            "return_min": 6,
-            "return_max": max(6, min(limit, 15)),
-        ]
-        let data = try JSONSerialization.data(withJSONObject: body)
-        let url = URL(string: "http://everydayrec.service.kugou.com/guess_special_recommend")!
-        let root = try await fetchObject(url, method: "POST", body: data,
-                                         headers: ["Content-Type": "application/json",
-                                                   "User-Agent": "KuGou2012-8275-web_browser_event_handler"]) as? [String: Any]
-        let items = dictionaryArray(root, keys: ["special_list", "list", "info", "specialList", "data"])
-        return items.prefix(limit).compactMap { item in
-            guard let id = int(item["specialid"]) else { return nil }
-            return LXPlaylistSummary(id: "id_\(id)",
-                                      name: firstText(item["specialname"], item["name"], item["title"]) ?? "",
-                                      coverURL: normalizedImageURL(firstText(item["img"], item["imgurl"], item["cover"])),
-                                     playCount: int(item["total_play_count"]) ?? int(item["play_count"]) ?? int(item["collectcount"]) ?? int(item["playCount"]) ?? 0,
-                                     trackCount: int(item["songcount"]) ?? int(item["song_count"]) ?? int(item["songCount"]) ?? 0,
-                                     description: firstText(item["intro"], item["description"]),
-                                     author: firstText(item["nickname"], item["creator"]),
-                                     source: .kg)
-        }
+        // The old recommendation endpoint now returns error 200101 for many
+        // clients. LX Mobile's hot catalogue is stable and is the correct
+        // source-native replacement for the KuGou home recommendation section.
+        return try await kugouSonglists(sortID: "6", page: 1, limit: limit)
     }
 
     private static func kugouSonglists(sortID: String, page: Int,
                                        limit: Int) async throws -> [LXPlaylistSummary] {
-        var components = URLComponents(string: "https://www2.kugou.kugou.com/yueku/v9/special/getSpecial")!
+        var components = URLComponents(string: "http://www2.kugou.kugou.com/yueku/v9/special/getSpecial")!
         components.queryItems = [
             URLQueryItem(name: "is_ajax", value: "1"),
             URLQueryItem(name: "cdn", value: "cdn"),
@@ -1098,7 +1081,7 @@ enum LXCatalogService {
     }
 
     private static func searchKugouSonglists(_ keyword: String, page: Int, limit: Int) async throws -> [LXPlaylistSummary] {
-        var components = URLComponents(string: "https://msearchretry.kugou.com/api/v3/search/special")!
+        var components = URLComponents(string: "http://msearchretry.kugou.com/api/v3/search/special")!
         components.queryItems = [
             URLQueryItem(name: "keyword", value: keyword),
             URLQueryItem(name: "page", value: String(page)),
@@ -1202,7 +1185,7 @@ enum LXCatalogService {
             let root = try await fetchObject(url) as? [String: Any]
             return (root?["tagvalue"] as? [[String: Any]])?.compactMap { text($0["key"]) } ?? []
         case .kg:
-            let url = URL(string: "https://gateway.kugou.com/api/v3/search/hot_tab?signature=ee44edb9d7155821412d220bcaf509dd&appid=1005&clientver=10026&plat=0")!
+            let url = URL(string: "http://gateway.kugou.com/api/v3/search/hot_tab?signature=ee44edb9d7155821412d220bcaf509dd&appid=1005&clientver=10026&plat=0")!
             let root = try await fetchObject(url, headers: ["x-router": "msearch.kugou.com", "kg-rc": "1"]) as? [String: Any]
             let groups = ((root?["data"] as? [String: Any])?["list"] as? [[String: Any]]) ?? []
             return groups.flatMap { ($0["keywords"] as? [[String: Any]]) ?? [] }.compactMap { text($0["keyword"]) }
