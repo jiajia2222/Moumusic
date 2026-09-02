@@ -275,7 +275,7 @@ button.sponsor-card { width: 100%; color: inherit; text-align: left; cursor: poi
 .steps strong { color: var(--ink); font-weight: 650; }
 .install-button { display: inline-flex; align-items: center; gap: 11px; }
 .install-footnote { margin: 16px 0 0; color: var(--faint); font-size: 10px; line-height: 1.5; }
-.install-tool-link { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.install-tool-link { margin: 16px 0 0; color: var(--muted); font-size: 16px; font-weight: 600; line-height: 1.6; }
 .install-tool-link a { color: var(--home-coral-dark); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 .troubleshooting { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 30px; width: min(100%, 980px); margin: 18px auto 0; padding: 28px; border-radius: var(--radius-lg); }
 .troubleshooting h2 { margin: 9px 0 0; font-size: 23px; letter-spacing: -0.04em; }
