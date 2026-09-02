@@ -13,14 +13,15 @@ struct SongCommentsSheet: View {
 
     let track: Track
     @Environment(\.dismiss) private var dismiss
-    @State private var hotComments: [NeteaseAPI.CommentItem] = []
-    @State private var latestComments: [NeteaseAPI.CommentItem] = []
+    @State private var hotComments: [DisplayComment] = []
+    @State private var latestComments: [DisplayComment] = []
     @State private var sort: Sort = .hot
     @State private var isLoading = true
     @State private var error: String?
     @State private var retryToken = 0
+    @State private var metadataNotice: String?
 
-    private var visibleComments: [NeteaseAPI.CommentItem] {
+    private var visibleComments: [DisplayComment] {
         let selected = sort == .hot ? hotComments : latestComments
         return selected.isEmpty ? latestComments : selected
     }
@@ -49,12 +50,20 @@ struct SongCommentsSheet: View {
                         .padding(.horizontal)
                         .padding(.vertical, 10)
 
+                        if let metadataNotice {
+                            Text(metadataNotice)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal)
+                        }
+
                         List(visibleComments) { comment in
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack(alignment: .firstTextBaseline) {
-                                    Text(comment.user?.nickname ?? "匿名用户")
+                                    Text(comment.author ?? "匿名用户")
                                         .font(.subheadline.weight(.medium))
-                                    if let date = commentDate(comment.time) {
+                                    if let date = commentDate(comment.date) {
                                         Text(date)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
@@ -92,14 +101,27 @@ struct SongCommentsSheet: View {
         error = nil
         hotComments = []
         latestComments = []
+        metadataNotice = nil
         do {
             let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
+            let sourceIsNetease = source.isEmpty || source == "wy" || source == "netease" || source == "163"
+            if !sourceIsNetease {
+                metadataNotice = "当前歌曲来自 \(LXCatalogPlatform(rawValue: source)?.displayName ?? source)；优先显示该平台公开评论。"
+                if let response = try? await LXCommentsService.comments(for: track) {
+                    hotComments = uniqueComments(response.hot.map(DisplayComment.init))
+                    latestComments = uniqueComments(response.latest.map(DisplayComment.init))
+                    isLoading = false
+                    return
+                }
+                metadataNotice = "当前歌曲来自 \(LXCatalogPlatform(rawValue: source)?.displayName ?? source)；该平台评论暂不可用，正在尝试公开元数据匹配。"
+            }
+
             let neteaseID: Int?
             if let explicit = track.sourceMetadata["neteaseId"]
                 ?? track.sourceMetadata["wyId"],
-               let id = Int(explicit) {
+                let id = Int(explicit) {
                 neteaseID = id
-            } else if source.isEmpty || source == "wy" || source == "netease" || source == "163" {
+            } else if sourceIsNetease {
                 neteaseID = track.id
             } else {
                 neteaseID = try await NeteaseAPI.matchingSong(
@@ -111,8 +133,8 @@ struct SongCommentsSheet: View {
             let response = try await NeteaseAPI.comments(
                 for: neteaseID, order: sort == .hot ? .hot : .latest
             )
-            hotComments = response.topComments + response.hotComments
-            latestComments = response.comments
+            hotComments = uniqueComments((response.topComments + response.hotComments).map(DisplayComment.init))
+            latestComments = uniqueComments(response.comments.map(DisplayComment.init))
         } catch is CancellationError {
             return
         } catch {
@@ -121,9 +143,14 @@ struct SongCommentsSheet: View {
         isLoading = false
     }
 
-    private func commentDate(_ milliseconds: Int64?) -> String? {
-        guard let milliseconds, milliseconds > 0 else { return nil }
-        return Self.dateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1000))
+    private func uniqueComments(_ comments: [DisplayComment]) -> [DisplayComment] {
+        var seen = Set<String>()
+        return comments.filter { seen.insert($0.id).inserted }
+    }
+
+    private func commentDate(_ date: Date?) -> String? {
+        guard let date else { return nil }
+        return Self.dateFormatter.string(from: date)
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -149,10 +176,38 @@ struct SongCommentsSheet: View {
     }
 }
 
+private struct DisplayComment: Identifiable, Hashable {
+    let id: String
+    let content: String
+    let author: String?
+    let likedCount: Int
+    let date: Date?
+
+    init(_ comment: LXComment) {
+        id = comment.id
+        content = comment.content
+        author = comment.author
+        likedCount = comment.likedCount
+        date = comment.date
+    }
+
+    init(_ comment: NeteaseAPI.CommentItem) {
+        id = String(comment.id)
+        content = comment.content
+        author = comment.user?.nickname
+        likedCount = comment.likedCount
+        if let time = comment.time, time > 0 {
+            date = Date(timeIntervalSince1970: TimeInterval(time) / 1000)
+        } else {
+            date = nil
+        }
+    }
+}
+
 private enum SongCommentsError: LocalizedError {
     case noMatchingSong
 
     var errorDescription: String? {
-        "未找到对应的网易云歌曲，暂时无法显示评论"
+        "暂未找到公开评论对应的歌曲，请稍后重试"
     }
 }

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 安装与音源说明
+    url: https://music.nadev.xyz/install
+    about: 提交问题前请先查看安装、自签和 LX 音源导入说明。

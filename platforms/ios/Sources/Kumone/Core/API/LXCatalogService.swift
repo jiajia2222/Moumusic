@@ -134,7 +134,7 @@ enum LXCatalogService {
             URLQueryItem(name: "issubtitle", value: "1"),
         ]
         let root = try await fetchObject(components.url!) as? [String: Any]
-        let items = root?["abslist"] as? [[String: Any]] ?? []
+        let items = dictionaryArray(root, keys: ["abslist", "playlist", "list", "data"])
         return items.compactMap { item in
             guard let rawID = text(item["MUSICRID"]),
                   let id = Int(rawID.replacingOccurrences(of: "MUSIC_", with: "")) else { return nil }
@@ -280,10 +280,11 @@ enum LXCatalogService {
                          album: AlbumRef(id: int(album?["id"]) ?? 0,
                                         name: text(album?["name"]) ?? "", picUrl: image),
                          durationMS: seconds(item["interval"]) * 1000,
-                         source: "tx",
-                         sourceMetadata: ["songmid": text(item["mid"]) ?? String(id),
-                                          "strMediaMid": mediaMid,
-                                          "albumMid": albumMid])
+                          source: "tx",
+                          sourceMetadata: ["songmid": text(item["mid"]) ?? String(id),
+                                           "id": String(id),
+                                           "strMediaMid": mediaMid,
+                                           "albumMid": albumMid])
         }
     }
 
@@ -298,7 +299,22 @@ enum LXCatalogService {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw LXCatalogError.invalidResponse
         }
-        return try JSONSerialization.jsonObject(with: data)
+        if let object = try? JSONSerialization.jsonObject(with: data) {
+            return object
+        }
+
+        // A few legacy catalogue endpoints occasionally ignore the requested
+        // JSON format and wrap the payload in JSONP. Strip only the outer
+        // callback so the provider-specific parsers can still inspect the
+        // response. No executable content is evaluated.
+        guard let body = String(data: data, encoding: .utf8),
+              let start = body.firstIndex(where: { $0 == "{" || $0 == "[" }),
+              let end = body.lastIndex(where: { $0 == "}" || $0 == "]" }),
+              start <= end else {
+            throw LXCatalogError.invalidResponse
+        }
+        let json = String(body[start...end])
+        return try JSONSerialization.jsonObject(with: Data(json.utf8))
     }
 
     private static func fetchData(_ url: URL, method: String = "GET", body: Data? = nil,
@@ -439,6 +455,33 @@ enum LXCatalogService {
 
     private static func firstText(_ values: Any?...) -> String? {
         values.compactMap { text($0) }.first { !$0.isEmpty }
+    }
+
+    /// LX-compatible catalogue endpoints are not consistent about whether
+    /// their result array is at `data.list`, `data.data`, `result`, or a
+    /// provider-specific key. Walk only the response object and accept the
+    /// first non-empty array under the known aliases. This keeps a provider's
+    /// own IDs intact while tolerating harmless envelope changes.
+    private static func dictionaryArray(_ value: Any?, keys: [String]) -> [[String: Any]] {
+        if let dictionaries = value as? [[String: Any]], !dictionaries.isEmpty {
+            return dictionaries
+        }
+        if let values = value as? [Any], !values.isEmpty {
+            let dictionaries = values.compactMap { $0 as? [String: Any] }
+            if !dictionaries.isEmpty { return dictionaries }
+        }
+        guard let object = value as? [String: Any] else { return [] }
+
+        for key in keys {
+            guard let child = object[key] else { continue }
+            let result = dictionaryArray(child, keys: keys)
+            if !result.isEmpty { return result }
+        }
+        for child in object.values {
+            let result = dictionaryArray(child, keys: keys)
+            if !result.isEmpty { return result }
+        }
+        return []
     }
 
     private static func int(_ value: Any?) -> Int? {
@@ -787,21 +830,63 @@ enum LXCatalogService {
         }
     }
 
-    private static func recommendedKuwoSonglists(limit: Int) async throws -> [LXPlaylistSummary] {
+    /// Loads the two real sorting feeds exposed by LX Mobile. Searching for
+    /// the words “热门” or “最新” is not equivalent to sorting a provider's
+    /// songlists and is the reason the old Discover page returned malformed or
+    /// unrelated results on non-NetEase platforms.
+    static func sortedSonglists(platform: LXCatalogPlatform, category: String,
+                                page: Int = 1, limit: Int = 30) async throws -> [LXPlaylistSummary] {
+        guard platform != .aggregate else { throw LXCatalogError.unsupported }
+        switch platform {
+        case .kw:
+            let order = category == "最新" ? "new" : "hot"
+            let result = try await recommendedKuwoSonglists(limit: limit, order: order, page: page)
+            return result.isEmpty
+                ? try await searchSonglists(category, platform: platform, page: page, limit: limit)
+                : result
+        case .kg:
+            let sortID = category == "最新" ? "7" : "6"
+            let result = try await kugouSonglists(sortID: sortID, page: page, limit: limit)
+            return result.isEmpty
+                ? try await searchSonglists(category, platform: platform, page: page, limit: limit)
+                : result
+        case .tx:
+            let order = category == "最新" ? 2 : 5
+            let result = try await recommendedQQSonglists(limit: limit, order: order, page: page)
+            return result.isEmpty
+                ? try await searchSonglists(category, platform: platform, page: page, limit: limit)
+                : result
+        case .wy:
+            return try await searchSonglists(category, platform: platform, page: page, limit: limit)
+        case .mg:
+            // LX's current Migu adapter exposes a recommendation feed but no
+            // independent hot/new sort endpoint. Keep both tabs on that real
+            // feed instead of sending “最新” as a search keyword, which is
+            // what produced malformed empty cards in the old implementation.
+            let result = try await recommendedMiguSonglists(limit: limit, page: page)
+            return result.isEmpty
+                ? try await searchSonglists(category, platform: platform, page: page, limit: limit)
+                : result
+        case .aggregate:
+            throw LXCatalogError.unsupported
+        }
+    }
+
+    private static func recommendedKuwoSonglists(limit: Int, order: String = "hot",
+                                                 page: Int = 1) async throws -> [LXPlaylistSummary] {
         var components = URLComponents(string: "https://wapi.kuwo.cn/api/pc/classify/playlist/getRcmPlayList")!
         components.queryItems = [
             URLQueryItem(name: "loginUid", value: "0"),
             URLQueryItem(name: "loginSid", value: "0"),
             URLQueryItem(name: "appUid", value: "76039576"),
-            URLQueryItem(name: "pn", value: "1"),
+            URLQueryItem(name: "pn", value: String(page)),
             URLQueryItem(name: "rn", value: String(limit)),
             // LX uses the source's textual sort id. Numeric values return an
             // HTTP 200 response with an empty data array.
-            URLQueryItem(name: "order", value: "hot"),
+            URLQueryItem(name: "order", value: order),
         ]
         let root = try await fetchObject(components.url!) as? [String: Any]
-        let data = root?["data"] as? [String: Any]
-        let items = data?["data"] as? [[String: Any]] ?? []
+        let items = dictionaryArray(root, keys: ["data", "list", "rows", "playlist", "abslist"])
         return items.compactMap { item in
             guard let rawID = text(item["id"]) ?? text(item["playlistid"]) else { return nil }
             let id: String
@@ -812,12 +897,14 @@ enum LXCatalogService {
             } else {
                 id = rawID
             }
-            return LXPlaylistSummary(id: id, name: text(item["name"]) ?? "",
-                                      coverURL: kuwoImageURL(item["img"]),
-                                     playCount: int(item["listencnt"]) ?? int(item["playcnt"]) ?? 0,
-                                     trackCount: int(item["total"]) ?? int(item["songnum"]) ?? 0,
-                                     description: text(item["desc"]), author: text(item["uname"]),
-                                     source: .kw)
+            return LXPlaylistSummary(id: id,
+                                      name: firstText(item["name"], item["title"], item["playlistname"]) ?? "",
+                                      coverURL: kuwoImageURL(item["img"] ?? item["pic"] ?? item["cover"]),
+                                     playCount: int(item["listencnt"]) ?? int(item["playcnt"]) ?? int(item["playCount"]) ?? 0,
+                                     trackCount: int(item["total"]) ?? int(item["songnum"]) ?? int(item["song_count"]) ?? 0,
+                                     description: firstText(item["desc"], item["intro"], item["description"]),
+                                     author: firstText(item["uname"], item["nickname"], item["creator"]),
+                                      source: .kw)
         }
     }
 
@@ -841,20 +928,46 @@ enum LXCatalogService {
         let root = try await fetchObject(url, method: "POST", body: data,
                                          headers: ["Content-Type": "application/json",
                                                    "User-Agent": "KuGou2012-8275-web_browser_event_handler"]) as? [String: Any]
-        let result = root?["data"] as? [String: Any]
-        let items = result?["special_list"] as? [[String: Any]] ?? []
+        let items = dictionaryArray(root, keys: ["special_list", "list", "info", "specialList", "data"])
         return items.prefix(limit).compactMap { item in
             guard let id = int(item["specialid"]) else { return nil }
-            return LXPlaylistSummary(id: "id_\(id)", name: text(item["specialname"]) ?? "",
-                                      coverURL: normalizedImageURL(text(item["img"]) ?? text(item["imgurl"])),
-                                     playCount: int(item["total_play_count"]) ?? int(item["play_count"]) ?? int(item["collectcount"]) ?? 0,
-                                     trackCount: int(item["songcount"]) ?? int(item["song_count"]) ?? 0,
-                                     description: text(item["intro"]), author: text(item["nickname"]),
+            return LXPlaylistSummary(id: "id_\(id)",
+                                      name: firstText(item["specialname"], item["name"], item["title"]) ?? "",
+                                      coverURL: normalizedImageURL(firstText(item["img"], item["imgurl"], item["cover"])),
+                                     playCount: int(item["total_play_count"]) ?? int(item["play_count"]) ?? int(item["collectcount"]) ?? int(item["playCount"]) ?? 0,
+                                     trackCount: int(item["songcount"]) ?? int(item["song_count"]) ?? int(item["songCount"]) ?? 0,
+                                     description: firstText(item["intro"], item["description"]),
+                                     author: firstText(item["nickname"], item["creator"]),
                                      source: .kg)
         }
     }
 
-    private static func recommendedQQSonglists(limit: Int) async throws -> [LXPlaylistSummary] {
+    private static func kugouSonglists(sortID: String, page: Int,
+                                       limit: Int) async throws -> [LXPlaylistSummary] {
+        var components = URLComponents(string: "https://www2.kugou.kugou.com/yueku/v9/special/getSpecial")!
+        components.queryItems = [
+            URLQueryItem(name: "is_ajax", value: "1"),
+            URLQueryItem(name: "cdn", value: "cdn"),
+            URLQueryItem(name: "t", value: sortID),
+            URLQueryItem(name: "c", value: ""),
+            URLQueryItem(name: "p", value: String(page)),
+        ]
+        let root = try await fetchObject(components.url!) as? [String: Any]
+        let items = dictionaryArray(root, keys: ["special_db", "list", "data"])
+        return items.prefix(limit).compactMap { item in
+            guard let id = int(item["specialid"] ?? item["special_id"]) else { return nil }
+            return LXPlaylistSummary(id: "id_\(id)",
+                                     name: firstText(item["specialname"], item["special_name"], item["name"], item["title"]) ?? "",
+                                     coverURL: normalizedImageURL(firstText(item["img"], item["imgurl"], item["cover"])),
+                                     playCount: int(item["total_play_count"]) ?? int(item["play_count"]) ?? int(item["playcount"]) ?? 0,
+                                     trackCount: int(item["songcount"]) ?? int(item["song_count"]) ?? 0,
+                                     description: firstText(item["intro"], item["description"]),
+                                     author: firstText(item["nickname"], item["creator"]), source: .kg)
+        }
+    }
+
+    private static func recommendedQQSonglists(limit: Int, order: Int = 5,
+                                               page: Int = 1) async throws -> [LXPlaylistSummary] {
         // Match LX Mobile's GET form. QQ accepts the same JSON envelope via
         // the `data` query item; posting the envelope returns HTTP 200 but an
         // empty playlist object on some regions.
@@ -862,7 +975,7 @@ enum LXCatalogService {
             "comm": ["cv": 1602, "ct": 20],
             "playlist": [
                 "method": "get_playlist_by_tag",
-                "param": ["id": 10000000, "sin": 0, "size": limit, "order": 5, "cur_page": 1],
+                "param": ["id": 10000000, "sin": limit * max(0, page - 1), "size": limit, "order": order, "cur_page": page],
                 "module": "playlist.PlayListPlazaServer",
             ],
         ]
@@ -880,37 +993,37 @@ enum LXCatalogService {
             URLQueryItem(name: "data", value: String(data: encoded, encoding: .utf8)),
         ]
         let root = try await fetchObject(components.url!) as? [String: Any]
-        let playlist = root?["playlist"] as? [String: Any]
-        let data = playlist?["data"] as? [String: Any]
-        let items = data?["v_playlist"] as? [[String: Any]] ?? []
+        let items = dictionaryArray(root, keys: ["v_playlist", "playlist", "list", "data"])
         return items.prefix(limit).compactMap { item in
             guard let id = int(item["tid"]) else { return nil }
             let creator = (item["creator_info"] as? [String: Any]).flatMap { text($0["nick"]) }
-            return LXPlaylistSummary(id: String(id), name: text(item["title"]) ?? "",
-                                      coverURL: normalizedImageURL(text(item["cover_url_medium"]) ?? text(item["cover_url"])),
+            return LXPlaylistSummary(id: String(id),
+                                      name: firstText(item["title"], item["name"], item["dissname"]) ?? "",
+                                      coverURL: normalizedImageURL(firstText(item["cover_url_medium"], item["cover_url"], item["logo"])),
                                      playCount: int(item["access_num"]) ?? 0,
                                      trackCount: (item["song_ids"] as? [Any])?.count ?? 0,
-                                     description: text(item["desc"]), author: creator, source: .tx)
+                                     description: firstText(item["desc"], item["description"]), author: creator, source: .tx)
         }
     }
 
-    private static func recommendedMiguSonglists(limit: Int) async throws -> [LXPlaylistSummary] {
-        let url = URL(string: "https://app.c.nf.migu.cn/pc/bmw/page-data/playlist-square-recommend/v1.0?templateVersion=2&pageNo=1")!
+    private static func recommendedMiguSonglists(limit: Int, page: Int = 1) async throws -> [LXPlaylistSummary] {
+        let url = URL(string: "https://app.c.nf.migu.cn/pc/bmw/page-data/playlist-square-recommend/v1.0?templateVersion=2&pageNo=\(page)")!
         let root = try await fetchObject(url, headers: ["Referer": "https://m.music.migu.cn/"]) as? [String: Any]
-        let data = root?["data"] as? [String: Any]
-        let contents = data?["contents"] as? [[String: Any]] ?? []
+        let contents = dictionaryArray(root, keys: ["contents", "content", "list", "result", "data"])
         var output: [LXPlaylistSummary] = []
         var seen = Set<String>()
 
         func visit(_ item: [String: Any]) {
-            if let nested = item["contents"] as? [[String: Any]] {
+            let nested = dictionaryArray(item, keys: ["contents", "content", "items", "children"])
+            if !nested.isEmpty {
                 nested.forEach(visit)
             } else if text(item["resType"]) == "2021",
-                      let id = text(item["resId"]), seen.insert(id).inserted {
-                output.append(LXPlaylistSummary(id: id, name: text(item["txt"]) ?? "",
-                                                 coverURL: text(item["img"]), playCount: 0,
+                      let id = firstText(item["resId"], item["contentId"]), seen.insert(id).inserted {
+                output.append(LXPlaylistSummary(id: id,
+                                                 name: firstText(item["txt"], item["name"], item["title"]) ?? "",
+                                                 coverURL: firstText(item["img"], item["image"], item["cover"]), playCount: 0,
                                                  trackCount: int(item["contentCount"]) ?? 0,
-                                                 description: text(item["txt2"]), author: nil, source: .mg))
+                                                 description: firstText(item["txt2"], item["description"]), author: firstText(item["userName"], item["nickname"]), source: .mg))
             }
         }
         contents.forEach(visit)
@@ -971,15 +1084,16 @@ enum LXCatalogService {
             URLQueryItem(name: "ft", value: "playlist"),
         ]
         let root = try await fetchObject(components.url!) as? [String: Any]
-        let items = root?["abslist"] as? [[String: Any]] ?? []
+        let items = dictionaryArray(root, keys: ["abslist", "playlist", "list", "data"])
         return items.compactMap { item in
             guard let id = text(item["playlistid"]) ?? text(item["id"]) else { return nil }
-            return LXPlaylistSummary(id: id, name: text(item["name"]) ?? "",
-                                      coverURL: kuwoImageURL(item["pic"]),
-                                     playCount: int(item["playcnt"]) ?? 0,
-                                     trackCount: int(item["songnum"]) ?? 0,
-                                     description: text(item["intro"]),
-                                     author: text(item["nickname"]), source: .kw)
+            return LXPlaylistSummary(id: id,
+                                      name: firstText(item["name"], item["title"], item["playlistname"]) ?? "",
+                                      coverURL: kuwoImageURL(item["pic"] ?? item["img"] ?? item["cover"]),
+                                     playCount: int(item["playcnt"]) ?? int(item["playCount"]) ?? 0,
+                                     trackCount: int(item["songnum"]) ?? int(item["songcount"]) ?? 0,
+                                     description: firstText(item["intro"], item["desc"], item["description"]),
+                                     author: firstText(item["nickname"], item["uname"], item["creator"]), source: .kw)
         }
     }
 
@@ -995,16 +1109,16 @@ enum LXCatalogService {
             URLQueryItem(name: "sver", value: "2"),
         ]
         let root = try await fetchObject(components.url!) as? [String: Any]
-        guard let data = root?["data"] as? [String: Any],
-              let items = data["info"] as? [[String: Any]] else { return [] }
+        let items = dictionaryArray(root, keys: ["info", "special_list", "list", "data"])
         return items.compactMap { item in
             guard let id = int(item["specialid"]) else { return nil }
-            return LXPlaylistSummary(id: "id_\(id)", name: text(item["specialname"]) ?? "",
-                                     coverURL: text(item["imgurl"]),
-                                     playCount: int(item["playcount"]) ?? 0,
-                                     trackCount: int(item["songcount"]) ?? 0,
-                                     description: text(item["intro"]),
-                                     author: text(item["nickname"]), source: .kg)
+            return LXPlaylistSummary(id: "id_\(id)",
+                                     name: firstText(item["specialname"], item["name"], item["title"]) ?? "",
+                                     coverURL: normalizedImageURL(firstText(item["imgurl"], item["img"], item["cover"])),
+                                     playCount: int(item["playcount"]) ?? int(item["playCount"]) ?? 0,
+                                     trackCount: int(item["songcount"]) ?? int(item["songCount"]) ?? 0,
+                                     description: firstText(item["intro"], item["desc"], item["description"]),
+                                     author: firstText(item["nickname"], item["creator"]), source: .kg)
         }
     }
 
@@ -1021,16 +1135,16 @@ enum LXCatalogService {
             "Origin": "https://y.qq.com",
             "Referer": "https://y.qq.com/portal/search.html",
         ]) as? [String: Any]
-        let data = root?["data"] as? [String: Any]
-        let items = data?["list"] as? [[String: Any]] ?? []
+        let items = dictionaryArray(root, keys: ["list", "playlist", "songlist", "data"])
         return items.compactMap { item in
             guard let id = text(item["dissid"]) else { return nil }
-            return LXPlaylistSummary(id: id, name: text(item["dissname"]) ?? "",
-                                      coverURL: normalizedImageURL(text(item["imgurl"])),
+            return LXPlaylistSummary(id: id,
+                                      name: firstText(item["dissname"], item["name"], item["title"]) ?? "",
+                                      coverURL: normalizedImageURL(firstText(item["imgurl"], item["logo"], item["cover_url"])),
                                      playCount: int(item["listennum"]) ?? 0,
                                      trackCount: int(item["song_count"]) ?? 0,
-                                     description: text(item["introduction"]),
-                                     author: text(item["creator"]), source: .tx)
+                                     description: firstText(item["introduction"], item["desc"], item["description"]),
+                                     author: firstText(item["creator"], item["nickname"]), source: .tx)
         }
     }
 
@@ -1053,15 +1167,16 @@ enum LXCatalogService {
             "uiVersion": "A_music_3.6.1", "deviceId": deviceID,
             "timestamp": timestamp, "sign": signature, "channel": "0146921",
         ]) as? [String: Any]
-        let result = root?["songListResultData"] as? [String: Any]
-        let items = result?["result"] as? [[String: Any]] ?? []
+        let items = dictionaryArray(root, keys: ["result", "songListResultData", "songlist", "list", "data"])
         return items.compactMap { item in
             guard let id = text(item["id"]) else { return nil }
-            return LXPlaylistSummary(id: id, name: text(item["name"]) ?? "",
-                                      coverURL: miguImageURL(text(item["musicListPicUrl"])),
-                                     playCount: int(item["playNum"]) ?? 0,
-                                     trackCount: int(item["musicNum"]) ?? 0,
-                                     description: nil, author: text(item["userName"]), source: .mg)
+            return LXPlaylistSummary(id: id,
+                                      name: firstText(item["name"], item["title"], item["listName"]) ?? "",
+                                      coverURL: miguImageURL(firstText(item["musicListPicUrl"], item["img"], item["cover"])),
+                                     playCount: int(item["playNum"]) ?? int(item["playCount"]) ?? 0,
+                                     trackCount: int(item["musicNum"]) ?? int(item["songCount"]) ?? 0,
+                                     description: firstText(item["description"], item["summary"]),
+                                     author: firstText(item["userName"], item["nickname"]), source: .mg)
         }
     }
 
@@ -1181,10 +1296,7 @@ enum LXCatalogService {
             guard text(root?["result"]) == nil || text(root?["result"]) == "ok" else {
                 throw LXCatalogError.invalidResponse
             }
-            let rawTracks = (root?["musiclist"] as? [[String: Any]])
-                ?? (root?["musiclist"] as? [Any])?.compactMap { $0 as? [String: Any] }
-                ?? (((root?["data"] as? [String: Any])?["musiclist"] as? [Any])?.compactMap { $0 as? [String: Any] })
-                ?? []
+            let rawTracks = dictionaryArray(root, keys: ["musiclist", "songlist", "tracks", "list", "data"])
             guard !rawTracks.isEmpty else { throw LXCatalogError.invalidResponse }
             let tracks = rawTracks.compactMap { track(from: $0, source: .kw) }
             guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
@@ -1198,8 +1310,8 @@ enum LXCatalogService {
                 "Origin": "https://y.qq.com",
                 "Referer": "https://y.qq.com/n/yqq/playsquare/\(id).html",
             ]) as? [String: Any]
-            let cd = ((root?["cdlist"] as? [[String: Any]]) ?? []).first
-            let rawTracks = cd?["songlist"] as? [[String: Any]] ?? []
+            let cd = dictionaryArray(root, keys: ["cdlist", "playlist"]).first
+            let rawTracks = dictionaryArray(cd, keys: ["songlist", "songList", "tracks", "list"])
             guard !rawTracks.isEmpty else { throw LXCatalogError.invalidResponse }
             let tracks = rawTracks.compactMap { track(from: $0, source: .tx) }
             guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
@@ -1210,8 +1322,7 @@ enum LXCatalogService {
         case .mg:
             let url = URL(string: "https://app.c.nf.migu.cn/MIGUM3.0/resource/playlist/song/v2.0?pageNo=1&pageSize=1000&playlistId=\(id)")!
             let root = try await fetchObject(url, headers: ["Referer": "https://m.music.migu.cn/"]) as? [String: Any]
-            let data = root?["data"] as? [String: Any]
-            let rawTracks = data?["songList"] as? [[String: Any]] ?? []
+            let rawTracks = dictionaryArray(root, keys: ["songList", "songlist", "tracks", "list", "data"])
             guard !rawTracks.isEmpty else { throw LXCatalogError.invalidResponse }
             let tracks = rawTracks.compactMap { track(from: $0, source: .mg) }
             guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }

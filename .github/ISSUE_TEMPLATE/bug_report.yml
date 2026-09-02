@@ -1,0 +1,77 @@
+name: Bug report
+description: 报告可复现的问题，帮助我们定位播放、歌词、音源或界面故障
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请先确认使用的是最新 Release，并隐藏账号、Cookie、Token、证书和其他私密信息。
+  - type: input
+    id: version
+    attributes:
+      label: Moumusic 版本
+      description: 例如 1.0.0，或填写 commit SHA。
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options:
+        - iOS
+        - macOS
+        - Android
+        - Windows
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: 音源与歌曲平台
+      description: 请填写 LX 音源名称/版本、歌曲平台（酷我、酷狗、QQ、网易云、咪咕等）和音质。
+      placeholder: |
+        音源：
+        歌曲平台：
+        音质：
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请按顺序写出从打开应用到出现问题的操作。
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或截图
+      description: 可粘贴脱敏日志或截图；不要上传证书、密码、Token、Cookie。
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索现有 Issue，确认没有重复反馈。
+          required: true
+        - label: 我已移除日志中的密码、Token、Cookie、证书和个人隐私信息。
+          required: true

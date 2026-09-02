@@ -14,11 +14,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Generate Xcode project
         working-directory: platforms/ios/ios
         run: |
+          brew untap aws/tap || true
           brew install xcodegen
           xcodegen generate
 

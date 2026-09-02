@@ -105,7 +105,7 @@ struct NowPlayingView: View {
         .ignoresSafeArea()
         #endif
         .preferredColorScheme(.dark)
-        .task(id: player.currentTrack?.id) {
+        .task(id: player.currentTrack?.playbackKey) {
             await loadArtwork()
         }
         #if os(iOS)
@@ -210,11 +210,12 @@ struct NowPlayingView: View {
     }
 
     private func loadArtwork() async {
+        artworkImage = nil
+        colors = .fallback
         guard let track = player.currentTrack else {
-            artworkImage = nil
-            colors = .fallback
             return
         }
+        let playbackKey = track.playbackKey
         var urlString = track.album.picUrl
         if urlString == nil {
             let query = [track.name, track.artistNames].filter { !$0.isEmpty }.joined(separator: " ")
@@ -224,11 +225,10 @@ struct NowPlayingView: View {
             }
         }
         guard let urlString, let url = urlString.resizedImageURL(768) else {
-            artworkImage = nil
-            colors = .fallback
             return
         }
         if let image = await ImageCache.shared.image(for: url) {
+            guard player.currentTrack?.playbackKey == playbackKey else { return }
             artworkImage = image
             colors = ArtworkPalette.extract(from: image, cacheKey: urlString)
         }
@@ -448,8 +448,15 @@ struct NowPlayingView: View {
                 onToggleQueue: toggleImmersiveQueue
             )
         }
-        .padding(.top, 14)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 16)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
+        .background(.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(.white.opacity(0.16), lineWidth: 0.8)
+        }
+        .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .accessibilityIdentifier("immersiveControls")
     }
 
@@ -490,6 +497,13 @@ struct NowPlayingView: View {
                 style: .continuous
             )
         )
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: isExpanded ? 18 : 12,
+                style: .continuous
+            )
+            .stroke(.white.opacity(isExpanded ? 0.22 : 0.14), lineWidth: 0.8)
+        }
         .shadow(
             color: .black.opacity(isExpanded ? 0.45 : 0.22),
             radius: isExpanded ? 36 : 10,

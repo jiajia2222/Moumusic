@@ -24,6 +24,17 @@ enum NeteaseTrackMatcher {
         bestCandidate(for: track, in: candidates, requireDuration: false)
     }
 
+    /// Last-resort metadata match used for public comments. Some providers
+    /// include a translated artist string, featured-artist suffix, or an
+    /// empty artist field even though the title is exact. Comments are read
+    /// only, so retaining an exact-title match is more useful than failing
+    /// the entire comments sheet on an artist formatting difference.
+    static func bestTitleCandidate(for track: Track, in candidates: [Track]) -> Track? {
+        let title = normalizedTitle(track.name)
+        guard !title.isEmpty else { return nil }
+        return candidates.first { normalizedTitle($0.name) == title }
+    }
+
     private static func bestCandidate(for track: Track, in candidates: [Track],
                                       requireDuration: Bool) -> Track? {
         let targetTitle = normalizedTitle(track.name)

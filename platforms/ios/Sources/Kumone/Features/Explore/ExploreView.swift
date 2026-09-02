@@ -89,6 +89,10 @@ final class ExploreViewModel: ObservableObject {
                     toplists = Array(((try? await NeteaseAPI.toplists()) ?? []).prefix(10))
                     tracks = (try? await LXCatalogService.recommendedTracks(platform: .wy, limit: 30)) ?? []
                 }
+            } else if (selectedCategory == "最热" || selectedCategory == "最新") && platform != .wy {
+                result = try await LXCatalogService.sortedSonglists(platform: platform,
+                                                                     category: selectedCategory,
+                                                                     page: page, limit: 30)
             } else {
                 let keyword: String
                 switch selectedCategory {

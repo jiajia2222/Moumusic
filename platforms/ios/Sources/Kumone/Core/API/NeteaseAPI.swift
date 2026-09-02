@@ -644,19 +644,29 @@ enum NeteaseAPI {
             .joined(separator: " ")
         guard !query.isEmpty else { return nil }
         let result = try await search(query, type: .songs, limit: limit)
+        let candidates = result.songs ?? []
         let match = requireDuration
-            ? NeteaseTrackMatcher.bestCandidate(for: track, in: result.songs ?? [])
-            : NeteaseTrackMatcher.bestMetadataCandidate(for: track, in: result.songs ?? [])
+            ? NeteaseTrackMatcher.bestCandidate(for: track, in: candidates)
+            : NeteaseTrackMatcher.bestMetadataCandidate(for: track, in: candidates)
         if let match { return match }
+        if !requireDuration,
+           let titleMatch = NeteaseTrackMatcher.bestTitleCandidate(for: track, in: candidates) {
+            return titleMatch
+        }
 
         // LX providers can format artist names differently. Retry by title;
         // the matcher still checks the title and any available artist tokens.
         let title = track.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, title != query else { return nil }
         let titleResult = try await search(title, type: .songs, limit: limit)
+        let titleCandidates = titleResult.songs ?? []
+        let titleMatch = requireDuration
+            ? NeteaseTrackMatcher.bestCandidate(for: track, in: titleCandidates)
+            : NeteaseTrackMatcher.bestMetadataCandidate(for: track, in: titleCandidates)
+        if let titleMatch { return titleMatch }
         return requireDuration
-            ? NeteaseTrackMatcher.bestCandidate(for: track, in: titleResult.songs ?? [])
-            : NeteaseTrackMatcher.bestMetadataCandidate(for: track, in: titleResult.songs ?? [])
+            ? nil
+            : NeteaseTrackMatcher.bestTitleCandidate(for: track, in: titleCandidates)
     }
 
     struct SearchSuggestResponse: Decodable {

@@ -25,7 +25,9 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Install XcodeGen
-        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
+        run: |
+          brew untap aws/tap || true
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
 
       - name: Import signing assets and validate profiles
         env:

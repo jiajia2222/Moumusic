@@ -39,17 +39,35 @@ final class HomeViewModel: ObservableObject {
     @Published var lxRecommendPlaylists: [LXPlaylistSummary] = []
     private var loadedMode: HomeRecommendationMode?
     private var loadedPlatform: LXCatalogPlatform?
+    private static let didPerformInstallRefreshKey = "moumusic.home.didPerformInstallRefresh.v1"
 
     func load(loggedIn: Bool, mode: HomeRecommendationMode,
               platform: LXCatalogPlatform) async {
-        if loadedMode == mode, loadedPlatform == platform, case .loaded = state { return }
-        // The first catalogue request can race app/network startup. Retry one
-        // time before exposing the error state; this removes the need to
-        // manually pull-to-refresh after a cold launch.
-        for attempt in 0..<3 {
+        if loadedMode == mode, loadedPlatform == platform {
+            switch state {
+            case .loading, .loaded, .error:
+                // SwiftUI can recreate the tab more than once during the
+                // first scene transition. Do not turn that into another
+                // recommendation request; reload() is the explicit retry.
+                return
+            case .idle:
+                break
+            }
+        }
+
+        // A clean install gets a small, bounded warm-up retry because the
+        // source/catalogue bridge may still be starting. Persist the marker
+        // before requesting so a failed first request does not retry on every
+        // later app launch. Updates keep the marker in UserDefaults.
+        let needsInstallRefresh = !UserDefaults.standard.bool(forKey: Self.didPerformInstallRefreshKey)
+        if needsInstallRefresh {
+            UserDefaults.standard.set(true, forKey: Self.didPerformInstallRefreshKey)
+        }
+        let attempts = needsInstallRefresh ? 3 : 1
+        for attempt in 0..<attempts {
             await loadOnce(loggedIn: loggedIn, mode: mode, platform: platform)
             if case .loaded = state { return }
-            if attempt < 2 {
+            if attempt + 1 < attempts {
                 try? await Task.sleep(for: .milliseconds(attempt == 0 ? 450 : 900))
                 loadedMode = nil
                 loadedPlatform = nil
