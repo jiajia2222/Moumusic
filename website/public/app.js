@@ -85,6 +85,8 @@ function renderProfile() {
     const link = $(id)
     if (link) link.href = supportLink
   }
+  const dialogLink = $('support-dialog-link')
+  if (dialogLink) dialogLink.href = supportLink
 }
 
 function createSponsorCard(sponsor) {
@@ -167,7 +169,7 @@ function closeSponsor() {
   else dialog.removeAttribute('open')
 }
 
-function showError() {
+function showError(error) {
   $('error-card').hidden = false
   $('sponsor-list').hidden = true
   $('recent-list').hidden = true
@@ -175,6 +177,13 @@ function showError() {
   setText('supporter-count', '—')
   setText('recent-support', '暂不可用')
   setText('total-support', '持续支持中')
+  if (error?.code === 'CONFIG_MISSING') {
+    setText('error-title', '赞助名单还未连接')
+    setText('error-message', '管理员需要先配置爱发电 API；配置完成后点击“重新加载”即可查看。')
+  } else {
+    setText('error-title', '暂时无法获取赞助名单')
+    setText('error-message', '稍后再试，顶部的爱发电入口仍然可以正常使用。')
+  }
 }
 
 function clearError() {
@@ -186,7 +195,11 @@ function clearError() {
 async function fetchJson(path) {
   const response = await fetch(path, { headers: { accept: 'application/json' }, cache: 'no-store' })
   const data = await response.json().catch(() => null)
-  if (!response.ok || !data?.success) throw new Error('sponsor-data-unavailable')
+  if (!response.ok || !data?.success) {
+    const error = new Error('sponsor-data-unavailable')
+    error.code = data?.error?.code
+    throw error
+  }
   return data
 }
 
@@ -202,8 +215,8 @@ async function loadSponsors() {
     supporters = Array.isArray(sponsorData.supporters) ? sponsorData.supporters : []
     renderSponsorList()
     renderStats(statsData.stats || {})
-  } catch {
-    showError()
+  } catch (error) {
+    showError(error)
   } finally {
     refresh.classList.remove('is-loading')
   }
@@ -215,6 +228,26 @@ $('retry-button').addEventListener('click', loadSponsors)
 $('dialog-close').addEventListener('click', closeSponsor)
 $('sponsor-dialog').addEventListener('click', event => {
   if (event.target === $('sponsor-dialog')) closeSponsor()
+})
+function openSupport() {
+  const dialog = $('support-dialog')
+  if (typeof dialog.showModal === 'function') dialog.showModal()
+  else dialog.setAttribute('open', '')
+}
+function closeSupport() {
+  const dialog = $('support-dialog')
+  if (dialog.open && typeof dialog.close === 'function') dialog.close()
+  else dialog.removeAttribute('open')
+}
+document.querySelectorAll('[data-support-action]').forEach(link => {
+  link.addEventListener('click', event => {
+    event.preventDefault()
+    openSupport()
+  })
+})
+$('support-dialog-close').addEventListener('click', closeSupport)
+$('support-dialog').addEventListener('click', event => {
+  if (event.target === $('support-dialog')) closeSupport()
 })
 document.querySelectorAll('[data-reveal]').forEach((element, index) => {
   element.classList.add('reveal')

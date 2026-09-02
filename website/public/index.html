@@ -43,8 +43,8 @@
             <h1 id="hero-title">先安装，<em>再开始听歌。</em></h1>
             <p class="hero-tagline" id="site-tagline">下载应用，添加你有权使用的音源，然后开始播放。整个流程只需要三步。</p>
             <div class="hero-actions">
-              <a class="primary-button primary-button--hero" id="support-link" href="#support" target="_blank" rel="noopener noreferrer">
-                <span>醒目支持 Moumusic</span>
+              <a class="primary-button primary-button--hero" id="support-link" data-support-action href="#support" target="_blank" rel="noopener noreferrer">
+                <span>支持 Moumusic</span>
                 <span class="button-arrow" aria-hidden="true">↗</span>
               </a>
               <a class="quiet-button" href="/install">
@@ -109,7 +109,7 @@
             <h2 id="support-title">如果 Moumusic 帮到了你，<br /><span>欢迎支持下一次更新。</span></h2>
             <p>每一份支持，都会回到维护、修复和新的播放体验里。</p>
           </div>
-          <a class="primary-button primary-button--support" id="banner-support-link" href="#support" target="_blank" rel="noopener noreferrer">
+          <a class="primary-button primary-button--support" id="banner-support-link" data-support-action href="#support" target="_blank" rel="noopener noreferrer">
             <span>在爱发电赞助</span><span class="button-arrow" aria-hidden="true">↗</span>
           </a>
         </section>
@@ -156,7 +156,7 @@
             <div class="empty-icon" aria-hidden="true">♡</div><h3>还没有赞助记录</h3><p>感谢每一位未来的支持者 ❤️</p>
           </div>
           <div class="error-card glass-card" id="error-card" hidden role="alert">
-            <div class="error-icon" aria-hidden="true">!</div><div><h3>暂时无法获取赞助名单</h3><p>稍后再试，顶部的爱发电入口仍然可以正常使用。</p></div><button class="secondary-button" id="retry-button" type="button">重新加载</button>
+            <div class="error-icon" aria-hidden="true">!</div><div><h3 id="error-title">暂时无法获取赞助名单</h3><p id="error-message">稍后再试，顶部的爱发电入口仍然可以正常使用。</p></div><button class="secondary-button" id="retry-button" type="button">重新加载</button>
           </div>
         </section>
 
@@ -167,7 +167,7 @@
 
       <footer class="site-footer">
         <span>Made with <span class="footer-heart" aria-hidden="true">♥</span> for music</span>
-        <span class="footer-links"><a id="footer-support-link" href="#support" target="_blank" rel="noopener noreferrer">前往爱发电</a><span aria-hidden="true">·</span><a href="/install">安装说明</a></span>
+        <span class="footer-links"><a id="footer-support-link" data-support-action href="#support" target="_blank" rel="noopener noreferrer">前往爱发电</a><span aria-hidden="true">·</span><a href="/install">安装说明</a></span>
       </footer>
     </div>
 
@@ -178,6 +178,22 @@
         <p class="dialog-kicker">THANK YOU</p><h2 id="dialog-name">支持者</h2><p class="dialog-plan" id="dialog-plan">持续支持中</p>
         <dl class="dialog-details"><div><dt>最近支持</dt><dd id="dialog-time">—</dd></div><div id="dialog-amount-row"><dt>累计支持</dt><dd id="dialog-amount">—</dd></div></dl>
         <p class="dialog-thanks">❤️ 感谢你的支持</p>
+      </div>
+    </dialog>
+
+    <dialog class="support-dialog" id="support-dialog" aria-labelledby="support-dialog-title">
+      <div class="support-dialog__surface glass-card">
+        <button class="dialog-close" id="support-dialog-close" type="button" aria-label="关闭">×</button>
+        <div class="support-dialog__badge" aria-hidden="true">♥</div>
+        <p class="dialog-kicker">SUPPORT MOUMUSIC</p>
+        <h2 id="support-dialog-title">把喜欢变成下一次更新</h2>
+        <p class="support-dialog__intro">感谢你的支持。付款由爱发电官方完成，我们不会在本站收集银行卡、微信或支付宝信息。</p>
+        <div class="payment-route">
+          <div class="payment-route__icon" aria-hidden="true">↗</div>
+          <div><strong>爱发电官方支付</strong><span>支持微信、支付宝及官方方案</span></div>
+          <a class="primary-button payment-route__button" id="support-dialog-link" href="#support" target="_blank" rel="noopener noreferrer">打开付款页 <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="support-dialog__note">点击后会进入爱发电官方安全页面选择赞助方案。</p>
       </div>
     </dialog>
 
