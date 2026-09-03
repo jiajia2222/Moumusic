@@ -37,56 +37,97 @@ final class HomeViewModel: ObservableObject {
     @Published private(set) var activePlatform: LXCatalogPlatform = .wy
     @Published var recommendTracks: [Track] = []
     @Published var lxRecommendPlaylists: [LXPlaylistSummary] = []
-    private var loadedMode: HomeRecommendationMode?
-    private var loadedPlatform: LXCatalogPlatform?
-    private static let didPerformInstallRefreshKey = "moumusic.home.didPerformInstallRefresh.v1"
+    private struct LoadRequest: Equatable {
+        let loggedIn: Bool
+        let mode: HomeRecommendationMode
+        let platform: LXCatalogPlatform
+    }
+
+    private var activeRequest: LoadRequest?
+    private var loadTask: Task<Void, Never>?
+    private var loadGeneration = 0
+    private static let didPerformInstallRefreshKey = "moumusic.home.didPerformInstallRefresh.v2"
 
     func load(loggedIn: Bool, mode: HomeRecommendationMode,
               platform: LXCatalogPlatform) async {
-        if loadedMode == mode, loadedPlatform == platform {
+        let request = LoadRequest(loggedIn: loggedIn, mode: mode, platform: platform)
+        if activeRequest == request {
             switch state {
-            case .loading, .loaded, .error:
-                // SwiftUI can recreate the tab more than once during the
-                // first scene transition. Do not turn that into another
-                // recommendation request; reload() is the explicit retry.
+            case .loaded:
                 return
+            case .loading, .error:
+                // The actual request is owned by the model rather than by the
+                // SwiftUI view task. This lets it survive the first TabView
+                // transition, which can cancel and recreate HomeView.
+                if let loadTask {
+                    await loadTask.value
+                    return
+                }
             case .idle:
                 break
             }
         }
 
+        loadGeneration += 1
+        let generation = loadGeneration
+        loadTask?.cancel()
+        activeRequest = request
+
         // A clean install gets a small, bounded warm-up retry because the
         // source/catalogue bridge may still be starting. Persist the marker
-        // before requesting so a failed first request does not retry on every
-        // later app launch. Updates keep the marker in UserDefaults.
+        // only after a successful request so a cancelled/failed first launch
+        // can recover on the next launch. The v2 key also gives users who
+        // upgraded from the broken v1 warm-up one automatic retry.
         let needsInstallRefresh = !UserDefaults.standard.bool(forKey: Self.didPerformInstallRefreshKey)
-        if needsInstallRefresh {
-            UserDefaults.standard.set(true, forKey: Self.didPerformInstallRefreshKey)
+        state = .loading
+        let task = Task { @MainActor [weak self] in
+            await self?.performLoad(request, generation: generation,
+                                    warmStart: needsInstallRefresh)
         }
-        let attempts = needsInstallRefresh ? 3 : 1
+        loadTask = task
+        await task.value
+    }
+
+    private func performLoad(_ request: LoadRequest, generation: Int,
+                             warmStart: Bool) async {
+        let attempts = warmStart ? 4 : 1
         for attempt in 0..<attempts {
-            await loadOnce(loggedIn: loggedIn, mode: mode, platform: platform)
-            if case .loaded = state { return }
-            if attempt + 1 < attempts {
-                try? await Task.sleep(for: .milliseconds(attempt == 0 ? 450 : 900))
-                loadedMode = nil
-                loadedPlatform = nil
+            guard generation == loadGeneration else { return }
+            await loadOnce(loggedIn: request.loggedIn, mode: request.mode,
+                           platform: request.platform, generation: generation)
+            guard generation == loadGeneration else { return }
+            if case .loaded = state {
+                if warmStart {
+                    UserDefaults.standard.set(true, forKey: Self.didPerformInstallRefreshKey)
+                }
+                loadTask = nil
+                return
             }
+            if attempt + 1 < attempts {
+                do {
+                    try await Task.sleep(for: .milliseconds(700 + attempt * 900))
+                } catch {
+                    return
+                }
+            }
+        }
+        if generation == loadGeneration {
+            loadTask = nil
         }
     }
 
     private func loadOnce(loggedIn: Bool, mode: HomeRecommendationMode,
-                          platform: LXCatalogPlatform) async {
+                          platform: LXCatalogPlatform, generation: Int) async {
+        guard generation == loadGeneration else { return }
         activeMode = mode
         activePlatform = mode == .netease ? .wy : platform
-        loadedMode = mode
-        loadedPlatform = platform
         state = .loading
 
         if mode == .lx {
             // LX recommendations are catalogue-only. The selected source is
             // still the only component allowed to resolve audio on iOS.
             let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
+            guard generation == loadGeneration else { return }
             lxRecommendPlaylists = content.playlists
             recommendTracks = content.tracks
             state = recommendTracks.isEmpty && lxRecommendPlaylists.isEmpty
@@ -105,16 +146,20 @@ final class HomeViewModel: ObservableObject {
         async let artistsTask = try? NeteaseAPI.topArtists()
 
         recommendPlaylists = await playlistsTask
+        guard generation == loadGeneration else { return }
         let hotSongs = await hotSongsTask ?? []
+        guard generation == loadGeneration else { return }
         if hotSongs.isEmpty,
            let search = try? await NeteaseAPI.search("热歌榜", type: .songs, limit: 30) {
             recommendTracks = (search.songs ?? []).map { $0.normalizedForLXPlayback() }
         } else {
             recommendTracks = hotSongs.map { $0.normalizedForLXPlayback() }
         }
+        guard generation == loadGeneration else { return }
         toplists = Array((await toplistsTask ?? []).prefix(12))
         newAlbums = await albumsTask ?? []
         topArtists = Array((await artistsTask ?? []).prefix(12))
+        guard generation == loadGeneration else { return }
         if loggedIn {
             if let daily = try? await NeteaseAPI.dailyRecommendSongs() {
                 dailyFirstCover = daily.first?.album.picUrl
@@ -129,9 +174,11 @@ final class HomeViewModel: ObservableObject {
 
     func reload(loggedIn: Bool, mode: HomeRecommendationMode,
                 platform: LXCatalogPlatform) async {
+        loadGeneration += 1
+        loadTask?.cancel()
+        loadTask = nil
+        activeRequest = nil
         state = .idle
-        loadedMode = nil
-        loadedPlatform = nil
         await load(loggedIn: loggedIn, mode: mode, platform: platform)
     }
 
