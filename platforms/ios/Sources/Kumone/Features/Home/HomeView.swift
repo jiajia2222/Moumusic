@@ -81,8 +81,9 @@ final class HomeViewModel: ObservableObject {
         let needsInstallRefresh = !UserDefaults.standard.bool(forKey: Self.didPerformInstallRefreshKey)
         state = .loading
         let task = Task { @MainActor [weak self] in
-            await self?.performLoad(request, generation: generation,
-                                    warmStart: needsInstallRefresh)
+            guard let self else { return }
+            await self.performLoad(request, generation: generation,
+                                   warmStart: needsInstallRefresh)
         }
         loadTask = task
         await task.value
