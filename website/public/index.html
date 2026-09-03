@@ -9,7 +9,7 @@
     <meta property="og:title" data-i18n-content="meta.homeOgTitle" content="Moumusic｜先安装，再开始听歌" />
     <meta property="og:description" data-i18n-content="meta.homeOgDescription" content="查看 Moumusic 安装步骤，添加你有权使用的音源，并支持项目持续维护。" />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="/aifadian" />
+    <meta property="og:url" content="https://music.nadev.xyz/" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
     <title data-i18n="meta.homeTitle">Moumusic｜安装与支持</title>
@@ -25,6 +25,10 @@
           <a href="/install" data-i18n="nav.install">安装教程</a>
           <a href="#sponsors" data-i18n="nav.sponsors">支持者</a>
           <button class="language-toggle" id="language-toggle" type="button" aria-label="切换到 English">EN</button>
+          <button class="theme-toggle" id="theme-toggle" type="button" aria-label="切换到深色模式">
+            <span class="theme-toggle__icon" aria-hidden="true">◐</span>
+            <span id="theme-toggle-label" data-i18n="theme.dark">深色</span>
+          </button>
         </nav>
       </header>
 
@@ -52,6 +56,11 @@
                 <span data-i18n="hero.install">看完整安装教程</span>
                 <span aria-hidden="true">→</span>
               </a>
+            </div>
+            <div class="hero-meta" aria-label="Moumusic 信息">
+              <span class="hero-meta__signal" aria-hidden="true"></span>
+              <span data-i18n="hero.meta">最新版安装包 · iOS / Android</span>
+              <a href="/install#downloads" data-i18n="hero.metaLink">立即查看</a>
             </div>
           </div>
 

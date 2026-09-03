@@ -15,6 +15,10 @@
       'language.switchToChinese': '切换到简体中文',
       'language.english': 'EN',
       'language.chinese': '中文',
+      'theme.switchToDark': '切换到深色模式',
+      'theme.switchToLight': '切换到浅色模式',
+      'theme.dark': '深色',
+      'theme.light': '浅色',
       'profile.home': 'Moumusic 首页',
       'profile.support': '返回 Moumusic 支持页',
       'profile.avatar': '头像',
@@ -24,6 +28,8 @@
       'hero.tagline': '下载应用，添加你有权使用的音源，然后开始播放。整个流程只需要三步。',
       'hero.support': '支持 Moumusic',
       'hero.install': '看完整安装教程',
+      'hero.meta': '最新版安装包 · iOS / Android',
+      'hero.metaLink': '立即查看',
       'hero.installTip': '安装提示',
       'hero.cardTitle': '一个应用，<br><span>你自己的音源。</span>',
       'hero.cardBody': '音源由你在应用内添加和管理。我们不预置第三方链接。',
@@ -85,6 +91,8 @@
       'install.title': '安装 Moumusic',
       'install.intro': '选择你的设备，几分钟内开始播放。iOS 与 Android 安装包均来自项目 Release。',
       'install.supportHero': '在爱发电支持我，让我能够上架到 TestFlight！',
+      'install.releaseMeta': '下载入口始终指向 GitHub 最新 Release',
+      'install.releaseLink': '查看 Release ↗',
       'install.afterKicker': 'AFTER INSTALL',
       'install.sourceTitle': '安装完成后，添加你自己的音源',
       'install.sourceBody': '打开 Moumusic 的“我的 → 设置 → LX 音源”，可以导入 JSON、JavaScript 文件或在线链接，然后点击检测并启用可用音源。',
@@ -129,6 +137,10 @@
       'language.switchToChinese': '切换到简体中文',
       'language.english': 'EN',
       'language.chinese': '中文',
+      'theme.switchToDark': 'Switch to dark mode',
+      'theme.switchToLight': 'Switch to light mode',
+      'theme.dark': 'Dark',
+      'theme.light': 'Light',
       'profile.home': 'Moumusic home',
       'profile.support': 'Back to Moumusic support',
       'profile.avatar': 'Avatar',
@@ -138,6 +150,8 @@
       'hero.tagline': 'Download the app, add a source you are allowed to use, and start playing. It only takes three steps.',
       'hero.support': 'Support Moumusic',
       'hero.install': 'View the install guide',
+      'hero.meta': 'Latest builds · iOS / Android',
+      'hero.metaLink': 'View downloads',
       'hero.installTip': 'INSTALL NOTE',
       'hero.cardTitle': 'One app,<br><span>your own sources.</span>',
       'hero.cardBody': 'Add and manage sources inside the app. No third-party links are bundled.',
@@ -199,6 +213,8 @@
       'install.title': 'Install Moumusic',
       'install.intro': 'Choose your device and start playing in minutes. iOS and Android packages come from the project Release.',
       'install.supportHero': 'Support me on Afdian so I can bring Moumusic to TestFlight!',
+      'install.releaseMeta': 'Download links always point to the latest GitHub Release',
+      'install.releaseLink': 'View Release ↗',
       'install.afterKicker': 'AFTER INSTALL',
       'install.sourceTitle': 'After installing, add your own source',
       'install.sourceBody': 'Open “Me → Settings → LX Sources” in Moumusic, import a JSON or JavaScript file or an online URL, then check and enable an available source.',
@@ -231,13 +247,43 @@
   }
 
   const storageKey = 'moumusic-language'
+  const themeStorageKey = 'moumusic-theme'
   let language = 'zh'
+  let theme = 'system'
   try {
     const stored = window.localStorage.getItem(storageKey)
     if (stored === 'en' || stored === 'zh') language = stored
     else if (navigator.language && !navigator.language.toLowerCase().startsWith('zh')) language = 'en'
   } catch {
     // Use Chinese when storage is unavailable.
+  }
+
+  try {
+    const storedTheme = window.localStorage.getItem(themeStorageKey)
+    if (storedTheme === 'light' || storedTheme === 'dark' || storedTheme === 'system') theme = storedTheme
+  } catch {
+    // Use the system theme when storage is unavailable.
+  }
+
+  function systemIsDark() {
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches === true
+  }
+
+  function applyTheme() {
+    const root = document.documentElement
+    if (theme === 'system') root.removeAttribute('data-theme')
+    else root.dataset.theme = theme
+
+    const toggle = document.getElementById('theme-toggle')
+    if (!toggle) return
+    const isDark = theme === 'dark' || (theme === 'system' && systemIsDark())
+    const nextKey = isDark ? 'theme.light' : 'theme.dark'
+    const labelKey = isDark ? 'theme.switchToLight' : 'theme.switchToDark'
+    const label = document.getElementById('theme-toggle-label')
+    if (label) label.textContent = translate(nextKey)
+    toggle.setAttribute('aria-label', translate(labelKey))
+    toggle.title = translate(labelKey)
+    toggle.dataset.appearance = isDark ? 'dark' : 'light'
   }
 
   function translate(key, variables = {}) {
@@ -267,6 +313,14 @@
       toggle.setAttribute('aria-label', translate(language === 'en' ? 'language.switchToChinese' : 'language.switchToEnglish'))
       toggle.title = toggle.getAttribute('aria-label')
     }
+    applyTheme()
+  }
+
+  function setTheme(nextTheme) {
+    if (!['light', 'dark', 'system'].includes(nextTheme)) return
+    theme = nextTheme
+    try { window.localStorage.setItem(themeStorageKey, theme) } catch { /* Ignore private mode storage errors. */ }
+    applyTheme()
   }
 
   function setLanguage(nextLanguage) {
@@ -277,10 +331,18 @@
     document.dispatchEvent(new CustomEvent('moumusic:languagechange', { detail: { language } }))
   }
 
-  window.MoumusicI18n = { apply, language: () => language, setLanguage, t: translate }
+  window.MoumusicI18n = { apply, language: () => language, setLanguage, setTheme, t: translate }
   apply()
   document.addEventListener('click', event => {
     const toggle = event.target.closest('#language-toggle')
     if (toggle) setLanguage(language === 'en' ? 'zh' : 'en')
+    const themeToggle = event.target.closest('#theme-toggle')
+    if (themeToggle) {
+      const isDark = theme === 'dark' || (theme === 'system' && systemIsDark())
+      setTheme(isDark ? 'light' : 'dark')
+    }
+  })
+  window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => {
+    if (theme === 'system') applyTheme()
   })
 })()

@@ -21,6 +21,10 @@
           <a href="/aifadian" data-i18n="nav.support">支持页</a>
           <a href="#downloads" data-i18n="nav.download">下载</a>
           <button class="language-toggle" id="language-toggle" type="button" aria-label="切换到 English">EN</button>
+          <button class="theme-toggle" id="theme-toggle" type="button" aria-label="切换到深色模式">
+            <span class="theme-toggle__icon" aria-hidden="true">◐</span>
+            <span id="theme-toggle-label" data-i18n="theme.dark">深色</span>
+          </button>
         </nav>
       </header>
 
@@ -30,14 +34,10 @@
           <h1 id="install-title" data-i18n="install.title">安装 Moumusic</h1>
           <p data-i18n="install.intro">选择你的设备，几分钟内开始播放。iOS 与 Android 安装包均来自项目 Release。</p>
           <a class="install-support-callout" id="install-support-hero" href="#support" target="_blank" rel="noopener noreferrer"><span data-i18n="install.supportHero">在爱发电支持我，让我能够上架到 TestFlight！</span> <span aria-hidden="true">↗</span></a>
-        </section>
-
-        <section class="source-note glass-card" id="source" aria-labelledby="source-title">
-          <div class="source-note__mark" aria-hidden="true">02</div>
-          <div>
-            <p class="section-kicker" data-i18n="install.afterKicker">AFTER INSTALL</p>
-            <h2 id="source-title" data-i18n="install.sourceTitle">安装完成后，添加你自己的音源</h2>
-            <p data-i18n="install.sourceBody">打开 Moumusic 的“我的 → 设置 → LX 音源”，可以导入 JSON、JavaScript 文件或在线链接，然后点击检测并启用可用音源。</p>
+          <div class="install-hero__meta">
+            <span class="release-dot" aria-hidden="true"></span>
+            <span data-i18n="install.releaseMeta">下载入口始终指向 GitHub 最新 Release</span>
+            <a href="https://github.com/jiajia2222/Moumusic/releases/latest" target="_blank" rel="noopener noreferrer" data-i18n="install.releaseLink">查看 Release ↗</a>
           </div>
         </section>
 
@@ -68,6 +68,15 @@
             <a class="primary-button install-button" id="android-download" href="#download" target="_blank" rel="noopener noreferrer"><span data-i18n="install.androidDownload">下载 Android APK</span> <span aria-hidden="true">↗</span></a>
             <p class="install-footnote" data-i18n="install.androidNote">建议从本项目 GitHub Release 下载，核对文件名和版本号。</p>
           </article>
+        </section>
+
+        <section class="source-note glass-card" id="source" aria-labelledby="source-title">
+          <div class="source-note__mark" aria-hidden="true">02</div>
+          <div>
+            <p class="section-kicker" data-i18n="install.afterKicker">AFTER INSTALL</p>
+            <h2 id="source-title" data-i18n="install.sourceTitle">安装完成后，添加你自己的音源</h2>
+            <p data-i18n="install.sourceBody">打开 Moumusic 的“我的 → 设置 → LX 音源”，可以导入 JSON、JavaScript 文件或在线链接，然后点击检测并启用可用音源。</p>
+          </div>
         </section>
 
         <section class="troubleshooting glass-card" id="troubleshooting" aria-labelledby="help-title">
