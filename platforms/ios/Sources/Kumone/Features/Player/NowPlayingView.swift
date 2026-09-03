@@ -305,13 +305,6 @@ struct NowPlayingView: View {
     }
 
     private func classicCompactLayout(size: CGSize) -> some View {
-#if os(iOS)
-        return sharedGlassModeLayout(size: size) {
-            artworkAndMiniLyrics(
-                artworkDimension: min(size.width - 112, size.height * 0.32, 250)
-            )
-        }
-#else
         let artworkDim = min(size.width - 64, size.height * 0.38, 300)
         return VStack(spacing: 20) {
             Spacer().frame(height: 44)
@@ -342,17 +335,9 @@ struct NowPlayingView: View {
             .padding(.bottom, 24)
         }
         .padding(.horizontal, 16)
-#endif
     }
 
     private func lyricsCompactLayout(size: CGSize) -> some View {
-#if os(iOS)
-        return sharedGlassModeLayout(size: size) {
-            artworkAndMiniLyrics(
-                artworkDimension: min(size.width - 112, size.height * 0.28, 220)
-            )
-        }
-#else
         VStack(spacing: 14) {
             trackMetaView
                 .padding(.top, 38)
@@ -366,17 +351,9 @@ struct NowPlayingView: View {
                 .padding(.bottom, 20)
         }
         .padding(.horizontal, 16)
-#endif
     }
 
     private func vinylCompactLayout(size: CGSize) -> some View {
-#if os(iOS)
-        return sharedGlassModeLayout(size: size) {
-            vinylArtworkAndMiniLyrics(
-                artworkDimension: min(size.width - 112, size.height * 0.35, 270)
-            )
-        }
-#else
         let artworkDim = min(size.width - 72, size.height * 0.43, 310)
         return VStack(spacing: 16) {
             Spacer().frame(height: 34)
@@ -397,7 +374,6 @@ struct NowPlayingView: View {
                 .padding(.bottom, 20)
         }
         .padding(.horizontal, 16)
-#endif
     }
 
     #if os(iOS)
@@ -470,15 +446,8 @@ struct NowPlayingView: View {
                 onToggleQueue: toggleImmersiveQueue
             )
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 18)
-        .padding(.bottom, 14)
-        .background(.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(.white.opacity(0.16), lineWidth: 0.8)
-        }
-        .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .padding(.top, 14)
+        .padding(.bottom, 10)
         .accessibilityIdentifier("immersiveControls")
     }
 
@@ -519,13 +488,6 @@ struct NowPlayingView: View {
                 style: .continuous
             )
         )
-        .overlay {
-            RoundedRectangle(
-                cornerRadius: isExpanded ? 18 : 12,
-                style: .continuous
-            )
-            .stroke(.white.opacity(isExpanded ? 0.22 : 0.14), lineWidth: 0.8)
-        }
         .shadow(
             color: .black.opacity(isExpanded ? 0.45 : 0.22),
             radius: isExpanded ? 36 : 10,
@@ -558,139 +520,13 @@ struct NowPlayingView: View {
     }
 
     private func syncModePresentation() {
-        // Keep immersive mode's existing presentation. Lyrics mode opens in
-        // lyrics; the remaining modes use the artwork-first glass layout.
+        // Only immersive mode owns the floating lyrics/queue overlay state.
+        // The other modes render their own dedicated layout below.
         showLyricsOnMobile = settings.nowPlayingMode == .immersive
-            || settings.nowPlayingMode == .lyrics
         showQueueOnMobile = false
     }
 
-    private func sharedGlassModeLayout<Artwork: View>(
-        size: CGSize,
-        @ViewBuilder artwork: () -> Artwork
-    ) -> some View {
-        let contentWidth = max(size.width - 64, 0)
-
-        return VStack(spacing: 0) {
-            Color.clear.frame(
-                height: NowPlayingPresentationMetrics.immersiveHeaderTopInset
-            )
-
-            CompactTrackHeader(showsExpandedArtwork: false)
-                .padding(.bottom, 14)
-
-            ZStack {
-                if showQueueOnMobile {
-                    CompactQueueContent()
-                        .transition(.opacity)
-                } else if showLyricsOnMobile {
-                    IOSImmersiveLyricsColumn()
-                        .transition(.opacity)
-                } else {
-                    artwork()
-                        .transition(.opacity)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            playerModeGlassControls
-        }
-        .frame(width: contentWidth)
-        .padding(.horizontal, 32)
-        .padding(.bottom, 24)
-        .animation(ImmersiveArtworkTransition.animation, value: showLyricsOnMobile)
-        .animation(ImmersiveArtworkTransition.animation, value: showQueueOnMobile)
-    }
-
-    private func artworkAndMiniLyrics(artworkDimension: CGFloat) -> some View {
-        VStack(spacing: 18) {
-            Spacer(minLength: 8)
-            immersiveArtworkSurface(isExpanded: true)
-                .frame(width: artworkDimension, height: artworkDimension)
-            MiniLyricsView(onOpen: {
-                withAnimation(ImmersiveArtworkTransition.animation) {
-                    showLyricsOnMobile = true
-                }
-            })
-            .frame(maxWidth: .infinity, maxHeight: 96)
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func vinylArtworkAndMiniLyrics(artworkDimension: CGFloat) -> some View {
-        VStack(spacing: 18) {
-            Spacer(minLength: 8)
-            Group {
-                if let artworkImage {
-                    Image(platformImage: artworkImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } else {
-                    Rectangle()
-                        .fill(.white.opacity(0.06))
-                        .overlay {
-                            Image(systemName: "music.note")
-                                .font(.system(size: 48, weight: .light))
-                                .foregroundStyle(.white.opacity(0.3))
-                        }
-                }
-            }
-            .frame(width: artworkDimension, height: artworkDimension)
-            .clipShape(Circle())
-            .overlay {
-                Circle().stroke(.white.opacity(0.22), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.45), radius: 36, y: 18)
-            .rotationEffect(.degrees(player.isPlaying ? 360 : 0))
-            .animation(
-                .linear(duration: 18).repeatForever(autoreverses: false),
-                value: player.isPlaying
-            )
-
-            MiniLyricsView(onOpen: {
-                withAnimation(ImmersiveArtworkTransition.animation) {
-                    showLyricsOnMobile = true
-                }
-            })
-            .frame(maxWidth: .infinity, maxHeight: 96)
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var playerModeGlassControls: some View {
-        VStack(spacing: 17) {
-            NowPlayingScrubber()
-            CompactTransportControls()
-            CompactVolumeControl()
-            CompactSecondaryControls(
-                showsLyrics: showLyricsOnMobile,
-                showsQueue: showQueueOnMobile,
-                onShowQuality: { showQualityPicker = true },
-                onShowComments: { showComments = true },
-                onToggleLyrics: toggleImmersiveLyrics,
-                onToggleQueue: toggleImmersiveQueue
-            )
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 18)
-        .padding(.bottom, 14)
-        .background(.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(.white.opacity(0.16), lineWidth: 0.8)
-        }
-        .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .accessibilityIdentifier("playerModeControls")
-    }
-
     private func minimalCompactLayout(size: CGSize) -> some View {
-#if os(iOS)
-        return sharedGlassModeLayout(size: size) {
-            artworkAndMiniLyrics(
-                artworkDimension: min(size.width - 148, size.height * 0.26, 190)
-            )
-        }
-#else
         let contentWidth = max(size.width - 64, 0)
         let artworkDimension = min(contentWidth, size.height * 0.52, 378)
 
@@ -739,7 +575,6 @@ struct NowPlayingView: View {
         .padding(.horizontal, 32)
         .padding(.bottom, 32)
         .animation(.easeInOut(duration: 0.22), value: showLyricsOnMobile)
-#endif
     }
 
     private var minimalControls: some View {
