@@ -14,12 +14,12 @@ let supporters = []
 let lastStats = {}
 let paymentEmbedStarted = false
 
-function getAfdianLeafletUrl() {
+function getAfdianCheckoutUrl() {
   try {
     const url = new URL(supportLink, window.location.origin)
     const match = url.pathname.match(/\/a\/([^/]+)/)
     if (!match) return ''
-    return `https://ifdian.net/leaflet?slug=${encodeURIComponent(match[1])}`
+    return url.toString()
   } catch {
     return ''
   }
@@ -307,7 +307,7 @@ function startPaymentEmbed() {
     error.hidden = false
     fallback.hidden = false
   }
-  const source = getAfdianLeafletUrl()
+  const source = getAfdianCheckoutUrl()
   if (!source) {
     showFailure()
     return
