@@ -19,7 +19,7 @@ function getAfdianCheckoutUrl() {
     const url = new URL(supportLink, window.location.origin)
     const match = url.pathname.match(/\/a\/([^/]+)/)
     if (!match) return ''
-    return url.toString()
+    return `https://ifdian.net/a/${encodeURIComponent(match[1])}`
   } catch {
     return ''
   }
