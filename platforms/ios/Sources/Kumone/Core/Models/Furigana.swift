@@ -101,7 +101,7 @@ enum Furigana {
         let length = CFStringGetLength(cfText)
         guard let tokenizer = CFStringTokenizerCreate(
             kCFAllocatorDefault, cfText, CFRangeMake(0, length),
-            CFStringTokenizerUnitWordBoundary, locale as CFLocale
+            kCFStringTokenizerUnitWordBoundary, locale as CFLocale
         ) else { return [RubySegment(text)] }
         let nsText = text as NSString
 
