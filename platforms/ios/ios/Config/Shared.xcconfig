@@ -12,8 +12,8 @@ PRODUCT_BUNDLE_IDENTIFIER = com.jiajia2222.moumusic.ios
 // name comes from CFBundleDisplayName.
 INFOPLIST_KEY_CFBundleDisplayName = Moumusic
 INFOPLIST_KEY_CFBundleDevelopmentRegion = zh-Hans
-MARKETING_VERSION = 1.0.2
-CURRENT_PROJECT_VERSION = 102
+MARKETING_VERSION = 1.0.3
+CURRENT_PROJECT_VERSION = 103
 DEVELOPMENT_TEAM = 
 CODE_SIGN_STYLE = Automatic
 
