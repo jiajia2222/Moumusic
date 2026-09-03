@@ -776,3 +776,51 @@ html[data-theme="dark"] .support-dialog__surface { box-shadow: var(--shadow); }
 @media (prefers-reduced-motion: reduce) {
   .home-page .hero-cardlet:hover { transform: none; }
 }
+
+/* Keep the automatic dark theme readable when no manual theme is selected. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --canvas: #10171b;
+    --ink: #f4f3ee;
+    --muted: #a7b0b0;
+    --faint: #7e8a8c;
+    --glass: rgba(29, 38, 42, 0.72);
+    --glass-strong: rgba(36, 46, 50, 0.9);
+    --border: rgba(255, 255, 255, 0.14);
+    --line: rgba(255, 255, 255, 0.13);
+    --shadow: 0 26px 76px rgba(0, 0, 0, 0.25), 0 2px 14px rgba(0, 0, 0, 0.15);
+  }
+
+  html:not([data-theme]) .home-page {
+    --home-ink: #f4f3ee;
+    --home-muted: #a7b0b0;
+    --home-line: rgba(255, 255, 255, 0.13);
+    --home-panel: rgba(29, 38, 42, 0.72);
+    --home-paper: #10171b;
+    --home-coral: #ff806f;
+    --home-coral-dark: #ffab9d;
+  }
+
+  html:not([data-theme]) body {
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 28rem);
+  }
+
+  html:not([data-theme]) .site-nav {
+    color: var(--ink);
+    background: rgba(16, 23, 27, 0.88);
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+  }
+
+  html:not([data-theme]) .home-page .brand { color: var(--home-ink); }
+  html:not([data-theme]) .home-page .nav-links { color: #c0c9c9; }
+  html:not([data-theme]) .nav-links a:hover,
+  html:not([data-theme]) .nav-links a:focus-visible { background: rgba(255, 255, 255, 0.09); }
+  html:not([data-theme]) .language-toggle,
+  html:not([data-theme]) .theme-toggle {
+    color: var(--ink);
+    background: rgba(36, 46, 50, 0.92);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+}
