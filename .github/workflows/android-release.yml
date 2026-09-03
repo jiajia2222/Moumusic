@@ -42,15 +42,22 @@ jobs:
         working-directory: platforms/android/android
         run: ./gradlew assembleRelease --no-daemon
 
+      - name: Prepare stable APK filename
+        working-directory: platforms/android/android
+        run: |
+          apk=$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*universal.apk' -print -quit)
+          test -n "$apk"
+          cp "$apk" app/build/outputs/apk/release/Moumusic-android-unsigned.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Moumusic-android-unsigned
-          path: platforms/android/android/app/build/outputs/apk/release/*universal.apk
+          path: platforms/android/android/app/build/outputs/apk/release/Moumusic-android-unsigned.apk
           if-no-files-found: error
 
       - name: Attach APK to GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: platforms/android/android/app/build/outputs/apk/release/*universal.apk
+          files: platforms/android/android/app/build/outputs/apk/release/Moumusic-android-unsigned.apk

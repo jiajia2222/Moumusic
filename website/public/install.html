@@ -5,89 +5,91 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#f6f3ef" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#121519" media="(prefers-color-scheme: dark)" />
-    <meta name="description" content="Moumusic iOS 与 Android 安装说明。" />
+    <meta name="description" data-i18n-content="meta.installDescription" content="Moumusic iOS 与 Android 安装说明。" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
-    <title>安装说明 | Moumusic</title>
+    <title data-i18n="meta.installTitle">安装说明 | Moumusic</title>
   </head>
   <body>
     <div class="page-shell install-shell">
-      <header class="site-nav" aria-label="主导航">
-        <a class="brand" href="/aifadian" aria-label="返回 Moumusic 支持页">
+      <header class="site-nav" aria-label="主导航" data-i18n-aria-label="profile.support">
+        <a class="brand" href="/aifadian" aria-label="返回 Moumusic 支持页" data-i18n-aria-label="profile.support">
           <span class="brand-mark" aria-hidden="true">M</span>
           <span>Moumusic</span>
         </a>
         <nav class="nav-links">
-          <a href="/aifadian">支持页</a>
-          <a href="#downloads">下载</a>
+          <a href="/aifadian" data-i18n="nav.support">支持页</a>
+          <a href="#downloads" data-i18n="nav.download">下载</a>
+          <button class="language-toggle" id="language-toggle" type="button" aria-label="切换到 English">EN</button>
         </nav>
       </header>
 
       <main>
         <section class="install-hero reveal is-visible" aria-labelledby="install-title">
-          <p class="section-kicker">GET STARTED</p>
-          <h1 id="install-title">安装 Moumusic</h1>
-          <p>选择你的设备，几分钟内开始播放。iOS 与 Android 安装包均来自项目 Release。</p>
-          <a class="install-support-callout" id="install-support-hero" href="#support" target="_blank" rel="noopener noreferrer">在爱发电支持我，让我能够上架到 TestFlight！ <span aria-hidden="true">↗</span></a>
+          <p class="section-kicker" data-i18n="install.kicker">GET STARTED</p>
+          <h1 id="install-title" data-i18n="install.title">安装 Moumusic</h1>
+          <p data-i18n="install.intro">选择你的设备，几分钟内开始播放。iOS 与 Android 安装包均来自项目 Release。</p>
+          <a class="install-support-callout" id="install-support-hero" href="#support" target="_blank" rel="noopener noreferrer"><span data-i18n="install.supportHero">在爱发电支持我，让我能够上架到 TestFlight！</span> <span aria-hidden="true">↗</span></a>
         </section>
 
         <section class="source-note glass-card" id="source" aria-labelledby="source-title">
           <div class="source-note__mark" aria-hidden="true">02</div>
           <div>
-            <p class="section-kicker">AFTER INSTALL</p>
-            <h2 id="source-title">安装完成后，添加你自己的音源</h2>
-            <p>打开 Moumusic 的“我的 → 设置 → LX 音源”，可以导入 JSON、JavaScript 文件或在线链接，然后点击检测并启用可用音源。</p>
+            <p class="section-kicker" data-i18n="install.afterKicker">AFTER INSTALL</p>
+            <h2 id="source-title" data-i18n="install.sourceTitle">安装完成后，添加你自己的音源</h2>
+            <p data-i18n="install.sourceBody">打开 Moumusic 的“我的 → 设置 → LX 音源”，可以导入 JSON、JavaScript 文件或在线链接，然后点击检测并启用可用音源。</p>
           </div>
         </section>
 
-        <section class="install-grid" id="downloads" aria-label="安装方式">
+        <section class="install-grid" id="downloads" aria-label="安装方式" data-i18n-aria-label="install.methods">
           <article class="install-card glass-card" id="ios">
             <div class="platform-line"><span class="platform-icon"></span><span>iPhone / iPad</span></div>
-            <h2>iOS 安装</h2>
-            <p class="install-lead">下载未签名 IPA，再用自己的签名方式安装。</p>
+            <h2 data-i18n="install.iosTitle">iOS 安装</h2>
+            <p class="install-lead" data-i18n="install.iosLead">下载未签名 IPA，再用自己的签名方式安装。</p>
             <ol class="steps">
-              <li><span>01</span><div>下载最新的 <strong>iOS IPA</strong>。</div></li>
-              <li><span>02</span><div>使用 AltStore、SideStore、Feather、Sideloadly 或你信任的签名工具导入。</div></li>
-              <li><span>03</span><div>完成签名后安装；首次使用按系统提示信任对应开发者。</div></li>
+              <li><span>01</span><div data-i18n="install.iosStep1" data-i18n-html="true">下载最新的 <strong>iOS IPA</strong>。</div></li>
+              <li><span>02</span><div data-i18n="install.iosStep2">使用 AltStore、SideStore、Feather、Sideloadly 或你信任的签名工具导入。</div></li>
+              <li><span>03</span><div data-i18n="install.iosStep3">完成签名后安装；首次使用按系统提示信任对应开发者。</div></li>
             </ol>
-            <a class="primary-button install-button" id="ios-download" href="#download" target="_blank" rel="noopener noreferrer">下载 iOS IPA <span aria-hidden="true">↗</span></a>
-            <p class="install-footnote">IPA 未签名，无法直接通过系统安装。</p>
-            <p class="install-tool-link">使用 Sideloadly 自签：<a href="https://sideloadly.io/SideloadlySetup64.exe" target="_blank" rel="noopener noreferrer">Windows 版 ↗</a><span aria-hidden="true"> · </span><a href="https://sideloadly.io/SideloadlySetup.dmg" target="_blank" rel="noopener noreferrer">macOS 版 ↗</a></p>
+            <a class="primary-button install-button" id="ios-download" href="#download" target="_blank" rel="noopener noreferrer"><span data-i18n="install.iosDownload">下载 iOS IPA</span> <span aria-hidden="true">↗</span></a>
+            <p class="install-footnote" data-i18n="install.iosNote">IPA 未签名，无法直接通过系统安装。</p>
+            <p class="install-tool-link"><span data-i18n="install.sideloadly">使用 Sideloadly 自签：</span><a href="https://sideloadly.io/SideloadlySetup64.exe" target="_blank" rel="noopener noreferrer" data-i18n="install.windows">Windows 版 ↗</a><span aria-hidden="true"> · </span><a href="https://sideloadly.io/SideloadlySetup.dmg" target="_blank" rel="noopener noreferrer" data-i18n="install.macos">macOS 版 ↗</a></p>
           </article>
 
           <article class="install-card glass-card" id="android">
             <div class="platform-line"><span class="platform-icon platform-icon--android">◆</span><span>Android</span></div>
-            <h2>Android 安装</h2>
-            <p class="install-lead">下载 APK 后按系统提示完成安装。</p>
+            <h2 data-i18n="install.androidTitle">Android 安装</h2>
+            <p class="install-lead" data-i18n="install.androidLead">下载 APK 后按系统提示完成安装。</p>
             <ol class="steps">
-              <li><span>01</span><div>下载最新的 <strong>Android APK</strong>。</div></li>
-              <li><span>02</span><div>打开 APK；若系统提示，允许浏览器或文件管理器安装未知来源应用。</div></li>
-              <li><span>03</span><div>安装完成后打开 Moumusic，并在应用内导入你有权使用的音源。</div></li>
+              <li><span>01</span><div data-i18n="install.androidStep1" data-i18n-html="true">下载最新的 <strong>Android APK</strong>。</div></li>
+              <li><span>02</span><div data-i18n="install.androidStep2">打开 APK；若系统提示，允许浏览器或文件管理器安装未知来源应用。</div></li>
+              <li><span>03</span><div data-i18n="install.androidStep3">安装完成后打开 Moumusic，并在应用内导入你有权使用的音源。</div></li>
             </ol>
-            <a class="primary-button install-button" id="android-download" href="#download" target="_blank" rel="noopener noreferrer">下载 Android APK <span aria-hidden="true">↗</span></a>
-            <p class="install-footnote">建议从本项目 GitHub Release 下载，核对文件名和版本号。</p>
+            <a class="primary-button install-button" id="android-download" href="#download" target="_blank" rel="noopener noreferrer"><span data-i18n="install.androidDownload">下载 Android APK</span> <span aria-hidden="true">↗</span></a>
+            <p class="install-footnote" data-i18n="install.androidNote">建议从本项目 GitHub Release 下载，核对文件名和版本号。</p>
           </article>
         </section>
 
         <section class="troubleshooting glass-card" id="troubleshooting" aria-labelledby="help-title">
           <div>
             <p class="section-kicker">TROUBLESHOOTING</p>
-            <h2 id="help-title">安装后遇到问题？</h2>
+            <h2 id="help-title" data-i18n="install.troubleTitle">安装后遇到问题？</h2>
           </div>
           <div class="help-list">
-            <p><strong>iOS 无法打开：</strong>确认 IPA 已使用你自己的证书签名，并检查证书是否有效。</p>
-            <p><strong>播放没有声音：</strong>先在应用内添加并测试可用的 LX 音源。</p>
-            <p><strong>页面或名单加载失败：</strong>稍后刷新；爱发电支持入口不会受名单 API 影响。</p>
+            <p data-i18n="install.troubleIos" data-i18n-html="true"><strong>iOS 无法打开：</strong>确认 IPA 已使用你自己的证书签名，并检查证书是否有效。</p>
+            <p data-i18n="install.troublePlay" data-i18n-html="true"><strong>播放没有声音：</strong>先在应用内添加并测试可用的 LX 音源。</p>
+            <p data-i18n="install.troubleList" data-i18n-html="true"><strong>页面或名单加载失败：</strong>稍后刷新；爱发电支持入口不会受名单 API 影响。</p>
           </div>
         </section>
       </main>
 
       <footer class="site-footer">
-        <span>需要帮助？先回到 <a href="/aifadian">支持页</a></span>
-        <a id="install-support" href="#support" target="_blank" rel="noopener noreferrer">前往爱发电</a>
+        <span><span data-i18n="install.footerHelp">需要帮助？先回到</span> <a href="/aifadian" data-i18n="install.footerSupport">支持页</a></span>
+        <a id="install-support" href="#support" target="_blank" rel="noopener noreferrer" data-i18n="footer.afdian">前往爱发电</a>
       </footer>
     </div>
     <script id="site-config" type="application/json">__SITE_CONFIG__</script>
+    <script src="/i18n.js" defer></script>
     <script src="/install.js" defer></script>
   </body>
 </html>

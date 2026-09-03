@@ -15,6 +15,11 @@ const afdianApiBases = [
   'https://afdian.net/api/open',
 ]
 const githubLatestReleaseUrl = 'https://api.github.com/repos/jiajia2222/Moumusic/releases/latest'
+const githubReleaseDownloadBase = 'https://github.com/jiajia2222/Moumusic/releases/latest/download'
+const releaseAssetNames = {
+  ios: ['Moumusic-unsigned.ipa'],
+  android: ['Moumusic-android-unsigned.apk', 'moumusic-mobile-v1.0.2-universal.apk'],
+}
 const defaultAfdianUrl = 'https://www.ifdian.net/a/moumou2026'
 const cache = new Map()
 const latestReleaseCache = new Map()
@@ -53,7 +58,9 @@ function getPublicConfig(baseUrl = `http://localhost:${port}`) {
     name: process.env.SITE_NAME || 'MouMou',
     avatar: safeHttpUrl(process.env.SITE_AVATAR) || '',
     tagline: process.env.SITE_TAGLINE || '感谢你的支持，每一份心意都会变成继续维护和创造的动力。',
+    taglineEn: process.env.SITE_TAGLINE_EN || 'Download the app, add a source you are allowed to use, and start playing.',
     thanks: process.env.SITE_THANKS || '感谢每一位支持者，让 Moumusic 可以持续更新。',
+    thanksEn: process.env.SITE_THANKS_EN || 'Thank you to every supporter for helping Moumusic keep moving.',
     afdianUrl: safeHttpUrl(process.env.AFDIAN_URL) || defaultAfdianUrl,
     showAmount: envBoolean(process.env.SHOW_SPONSOR_AMOUNT),
     iosDownloadUrl: safeHttpUrl(process.env.IOS_DOWNLOAD_URL) || `${siteOrigin}/download/ios`,
@@ -61,9 +68,28 @@ function getPublicConfig(baseUrl = `http://localhost:${port}`) {
   }
 }
 
+async function getDirectReleaseAsset(platform) {
+  for (const name of releaseAssetNames[platform] || []) {
+    const url = `${githubReleaseDownloadBase}/${encodeURIComponent(name)}`
+    try {
+      const response = await fetch(url, { method: 'HEAD', redirect: 'follow' })
+      if (response.ok) return { url, version: 'latest' }
+    } catch {
+      // Try the next compatible filename before falling back to the GitHub API.
+    }
+  }
+  return null
+}
+
 async function getLatestReleaseAsset(platform) {
   const cached = latestReleaseCache.get(platform)
   if (cached && cached.expiresAt > Date.now()) return cached.value
+
+  const directAsset = await getDirectReleaseAsset(platform)
+  if (directAsset) {
+    latestReleaseCache.set(platform, { value: directAsset, expiresAt: Date.now() + cacheTtlMs })
+    return directAsset
+  }
 
   let response
   try {

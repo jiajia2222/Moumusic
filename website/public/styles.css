@@ -121,6 +121,30 @@ button { font: inherit; }
 .nav-links a, .footer-links a { transition: color 180ms ease; }
 .nav-links a:hover, .nav-links a:focus-visible, .footer-links a:hover, .footer-links a:focus-visible { color: var(--accent); }
 
+.language-toggle {
+  min-width: 52px;
+  min-height: 32px;
+  padding: 0 11px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--glass-strong);
+  box-shadow: 0 8px 22px rgba(69, 54, 42, 0.08);
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.language-toggle:hover,
+.language-toggle:focus-visible {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.language-toggle:active { transform: scale(0.96); }
+
 .glass-card {
   background: var(--glass);
   border: 1px solid var(--border);

@@ -6,6 +6,11 @@ const AFDIAN_API_BASES = [
   'https://afdian.net/api/open',
 ]
 const GITHUB_LATEST_RELEASE_URL = 'https://api.github.com/repos/jiajia2222/Moumusic/releases/latest'
+const GITHUB_RELEASE_DOWNLOAD_BASE = 'https://github.com/jiajia2222/Moumusic/releases/latest/download'
+const RELEASE_ASSET_NAMES = {
+  ios: ['Moumusic-unsigned.ipa'],
+  android: ['Moumusic-android-unsigned.apk', 'moumusic-mobile-v1.0.2-universal.apk'],
+}
 const CACHE_TTL_SECONDS = 10 * 60
 const DEFAULT_AFDIAN_URL = 'https://www.ifdian.net/a/moumou2026'
 const memoryCache = new Map()
@@ -53,12 +58,35 @@ function getPublicConfig(env, request) {
     name: String(env.SITE_NAME || 'MouMou').trim() || 'MouMou',
     avatar: safeHttpUrl(env.SITE_AVATAR),
     tagline: env.SITE_TAGLINE || '感谢你的支持，每一份心意都会变成继续维护和创造的动力。',
+    taglineEn: env.SITE_TAGLINE_EN || 'Download the app, add a source you are allowed to use, and start playing.',
     thanks: env.SITE_THANKS || '感谢每一位支持者，让 Moumusic 可以持续更新。',
+    thanksEn: env.SITE_THANKS_EN || 'Thank you to every supporter for helping Moumusic keep moving.',
     afdianUrl: safeHttpUrl(env.AFDIAN_URL, DEFAULT_AFDIAN_URL),
     showAmount: envBoolean(env.SHOW_SPONSOR_AMOUNT),
     iosDownloadUrl: safeHttpUrl(env.IOS_DOWNLOAD_URL, `${siteOrigin}/download/ios`),
     androidDownloadUrl: safeHttpUrl(env.ANDROID_DOWNLOAD_URL, `${siteOrigin}/download/android`),
   }
+}
+
+function cacheLatestReleaseAsset(cacheKey, memoryKey, value, ctx) {
+  memoryCache.set(memoryKey, { value, expiresAt: Date.now() + CACHE_TTL_SECONDS * 1000 })
+  ctx.waitUntil(caches.default.put(cacheKey, new Response(JSON.stringify(value), {
+    headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${CACHE_TTL_SECONDS}` },
+  })).catch(() => undefined))
+  return value
+}
+
+async function getDirectReleaseAsset(platform) {
+  for (const name of RELEASE_ASSET_NAMES[platform] || []) {
+    const url = `${GITHUB_RELEASE_DOWNLOAD_BASE}/${encodeURIComponent(name)}`
+    try {
+      const response = await fetch(url, { method: 'HEAD', redirect: 'follow' })
+      if (response.ok) return { url, version: 'latest' }
+    } catch {
+      // Try the next compatible filename before falling back to the GitHub API.
+    }
+  }
+  return null
 }
 
 async function getLatestReleaseAsset(request, ctx, platform) {
@@ -77,6 +105,9 @@ async function getLatestReleaseAsset(request, ctx, platform) {
       // Ignore a stale or invalid cache entry and refresh it below.
     }
   }
+
+  const directAsset = await getDirectReleaseAsset(platform)
+  if (directAsset) return cacheLatestReleaseAsset(cacheKey, memoryKey, directAsset, ctx)
 
   let response
   try {
@@ -106,11 +137,7 @@ async function getLatestReleaseAsset(request, ctx, platform) {
   if (!url) throw new AfdianError('RELEASE_ASSET_MISSING', `No ${platform} asset found in the latest release.`, 503)
 
   const value = { url, version: String(release.tag_name || '') }
-  memoryCache.set(memoryKey, { value, expiresAt: Date.now() + CACHE_TTL_SECONDS * 1000 })
-  ctx.waitUntil(caches.default.put(cacheKey, new Response(JSON.stringify(value), {
-    headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${CACHE_TTL_SECONDS}` },
-  })).catch(() => undefined))
-  return value
+  return cacheLatestReleaseAsset(cacheKey, memoryKey, value, ctx)
 }
 
 async function redirectToLatestRelease(request, ctx, platform) {

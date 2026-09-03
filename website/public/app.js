@@ -9,7 +9,9 @@ try {
 const $ = id => document.getElementById(id)
 const supportLink = siteConfig.afdianUrl || '#support'
 const showAmount = Boolean(siteConfig.showAmount)
+const i18n = window.MoumusicI18n || { language: () => 'zh', t: key => key }
 let supporters = []
+let lastStats = {}
 
 function fallbackInitial(name) {
   return String(name || 'M').trim().slice(0, 1).toUpperCase() || 'M'
@@ -50,17 +52,18 @@ function setProfileAvatar(element, name, source) {
 }
 
 function formatDate(timestamp) {
-  if (!timestamp) return '暂无记录'
-  return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(timestamp * 1000))
+  if (!timestamp) return i18n.t('time.none')
+  const locale = i18n.language() === 'en' ? 'en-US' : 'zh-CN'
+  return new Intl.DateTimeFormat(locale, { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(timestamp * 1000))
 }
 
 function formatRelative(timestamp) {
-  if (!timestamp) return '暂无记录'
+  if (!timestamp) return i18n.t('time.none')
   const seconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp)
-  if (seconds < 60) return '刚刚'
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`
-  if (seconds < 604800) return `${Math.floor(seconds / 86400)} 天前`
+  if (seconds < 60) return i18n.t('time.justNow')
+  if (seconds < 3600) return i18n.t('time.minutesAgo', { count: Math.floor(seconds / 60) })
+  if (seconds < 86400) return i18n.t('time.hoursAgo', { count: Math.floor(seconds / 3600) })
+  if (seconds < 604800) return i18n.t('time.daysAgo', { count: Math.floor(seconds / 86400) })
   return formatDate(timestamp)
 }
 
@@ -77,9 +80,10 @@ function setText(id, value) {
 
 function renderProfile() {
   const name = siteConfig.name || 'MouMou'
+  const isEnglish = i18n.language() === 'en'
   setText('site-name', name)
-  setText('site-tagline', siteConfig.tagline || '感谢你的支持，每一份心意都会变成继续维护和创造的动力。')
-  setText('site-thanks', siteConfig.thanks || '感谢每一位支持者，让 Moumusic 可以持续更新。')
+  setText('site-tagline', (isEnglish ? siteConfig.taglineEn : siteConfig.tagline) || i18n.t('hero.tagline'))
+  setText('site-thanks', (isEnglish ? siteConfig.thanksEn : siteConfig.thanks) || i18n.t('closing.thanks'))
   setProfileAvatar($('profile-avatar'), name, siteConfig.avatar)
   for (const id of ['support-link', 'banner-support-link', 'footer-support-link']) {
     const link = $(id)
@@ -107,7 +111,7 @@ function createSponsorCard(sponsor) {
   const meta = document.createElement('div')
   meta.className = 'sponsor-card__meta'
   const date = document.createElement('span')
-  date.textContent = `支持于 ${formatDate(sponsor.lastSupportTime)}`
+  date.textContent = i18n.t('sponsor.supportedAt', { date: formatDate(sponsor.lastSupportTime) })
   meta.append(date)
   if (showAmount && sponsor.amount !== undefined) {
     const amount = document.createElement('span')
@@ -134,10 +138,11 @@ function renderSponsorList() {
 }
 
 function renderStats(stats) {
+  lastStats = stats || {}
   setText('supporter-count', String(stats.supporterCount ?? supporters.length))
   setText('recent-support', formatRelative(stats.recentSupportAt))
   if (showAmount && stats.totalAmount !== undefined) setText('total-support', formatMoney(stats.totalAmount))
-  else setText('total-support', '持续支持中')
+  else setText('total-support', i18n.t('stats.ongoing'))
 }
 
 function openSponsor(sponsor) {
@@ -175,14 +180,14 @@ function showError(error) {
   $('recent-list').hidden = true
   $('empty-state').hidden = true
   setText('supporter-count', '—')
-  setText('recent-support', '暂不可用')
-  setText('total-support', '持续支持中')
+  setText('recent-support', i18n.t('time.unavailable'))
+  setText('total-support', i18n.t('stats.ongoing'))
   if (error?.code === 'CONFIG_MISSING') {
-    setText('error-title', '赞助名单还未连接')
-    setText('error-message', '管理员需要先配置爱发电 API；配置完成后点击“重新加载”即可查看。')
+    setText('error-title', i18n.t('sponsors.configErrorTitle'))
+    setText('error-message', i18n.t('sponsors.configErrorBody'))
   } else {
-    setText('error-title', '暂时无法获取赞助名单')
-    setText('error-message', '稍后再试，顶部的爱发电入口仍然可以正常使用。')
+    setText('error-title', i18n.t('sponsors.errorTitle'))
+    setText('error-message', i18n.t('sponsors.errorBody'))
   }
 }
 
@@ -248,6 +253,11 @@ document.querySelectorAll('[data-support-action]').forEach(link => {
 $('support-dialog-close').addEventListener('click', closeSupport)
 $('support-dialog').addEventListener('click', event => {
   if (event.target === $('support-dialog')) closeSupport()
+})
+document.addEventListener('moumusic:languagechange', () => {
+  renderProfile()
+  renderSponsorList()
+  if (Object.keys(lastStats).length) renderStats(lastStats)
 })
 document.querySelectorAll('[data-reveal]').forEach((element, index) => {
   element.classList.add('reveal')

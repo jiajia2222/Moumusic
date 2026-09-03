@@ -5,25 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#f6f3ee" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#111820" media="(prefers-color-scheme: dark)" />
-    <meta name="description" content="Moumusic 安装指南与项目支持页。三步添加音源，开始播放。" />
-    <meta property="og:title" content="Moumusic｜先安装，再开始听歌" />
-    <meta property="og:description" content="查看 Moumusic 安装步骤，添加你有权使用的音源，并支持项目持续维护。" />
+    <meta name="description" data-i18n-content="meta.homeDescription" content="Moumusic 安装指南与项目支持页。三步添加音源，开始播放。" />
+    <meta property="og:title" data-i18n-content="meta.homeOgTitle" content="Moumusic｜先安装，再开始听歌" />
+    <meta property="og:description" data-i18n-content="meta.homeOgDescription" content="查看 Moumusic 安装步骤，添加你有权使用的音源，并支持项目持续维护。" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="/aifadian" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
-    <title>Moumusic｜安装与支持</title>
+    <title data-i18n="meta.homeTitle">Moumusic｜安装与支持</title>
   </head>
   <body class="home-page">
     <div class="page-shell home-shell">
-      <header class="site-nav" aria-label="主导航">
-        <a class="brand" href="/aifadian" aria-label="Moumusic 首页">
+      <header class="site-nav" aria-label="主导航" data-i18n-aria-label="profile.home">
+        <a class="brand" href="/aifadian" aria-label="Moumusic 首页" data-i18n-aria-label="profile.home">
           <span class="brand-mark" aria-hidden="true">M</span>
           <span>Moumusic</span>
         </a>
         <nav class="nav-links">
-          <a href="/install">安装教程</a>
-          <a href="#sponsors">支持者</a>
+          <a href="/install" data-i18n="nav.install">安装教程</a>
+          <a href="#sponsors" data-i18n="nav.sponsors">支持者</a>
+          <button class="language-toggle" id="language-toggle" type="button" aria-label="切换到 English">EN</button>
         </nav>
       </header>
 
@@ -31,7 +32,7 @@
         <section class="guide-hero" aria-labelledby="hero-title" data-reveal>
           <div class="guide-intro">
             <div class="mini-profile">
-              <div class="profile-avatar avatar avatar--mini" id="profile-avatar" aria-label="头像">
+              <div class="profile-avatar avatar avatar--mini" id="profile-avatar" aria-label="头像" data-i18n-aria-label="profile.avatar">
                 <span class="avatar-fallback">M</span>
               </div>
               <div>
@@ -39,22 +40,22 @@
                 <strong id="site-name">MouMou</strong>
               </div>
             </div>
-            <p class="display-kicker">先从这里开始</p>
-            <h1 id="hero-title">先安装，<em>再开始听歌。</em></h1>
-            <p class="hero-tagline" id="site-tagline">下载应用，添加你有权使用的音源，然后开始播放。整个流程只需要三步。</p>
+            <p class="display-kicker" data-i18n="hero.kicker">先从这里开始</p>
+            <h1 id="hero-title"><span data-i18n="hero.titleLead">先安装，</span><em data-i18n="hero.titleEm">再开始听歌。</em></h1>
+            <p class="hero-tagline" id="site-tagline" data-i18n="hero.tagline">下载应用，添加你有权使用的音源，然后开始播放。整个流程只需要三步。</p>
             <div class="hero-actions">
               <a class="primary-button primary-button--hero" id="support-link" data-support-action href="#support" target="_blank" rel="noopener noreferrer">
-                <span>支持 Moumusic</span>
+                <span data-i18n="hero.support">支持 Moumusic</span>
                 <span class="button-arrow" aria-hidden="true">↗</span>
               </a>
               <a class="quiet-button" href="/install">
-                <span>看完整安装教程</span>
+                <span data-i18n="hero.install">看完整安装教程</span>
                 <span aria-hidden="true">→</span>
               </a>
             </div>
           </div>
 
-          <aside class="hero-cardlet glass-card" aria-label="安装提示">
+          <aside class="hero-cardlet glass-card" aria-label="安装提示" data-i18n-aria-label="hero.installTip">
             <div class="cardlet-topline">
               <span class="cardlet-index">01</span>
               <span class="cardlet-status"><span></span> READY WHEN YOU ARE</span>
@@ -64,8 +65,8 @@
               <div class="cardlet-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
             </div>
             <p class="cardlet-label">INSTALL NOTE</p>
-            <h2>一个应用，<br /><span>你自己的音源。</span></h2>
-            <p>音源由你在应用内添加和管理。我们不预置第三方链接。</p>
+            <h2 data-i18n="hero.cardTitle" data-i18n-html="true">一个应用，<br /><span>你自己的音源。</span></h2>
+            <p data-i18n="hero.cardBody">音源由你在应用内添加和管理。我们不预置第三方链接。</p>
             <div class="cardlet-foot"><span>iOS · Android</span><span>→</span></div>
           </aside>
         </section>
@@ -74,31 +75,31 @@
           <div class="section-heading roadmap-heading">
             <div>
               <p class="section-kicker">THE SHORT VERSION</p>
-              <h2 id="roadmap-title">三步开始播放</h2>
+              <h2 id="roadmap-title" data-i18n="roadmap.title">三步开始播放</h2>
             </div>
-            <p class="roadmap-caption">先安装，再添加音源，最后开始听歌。</p>
+            <p class="roadmap-caption" data-i18n="roadmap.caption">先安装，再添加音源，最后开始听歌。</p>
           </div>
           <div class="roadmap-grid">
             <article class="roadmap-card roadmap-card--download">
               <div class="roadmap-number">01</div>
               <span class="roadmap-tag">DOWNLOAD</span>
-              <h3>下载对应版本</h3>
-              <p>iPhone / iPad 选择 IPA，Android 选择 APK，文件均来自项目 Release。</p>
-              <a href="/install#downloads" class="text-link">选择你的设备 <span>↗</span></a>
+              <h3 data-i18n="roadmap.downloadTitle">下载对应版本</h3>
+              <p data-i18n="roadmap.downloadBody">iPhone / iPad 选择 IPA，Android 选择 APK，文件均来自项目 Release。</p>
+              <a href="/install#downloads" class="text-link"><span data-i18n="roadmap.downloadLink">选择你的设备</span> <span>↗</span></a>
             </article>
             <article class="roadmap-card roadmap-card--source">
               <div class="roadmap-number">02</div>
               <span class="roadmap-tag">ADD SOURCE</span>
-              <h3>添加 LX 音源</h3>
-              <p>打开应用设置，导入你信任的 JSON、JS 或在线音源链接，再进行可用性检测。</p>
-              <a href="/install#source" class="text-link">查看添加说明 <span>↗</span></a>
+              <h3 data-i18n="roadmap.sourceTitle">添加 LX 音源</h3>
+              <p data-i18n="roadmap.sourceBody">打开应用设置，导入你信任的 JSON、JS 或在线音源链接，再进行可用性检测。</p>
+              <a href="/install#source" class="text-link"><span data-i18n="roadmap.sourceLink">查看添加说明</span> <span>↗</span></a>
             </article>
             <article class="roadmap-card roadmap-card--play">
               <div class="roadmap-number">03</div>
               <span class="roadmap-tag">START PLAYING</span>
-              <h3>开始播放</h3>
-              <p>搜索歌曲，选择音质。歌词、封面和播放地址会跟随当前可用音源解析。</p>
-              <a href="/install#troubleshooting" class="text-link">遇到问题？ <span>↗</span></a>
+              <h3 data-i18n="roadmap.playTitle">开始播放</h3>
+              <p data-i18n="roadmap.playBody">搜索歌曲，选择音质。歌词、封面和播放地址会跟随当前可用音源解析。</p>
+              <a href="/install#troubleshooting" class="text-link"><span data-i18n="roadmap.playLink">遇到问题？</span> <span>↗</span></a>
             </article>
           </div>
         </section>
@@ -106,33 +107,33 @@
         <section class="support-banner glass-card" aria-labelledby="support-title" data-reveal>
           <div class="support-banner__copy">
             <p class="section-kicker">KEEP THE MUSIC MOVING</p>
-            <h2 id="support-title">如果 Moumusic 帮到了你，<br /><span>欢迎支持下一次更新。</span></h2>
-            <p>每一份支持，都会回到维护、修复和新的播放体验里。</p>
+            <h2 id="support-title" data-i18n="support.title" data-i18n-html="true">如果 Moumusic 帮到了你，<br /><span>欢迎支持下一次更新。</span></h2>
+            <p data-i18n="support.body">每一份支持，都会回到维护、修复和新的播放体验里。</p>
           </div>
           <a class="primary-button primary-button--support" id="banner-support-link" data-support-action href="#support" target="_blank" rel="noopener noreferrer">
-            <span>在爱发电赞助</span><span class="button-arrow" aria-hidden="true">↗</span>
+            <span data-i18n="support.button">在爱发电赞助</span><span class="button-arrow" aria-hidden="true">↗</span>
           </a>
         </section>
 
-        <section class="stats-grid home-stats" aria-label="支持数据" data-reveal>
+        <section class="stats-grid home-stats" aria-label="支持数据" data-i18n-aria-label="stats.label" data-reveal>
           <article class="stat-card glass-card">
             <div class="stat-icon stat-icon--coral" aria-hidden="true">✦</div>
-            <div><p class="stat-label">支持者</p><p class="stat-value skeleton" id="supporter-count" aria-live="polite"></p></div>
+            <div><p class="stat-label" data-i18n="stats.supporters">支持者</p><p class="stat-value skeleton" id="supporter-count" aria-live="polite"></p></div>
           </article>
           <article class="stat-card glass-card">
             <div class="stat-icon stat-icon--blue" aria-hidden="true">◷</div>
-            <div><p class="stat-label">最近支持</p><p class="stat-value stat-value--small skeleton" id="recent-support" aria-live="polite"></p></div>
+            <div><p class="stat-label" data-i18n="stats.recent">最近支持</p><p class="stat-value stat-value--small skeleton" id="recent-support" aria-live="polite"></p></div>
           </article>
           <article class="stat-card glass-card">
             <div class="stat-icon stat-icon--green" aria-hidden="true">∞</div>
-            <div><p class="stat-label">累计支持</p><p class="stat-value stat-value--small skeleton" id="total-support" aria-live="polite"></p></div>
+            <div><p class="stat-label" data-i18n="stats.total">累计支持</p><p class="stat-value stat-value--small skeleton" id="total-support" aria-live="polite"></p></div>
           </article>
         </section>
 
         <section class="content-section home-content-section" aria-labelledby="recent-title" data-reveal>
           <div class="section-heading">
-            <div><p class="section-kicker">RECENT NOTES</p><h2 id="recent-title">最近支持</h2></div>
-            <button class="refresh-button" id="refresh-button" type="button"><span class="refresh-glyph" aria-hidden="true">↻</span><span>刷新</span></button>
+            <div><p class="section-kicker">RECENT NOTES</p><h2 id="recent-title" data-i18n="recent.title">最近支持</h2></div>
+            <button class="refresh-button" id="refresh-button" type="button"><span class="refresh-glyph" aria-hidden="true">↻</span><span data-i18n="common.refresh">刷新</span></button>
           </div>
           <div class="sponsor-grid sponsor-grid--recent" id="recent-list" aria-live="polite">
             <div class="sponsor-card skeleton-card" aria-hidden="true"></div>
@@ -143,8 +144,8 @@
 
         <section class="content-section home-content-section" id="sponsors" aria-labelledby="sponsors-title" data-reveal>
           <div class="section-heading section-heading--stacked">
-            <div><p class="section-kicker">A LITTLE WALL OF THANKS</p><h2 id="sponsors-title">赞助者名单</h2><p class="section-description">每一个名字，都是 Moumusic 继续向前的理由。</p></div>
-            <span class="live-pill"><span class="live-dot"></span>持续更新</span>
+            <div><p class="section-kicker">A LITTLE WALL OF THANKS</p><h2 id="sponsors-title" data-i18n="sponsors.title">赞助者名单</h2><p class="section-description" data-i18n="sponsors.description">每一个名字，都是 Moumusic 继续向前的理由。</p></div>
+            <span class="live-pill"><span class="live-dot"></span><span data-i18n="sponsors.live">持续更新</span></span>
           </div>
           <div class="sponsor-grid" id="sponsor-list" aria-live="polite">
             <div class="sponsor-card skeleton-card" aria-hidden="true"></div>
@@ -153,51 +154,52 @@
             <div class="sponsor-card skeleton-card" aria-hidden="true"></div>
           </div>
           <div class="empty-state glass-card" id="empty-state" hidden>
-            <div class="empty-icon" aria-hidden="true">♡</div><h3>还没有赞助记录</h3><p>感谢每一位未来的支持者 ❤️</p>
+            <div class="empty-icon" aria-hidden="true">♡</div><h3 data-i18n="sponsors.emptyTitle">还没有赞助记录</h3><p data-i18n="sponsors.emptyBody">感谢每一位未来的支持者</p>
           </div>
           <div class="error-card glass-card" id="error-card" hidden role="alert">
-            <div class="error-icon" aria-hidden="true">!</div><div><h3 id="error-title">暂时无法获取赞助名单</h3><p id="error-message">稍后再试，顶部的爱发电入口仍然可以正常使用。</p></div><button class="secondary-button" id="retry-button" type="button">重新加载</button>
+            <div class="error-icon" aria-hidden="true">!</div><div><h3 id="error-title" data-i18n="sponsors.errorTitle">暂时无法获取赞助名单</h3><p id="error-message" data-i18n="sponsors.errorBody">稍后再试，顶部的爱发电入口仍然可以正常使用。</p></div><button class="secondary-button" id="retry-button" type="button" data-i18n="common.refresh">重新加载</button>
           </div>
         </section>
 
         <section class="closing-note glass-card" data-reveal>
-          <div class="closing-line" aria-hidden="true"></div><p id="site-thanks">感谢每一位支持者，让 Moumusic 可以持续更新。</p><span class="closing-heart" aria-hidden="true">♥</span>
+          <div class="closing-line" aria-hidden="true"></div><p id="site-thanks" data-i18n="closing.thanks">感谢每一位支持者，让 Moumusic 可以持续更新。</p><span class="closing-heart" aria-hidden="true">♥</span>
         </section>
       </main>
 
       <footer class="site-footer">
         <span>Made with <span class="footer-heart" aria-hidden="true">♥</span> for music</span>
-        <span class="footer-links"><a id="footer-support-link" data-support-action href="#support" target="_blank" rel="noopener noreferrer">前往爱发电</a><span aria-hidden="true">·</span><a href="/install">安装说明</a><span aria-hidden="true">·</span><a href="https://github.com/jiajia2222/Moumusic" target="_blank" rel="noopener noreferrer">GitHub 源码</a></span>
+        <span class="footer-links"><a id="footer-support-link" data-support-action href="#support" target="_blank" rel="noopener noreferrer" data-i18n="footer.afdian">前往爱发电</a><span aria-hidden="true">·</span><a href="/install" data-i18n="footer.install">安装说明</a><span aria-hidden="true">·</span><a href="https://github.com/jiajia2222/Moumusic" target="_blank" rel="noopener noreferrer" data-i18n="footer.github">GitHub 源码</a></span>
       </footer>
     </div>
 
     <dialog class="sponsor-dialog" id="sponsor-dialog" aria-labelledby="dialog-name">
       <div class="dialog-surface glass-card">
-        <button class="dialog-close" id="dialog-close" type="button" aria-label="关闭">×</button>
+        <button class="dialog-close" id="dialog-close" type="button" aria-label="关闭" data-i18n-aria-label="dialog.close">×</button>
         <div class="dialog-avatar avatar" id="dialog-avatar"><span class="avatar-fallback">M</span></div>
-        <p class="dialog-kicker">THANK YOU</p><h2 id="dialog-name">支持者</h2><p class="dialog-plan" id="dialog-plan">持续支持中</p>
-        <dl class="dialog-details"><div><dt>最近支持</dt><dd id="dialog-time">—</dd></div><div id="dialog-amount-row"><dt>累计支持</dt><dd id="dialog-amount">—</dd></div></dl>
-        <p class="dialog-thanks">❤️ 感谢你的支持</p>
+        <p class="dialog-kicker">THANK YOU</p><h2 id="dialog-name" data-i18n="dialog.supporter">支持者</h2><p class="dialog-plan" id="dialog-plan" data-i18n="dialog.plan">持续支持中</p>
+        <dl class="dialog-details"><div><dt data-i18n="dialog.recent">最近支持</dt><dd id="dialog-time">—</dd></div><div id="dialog-amount-row"><dt data-i18n="dialog.total">累计支持</dt><dd id="dialog-amount">—</dd></div></dl>
+        <p class="dialog-thanks">♥ <span data-i18n="dialog.thanks">感谢你的支持</span></p>
       </div>
     </dialog>
 
     <dialog class="support-dialog" id="support-dialog" aria-labelledby="support-dialog-title">
       <div class="support-dialog__surface glass-card">
-        <button class="dialog-close" id="support-dialog-close" type="button" aria-label="关闭">×</button>
+        <button class="dialog-close" id="support-dialog-close" type="button" aria-label="关闭" data-i18n-aria-label="dialog.close">×</button>
         <div class="support-dialog__badge" aria-hidden="true">♥</div>
-        <p class="dialog-kicker">SUPPORT MOUMUSIC</p>
-        <h2 id="support-dialog-title">把喜欢变成下一次更新</h2>
-        <p class="support-dialog__intro">感谢你的支持。付款由爱发电官方完成，我们不会在本站收集银行卡、微信或支付宝信息。</p>
+        <p class="dialog-kicker" data-i18n="support.dialogKicker">SUPPORT MOUMUSIC</p>
+        <h2 id="support-dialog-title" data-i18n="support.dialogTitle">把喜欢变成下一次更新</h2>
+        <p class="support-dialog__intro" data-i18n="support.dialogIntro">感谢你的支持。付款由爱发电官方完成，我们不会在本站收集银行卡、微信或支付宝信息。</p>
         <div class="payment-route">
           <div class="payment-route__icon" aria-hidden="true">↗</div>
-          <div><strong>爱发电官方支付</strong><span>支持微信、支付宝及官方方案</span></div>
-          <a class="primary-button payment-route__button" id="support-dialog-link" href="#support" target="_blank" rel="noopener noreferrer">打开付款页 <span aria-hidden="true">↗</span></a>
+          <div><strong data-i18n="support.paymentTitle">爱发电官方支付</strong><span data-i18n="support.paymentBody">支持微信、支付宝及官方方案</span></div>
+          <a class="primary-button payment-route__button" id="support-dialog-link" href="#support" target="_blank" rel="noopener noreferrer"><span data-i18n="support.paymentButton">打开付款页</span> <span aria-hidden="true">↗</span></a>
         </div>
-        <p class="support-dialog__note">点击后会进入爱发电官方安全页面选择赞助方案。</p>
+        <p class="support-dialog__note" data-i18n="support.dialogNote">点击后会进入爱发电官方安全页面选择赞助方案。</p>
       </div>
     </dialog>
 
     <script id="site-config" type="application/json">__SITE_CONFIG__</script>
+    <script src="/i18n.js" defer></script>
     <script src="/app.js" defer></script>
   </body>
 </html>

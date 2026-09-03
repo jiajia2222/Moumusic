@@ -18,6 +18,8 @@
   },
   "vars": {
     "SITE_NAME": "MouMou",
+    "SITE_TAGLINE_EN": "Download the app, add a source you are allowed to use, and start playing.",
+    "SITE_THANKS_EN": "Thank you to every supporter for helping Moumusic keep moving.",
     "AFDIAN_URL": "https://www.ifdian.net/a/moumou2026",
     "SHOW_SPONSOR_AMOUNT": "false",
     "IOS_DOWNLOAD_URL": "https://music.nadev.xyz/download/ios",
