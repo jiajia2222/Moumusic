@@ -205,6 +205,16 @@
 "跟随系统" = "System";
 "浅色" = "Light";
 "深色" = "Dark";
+"关闭" = "Off";
+"罗马音" = "Romaji";
+"汉字读音" = "Furigana";
+"日文歌词注音" = "Japanese lyric annotation";
+"经典模式" = "Classic Mode";
+"沉浸模式" = "Immersive Mode";
+"简洁模式" = "Minimal Mode";
+"黑胶模式" = "Vinyl Mode";
+"桌面歌词水平居中" = "Center desktop lyrics horizontally";
+"开启后仅保留垂直位置，桌面歌词始终位于屏幕水平中心。" = "Keep only the vertical position; desktop lyrics stay horizontally centered.";
 "显示歌词翻译" = "Show Lyrics Translation";
 "桌面歌词" = "Desktop Lyrics";
 "在屏幕上悬浮显示当前歌词，可拖动调整位置" = "Float the current lyric line on screen; drag to reposition";

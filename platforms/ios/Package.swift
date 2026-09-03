@@ -25,6 +25,11 @@ let package = Package(
                 .swiftLanguageMode(.v5),
             ]
         ),
+        .testTarget(
+            name: "KumoneCoreTests",
+            dependencies: ["KumoneCore"],
+            path: "Tests/KumoneCoreTests"
+        ),
         .executableTarget(
             name: "KumoneLauncher",
             dependencies: [

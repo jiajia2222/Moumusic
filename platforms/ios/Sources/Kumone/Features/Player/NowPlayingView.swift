@@ -357,12 +357,20 @@ struct NowPlayingView: View {
         let artworkDim = min(size.width - 72, size.height * 0.43, 310)
         return VStack(spacing: 16) {
             Spacer().frame(height: 34)
-            artworkView(size: artworkDim)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(.white.opacity(0.22), lineWidth: 1))
-                .rotationEffect(.degrees(player.isPlaying ? 360 : 0))
-                .animation(.linear(duration: 18).repeatForever(autoreverses: false),
-                           value: player.isPlaying)
+            VinylTurntableView(
+                artworkImage: artworkImage,
+                isPlaying: player.isPlaying,
+                trackId: player.currentTrack?.id,
+                size: artworkDim,
+                onTap: {
+                    withAnimation(AppAnimation.standard) {
+                        showLyricsOnMobile = true
+                    }
+                },
+                onNextTrack: player.next,
+                onPreviousTrack: player.previous
+            )
+            .frame(maxWidth: .infinity)
             trackMetaView
             MiniLyricsView {
                 showLyricsOnMobile = true
@@ -958,7 +966,7 @@ struct NowPlayingView: View {
             player.seek(to: line.time)
         } label: {
             VStack(alignment: .leading, spacing: 5) {
-                if settings.showLyricsRomaji, let romaji = line.romaji {
+                if settings.lyricsAnnotation == .romaji, let romaji = line.romaji {
                     Text(romaji)
                         .font(.system(size: isActive ? 15 : 13, weight: .medium))
                         .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
@@ -995,12 +1003,33 @@ struct LyricMainText: View {
     let font: Font
     let verbatim: Bool
     var inactiveOpacity: Double = 0.45
+    var rubySize: CGFloat = 20
 
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
 
     var body: some View {
-        if isActive, verbatim, let words = line.words, !words.isEmpty {
+        if settings.lyricsAnnotation == .furigana, let segments = line.furigana, !segments.isEmpty,
+           isActive, verbatim, let words = line.words, !words.isEmpty {
+            TimelineView(.animation(paused: !player.isPlaying)) { _ in
+                RubyText(
+                    segments: segments,
+                    size: rubySize,
+                    weight: .bold,
+                    color: .white,
+                    alphas: karaokeAlphas(words, at: player.livePlaybackTime + settings.lyricsOffset)
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else if settings.lyricsAnnotation == .furigana, let segments = line.furigana, !segments.isEmpty {
+            RubyText(
+                segments: segments,
+                size: rubySize,
+                weight: isActive ? .bold : .semibold,
+                color: .white.opacity(isActive ? 1 : inactiveOpacity)
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if isActive, verbatim, let words = line.words, !words.isEmpty {
             TimelineView(.animation(paused: !player.isPlaying)) { _ in
                 karaoke(words, at: player.livePlaybackTime + settings.lyricsOffset).font(font)
                     .minimumScaleFactor(0.72)
@@ -1020,7 +1049,7 @@ struct LyricMainText: View {
       /// One concatenated `Text` (so it wraps) with the exact opacity of each
       /// source-timed word/run. LX/NetEase verbatim data already contains the
       /// timing for each run; subdividing it by character creates drift.
-      private func karaoke(_ words: [LyricWord], at time: TimeInterval) -> Text {
+    private func karaoke(_ words: [LyricWord], at time: TimeInterval) -> Text {
           let unsung = 0.28
           var out = Text(verbatim: "")
           for word in words {
@@ -1032,6 +1061,17 @@ struct LyricMainText: View {
                   .foregroundColor(.white.opacity(alpha))
           }
           return out
+      }
+
+      private func karaokeAlphas(_ words: [LyricWord], at time: TimeInterval) -> [Double] {
+          let unsung = 0.28
+          return words.flatMap { word in
+              let fraction = word.duration > 0
+                  ? min(max((time - word.start) / word.duration, 0), 1)
+                  : (time >= word.start ? 1 : 0)
+              let alpha = unsung + (1 - unsung) * fraction
+              return Array(repeating: alpha, count: word.text.count)
+          }
       }
 }
 
@@ -1228,7 +1268,7 @@ private struct IOSImmersiveLyricsColumn: View {
             player.seek(to: line.time)
         } label: {
             VStack(alignment: .leading, spacing: 5) {
-                if settings.showLyricsRomaji, let romaji = line.romaji {
+                if settings.lyricsAnnotation == .romaji, let romaji = line.romaji {
                     Text(romaji)
                         .font(.system(size: isActive ? 15 : 13, weight: .medium))
                         .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
@@ -2050,7 +2090,7 @@ private struct IOSMinimalLyricsColumn: View {
     ) -> some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 3) {
-                if settings.showLyricsRomaji, let romaji = line.romaji {
+                if settings.lyricsAnnotation == .romaji, let romaji = line.romaji {
                     Text(romaji)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))

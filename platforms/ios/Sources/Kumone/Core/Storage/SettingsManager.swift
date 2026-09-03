@@ -71,6 +71,24 @@ enum AppAppearance: String, CaseIterable, Identifiable {
     }
 }
 
+/// Japanese lyric annotation mode. The legacy boolean is migrated below so
+/// existing installations keep their previous romaji preference.
+enum LyricsAnnotation: String, CaseIterable, Identifiable {
+    case off
+    case romaji
+    case furigana
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .off: return String(localized: "关闭")
+        case .romaji: return String(localized: "罗马音")
+        case .furigana: return String(localized: "汉字读音")
+        }
+    }
+}
+
 #if os(iOS)
 enum NowPlayingMode: String, CaseIterable, Identifiable {
     case classic
@@ -122,6 +140,7 @@ final class SettingsManager: ObservableObject {
         #endif
         static let showTranslation = "settings.showLyricsTranslation"
         static let showRomaji = "settings.showLyricsRomaji"
+        static let lyricsAnnotation = "settings.lyricsAnnotation"
         static let verbatimLyrics = "settings.verbatimLyrics"
         static let lyricsOffset = "settings.lyricsOffset"
         static let volume = "settings.volume"
@@ -129,6 +148,7 @@ final class SettingsManager: ObservableObject {
         static let unblock = "settings.enableUnblock"
         static let autoCheckUpdates = "settings.autoCheckUpdates"
         static let desktopLyrics = "settings.showDesktopLyrics"
+        static let desktopLyricsCentered = "settings.desktopLyricsCentered"
         static let homeRecommendationMode = "settings.homeRecommendationMode"
         static let homeRecommendationPlatform = "settings.homeRecommendationPlatform"
         static let sourcePlatformFallback = "settings.sourcePlatformFallback"
@@ -168,6 +188,10 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(showLyricsRomaji, forKey: Keys.showRomaji) }
     }
 
+    @Published var lyricsAnnotation: LyricsAnnotation {
+        didSet { UserDefaults.standard.set(lyricsAnnotation.rawValue, forKey: Keys.lyricsAnnotation) }
+    }
+
     /// Karaoke-style word-by-word highlighting when the song has verbatim
     /// (yrc) lyrics; falls back to line highlighting when it doesn't.
     @Published var verbatimLyrics: Bool {
@@ -188,6 +212,12 @@ final class SettingsManager: ObservableObject {
     /// Floating desktop lyrics window (LyricsX-style).
     @Published var showDesktopLyrics: Bool {
         didSet { UserDefaults.standard.set(showDesktopLyrics, forKey: Keys.desktopLyrics) }
+    }
+
+    /// Keep desktop lyrics horizontally centered while retaining the saved
+    /// vertical position. When disabled, the user can freely place the box.
+    @Published var desktopLyricsCentered: Bool {
+        didSet { UserDefaults.standard.set(desktopLyricsCentered, forKey: Keys.desktopLyricsCentered) }
     }
 
     @Published var homeRecommendationMode: HomeRecommendationMode {
@@ -215,11 +245,15 @@ final class SettingsManager: ObservableObject {
         #endif
         showLyricsTranslation = defaults.object(forKey: Keys.showTranslation) as? Bool ?? true
         showLyricsRomaji = defaults.object(forKey: Keys.showRomaji) as? Bool ?? false
+        let legacyRomaji = defaults.object(forKey: Keys.showRomaji) as? Bool ?? false
+        lyricsAnnotation = defaults.string(forKey: Keys.lyricsAnnotation)
+            .flatMap(LyricsAnnotation.init) ?? (legacyRomaji ? .romaji : .off)
         verbatimLyrics = defaults.object(forKey: Keys.verbatimLyrics) as? Bool ?? true
         lyricsOffset = defaults.object(forKey: Keys.lyricsOffset) as? Double ?? 0
         enableUnblock = defaults.object(forKey: Keys.unblock) as? Bool ?? false
         autoCheckUpdates = defaults.object(forKey: Keys.autoCheckUpdates) as? Bool ?? true
         showDesktopLyrics = defaults.object(forKey: Keys.desktopLyrics) as? Bool ?? false
+        desktopLyricsCentered = defaults.object(forKey: Keys.desktopLyricsCentered) as? Bool ?? false
         homeRecommendationMode = defaults.string(forKey: Keys.homeRecommendationMode)
             .flatMap(HomeRecommendationMode.init) ?? .netease
         let storedPlatform = defaults.string(forKey: Keys.homeRecommendationPlatform)

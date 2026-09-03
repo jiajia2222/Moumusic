@@ -14,6 +14,9 @@ struct LyricLine: Identifiable, Hashable {
     let text: String
     var translation: String?
     var romaji: String?
+    /// Optional Japanese reading segments populated from the system tokenizer.
+    /// It stays nil for Latin, kana-only, and non-Japanese lines.
+    var furigana: [RubySegment]?
     /// Per-word timings for karaoke highlighting; nil when only line-level
     /// (lrc) timing is available.
     var words: [LyricWord]?
@@ -84,6 +87,7 @@ enum LyricsParser {
         merge(tlyric, into: \.translation)
         merge(rlyric ?? lxlyric, into: \.romaji)
         lines = addSyntheticWordTimings(to: lines)
+        lines = addFurigana(to: lines)
         result.lines = lines
         return result
     }
@@ -309,7 +313,17 @@ enum LyricsParser {
 
         out.lines = lines
         out.lines = addSyntheticWordTimings(to: out.lines)
+        out.lines = addFurigana(to: out.lines)
         return out
+    }
+
+    private static func addFurigana(to input: [LyricLine]) -> [LyricLine] {
+        guard !input.isEmpty else { return input }
+        var lines = input
+        for index in lines.indices where lines[index].furigana == nil {
+            lines[index].furigana = Furigana.segments(for: lines[index].text)
+        }
+        return lines
     }
 
     /// Makes line-timed lyrics feel like Apple Music's karaoke view when a

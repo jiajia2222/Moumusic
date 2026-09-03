@@ -67,7 +67,11 @@ struct SettingsView: View {
 #endif
                 Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
                 Toggle("逐字歌词（卡拉 OK）", isOn: $settings.verbatimLyrics)
-                Toggle("显示日文歌词罗马音", isOn: $settings.showLyricsRomaji)
+                Picker("日文歌词注音", selection: $settings.lyricsAnnotation) {
+                    ForEach(LyricsAnnotation.allCases) { annotation in
+                        Text(annotation.displayName).tag(annotation)
+                    }
+                }
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("歌词同步")
@@ -77,15 +81,21 @@ struct SettingsView: View {
                             .monospacedDigit()
                     }
                     Slider(value: $settings.lyricsOffset, in: -2...2, step: 0.05)
+#if os(iOS)
                         .onChange(of: settings.lyricsOffset) { _ in
                             player.refreshLyricsCursor()
                         }
+#endif
                     Text("正值让歌词提前，负值让歌词延后；不同音源版本可分别试听调整。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 #if os(macOS)
                 Toggle("桌面歌词", isOn: $settings.showDesktopLyrics)
+                Toggle("桌面歌词水平居中", isOn: $settings.desktopLyricsCentered)
+                    Text("开启后仅保留垂直位置，桌面歌词始终位于屏幕水平中心。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 #endif
             }
 

@@ -89,23 +89,33 @@ private struct DesktopLyricsSurface: View {
 
     var body: some View {
         GeometryReader { geo in
-            let base = CGPoint(x: geo.size.width * xFactor, y: geo.size.height * yFactor)
+            let centered = settings.desktopLyricsCentered
+            let base = CGPoint(
+                x: geo.size.width * (centered ? 0.5 : xFactor),
+                y: geo.size.height * yFactor
+            )
             DesktopLyricsBox()
-                .position(x: base.x + dragOffset.width, y: base.y + dragOffset.height)
+                .position(
+                    x: base.x + (centered ? 0 : dragOffset.width),
+                    y: base.y + dragOffset.height
+                )
                 .gesture(
                     // Global coordinate space: measuring the drag in the box's
                     // own (moving) space feedback-loops and flings it off screen.
                     DragGesture(coordinateSpace: .global)
                         .onChanged { value in
-                            dragOffset = value.translation
+                            dragOffset = centered
+                                ? CGSize(width: 0, height: value.translation.height)
+                                : value.translation
                         }
                         .onEnded { value in
-                            var x = (base.x + value.translation.width) / geo.size.width
+                            if !centered {
+                                var x = (base.x + value.translation.width) / geo.size.width
+                                if abs(x - 0.5) * geo.size.width < 8 { x = 0.5 }
+                                xFactor = min(max(x, 0.02), 0.98)
+                            }
                             var y = (base.y + value.translation.height) / geo.size.height
-                            // magnetic snap to the screen center lines
-                            if abs(x - 0.5) * geo.size.width < 8 { x = 0.5 }
                             if abs(y - 0.5) * geo.size.height < 8 { y = 0.5 }
-                            xFactor = min(max(x, 0.02), 0.98)
                             yFactor = min(max(y, 0.02), 0.98)
                             dragOffset = .zero
                         }
