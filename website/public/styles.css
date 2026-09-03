@@ -824,3 +824,24 @@ html[data-theme="dark"] .support-dialog__surface { box-shadow: var(--shadow); }
     border-color: rgba(255, 255, 255, 0.16);
   }
 }
+
+/* Official Afdian checkout stays inside the support sheet. */
+.support-dialog__surface { width: min(calc(100% - 32px), 690px); }
+.payment-embed { overflow: hidden; border: 1px solid rgba(228, 101, 85, 0.18); border-radius: 19px; background: #fff; }
+.payment-embed__loading { display: grid; min-height: 190px; place-items: center; gap: 10px; padding: 24px; color: var(--muted); font-size: 13px; text-align: center; }
+.payment-embed__spinner { width: 22px; height: 22px; border: 2px solid rgba(228, 101, 85, 0.2); border-top-color: var(--accent); border-radius: 50%; animation: payment-spin 800ms linear infinite; }
+.payment-embed__frame { display: block; width: 100%; min-height: 500px; border: 0; background: #fff; }
+.payment-embed__error { display: grid; gap: 7px; min-height: 150px; place-items: center; padding: 24px; color: var(--muted); font-size: 12px; text-align: center; }
+.payment-embed__error strong { color: var(--ink); font-size: 14px; }
+.payment-embed__fallback { width: 100%; margin-top: 12px; justify-content: center; }
+@keyframes payment-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-color-scheme: dark) {
+  .payment-embed { border-color: rgba(255, 117, 105, 0.24); }
+  .payment-embed__loading, .payment-embed__error { background: #fff; }
+}
+
+@media (max-width: 560px) {
+  .support-dialog__surface { width: 100%; }
+  .payment-embed__frame { min-height: 560px; }
+}
