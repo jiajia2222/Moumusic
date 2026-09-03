@@ -351,7 +351,7 @@ function setSecurityHeaders(response) {
   response.setHeader('X-Frame-Options', 'DENY')
   response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
   response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-  response.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+  response.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self' https://cdn.chatway.app; connect-src 'self' https://chatway.app https://*.chatway.app wss://*.chatway.app; frame-src 'self' https://chatway.app https://*.chatway.app; font-src 'self' https://cdn.chatway.app https://*.chatway.app data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 }
 
 function sendJson(response, status, body) {

@@ -389,7 +389,7 @@ function securityHeaders(headers = new Headers()) {
   headers.set('X-Frame-Options', 'DENY')
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-  headers.set('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+  headers.set('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self' https://cdn.chatway.app; connect-src 'self' https://chatway.app https://*.chatway.app wss://*.chatway.app; frame-src 'self' https://chatway.app https://*.chatway.app; font-src 'self' https://cdn.chatway.app https://*.chatway.app data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
   return headers
 }
 
