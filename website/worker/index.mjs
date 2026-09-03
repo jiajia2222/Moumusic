@@ -378,7 +378,7 @@ async function renderPage(request, env, filename) {
   const asset = await env.ASSETS.fetch(assetRequest)
   if (!asset.ok) return new Response('Not found', { status: 404 })
   const html = (await asset.text()).replace('__SITE_CONFIG__', safeJson(getPublicConfig(env, request)))
-  const headers = new Headers(asset.headers)
+  const headers = securityHeaders(new Headers(asset.headers))
   headers.set('content-type', 'text/html; charset=utf-8')
   headers.set('cache-control', 'no-cache')
   return new Response(html, { status: 200, headers })
