@@ -23,8 +23,30 @@ jobs:
           brew install xcodegen
           xcodegen generate
 
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(sed -n 's/^MARKETING_VERSION[[:space:]]*=[[:space:]]*//p' platforms/ios/ios/Config/Shared.xcconfig | head -n 1 | tr -d '[:space:]')"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid marketing version: $version" >&2
+            exit 1
+          fi
+
+          echo "marketing_version=$version" >> "$GITHUB_OUTPUT"
+          echo "build_number=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Building Moumusic $version ($GITHUB_RUN_NUMBER)"
+
       - name: Build unsigned iOS app
         working-directory: platforms/ios/ios
+        env:
+          MARKETING_VERSION: ${{ steps.version.outputs.marketing_version }}
+          CURRENT_PROJECT_VERSION: ${{ steps.version.outputs.build_number }}
         run: |
           xcodebuild \
             -project KumoneIOS.xcodeproj \
@@ -33,10 +55,30 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
+            MARKETING_VERSION="$MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="$CURRENT_PROJECT_VERSION" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             DEVELOPMENT_TEAM= \
             build
+
+      - name: Verify app bundle version
+        working-directory: platforms/ios/ios
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.marketing_version }}
+        run: |
+          app="build/Build/Products/Release-iphoneos/MoumusicIOS.app"
+          actual="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")"
+          build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")"
+          echo "Bundle version: $actual ($build)"
+          if [[ "$actual" != "$EXPECTED_VERSION" ]]; then
+            echo "Bundle version mismatch: expected $EXPECTED_VERSION, got $actual" >&2
+            exit 1
+          fi
+
+      - name: Package unsigned IPA
+        working-directory: platforms/ios/ios
+        run: |
           mkdir -p dist/Payload
           cp -R build/Build/Products/Release-iphoneos/MoumusicIOS.app dist/Payload/Moumusic.app
           ditto -c -k --sequesterRsrc --keepParent dist/Payload dist/Moumusic-unsigned.ipa
