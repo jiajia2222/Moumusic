@@ -6,6 +6,7 @@ const AFDIAN_API_BASES = [
   'https://afdian.net/api/open',
 ]
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/jiajia2222/Moumusic/releases?per_page=20'
+const GITHUB_RELEASES_PAGE = 'https://github.com/jiajia2222/Moumusic/releases'
 const GITHUB_RELEASE_DOWNLOAD_BASE = 'https://github.com/jiajia2222/Moumusic/releases/latest/download'
 const RELEASE_ASSET_NAMES = {
   ios: ['Moumusic-unsigned.ipa'],
@@ -80,11 +81,29 @@ async function getDirectReleaseAsset(platform) {
   for (const name of RELEASE_ASSET_NAMES[platform] || []) {
     const url = `${GITHUB_RELEASE_DOWNLOAD_BASE}/${encodeURIComponent(name)}`
     try {
-      const response = await fetch(url, { method: 'HEAD', redirect: 'follow' })
-      if (response.ok) return { url, version: 'latest' }
+      const response = await fetch(url, { redirect: 'manual' })
+      if (response.ok || [301, 302, 303, 307, 308].includes(response.status)) return { url, version: 'latest' }
     } catch {
       // Try the next compatible filename before falling back to the GitHub API.
     }
+  }
+  return null
+}
+
+async function getLatestTaggedAsset(platform) {
+  try {
+    const releasePage = await fetch(`${GITHUB_RELEASES_PAGE}?_=${Math.floor(Date.now() / 300_000)}`)
+    const html = await releasePage.text()
+    const tagMatch = html.match(/\/releases\/tag\/([^"?#<]+)/)
+    if (!releasePage.ok || !tagMatch) return null
+    const tag = decodeURIComponent(tagMatch[1])
+    for (const name of RELEASE_ASSET_NAMES[platform] || []) {
+      const url = `https://github.com/jiajia2222/Moumusic/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`
+      const response = await fetch(url, { redirect: 'manual' })
+      if (response.ok || [301, 302, 303, 307, 308].includes(response.status)) return { url, version: tag }
+    }
+  } catch {
+    // Continue to the API and direct URL fallbacks.
   }
   return null
 }
@@ -108,44 +127,42 @@ async function getLatestReleaseAsset(request, ctx, platform) {
 
   let response
   try {
-    response = await fetch(GITHUB_RELEASES_URL, {
+    response = await fetch(`${GITHUB_RELEASES_URL}&_=${Math.floor(Date.now() / 300_000)}`, {
       headers: {
         accept: 'application/vnd.github+json',
         'user-agent': 'Moumusic-website',
       },
+      cache: 'no-store',
     })
   } catch {
-    throw new AfdianError('RELEASE_UNAVAILABLE', 'Latest GitHub release is unavailable.', 503)
+    response = null
   }
-  if (!response.ok) throw new AfdianError('RELEASE_UNAVAILABLE', `GitHub returned HTTP ${response.status}.`, 503)
-
-  let releases
-  try {
-    releases = await response.json()
-  } catch {
-    throw new AfdianError('RELEASE_UNAVAILABLE', 'GitHub returned invalid release data.', 503)
-  }
-
-  const release = Array.isArray(releases)
-    ? releases.find(item => item?.draft !== true && item?.prerelease !== true && Array.isArray(item?.assets) && (
-      platform === 'ios'
-        ? item.assets.some(asset => asset?.name === 'Moumusic-unsigned.ipa' || /\.ipa$/i.test(asset?.name || ''))
-        : item.assets.some(asset => /universal\.apk$/i.test(asset?.name || '') || /\.apk$/i.test(asset?.name || ''))
-    ))
-    : null
-  const assets = Array.isArray(release?.assets) ? release.assets : []
-  const asset = platform === 'ios'
-    ? assets.find(item => item?.name === 'Moumusic-unsigned.ipa') || assets.find(item => /\.ipa$/i.test(item?.name || ''))
-    : assets.find(item => /universal\.apk$/i.test(item?.name || '')) || assets.find(item => /\.apk$/i.test(item?.name || ''))
-  const url = safeHttpUrl(asset?.browser_download_url)
-  if (!url) {
-    const directAsset = await getDirectReleaseAsset(platform)
-    if (directAsset) return cacheLatestReleaseAsset(cacheKey, memoryKey, directAsset, ctx)
-    throw new AfdianError('RELEASE_ASSET_MISSING', `No ${platform} asset found in recent releases.`, 503)
+  if (response?.ok) {
+    try {
+      const releases = await response.json()
+      const release = Array.isArray(releases)
+        ? releases.find(item => item?.draft !== true && item?.prerelease !== true && Array.isArray(item?.assets) && (
+          platform === 'ios'
+            ? item.assets.some(asset => asset?.name === 'Moumusic-unsigned.ipa' || /\.ipa$/i.test(asset?.name || ''))
+            : item.assets.some(asset => /universal\.apk$/i.test(asset?.name || '') || /\.apk$/i.test(asset?.name || ''))
+        ))
+        : null
+      const assets = Array.isArray(release?.assets) ? release.assets : []
+      const asset = platform === 'ios'
+        ? assets.find(item => item?.name === 'Moumusic-unsigned.ipa') || assets.find(item => /\.ipa$/i.test(item?.name || ''))
+        : assets.find(item => /universal\.apk$/i.test(item?.name || '')) || assets.find(item => /\.apk$/i.test(item?.name || ''))
+      const url = safeHttpUrl(asset?.browser_download_url)
+      if (url) return cacheLatestReleaseAsset(cacheKey, memoryKey, { url, version: String(release.tag_name || '') }, ctx)
+    } catch {
+      // Continue with the public releases page fallback.
+    }
   }
 
-  const value = { url, version: String(release.tag_name || '') }
-  return cacheLatestReleaseAsset(cacheKey, memoryKey, value, ctx)
+  const taggedAsset = await getLatestTaggedAsset(platform)
+  if (taggedAsset) return cacheLatestReleaseAsset(cacheKey, memoryKey, taggedAsset, ctx)
+  const directAsset = await getDirectReleaseAsset(platform)
+  if (directAsset) return cacheLatestReleaseAsset(cacheKey, memoryKey, directAsset, ctx)
+  throw new AfdianError('RELEASE_ASSET_MISSING', `No ${platform} asset found in recent releases.`, 503)
 }
 
 async function redirectToLatestRelease(request, ctx, platform) {
