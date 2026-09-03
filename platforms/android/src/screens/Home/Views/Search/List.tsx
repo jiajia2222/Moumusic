@@ -26,7 +26,7 @@ export default forwardRef<ListType, ListProps>(({ onSearch }, ref) => {
         setListType(type)
         // const listDetailInfo = searchMusicState.listDetailInfo
         requestAnimationFrame(() => {
-          listRef.current?.loadList(text, source)
+          listRef.current?.loadList(text, source, type == 'artist' ? 'artist' : 'music')
         })
       } else {
         setShowListView(true)

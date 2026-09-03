@@ -14,9 +14,11 @@ interface ListInfos extends Partial<Record<LX.OnlineSource, ListInfo>> {
 }
 
 export type Source = LX.OnlineSource | 'all'
+export type SearchMode = 'music' | 'artist'
 
 export interface InitState {
   searchText: string
+  searchMode: SearchMode
   source: Source
   sources: Source[]
   listInfos: ListInfos
@@ -25,6 +27,7 @@ export interface InitState {
 
 const state: InitState = {
   searchText: '',
+  searchMode: 'music',
   source: 'kw',
   sources: [],
   listInfos: {

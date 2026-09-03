@@ -19,7 +19,7 @@ import { addHistoryWord } from '@/core/search/search'
 interface SearchInfo {
   temp_source: LX.OnlineSource
   source: LX.OnlineSource | 'all'
-  searchType: 'music' | 'songlist'
+  searchType: SearchType
 }
 
 export default () => {
@@ -38,6 +38,7 @@ export default () => {
       searchInfo.current.searchType = info.type
       switch (info.type) {
         case 'music':
+        case 'artist':
           headerBarRef.current?.setSourceList(searchMusicState.sources, info.source)
           break
         case 'songlist':
@@ -50,7 +51,11 @@ export default () => {
 
     const handleTypeChange = (type: SearchType) => {
       searchInfo.current.searchType = type
-      void saveSearchSetting({ type })
+      const sourceList = type == 'songlist' ? searchSonglistState.sources : searchMusicState.sources
+      const source = sourceList.some(item => item == searchInfo.current.source) ? searchInfo.current.source : 'all'
+      searchInfo.current.source = source
+      headerBarRef.current?.setSourceList(sourceList, source)
+      void saveSearchSetting({ type, source })
       listRef.current?.loadList(searchState.searchText, searchInfo.current.source, type)
     }
     global.app_event.on('searchTypeChanged', handleTypeChange)

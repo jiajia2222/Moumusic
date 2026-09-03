@@ -217,6 +217,7 @@
   "search_hot_search": "Top Searches",
   "search_platform_label": "Platform",
   "search_type_music": "Song",
+  "search_type_artist": "Artist",
   "search_type_songlist": "Playlist",
   "setting__other_dislike_list": "Dislike Song Rule",
   "setting__other_dislike_list_label": "Number of rules: {num}",

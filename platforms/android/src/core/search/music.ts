@@ -1,4 +1,4 @@
-import searchMusicState, { type Source } from '@/store/search/music/state'
+import searchMusicState, { type SearchMode, type Source } from '@/store/search/music/state'
 import searchMusicActions, { type SearchResult } from '@/store/search/music/action'
 import musicSdk from '@/utils/musicSdk'
 
@@ -8,8 +8,11 @@ export const setSource: typeof searchMusicActions['setSource'] = (source) => {
 export const setSearchText: typeof searchMusicActions['setSearchText'] = (text) => {
   searchMusicActions.setSearchText(text)
 }
-export const setListInfo: typeof searchMusicActions.setListInfo = (result, id, page) => {
-  return searchMusicActions.setListInfo(result, id, page)
+export const setSearchMode: typeof searchMusicActions['setSearchMode'] = (mode) => {
+  searchMusicActions.setSearchMode(mode)
+}
+export const setListInfo: typeof searchMusicActions.setListInfo = (result, page, text, mode) => {
+  return searchMusicActions.setListInfo(result, page, text, mode)
 }
 
 export const clearListInfo: typeof searchMusicActions.clearListInfo = (source) => {
@@ -17,10 +20,11 @@ export const clearListInfo: typeof searchMusicActions.clearListInfo = (source) =
 }
 
 
-export const search = async(text: string, page: number, sourceId: Source): Promise<LX.Music.MusicInfoOnline[]> => {
+export const search = async(text: string, page: number, sourceId: Source, mode: SearchMode = 'music'): Promise<LX.Music.MusicInfoOnline[]> => {
   const listInfo = searchMusicState.listInfos[sourceId]!
   if (!text) return []
-  const key = `${page}__${text}`
+  const key = `${mode}__${page}__${text}`
+  setSearchMode(mode)
   if (sourceId == 'all') {
     listInfo.key = key
     let task = []
@@ -41,18 +45,17 @@ export const search = async(text: string, page: number, sourceId: Source): Promi
       if (key != listInfo.key) return []
       setSearchText(text)
       setSource(sourceId)
-      return setListInfo(results, page, text)
+      return setListInfo(results, page, text, mode)
     })
   } else {
     if (listInfo?.key == key && listInfo?.list.length) return listInfo?.list
     listInfo.key = key
     return (musicSdk[sourceId]?.musicSearch.search(text, page, listInfo.limit).then((data: SearchResult) => {
       if (key != listInfo.key) return []
-      return setListInfo(data, page, text)
+      return setListInfo(data, page, text, mode)
     }) ?? Promise.reject(new Error('source not found: ' + sourceId))).catch((err: any) => {
       if (listInfo.list.length && page == 1) clearListInfo(sourceId)
       throw err
     })
   }
 }
-

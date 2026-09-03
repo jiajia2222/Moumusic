@@ -1,4 +1,4 @@
-export type SearchType = 'music' | 'songlist'
+export type SearchType = 'music' | 'artist' | 'songlist'
 
 export interface InitState {
   temp_source: 'kw'
