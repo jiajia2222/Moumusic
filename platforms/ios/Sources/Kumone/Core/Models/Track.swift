@@ -24,6 +24,13 @@ struct ArtistRef: Codable, Hashable, Identifiable {
             ?? (try? c.decode(String.self, forKey: .avatar))
             ?? (try? c.decode(String.self, forKey: .cover))
     }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encodeIfPresent(picUrl, forKey: .picUrl)
+    }
 }
 
 struct AlbumRef: Codable, Hashable, Identifiable {
