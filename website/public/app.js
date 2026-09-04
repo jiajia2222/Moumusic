@@ -7,23 +7,11 @@ try {
 }
 
 const $ = id => document.getElementById(id)
-const supportLink = siteConfig.afdianUrl || '#support'
+const supportLink = siteConfig.afdianUrl || 'https://www.ifdian.net/a/moumou2026'
 const showAmount = Boolean(siteConfig.showAmount)
 const i18n = window.MoumusicI18n || { language: () => 'zh', t: key => key }
 let supporters = []
 let lastStats = {}
-let paymentEmbedStarted = false
-
-function getAfdianCheckoutUrl() {
-  try {
-    const url = new URL(supportLink, window.location.origin)
-    const match = url.pathname.match(/\/a\/([^/]+)/)
-    if (!match) return ''
-    return `https://ifdian.net/a/${encodeURIComponent(match[1])}`
-  } catch {
-    return ''
-  }
-}
 
 function fallbackInitial(name) {
   return String(name || 'M').trim().slice(0, 1).toUpperCase() || 'M'
@@ -243,95 +231,6 @@ $('retry-button').addEventListener('click', loadSponsors)
 $('dialog-close').addEventListener('click', closeSponsor)
 $('sponsor-dialog').addEventListener('click', event => {
   if (event.target === $('sponsor-dialog')) closeSponsor()
-})
-function openSupport() {
-  const dialog = $('support-dialog')
-  if (typeof dialog.showModal === 'function') dialog.showModal()
-  else dialog.setAttribute('open', '')
-}
-function closeSupport() {
-  const dialog = $('support-dialog')
-  if (dialog.open && typeof dialog.close === 'function') dialog.close()
-  else dialog.removeAttribute('open')
-}
-
-function startPaymentEmbed() {
-  if (paymentEmbedStarted) return
-  paymentEmbedStarted = true
-
-  const route = document.querySelector('.payment-route')
-  if (!route) return
-  route.className = 'payment-embed'
-  route.replaceChildren()
-
-  const loading = document.createElement('div')
-  loading.className = 'payment-embed__loading'
-  loading.setAttribute('aria-live', 'polite')
-  loading.textContent = i18n.language() === 'en' ? 'Loading official payment component…' : '正在加载官方付款组件…'
-
-  const frame = document.createElement('iframe')
-  frame.id = 'afdian-payment-frame'
-  frame.className = 'payment-embed__frame'
-  frame.title = i18n.language() === 'en' ? 'Official Afdian payment' : '爱发电官方付款组件'
-  frame.loading = 'lazy'
-  frame.referrerPolicy = 'strict-origin-when-cross-origin'
-  frame.allow = 'payment'
-
-  const error = document.createElement('div')
-  error.className = 'payment-embed__error'
-  error.hidden = true
-  const errorTitle = document.createElement('strong')
-  errorTitle.textContent = i18n.language() === 'en' ? 'Payment component unavailable' : '付款组件暂时无法加载'
-  const errorBody = document.createElement('span')
-  errorBody.textContent = i18n.language() === 'en' ? 'Use the fallback entry below to complete payment.' : '请使用下面的备用入口完成支付。'
-  error.append(errorTitle, errorBody)
-  route.append(loading, frame, error)
-
-  const fallback = document.createElement('a')
-  fallback.className = 'secondary-button payment-embed__fallback'
-  fallback.href = supportLink
-  fallback.target = '_blank'
-  fallback.rel = 'noopener noreferrer'
-  fallback.hidden = true
-  fallback.textContent = i18n.language() === 'en' ? 'Fallback: open Afdian' : '备用：打开爱发电付款页'
-  route.after(fallback)
-
-  const note = document.querySelector('.support-dialog__note')
-  if (note) note.textContent = i18n.language() === 'en'
-    ? 'Payment is handled by the official Afdian component. This site never collects card, WeChat Pay, or Alipay details.'
-    : '付款由爱发电官方组件处理，本页不会收集银行卡、微信或支付宝信息。'
-
-  const showFailure = () => {
-    loading.hidden = true
-    frame.hidden = true
-    error.hidden = false
-    fallback.hidden = false
-  }
-  const source = getAfdianCheckoutUrl()
-  if (!source) {
-    showFailure()
-    return
-  }
-  frame.addEventListener('load', () => {
-    loading.hidden = true
-    frame.hidden = false
-  }, { once: true })
-  frame.addEventListener('error', showFailure, { once: true })
-  window.setTimeout(() => {
-    if (!frame.hidden && !loading.hidden) showFailure()
-  }, 12_000)
-  frame.src = source
-}
-document.querySelectorAll('[data-support-action]').forEach(link => {
-  link.addEventListener('click', event => {
-    event.preventDefault()
-    openSupport()
-    startPaymentEmbed()
-  })
-})
-$('support-dialog-close').addEventListener('click', closeSupport)
-$('support-dialog').addEventListener('click', event => {
-  if (event.target === $('support-dialog')) closeSupport()
 })
 document.addEventListener('moumusic:languagechange', () => {
   renderProfile()

@@ -517,33 +517,6 @@ button.sponsor-card { width: 100%; color: inherit; text-align: left; cursor: poi
   .hero-cardlet, .roadmap-card { transform: none; }
 }
 
-.support-dialog { width: 100%; max-width: 100%; padding: 0; color: var(--ink); background: transparent; border: 0; }
-.support-dialog::backdrop { background: rgba(15, 22, 27, 0.42); -webkit-backdrop-filter: blur(13px) saturate(120%); backdrop-filter: blur(13px) saturate(120%); }
-.support-dialog__surface { position: relative; width: min(calc(100% - 32px), 510px); margin: auto; padding: 34px; border: 1px solid rgba(255,255,255,0.78); border-radius: 29px; background: rgba(255, 252, 248, 0.82); box-shadow: 0 28px 80px rgba(23, 27, 29, 0.2); }
-.support-dialog__badge { display: grid; width: 47px; height: 47px; margin-bottom: 21px; place-items: center; color: #fff; font-size: 20px; border-radius: 16px; background: var(--accent); box-shadow: 0 10px 22px rgba(228, 101, 85, 0.24); }
-.support-dialog__surface h2 { max-width: 360px; margin: 9px 0 11px; color: var(--ink); font-size: clamp(27px, 5vw, 36px); letter-spacing: -0.065em; line-height: 1.08; }
-.support-dialog__intro { max-width: 410px; margin: 0 0 24px; color: var(--muted); font-size: 13px; line-height: 1.7; }
-.payment-route { display: grid; grid-template-columns: 43px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 14px; border: 1px solid rgba(228, 101, 85, 0.16); border-radius: 19px; background: rgba(228, 101, 85, 0.08); }
-.payment-route__icon { display: grid; width: 43px; height: 43px; place-items: center; color: #fff; font-size: 20px; border-radius: 14px; background: var(--accent); }
-.payment-route strong, .payment-route span { display: block; }
-.payment-route strong { margin-bottom: 4px; color: var(--ink); font-size: 13px; }
-.payment-route span { color: var(--muted); font-size: 10px; }
-.payment-route__button { min-height: 42px; padding: 0 14px; font-size: 12px; white-space: nowrap; }
-.support-dialog__note { margin: 16px 0 0; color: var(--faint); font-size: 10px; line-height: 1.55; }
-
-@media (prefers-color-scheme: dark) {
-  .support-dialog__surface { border-color: rgba(255,255,255,0.15); background: rgba(30, 36, 41, 0.9); }
-  .payment-route { border-color: rgba(255, 117, 105, 0.24); background: rgba(255, 117, 105, 0.1); }
-}
-
-@media (max-width: 560px) {
-  .support-dialog { align-items: end; }
-  .support-dialog__surface { width: 100%; margin: 0; padding: 27px 21px max(24px, env(safe-area-inset-bottom)); border-radius: 28px 28px 0 0; }
-  .payment-route { grid-template-columns: 40px minmax(0, 1fr); }
-  .payment-route__icon { width: 40px; height: 40px; }
-  .payment-route__button { grid-column: 1 / -1; justify-content: center; width: 100%; }
-}
-
 /* 2026 polish: quiet glass, clearer hierarchy, and a more useful mobile layout. */
 :root {
   color-scheme: light;
@@ -823,27 +796,6 @@ html[data-theme="dark"] .support-dialog__surface { box-shadow: var(--shadow); }
     background: rgba(36, 46, 50, 0.92);
     border-color: rgba(255, 255, 255, 0.16);
   }
-}
-
-/* Official Afdian checkout stays inside the support sheet. */
-.support-dialog__surface { width: min(calc(100% - 32px), 690px); }
-.payment-embed { overflow: hidden; border: 1px solid rgba(228, 101, 85, 0.18); border-radius: 19px; background: #fff; }
-.payment-embed__loading { display: grid; min-height: 190px; place-items: center; gap: 10px; padding: 24px; color: var(--muted); font-size: 13px; text-align: center; }
-.payment-embed__spinner { width: 22px; height: 22px; border: 2px solid rgba(228, 101, 85, 0.2); border-top-color: var(--accent); border-radius: 50%; animation: payment-spin 800ms linear infinite; }
-.payment-embed__frame { display: block; width: 100%; min-height: 620px; border: 0; background: #fff; }
-.payment-embed__error { display: grid; gap: 7px; min-height: 150px; place-items: center; padding: 24px; color: var(--muted); font-size: 12px; text-align: center; }
-.payment-embed__error strong { color: var(--ink); font-size: 14px; }
-.payment-embed__fallback { width: 100%; margin-top: 12px; justify-content: center; }
-@keyframes payment-spin { to { transform: rotate(360deg); } }
-
-@media (prefers-color-scheme: dark) {
-  .payment-embed { border-color: rgba(255, 117, 105, 0.24); }
-  .payment-embed__loading, .payment-embed__error { background: #fff; }
-}
-
-@media (max-width: 560px) {
-  .support-dialog__surface { width: 100%; }
-  .payment-embed__frame { min-height: 620px; }
 }
 
 /* Final theme contract: the selected theme must win over the legacy media rules above. */
