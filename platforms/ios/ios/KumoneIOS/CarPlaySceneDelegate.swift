@@ -1,4 +1,5 @@
 import CarPlay
+import KumoneCore
 import UIKit
 
 /// Thin app-target bridge for the optional CarPlay scene. All template and
