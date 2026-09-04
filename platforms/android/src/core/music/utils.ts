@@ -1,11 +1,11 @@
-import { findMusic } from '@/utils/musicSdk'
+import musicSdk, { findMusic } from '@/utils/musicSdk'
 import {
   // getOtherSource as getOtherSourceFromStore,
   // saveOtherSource as saveOtherSourceFromStore,
   getMusicUrl as getStoreMusicUrl,
   getPlayerLyric as getStoreLyric,
 } from '@/utils/data'
-import { langS2T, toNewMusicInfo, toOldMusicInfo } from '@/utils'
+import { isQualityAvailable, langS2T, toNewMusicInfo, toOldMusicInfo } from '@/utils'
 import { assertApiSupport } from '@/utils/tools'
 import settingState from '@/store/setting/state'
 import { requestMsg } from '@/utils/message'
@@ -14,15 +14,80 @@ import { apis } from '@/utils/musicSdk/api-source'
 
 
 const getOtherSourcePromises = new Map()
-export const existTimeExp = /\[\d{1,2}:.*\d{1,4}\]/
+export const existTimeExp = /\[\d{1,4}:\d{1,2}(?:[.:]\d{1,3})?\]/
 const otherSourceCache = new Map<LX.Music.MusicInfo | LX.Download.ListItem, LX.Music.MusicInfoOnline[]>()
+
+const musicTimeExp = existTimeExp
+const wordTimeExp = /<(\d{1,7}),(\d{1,7})>/g
+
+const normalizeMusicText = (value: unknown) => String(value ?? '')
+  .normalize('NFKC')
+  .toLocaleLowerCase()
+  .replace(/[\s\u200b-\u200d\ufeff]/g, '')
+  .replace(/[.,!?，。！？、:：;；'"()`{}（）【】《》「」“”_|/\\<>-]/g, '')
+
+const getSingerNames = (value: unknown) => String(value ?? '')
+  .split(/[、&;；/\\,，|]+/)
+  .map(normalizeMusicText)
+  .filter(Boolean)
+
+const getDurationSeconds = (value: unknown) => {
+  if (typeof value == 'number') return value > 1000 ? value / 1000 : value
+  const parts = String(value ?? '').split(':').map(Number)
+  if (!parts.length || parts.some(Number.isNaN)) return 0
+  return parts.reduce((total, part) => total * 60 + part, 0)
+}
+
+/**
+ * Only allow a fallback record when it is the same recording, rather than
+ * merely a similarly named song returned by another platform.
+ */
+const isSameMusic = (source: { name?: unknown, singer?: unknown, interval?: unknown }, target: { name?: unknown, singer?: unknown, interval?: unknown }) => {
+  const sourceName = normalizeMusicText(source.name)
+  const targetName = normalizeMusicText(target.name)
+  if (!sourceName || !targetName || sourceName != targetName) return false
+
+  const sourceSingers = getSingerNames(source.singer)
+  const targetSingers = getSingerNames(target.singer)
+  if (sourceSingers.length && targetSingers.length && !sourceSingers.some(name => targetSingers.some(targetName => name == targetName || name.includes(targetName) || targetName.includes(name)))) return false
+
+  const sourceDuration = getDurationSeconds(source.interval)
+  const targetDuration = getDurationSeconds(target.interval)
+  return !sourceDuration || !targetDuration || Math.abs(sourceDuration - targetDuration) <= 6
+}
+
+const isValidWordTimedLyric = (lyric: unknown) => {
+  if (typeof lyric != 'string' || !lyric) return false
+  let timedLines = 0
+  for (const line of lyric.split(/\r\n|\r|\n/)) {
+    if (!musicTimeExp.test(line)) continue
+    const words = line.match(wordTimeExp)
+    if (!words?.length) continue
+    timedLines++
+    let previousStart = -1
+    for (const word of words) {
+      const result = /<(\d{1,7}),(\d{1,7})>/.exec(word)
+      if (!result || Number(result[2]) <= 0 || Number(result[1]) < previousStart) return false
+      previousStart = Number(result[1])
+    }
+  }
+  return timedLines > 0
+}
+
+const sanitizeLyricInfo = <T extends LX.Music.LyricInfo>(lyricInfo: T): T => {
+  const result = { ...lyricInfo }
+  if (result.lxlyric && !isValidWordTimedLyric(result.lxlyric)) result.lxlyric = ''
+  return result
+}
+
+const isUsableLyricInfo = (lyricInfo: LX.Music.LyricInfo | null | undefined) => Boolean(lyricInfo && typeof lyricInfo.lyric == 'string' && musicTimeExp.test(lyricInfo.lyric))
 
 export const getOtherSource = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh = false): Promise<LX.Music.MusicInfoOnline[]> => {
   // if (!isRefresh) {
   //   const cachedInfo = await getOtherSourceFromStore(musicInfo.id)
   //   if (cachedInfo.length) return cachedInfo
   // }
-  if (otherSourceCache.has(musicInfo)) return otherSourceCache.get(musicInfo)!
+  if (!isRefresh && otherSourceCache.has(musicInfo)) return otherSourceCache.get(musicInfo)!
   let key: string
   let searchMusicInfo: {
     name: string
@@ -59,7 +124,13 @@ export const getOtherSource = async(musicInfo: LX.Music.MusicInfo | LX.Download.
     }, 12_000)
     findMusic(searchMusicInfo).then((otherSource) => {
       if (otherSourceCache.size > 10) otherSourceCache.clear()
-      const source = otherSource.map(toNewMusicInfo) as LX.Music.MusicInfoOnline[]
+      const source = otherSource
+        .map(toNewMusicInfo)
+        .filter(info => isSameMusic(searchMusicInfo, {
+          name: info.name,
+          singer: info.singer,
+          interval: info.interval,
+        })) as LX.Music.MusicInfoOnline[]
       otherSourceCache.set(musicInfo, source)
       resolve(source)
     }).catch(reject).finally(() => {
@@ -77,6 +148,7 @@ export const getOtherSource = async(musicInfo: LX.Music.MusicInfo | LX.Download.
 
 
 export const buildLyricInfo = async(lyricInfo: MakeOptional<LX.Player.LyricInfo, 'rawlrcInfo'>): Promise<LX.Player.LyricInfo> => {
+  lyricInfo = sanitizeLyricInfo(lyricInfo)
   if (!settingState.setting['player.isS2t']) {
     // @ts-expect-error
     if (lyricInfo.rawlrcInfo) return lyricInfo
@@ -124,8 +196,9 @@ export const buildLyricInfo = async(lyricInfo: MakeOptional<LX.Player.LyricInfo,
 
 export const getCachedLyricInfo = async(musicInfo: LX.Music.MusicInfo): Promise<LX.Player.LyricInfo | null> => {
   let lrcInfo = await getStoreLyric(musicInfo)
-  // lrcInfo = {}
-  if (existTimeExp.test(lrcInfo.lyric) && lrcInfo.tlyric != null) {
+  if (!isUsableLyricInfo(lrcInfo)) return null
+  return sanitizeLyricInfo(lrcInfo)
+  /* if (existTimeExp.test(lrcInfo.lyric) && lrcInfo.tlyric != null) {
     // if (musicInfo.lrc.startsWith('\ufeff[id:$00000000]')) {
     //   let str = musicInfo.lrc.replace('\ufeff[id:$00000000]\n', '')
     //   commit('setLrc', { musicInfo, lyric: str, tlyric: musicInfo.tlrc, lxlyric: musicInfo.tlrc })
@@ -148,7 +221,7 @@ export const getCachedLyricInfo = async(musicInfo: LX.Music.MusicInfo): Promise<
       if (!['wy', 'kg'].includes(musicInfo.source)) return lrcInfo
     } else return lrcInfo
   }
-  return null
+  return null */
 }
 
 export const getOnlineOtherSourceMusicUrlByLocal = async(musicInfo: LX.Music.MusicInfoLocal, isRefresh: boolean): Promise<{
@@ -214,19 +287,35 @@ export const getOnlineOtherSourcePicByLocal = async(musicInfo: LX.Music.MusicInf
 }
 
 export const TRY_QUALITYS_LIST = ['flac24bit', 'flac', '320k'] as const
-type TryQualityType = typeof TRY_QUALITYS_LIST[number]
+const QUALITY_FALLBACKS: Record<LX.Quality, LX.Quality[]> = {
+  flac24bit: ['flac24bit', 'flac', '320k', '192k', '128k'],
+  flac: ['flac', '320k', '192k', '128k'],
+  wav: ['wav', 'flac', '320k', '192k', '128k'],
+  ape: ['ape', 'flac', '320k', '192k', '128k'],
+  '320k': ['320k', '192k', '128k'],
+  '192k': ['192k', '128k'],
+  '128k': ['128k'],
+}
+const resolveReturnedQuality = (musicInfo: LX.Music.MusicInfoOnline, requested: LX.Quality, returned: unknown): LX.Quality => {
+  const returnedQuality = typeof returned == 'string' ? returned as LX.Quality : null
+  const allowedQualitys = QUALITY_FALLBACKS[requested] ?? QUALITY_FALLBACKS['128k']
+  if (returnedQuality && allowedQualitys.includes(returnedQuality) && isQualityAvailable(musicInfo, returnedQuality)) return returnedQuality
+  return requested
+}
 export const getPlayQuality = (highQuality: LX.Quality, musicInfo: LX.Music.MusicInfoOnline): LX.Quality => {
-  let type: LX.Quality = '128k'
-  if (TRY_QUALITYS_LIST.includes(highQuality as TryQualityType)) {
-    let list = global.lx.qualityList[musicInfo.source]
+  const sourceQualitys = global.lx.qualityList[musicInfo.source]
+  const preferredQualitys = QUALITY_FALLBACKS[highQuality] ?? QUALITY_FALLBACKS['128k']
 
-    let t = TRY_QUALITYS_LIST
-      .slice(TRY_QUALITYS_LIST.indexOf(highQuality as TryQualityType))
-      .find(q => musicInfo.meta._qualitys[q] && list?.includes(q))
+  const availableQuality = preferredQualitys.find((quality) => {
+    return isQualityAvailable(musicInfo, quality) && sourceQualitys?.includes(quality)
+  })
+  if (availableQuality) return availableQuality
 
-    if (t) type = t
-  }
-  return type
+  const anyAvailableQuality = Object.values(QUALITY_FALLBACKS.flac24bit).find((quality) => {
+    return isQualityAvailable(musicInfo, quality) && sourceQualitys?.includes(quality)
+  })
+  if (anyAvailableQuality) return anyAvailableQuality
+  return '128k'
 }
 
 export const getOnlineOtherSourceMusicUrl = async({ musicInfos, quality, onToggleSource, isRefresh, retryedSource = [] }: {
@@ -250,8 +339,7 @@ export const getOnlineOtherSourceMusicUrl = async({ musicInfos, quality, onToggl
     if (retryedSource.includes(musicInfo.source)) continue
     retryedSource.push(musicInfo.source)
     if (!assertApiSupport(musicInfo.source)) continue
-    itemQuality = quality ?? getPlayQuality(settingState.setting['player.playQuality'], musicInfo)
-    if (!musicInfo.meta._qualitys[itemQuality]) continue
+    itemQuality = getPlayQuality(quality ?? settingState.setting['player.playQuality'], musicInfo)
 
     console.log('try toggle to: ', musicInfo.source, musicInfo.name, musicInfo.singer, musicInfo.interval)
     onToggleSource(musicInfo)
@@ -271,7 +359,9 @@ export const getOnlineOtherSourceMusicUrl = async({ musicInfos, quality, onToggl
   // retryedSource.includes(musicInfo.source)
   // eslint-disable-next-line @typescript-eslint/promise-function-async
   return reqPromise.then(({ url, type }: { url: string, type: LX.Quality }) => {
-    return { musicInfo, url, quality: type, isFromCache: false }
+    const resolvedQuality = isQualityAvailable(musicInfo, itemQuality) ? itemQuality : '128k'
+    const actualQuality = resolveReturnedQuality(musicInfo, resolvedQuality, type)
+    return { musicInfo, url, quality: actualQuality, isFromCache: false }
     // eslint-disable-next-line @typescript-eslint/promise-function-async
   }).catch((err: any) => {
     if (err.message == requestMsg.tooManyRequests) throw err
@@ -297,7 +387,7 @@ export const handleGetOnlineMusicUrl = async({ musicInfo, quality, onToggleSourc
 }> => {
   if (!await global.lx.apiInitPromise[0]) throw new Error('source init failed')
   // console.log(musicInfo.source)
-  const targetQuality = quality ?? getPlayQuality(settingState.setting['player.playQuality'], musicInfo)
+  const targetQuality = getPlayQuality(quality ?? settingState.setting['player.playQuality'], musicInfo)
 
   let reqPromise
   try {
@@ -306,7 +396,11 @@ export const handleGetOnlineMusicUrl = async({ musicInfo, quality, onToggleSourc
     reqPromise = Promise.reject(err)
   }
   return reqPromise.then(({ url, type }: { url: string, type: LX.Quality }) => {
-    return { musicInfo, url, quality: type, isFromCache: false }
+    // The resolver's response type is advisory. Never expose a quality that
+    // the selected song did not advertise with concrete file metadata.
+    const resolvedQuality = isQualityAvailable(musicInfo, targetQuality) ? targetQuality : '128k'
+    const actualQuality = resolveReturnedQuality(musicInfo, resolvedQuality, type)
+    return { musicInfo, url, quality: actualQuality, isFromCache: false }
   }).catch(async(err: any) => {
     console.log(err)
     if (!allowToggleSource || err.message == requestMsg.tooManyRequests) throw err
@@ -448,8 +542,9 @@ export const getOnlineOtherSourceLyricInfo = async({ musicInfos, onToggleSource,
   }
   // retryedSource.includes(musicInfo.source)
   return reqPromise.then(async(lyricInfo: LX.Music.LyricInfo) => {
-    return existTimeExp.test(lyricInfo.lyric) ? {
-      lyricInfo,
+    const normalizedLyricInfo = sanitizeLyricInfo(lyricInfo)
+    return isUsableLyricInfo(normalizedLyricInfo) ? {
+      lyricInfo: normalizedLyricInfo,
       musicInfo,
       isFromCache: false,
     } : Promise.reject(new Error('failed'))
@@ -463,6 +558,26 @@ export const getOnlineOtherSourceLyricInfo = async({ musicInfos, onToggleSource,
 /**
  * 获取在线歌词信息
  */
+/**
+ * NetEase has the most consistent line and word timing in the bundled
+ * catalog adapters. Use it only after an exact cross-platform match; the
+ * selected platform remains the playback source.
+ */
+const getNetEaseLyricInfo = async(musicInfo: LX.Music.MusicInfoOnline, isRefresh: boolean): Promise<LX.Music.LyricInfo | null> => {
+  if (musicInfo.source == 'wy' || typeof musicSdk.wy?.getLyric != 'function') return null
+  try {
+    const candidate = (await getOtherSource(musicInfo, isRefresh)).find(info => info.source == 'wy')
+    if (!candidate) return null
+    const request = musicSdk.wy.getLyric(toOldMusicInfo(candidate))
+    const lyricInfo = await request.promise as LX.Music.LyricInfo
+    const normalizedLyricInfo = sanitizeLyricInfo(lyricInfo)
+    return isUsableLyricInfo(normalizedLyricInfo) ? normalizedLyricInfo : null
+  } catch (error) {
+    console.log('netease lyric fallback failed', error)
+    return null
+  }
+}
+
 export const handleGetOnlineLyricInfo = async({ musicInfo, onToggleSource, isRefresh, allowToggleSource }: {
   musicInfo: LX.Music.MusicInfoOnline
   onToggleSource: (musicInfo?: LX.Music.MusicInfoOnline) => void
@@ -473,7 +588,16 @@ export const handleGetOnlineLyricInfo = async({ musicInfo, onToggleSource, isRef
   lyricInfo: LX.Music.LyricInfo | LX.Player.LyricInfo
   isFromCache: boolean
 }> => {
-  // console.log(musicInfo.source)
+  if (musicInfo.source != 'wy') {
+    const netEaseLyricInfo = await getNetEaseLyricInfo(musicInfo, isRefresh)
+    if (netEaseLyricInfo) return { musicInfo, lyricInfo: netEaseLyricInfo, isFromCache: false }
+  }
+
+  if (!isRefresh) {
+    const lyricInfo = await getCachedLyricInfo(musicInfo)
+    if (lyricInfo) return { musicInfo, lyricInfo, isFromCache: true }
+  }
+
   let reqPromise
   try {
     // TODO: remove any type
@@ -482,9 +606,10 @@ export const handleGetOnlineLyricInfo = async({ musicInfo, onToggleSource, isRef
     reqPromise = Promise.reject(err)
   }
   return reqPromise.then(async(lyricInfo: LX.Music.LyricInfo) => {
-    return existTimeExp.test(lyricInfo.lyric) ? {
+    const normalizedLyricInfo = sanitizeLyricInfo(lyricInfo)
+    return isUsableLyricInfo(normalizedLyricInfo) ? {
       musicInfo,
-      lyricInfo,
+      lyricInfo: normalizedLyricInfo,
       isFromCache: false,
     } : Promise.reject(new Error('failed'))
   }).catch(async(err: any) => {

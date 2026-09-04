@@ -27,7 +27,7 @@ Moumusic is an independent cross-platform music client. It uses Kumone's native 
 - Source availability checks, enable/switch/delete management
 - Kuwo, Kugou, QQ Music, NetEase, Migu and aggregate search
 - Source-resolved playback with lyrics, artwork and quality selection
-- Native iOS player, queue, synced lyrics, lock-screen controls and Control Center playback controls
+- Native iOS player, queue, synced lyrics, lock-screen controls and Control Center playback controls; optional CarPlay after Apple approval
 - WidgetKit current-lyrics widget for Home Screen and Lock Screen
 - Public NetEase catalog: recommendations, discovery, playlists, comments and playlist import
 - Native LX Music Mobile Android source management, search, lyrics, downloads and playback
@@ -61,6 +61,25 @@ Requires macOS and Xcode. XcodeGen is used to generate the app and WidgetKit ext
 cd platforms/ios/ios
 xcodegen generate
 xcodebuild -project KumoneIOS.xcodeproj -scheme KumoneIOS -configuration Release -sdk iphoneos build
+```
+
+#### CarPlay (optional)
+
+The iOS target now includes Kumone 0.3.16's CarPlay playback queue, shuffle/repeat controls, and album/artist navigation. Because `com.apple.developer.carplay-audio` is a restricted Apple capability, the default build does not declare CarPlay and ordinary unsigned IPAs are unaffected. Only use this mode with an App ID and provisioning profile that have Apple CarPlay Audio approval:
+
+```sh
+cd platforms/ios
+make configure-carplay
+cd ios
+xcodegen generate
+xcodebuild -project KumoneIOS.xcodeproj -scheme KumoneIOS -configuration Release -sdk iphoneos build
+```
+
+Return to the normal build with:
+
+```sh
+cd platforms/ios
+make configure
 ```
 
 ## Architecture

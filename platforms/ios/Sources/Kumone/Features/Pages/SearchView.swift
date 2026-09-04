@@ -3,24 +3,34 @@ import SwiftUI
 @MainActor
 final class SearchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
-        case all
-        case songs
-        case playlists
+        case all = "综合"
+        case songs = "单曲"
+        case artists = "歌手"
+        case albums = "专辑"
+        case playlists = "歌单"
 
         var id: String { rawValue }
+    }
 
-        var displayName: String {
-            switch self {
-            case .all: return "综合"
-            case .songs: return "歌曲"
-            case .playlists: return "歌单"
-            }
-        }
+    struct ArtistResult: Hashable, Identifiable {
+        let id: String
+        let name: String
+        let neteaseID: Int?
+    }
+
+    struct AlbumResult: Hashable, Identifiable {
+        let id: String
+        let name: String
+        let artistName: String
+        let coverURL: String?
+        let neteaseID: Int?
     }
 
     var query: String
     @Published var tab: Tab = .all
     @Published var songs: [Track] = []
+    @Published var artists: [ArtistResult] = []
+    @Published var albums: [AlbumResult] = []
     @Published var playlists: [LXPlaylistSummary] = []
     @Published var hotKeywords: [String] = []
     @Published var isLoading = false
@@ -37,6 +47,8 @@ final class SearchViewModel: ObservableObject {
         query = newQuery
         loadedTabs.removeAll()
         songs = []
+        artists = []
+        albums = []
         playlists = []
     }
 
@@ -45,6 +57,8 @@ final class SearchViewModel: ObservableObject {
         platform = newPlatform
         loadedTabs.removeAll()
         songs = []
+        artists = []
+        albums = []
         playlists = []
         hotKeywords = []
         Task { await loadHotKeywords() }
@@ -53,6 +67,7 @@ final class SearchViewModel: ObservableObject {
     func load(tab: Tab, force: Bool = false) async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, force || !loadedTabs.contains(tab) else { return }
+
         isLoading = true
         defer { isLoading = false }
 
@@ -63,6 +78,7 @@ final class SearchViewModel: ObservableObject {
             async let playlistsTask = try? LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 12)
             if let result = await songsTask {
                 songs = result
+                rebuildMetadata(from: result)
                 didLoad = true
             }
             if let result = await playlistsTask {
@@ -72,14 +88,24 @@ final class SearchViewModel: ObservableObject {
         case .songs:
             if let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100) {
                 songs = result
+                rebuildMetadata(from: result)
                 didLoad = true
             }
+        case .artists:
+            songs = (try? await LXCatalogService.search(trimmed, platform: platform, limit: 100)) ?? songs
+            rebuildMetadata(from: songs)
+            didLoad = true
+        case .albums:
+            songs = (try? await LXCatalogService.search(trimmed, platform: platform, limit: 100)) ?? songs
+            rebuildMetadata(from: songs)
+            didLoad = true
         case .playlists:
             if let result = try? await LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 100) {
                 playlists = result
                 didLoad = true
             }
         }
+
         if didLoad { loadedTabs.insert(tab) }
     }
 
@@ -89,16 +115,49 @@ final class SearchViewModel: ObservableObject {
         defer { isLoadingHot = false }
         hotKeywords = (try? await LXCatalogService.hotKeywords(platform: platform)) ?? []
     }
-}
-struct SearchView: View {
-    let initialQuery: String
 
+    private func rebuildMetadata(from tracks: [Track]) {
+        var artistResults: [ArtistResult] = []
+        var albumResults: [AlbumResult] = []
+        var seenArtists = Set<String>()
+        var seenAlbums = Set<String>()
+
+        for track in tracks {
+            for artist in track.artists {
+                let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { continue }
+                let key = name.localizedLowercase
+                guard seenArtists.insert(key).inserted else { continue }
+                artistResults.append(ArtistResult(
+                    id: key,
+                    name: name,
+                    neteaseID: artist.id > 0 && platform == .wy ? artist.id : nil
+                ))
+            }
+
+            let albumName = track.album.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !albumName.isEmpty else { continue }
+            let albumKey = "\(albumName.localizedLowercase)|\(track.artistNames.localizedLowercase)"
+            guard seenAlbums.insert(albumKey).inserted else { continue }
+            albumResults.append(AlbumResult(
+                id: albumKey,
+                name: albumName,
+                artistName: track.artistNames,
+                coverURL: track.album.picUrl,
+                neteaseID: track.album.id > 0 && platform == .wy ? track.album.id : nil
+            ))
+        }
+
+        artists = artistResults
+        albums = albumResults
+    }
+}
+
+struct SearchView: View {
     @StateObject private var model: SearchViewModel
     @State private var searchText: String = ""
-    @FocusState private var searchFocused: Bool
 
     init(query: String) {
-        self.initialQuery = query
         _model = StateObject(wrappedValue: SearchViewModel(query: query))
         _searchText = State(initialValue: query)
     }
@@ -106,8 +165,6 @@ struct SearchView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                searchBar
-
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     platformPicker
                     tabPicker
@@ -124,71 +181,53 @@ struct SearchView: View {
                 }
                 PlayerClearanceSpacer()
             }
+            .padding(.top, 8)
         }
-        .navigationTitle("搜索")
+        // On iOS 26 this searchable modifier is rendered by the system search
+        // tab as the bottom Liquid Glass capsule shown in Kumone. Older iOS
+        // versions get the normal native navigation search presentation.
+        .searchable(text: $searchText, placement: .automatic,
+                    prompt: "搜索歌曲、歌手、专辑、歌单")
+        .searchSuggestions {
+            if !model.hotKeywords.isEmpty {
+                ForEach(Array(model.hotKeywords.prefix(8)), id: \.self) { keyword in
+                    Button {
+                        searchText = keyword
+                        performSearch(keyword)
+                    } label: {
+                        Label(keyword, systemImage: "magnifyingglass")
+                    }
+                }
+            }
+        }
+        .onSubmit(of: .search) {
+            submitSearchAfterInputMethodCommits()
+        }
+        .onChange(of: searchText) { newValue in
+            model.setQuery(newValue)
+        }
+        .navigationTitle(searchText.isEmpty ? "搜索" : searchText)
         .task(id: "\(model.tab.rawValue)-\(model.platform.rawValue)") {
             await model.load(tab: model.tab)
         }
         .task {
-            if !initialQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                model.setQuery(initialQuery)
-                await model.load(tab: model.tab, force: true)
-            }
             await model.loadHotKeywords()
         }
-    }
-
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("搜索歌曲、歌手或歌单", text: $searchText)
-                .textFieldStyle(.plain)
-                .submitLabel(.search)
-                .focused($searchFocused)
-                .onSubmit { submitSearchAfterInputMethodCommits() }
-                .accessibilityLabel("搜索关键词")
-
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                    model.setQuery("")
-                    searchFocused = true
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
-                .accessibilityLabel("清除搜索关键词")
-            }
-
-            Button("搜索") { performSearch() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityLabel("提交搜索")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .padding(.horizontal, Theme.Layout.contentInset)
-        .padding(.top, 12)
     }
 
     private func performSearch(_ submittedText: String? = nil) {
         let query = (submittedText ?? searchText).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
-        searchFocused = false
+        searchText = query
         model.setQuery(query)
         Task { await model.load(tab: model.tab, force: true) }
     }
 
-    /// IMEs such as WeChat Input can fire `.onSubmit` while marked text has
-    /// not yet been committed to the SwiftUI binding. Waiting one main-loop
-    /// turn lets the composed Chinese text arrive before reading it.
+    /// Some third-party IMEs submit before SwiftUI has copied marked text into
+    /// the binding. Waiting one main-loop turn lets Chinese composition commit.
     private func submitSearchAfterInputMethodCommits() {
-        DispatchQueue.main.async {
+        Task { @MainActor in
+            await Task.yield()
             performSearch()
         }
     }
@@ -196,31 +235,50 @@ struct SearchView: View {
     private var tabPicker: some View {
         Picker("搜索类型", selection: $model.tab) {
             ForEach(SearchViewModel.Tab.allCases) { tab in
-                Text(tab.displayName).tag(tab)
+                Text(tab.rawValue).tag(tab)
             }
         }
         .pickerStyle(.segmented)
+        .labelsHidden()
         .padding(.horizontal, Theme.Layout.contentInset)
     }
 
     private var platformPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("搜索平台")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("搜索平台")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(model.platform.displayName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+            }
+            .padding(.horizontal, Theme.Layout.contentInset)
+
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(LXCatalogPlatform.allCases) { platform in
                         Button {
                             model.setPlatform(platform)
                         } label: {
-                            Text(platform.displayName)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(model.platform == platform ? .white : .primary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(model.platform == platform ? Color.accentColor : Color.secondary.opacity(0.12))
-                                .clipShape(Capsule())
+                            HStack(spacing: 5) {
+                                if model.platform == platform {
+                                    Image(systemName: "checkmark")
+                                        .font(.caption2.weight(.bold))
+                                }
+                                Text(platform.displayName)
+                            }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(model.platform == platform ? .white : .primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(
+                                model.platform == platform
+                                    ? Theme.accent
+                                    : Color.secondary.opacity(0.12),
+                                in: Capsule()
+                            )
                         }
                         .buttonStyle(.plain)
                         .frame(minHeight: 44)
@@ -229,7 +287,6 @@ struct SearchView: View {
                 .padding(.horizontal, Theme.Layout.contentInset)
             }
         }
-        .padding(.top, 12)
     }
 
     private var emptySearchPrompt: some View {
@@ -238,10 +295,10 @@ struct SearchView: View {
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(.tertiary)
                 .padding(.top, 44)
-            Text("搜索歌曲和歌单")
+            Text("搜索歌曲、歌手、专辑或歌单")
                 .font(.headline)
                 .foregroundStyle(.secondary)
-            Text("聚合搜索只在搜索页使用；首页推荐按你设置的平台单独加载。")
+            Text("点击底部搜索框开始，聚合搜索也可以切换到单个平台。")
                 .font(.subheadline)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
@@ -256,10 +313,15 @@ struct SearchView: View {
                 .font(.headline)
                 .padding(.horizontal, Theme.Layout.contentInset)
             if model.isLoadingHot && model.hotKeywords.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, minHeight: 80)
+                SearchSkeletonRow()
+                    .padding(.horizontal, Theme.Layout.contentInset)
+            } else if model.hotKeywords.isEmpty {
+                Text("暂无热门关键词")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, Theme.Layout.contentInset)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 10)], spacing: 10) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
                     ForEach(Array(model.hotKeywords.prefix(20)), id: \.self) { keyword in
                         Button(keyword) {
                             searchText = keyword
@@ -276,8 +338,10 @@ struct SearchView: View {
 
     private var currentEmpty: Bool {
         switch model.tab {
-        case .all: return model.songs.isEmpty && model.playlists.isEmpty
+        case .all: return model.songs.isEmpty && model.artists.isEmpty && model.albums.isEmpty && model.playlists.isEmpty
         case .songs: return model.songs.isEmpty
+        case .artists: return model.artists.isEmpty
+        case .albums: return model.albums.isEmpty
         case .playlists: return model.playlists.isEmpty
         }
     }
@@ -288,10 +352,20 @@ struct SearchView: View {
         case .all:
             if !model.songs.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    SectionHeader(title: "歌曲") { model.tab = .songs }
+                    SectionHeader(title: "单曲") { model.tab = .songs }
                         .padding(.horizontal, Theme.Layout.contentInset)
                     TrackListView(tracks: Array(model.songs.prefix(6)))
                         .padding(.horizontal, Theme.Layout.contentInset - 10)
+                }
+            }
+            if !model.artists.isEmpty {
+                Shelf(title: "歌手", seeAll: { model.tab = .artists }) {
+                    artistCards(model.artists.prefix(8))
+                }
+            }
+            if !model.albums.isEmpty {
+                Shelf(title: "专辑", seeAll: { model.tab = .albums }) {
+                    albumCards(model.albums.prefix(8))
                 }
             }
             if !model.playlists.isEmpty {
@@ -306,12 +380,86 @@ struct SearchView: View {
         case .songs:
             TrackListView(tracks: model.songs)
                 .padding(.horizontal, Theme.Layout.contentInset - 10)
+        case .artists:
+            CardGrid(minWidth: 140) {
+                artistCards(model.artists)
+            }
+            .padding(.horizontal, Theme.Layout.contentInset)
+        case .albums:
+            CardGrid {
+                albumCards(model.albums)
+            }
+            .padding(.horizontal, Theme.Layout.contentInset)
         case .playlists:
             CardGrid {
                 playlistCards(model.playlists)
             }
             .padding(.horizontal, Theme.Layout.contentInset)
         }
+    }
+
+    private func artistCards(_ items: some Collection<SearchViewModel.ArtistResult>) -> some View {
+        ForEach(Array(items)) { artist in
+            if let neteaseID = artist.neteaseID {
+                NavigationLink(value: Destination.artist(neteaseID)) {
+                    artistCard(artist)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    model.tab = .songs
+                    searchText = artist.name
+                    performSearch(artist.name)
+                } label: {
+                    artistCard(artist)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func artistCard(_ artist: SearchViewModel.ArtistResult) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: "person.crop.circle")
+                .font(.system(size: 52, weight: .light))
+                .foregroundStyle(.secondary)
+                .frame(width: 128, height: 128)
+                .background(.quaternary.opacity(0.35), in: Circle())
+            Text(artist.name)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+        }
+        .frame(width: 140)
+        .contentShape(Rectangle())
+    }
+
+    private func albumCards(_ items: some Collection<SearchViewModel.AlbumResult>) -> some View {
+        ForEach(Array(items)) { album in
+            if let neteaseID = album.neteaseID {
+                NavigationLink(value: Destination.album(neteaseID)) {
+                    albumCard(album)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    model.tab = .songs
+                    searchText = album.name
+                    performSearch(album.name)
+                } label: {
+                    albumCard(album)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func albumCard(_ album: SearchViewModel.AlbumResult) -> some View {
+        CoverCardBody(
+            coverURL: album.coverURL?.resizedImageURL(384),
+            title: album.name,
+            subtitle: album.artistName
+        )
     }
 
     private func playlistCards(_ items: some Collection<LXPlaylistSummary>) -> some View {
@@ -326,5 +474,21 @@ struct SearchView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+}
+
+private struct SearchSkeletonRow: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(.quaternary)
+                .frame(width: 44, height: 44)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(.quaternary)
+                .frame(height: 14)
+            Spacer()
+        }
+        .redacted(reason: .placeholder)
+        .frame(maxWidth: .infinity, minHeight: 50)
     }
 }

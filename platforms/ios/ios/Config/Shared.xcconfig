@@ -14,8 +14,8 @@ INFOPLIST_KEY_CFBundleDisplayName = Moumusic
 INFOPLIST_KEY_CFBundleDevelopmentRegion = zh-Hans
 // Keep local/Xcode builds on the current public release. CI overrides this
 // with the version from the v* tag and verifies the final app bundle.
-MARKETING_VERSION = 1.0.8
-CURRENT_PROJECT_VERSION = 108
+MARKETING_VERSION = 1.0.10
+CURRENT_PROJECT_VERSION = 110
 DEVELOPMENT_TEAM = 
 CODE_SIGN_STYLE = Automatic
 
@@ -31,17 +31,27 @@ TARGETED_DEVICE_FAMILY = 1,2
 // Info PLIST
 // ==========================================
 GENERATE_INFOPLIST_FILE = YES
-// Without a launch-screen declaration iOS letterboxes the app
-// in legacy compatibility mode (black bars top and bottom).
-INFOPLIST_KEY_UILaunchScreen_Generation = YES
-// UIBackgroundModes has no INFOPLIST_KEY_ build setting — it must come
-// from a partial Info.plist merged with the generated one.
-INFOPLIST_FILE = Config/Info.plist
+// UILaunchScreen is declared explicitly in Config/Info.plist. Do not use
+// INFOPLIST_KEY_UILaunchScreen_Generation: Xcode can emit a nested value that
+// iOS ignores, leaving large devices in letterboxed compatibility mode.
+// UIBackgroundModes has no INFOPLIST_KEY_ build setting — it must come from
+// the partial Info.plist merged with the generated one.
+// The default files are kept in source control. `make configure-carplay`
+// writes an untracked overlay that switches these two variables to generated
+// CarPlay copies; the ordinary build stays free of restricted entitlements.
+KUMONE_INFOPLIST_FILE = Config/Info.plist
 INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
 INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationLandscapeRight UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
 
 // ==========================================
 // Entitlements
 // ==========================================
-// AI agents can modify Config/KumoneIOS.entitlements to add capabilities
-CODE_SIGN_ENTITLEMENTS = Config/KumoneIOS.entitlements
+KUMONE_ENTITLEMENTS_FILE = Config/KumoneIOS.entitlements
+
+// CarPlay.local.xcconfig is deliberately untracked and optional. CarPlay
+// Audio is a restricted Apple entitlement, so it must never be forced into
+// the default CI or unsigned build.
+#include? "CarPlay.local.xcconfig"
+
+INFOPLIST_FILE = $(KUMONE_INFOPLIST_FILE)
+CODE_SIGN_ENTITLEMENTS = $(KUMONE_ENTITLEMENTS_FILE)

@@ -30,7 +30,7 @@ Moumusic 是一个独立的跨平台音乐客户端：iOS 以 Kumone 的原生 S
 - 音源可用性检测、启用、切换和删除
 - 酷我、酷狗、QQ 音乐、网易云、咪咕及 LX 聚合搜索
 - 通过用户音源解析播放、歌词、封面和音质选择
-- iOS 原生播放页、播放队列、同步歌词、锁屏控制和控制中心播放控制
+- iOS 原生播放页、播放队列、同步歌词、锁屏控制和控制中心播放控制；CarPlay（需 Apple 授权后可选启用）
 - WidgetKit 当前歌词小组件，支持主屏幕和锁屏
 - 网易云公开目录：推荐、发现、歌单、评论和歌单导入
 - Android LX Music Mobile 原生音源管理、搜索、歌词、下载和播放
@@ -64,6 +64,25 @@ npm run pack:android
 cd platforms/ios/ios
 xcodegen generate
 xcodebuild -project KumoneIOS.xcodeproj -scheme KumoneIOS -configuration Release -sdk iphoneos build
+```
+
+#### CarPlay（可选）
+
+iOS 工程已同步 Kumone 0.3.16 的 CarPlay 播放队列、随机/循环、专辑与歌手跳转。由于 `com.apple.developer.carplay-audio` 是 Apple 受限能力，默认构建不会声明 CarPlay，也不会影响普通未签名 IPA。只有已经获得 Apple CarPlay Audio 授权、并使用匹配 App ID 与描述文件时，才在 `platforms/ios` 执行：
+
+```sh
+cd platforms/ios
+make configure-carplay
+cd ios
+xcodegen generate
+xcodebuild -project KumoneIOS.xcodeproj -scheme KumoneIOS -configuration Release -sdk iphoneos build
+```
+
+恢复普通构建：
+
+```sh
+cd platforms/ios
+make configure
 ```
 
 ## 项目结构

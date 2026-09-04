@@ -232,7 +232,23 @@ struct TrackRow: View {
         if isCurrent, let served = player.servedQuality {
             return AudioQuality(lxType: served)?.displayName ?? served.uppercased()
         }
-        return "目标 \(SettingsManager.shared.audioQuality.displayName)"
+        // A global playback preference is only a request. It must not be
+        // shown as this song's actual quality before the LX source resolves
+        // the URL. Catalogue metadata can provide a conservative hint; if it
+        // cannot, wait until playback reports the served quality.
+        for lxType in ["flac24bit", "flac", "320k", "128k"]
+            where hasQualitySize(lxType) {
+            return AudioQuality(lxType: lxType)?.displayName ?? lxType
+        }
+        return "待检测"
+    }
+
+    private func hasQualitySize(_ lxType: String) -> Bool {
+        guard let raw = track.sourceMetadata["lx.quality.\(lxType).size"] else { return false }
+        let numeric = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix { $0.isNumber || $0 == "." }
+        guard let value = Double(String(numeric)) else { return false }
+        return value > 0
     }
 
     @ViewBuilder

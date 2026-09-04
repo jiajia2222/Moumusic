@@ -371,6 +371,8 @@ function safeJson(value) {
   return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026')
 }
 
+const demoHostname = 'demomusic.nadev.xyz'
+
 async function renderPage(request, env, filename) {
   const assetUrl = new URL(request.url)
   assetUrl.pathname = `/${filename}`
@@ -437,6 +439,9 @@ async function handleRequest(request, env, ctx) {
     return response
   }
 
+  if (url.hostname.toLowerCase() === demoHostname && (pathname === '/' || pathname === '/demo')) {
+    return renderPage(request, env, 'demo.html')
+  }
   if (pathname === '/' || pathname === '/aifadian') return renderPage(request, env, 'index.html')
   if (pathname === '/install') return renderPage(request, env, 'install.html')
   if (pathname === '/download/ios') return redirectToLatestRelease(request, ctx, 'ios')

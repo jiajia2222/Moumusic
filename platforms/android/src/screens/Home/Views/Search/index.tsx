@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { type LayoutChangeEvent, View } from 'react-native'
 
 // import music from '@/utils/musicSdk'
@@ -14,6 +14,7 @@ import { createStyle } from '@/utils/tools'
 import TipList, { type TipListType } from './TipList'
 import List, { type ListType } from './List'
 import { addHistoryWord } from '@/core/search/search'
+import SearchStatusOverlay, { type SearchFinishedStatus, type SearchStatus } from './SearchStatusOverlay'
 
 
 interface SearchInfo {
@@ -29,6 +30,7 @@ export default () => {
   const layoutHeightRef = useRef<number>(0)
   const searchInfo = useRef<SearchInfo>({ temp_source: 'kw', source: 'kw', searchType: 'music' })
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [searchOverlay, setSearchOverlay] = useState<{ status: SearchStatus, query: string } | null>(null)
 
   useEffect(() => {
     void getSearchSetting().then(info => {
@@ -89,11 +91,22 @@ export default () => {
   }
   const handleSearch: HeaderBarProps['onSearch'] = (text) => {
     handleHideTipList()
-    searchTipListRef.current?.search(text, layoutHeightRef.current)
-    headerBarRef.current?.setText(text)
+    const query = text.trim()
+    headerBarRef.current?.setText(query)
     headerBarRef.current?.blur()
-    void addHistoryWord(text)
-    listRef.current?.loadList(text, searchInfo.current.source, searchInfo.current.searchType)
+    void addHistoryWord(query)
+    if (!query) {
+      setSearchOverlay(null)
+      listRef.current?.loadList('', searchInfo.current.source, searchInfo.current.searchType)
+      return
+    }
+    setSearchOverlay({ status: 'loading', query })
+    listRef.current?.loadList(query, searchInfo.current.source, searchInfo.current.searchType)
+  }
+  const handleSearchFinished = (status: SearchFinishedStatus) => {
+    setSearchOverlay(current => current
+      ? status == 'error' ? { ...current, status } : null
+      : null)
   }
   const handleShowTipList: HeaderBarProps['onShowTipList'] = () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
@@ -114,8 +127,16 @@ export default () => {
       />
       <View style={styles.content} onLayout={handleLayout}>
         <TipList ref={searchTipListRef} onSearch={handleSearch} />
-        <List ref={listRef} onSearch={handleSearch} />
+        <List ref={listRef} onSearch={handleSearch} onSearchFinished={handleSearchFinished} />
       </View>
+      {searchOverlay
+        ? <SearchStatusOverlay
+            status={searchOverlay.status}
+            query={searchOverlay.query}
+            onRetry={() => { handleSearch(searchOverlay.query) }}
+          />
+        : null
+      }
     </View>
   )
 }

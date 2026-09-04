@@ -5,6 +5,72 @@ export { tranditionalize as langS2T } from '@/utils/simplify-chinese-main'
 
 export * from './common'
 
+const qualityAliases: Record<string, LX.Quality> = {
+  flac32bit: 'flac24bit',
+}
+
+const supportedQualities = new Set<LX.Quality>(['128k', '192k', '320k', 'flac', 'flac24bit', 'ape', 'wav'])
+
+/**
+ * A quality flag is useful only when the source supplied a real, positive
+ * file size. Some platform endpoints omit fields or return "0" as a string;
+ * checking with `!== 0` turns those missing values into false Hi-Res badges.
+ */
+export const hasQualityFileSize = (value: unknown): boolean => {
+  if (typeof value == 'number') return Number.isFinite(value) && value > 0
+  if (typeof value != 'string') return false
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) return false
+  const number = Number.parseFloat(normalized)
+  return Number.isFinite(number) && number > 0
+}
+
+const normalizeQualityType = (value: unknown): LX.Quality | null => {
+  const type = typeof value == 'string' ? (qualityAliases[value] ?? value) : ''
+  return supportedQualities.has(type as LX.Quality) ? type as LX.Quality : null
+}
+
+/**
+ * Keep only quality entries backed by the song's own metadata. This is
+ * intentionally stricter than a source-level capability list: a source may
+ * support FLAC in general while this particular song only has 320k.
+ */
+export const normalizeMusicQuality = (types: unknown, qualityMap: unknown): {
+  types: LX.Music.MusicQualityType[]
+  qualityMap: LX.Music._MusicQualityType
+} => {
+  const rawTypes = Array.isArray(types) ? types : []
+  const rawMap = qualityMap && typeof qualityMap == 'object' ? qualityMap as Record<string, any> : {}
+  const candidates = new Map<LX.Quality, any>()
+
+  rawTypes.forEach((entry: any) => {
+    const type = normalizeQualityType(entry?.type)
+    if (!type) return
+    candidates.set(type, { ...(candidates.get(type) || {}), ...(entry || {}), type })
+  })
+  Object.entries(rawMap).forEach(([rawType, entry]) => {
+    const type = normalizeQualityType(rawType)
+    if (!type) return
+    candidates.set(type, { ...(candidates.get(type) || {}), ...(entry || {}), type })
+  })
+
+  const normalizedTypes: LX.Music.MusicQualityType[] = []
+  const normalizedMap: LX.Music._MusicQualityType = {}
+  for (const [type, entry] of candidates) {
+    const size = entry?.size
+    if (!hasQualityFileSize(size)) continue
+    const normalizedEntry: LX.Music.MusicQualityType = { ...entry, size, type }
+    normalizedTypes.push(normalizedEntry)
+    normalizedMap[type] = { ...entry, size }
+  }
+
+  return { types: normalizedTypes, qualityMap: normalizedMap }
+}
+
+export const isQualityAvailable = (musicInfo: LX.Music.MusicInfoOnline, quality: LX.Quality): boolean => {
+  return hasQualityFileSize(musicInfo.meta._qualitys?.[quality]?.size)
+}
+
 // https://stackoverflow.com/a/53387532
 export function compareVer(currentVer: string, targetVer: string): -1 | 0 | 1 {
   // treat non-numerical characters as lower version
@@ -44,18 +110,10 @@ export const toNewMusicInfo = (oldMusicInfo: any): LX.Music.MusicInfo => {
     meta.filePath = oldMusicInfo.filePath ?? oldMusicInfo.songmid ?? ''
     meta.ext = oldMusicInfo.ext ?? /\.(\w+)$/.exec(meta.filePath as string)?.[1] ?? ''
   } else {
-    meta.qualitys = oldMusicInfo.types
-    meta._qualitys = oldMusicInfo._types
+    const qualityInfo = normalizeMusicQuality(oldMusicInfo.types, oldMusicInfo._types)
+    meta.qualitys = qualityInfo.types
+    meta._qualitys = qualityInfo.qualityMap
     meta.albumId = oldMusicInfo.albumId
-    if (meta._qualitys.flac32bit && !meta._qualitys.flac24bit) {
-      meta._qualitys.flac24bit = meta._qualitys.flac32bit
-      delete meta._qualitys.flac32bit
-
-      meta.qualitys = (meta.qualitys as any[]).map(quality => {
-        if (quality.type == 'flac32bit') quality.type = 'flac24bit'
-        return quality
-      })
-    }
 
     switch (oldMusicInfo.source) {
       case 'kg':
@@ -98,8 +156,9 @@ export const toOldMusicInfo = (minfo: LX.Music.MusicInfo): any => {
     oInfo._types = {}
   } else {
     oInfo.albumId = minfo.meta.albumId
-    oInfo.types = minfo.meta.qualitys
-    oInfo._types = minfo.meta._qualitys
+    const qualityInfo = normalizeMusicQuality(minfo.meta.qualitys, minfo.meta._qualitys)
+    oInfo.types = qualityInfo.types
+    oInfo._types = qualityInfo.qualityMap
 
     switch (minfo.source) {
       case 'kg':
@@ -129,19 +188,9 @@ export const toOldMusicInfo = (minfo: LX.Music.MusicInfo): any => {
 export const fixNewMusicInfoQuality = (musicInfo: LX.Music.MusicInfo) => {
   if (musicInfo.source == 'local') return musicInfo
 
-  // @ts-expect-error
-  if (musicInfo.meta._qualitys.flac32bit && !musicInfo.meta._qualitys.flac24bit) {
-    // @ts-expect-error
-    musicInfo.meta._qualitys.flac24bit = musicInfo.meta._qualitys.flac32bit
-    // @ts-expect-error
-    delete musicInfo.meta._qualitys.flac32bit
-
-    musicInfo.meta.qualitys = musicInfo.meta.qualitys.map(quality => {
-      // @ts-expect-error
-      if (quality.type == 'flac32bit') quality.type = 'flac24bit'
-      return quality
-    })
-  }
+  const qualityInfo = normalizeMusicQuality(musicInfo.meta.qualitys, musicInfo.meta._qualitys)
+  musicInfo.meta.qualitys = qualityInfo.types
+  musicInfo.meta._qualitys = qualityInfo.qualityMap
 
   return musicInfo
 }

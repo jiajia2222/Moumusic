@@ -144,6 +144,7 @@ enum LXCatalogService {
                 "songmid": String(id),
                 "albumId": text(item["ALBUMID"]) ?? "",
             ]
+            addQualityMetadata(&metadata, from: item, source: .kw)
             if let image { metadata["coverURL"] = image }
             return Track(id: id,
                          name: text(item["SONGNAME"]) ?? "",
@@ -181,6 +182,7 @@ enum LXCatalogService {
             let image = kugouImageURL(item)
             var metadata = ["songmid": String(id), "hash": hash,
                             "albumId": text(item["AlbumID"]) ?? ""]
+            addQualityMetadata(&metadata, from: item, source: .kg)
             if let image { metadata["coverURL"] = image }
             output.append(Track(id: id,
                                 name: text(item["SongName"]) ?? "",
@@ -221,14 +223,16 @@ enum LXCatalogService {
                   let rawID = text(item["songId"]), let id = Int(rawID), id > 0 else { return nil }
             let image = text(item["img3"]) ?? text(item["img2"]) ?? text(item["img1"])
             let imageURL = miguImageURL(image)
+            var metadata = ["songmid": rawID,
+                            "copyrightId": text(item["copyrightId"]) ?? ""]
+            addQualityMetadata(&metadata, from: item, source: .mg)
             return Track(id: id, name: text(item["name"]) ?? "",
                          artists: artists(from: text(item["singerList"])),
                          album: AlbumRef(id: int(item["albumId"]) ?? 0,
                                         name: text(item["album"]) ?? "", picUrl: imageURL),
                          durationMS: seconds(item["duration"]) * 1000,
                          source: "mg",
-                         sourceMetadata: ["songmid": rawID,
-                                          "copyrightId": text(item["copyrightId"]) ?? ""])
+                         sourceMetadata: metadata)
         }
     }
 
@@ -275,16 +279,18 @@ enum LXCatalogService {
             let albumMid = text(album?["mid"]) ?? ""
             let mediaMid = text(file?["media_mid"]) ?? ""
             let image = albumMid.isEmpty ? nil : "https://y.gtimg.cn/music/photo_new/T002R500x500M000\(albumMid).jpg"
+            var metadata = ["songmid": text(item["mid"]) ?? String(id),
+                            "id": String(id),
+                            "strMediaMid": mediaMid,
+                            "albumMid": albumMid]
+            addQualityMetadata(&metadata, from: item, source: .tx)
             return Track(id: id, name: text(item["title"]) ?? text(item["name"]) ?? "",
                          artists: qqArtists(item["singer"]),
                          album: AlbumRef(id: int(album?["id"]) ?? 0,
                                         name: text(album?["name"]) ?? "", picUrl: image),
                          durationMS: seconds(item["interval"]) * 1000,
                           source: "tx",
-                          sourceMetadata: ["songmid": text(item["mid"]) ?? String(id),
-                                           "id": String(id),
-                                           "strMediaMid": mediaMid,
-                                           "albumMid": albumMid])
+                          sourceMetadata: metadata)
         }
     }
 
@@ -414,6 +420,66 @@ enum LXCatalogService {
         value = value.replacingOccurrences(of: "http://", with: "https://")
         value = value.replacingOccurrences(of: "{size}", with: String(size))
         return URL(string: value) == nil ? nil : value
+    }
+
+    /// Preserve only concrete per-song file sizes for the LX bridge. A
+    /// provider-level `qualitys` list is not proof that this particular song
+    /// has that format; empty and zero values must not become Hi-Res.
+    private static func addQualityMetadata(_ metadata: inout [String: String],
+                                           from item: [String: Any],
+                                           source: LXCatalogPlatform) {
+        func set(_ quality: String, _ value: Any?) {
+            guard let value = qualitySize(value) else { return }
+            metadata["lx.quality.\(quality).size"] = value
+        }
+
+        switch source {
+        case .kw:
+            let pattern = #"bitrate:(\d+),format:\w+,size:([\w.]+)"#
+            for part in (text(item["N_MINFO"]) ?? "").split(separator: ";") {
+                guard let bitrate = firstCapture(#"bitrate:(\d+)"#, in: String(part)),
+                      let size = firstCapture(pattern, in: String(part)) else { continue }
+                switch bitrate {
+                case "4000": set("flac24bit", size)
+                case "2000": set("flac", size)
+                case "320": set("320k", size)
+                case "128": set("128k", size)
+                default: break
+                }
+            }
+        case .kg:
+            let audio = item["audio_info"] as? [String: Any]
+            set("128k", item["FileSize"] ?? item["filesize"] ?? audio?["filesize"])
+            set("320k", item["HQFileSize"] ?? item["filesize_320"] ?? audio?["filesize_320"])
+            set("flac", item["SQFileSize"] ?? item["filesize_flac"] ?? audio?["filesize_flac"])
+            set("flac24bit", item["ResFileSize"] ?? item["filesize_high"] ?? audio?["filesize_high"])
+        case .tx:
+            let file = item["file"] as? [String: Any]
+            set("128k", file?["size_128mp3"])
+            set("320k", file?["size_320mp3"])
+            set("flac", file?["size_flac"])
+            set("flac24bit", file?["size_hires"])
+        case .mg:
+            guard let formats = item["newRateFormats"] as? [[String: Any]] else { return }
+            for format in formats {
+                switch text(format["formatType"]) {
+                case "PQ": set("128k", format["size"] ?? format["androidSize"])
+                case "HQ": set("320k", format["size"] ?? format["androidSize"])
+                case "SQ": set("flac", format["size"] ?? format["androidSize"])
+                case "ZQ": set("flac24bit", format["size"] ?? format["androidSize"])
+                default: break
+                }
+            }
+        case .wy, .aggregate: break
+        }
+    }
+
+    private static func qualitySize(_ value: Any?) -> String? {
+        guard let value = text(value), !value.isEmpty else { return nil }
+        guard let rawNumber = firstCapture(#"^\s*([0-9]+(?:\.[0-9]+)?)"#, in: value),
+              let number = Double(rawNumber),
+              number > 0 else { return nil }
+        return value
     }
 
     private static func kuwoImageURL(_ value: Any?, size: Int = 500) -> String? {
@@ -1374,6 +1440,7 @@ enum LXCatalogService {
             albumImageURL = kuwoImageURL(item["albumpic"] ?? item["web_albumpic_short"]
                                          ?? item["MVPIC"] ?? item["PICPATH"])
             if let rawID { metadata["songmid"] = rawID; metadata["albumId"] = String(albumID) }
+            addQualityMetadata(&metadata, from: item, source: source)
             if let albumImageURL { metadata["coverURL"] = albumImageURL }
         case .kg:
             let hash = firstText(item["hash"], item["FileHash"], nestedAudio?["hash"]) ?? ""
@@ -1399,6 +1466,7 @@ enum LXCatalogService {
             if let hashFlac = firstText(item["hash_flac"], nestedAudio?["hash_flac"]), !hashFlac.isEmpty {
                 metadata["hashflac"] = hashFlac
             }
+            addQualityMetadata(&metadata, from: item, source: source)
             if let albumImageURL { metadata["coverURL"] = albumImageURL }
         case .tx:
             rawID = text(item["mid"]) ?? text(item["songmid"]) ?? text(item["id"])
@@ -1414,6 +1482,7 @@ enum LXCatalogService {
             if let id = text(item["id"]) { metadata["id"] = id }
             metadata["strMediaMid"] = text(nestedFile?["media_mid"]) ?? ""
             metadata["albumMid"] = albumMid
+            addQualityMetadata(&metadata, from: item, source: source)
             if let albumImageURL { metadata["coverURL"] = albumImageURL }
         case .mg:
             rawID = text(item["songId"]) ?? text(item["copyrightId"]) ?? text(item["contentId"])
@@ -1429,6 +1498,7 @@ enum LXCatalogService {
             for key in ["lrcUrl", "mrcUrl", "trcUrl"] {
                 if let value = text(item[key]), !value.isEmpty { metadata[key] = value }
             }
+            addQualityMetadata(&metadata, from: item, source: source)
             if let albumImageURL { metadata["coverURL"] = albumImageURL }
         case .aggregate, .wy:
             return nil

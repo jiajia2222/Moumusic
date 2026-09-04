@@ -28,7 +28,7 @@ struct DownloadOptionsSheet: View {
                 }
 
                 Section("下载音质") {
-                    ForEach(available.isEmpty ? AudioQuality.allCases : available) { quality in
+                    ForEach(available.isEmpty ? [.standard] : available) { quality in
                         Button {
                             selectedQuality = quality
                         } label: {

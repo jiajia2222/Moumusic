@@ -26,7 +26,8 @@ targets:
       - target: MoumusicWidget
     settings:
       base:
-        CODE_SIGN_ENTITLEMENTS: Config/KumoneIOS.entitlements
+        # Kept in Config/Shared.xcconfig so configure-carplay can opt in
+        # without modifying the generated project or the tracked manifest.
         PROVISIONING_PROFILE_SPECIFIER: $(MOU_APP_PROVISIONING_PROFILE)
         ENABLE_PREVIEWS: YES
   KumoneIOSUITests:

@@ -3,6 +3,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { search } from '@/core/search/songlist'
 import Songlist, { type SonglistProps, type SonglistType } from '@/screens/Home/Views/SongList/components/Songlist'
 import searchSonglistState, { type Source } from '@/store/search/songlist/state'
+import type { SearchFinishedStatus } from './SearchStatusOverlay'
 
 // export type MusicListProps = Pick<OnlineListProps,
 // 'onLoadMore'
@@ -14,7 +15,11 @@ export interface MusicListType {
   loadList: (text: string, source: Source) => void
 }
 
-export default forwardRef<MusicListType, {}>((props, ref) => {
+interface SonglistListProps {
+  onSearchFinished: (status: SearchFinishedStatus) => void
+}
+
+export default forwardRef<MusicListType, SonglistListProps>(({ onSearchFinished }, ref) => {
   const listRef = useRef<SonglistType>(null)
   const searchInfoRef = useRef<{ text: string, source: Source }>({ text: '', source: 'kw' })
   const isUnmountedRef = useRef(false)
@@ -25,6 +30,7 @@ export default forwardRef<MusicListType, {}>((props, ref) => {
       if (searchSonglistState.searchText == text && searchSonglistState.source == source && searchSonglistState.listInfos[searchSonglistState.source]!.list.length) {
         requestAnimationFrame(() => {
           listRef.current?.setList(searchSonglistState.listInfos[searchSonglistState.source]!.list, source == 'all')
+          onSearchFinished('success')
         })
       } else {
         listRef.current?.setStatus('loading')
@@ -37,13 +43,15 @@ export default forwardRef<MusicListType, {}>((props, ref) => {
           requestAnimationFrame(() => {
             listRef.current?.setList(list, source == 'all')
             listRef.current?.setStatus(searchSonglistState.maxPages[searchSonglistState.source] == page ? 'end' : 'idle')
+            onSearchFinished('success')
           })
         }).catch(() => {
           listRef.current?.setStatus('error')
+          onSearchFinished('error')
         })
       }
     },
-  }), [])
+  }), [onSearchFinished])
 
   useEffect(() => {
     isUnmountedRef.current = false
@@ -61,8 +69,10 @@ export default forwardRef<MusicListType, {}>((props, ref) => {
       if (isUnmountedRef.current) return
       listRef.current?.setList(list, searchInfoRef.current.source == 'all')
       listRef.current?.setStatus(searchSonglistState.maxPages[searchSonglistState.source] == page ? 'end' : 'idle')
+      onSearchFinished('success')
     }).catch(() => {
       listRef.current?.setStatus('error')
+      onSearchFinished('error')
     })
   }
   const handleLoadMore: SonglistProps['onLoadMore'] = () => {
@@ -74,8 +84,10 @@ export default forwardRef<MusicListType, {}>((props, ref) => {
       if (isUnmountedRef.current) return
       listRef.current?.setList(list, searchInfoRef.current.source == 'all')
       listRef.current?.setStatus(searchSonglistState.maxPages[searchSonglistState.source] == page ? 'end' : 'idle')
+      onSearchFinished('success')
     }).catch(() => {
       listRef.current?.setStatus('error')
+      onSearchFinished('error')
     })
   }
 
@@ -85,4 +97,3 @@ export default forwardRef<MusicListType, {}>((props, ref) => {
     onLoadMore={handleLoadMore}
   />
 })
-

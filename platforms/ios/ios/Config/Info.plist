@@ -4,14 +4,21 @@
 <dict>
     <key>CADisableMinimumFrameDurationOnPhone</key>
     <true/>
+    <key>UILaunchScreen</key>
+    <dict/>
     <key>UIBackgroundModes</key>
     <array>
         <string>audio</string>
     </array>
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
+    <!-- CarPlay scene metadata is injected only by make configure-carplay. -->
 </dict>
 </plist>

@@ -9,19 +9,20 @@ import { useTheme } from '@/store/theme/hook'
 import { scaleSizeH } from '@/utils/pixelRatio'
 import { LIST_ITEM_HEIGHT } from '@/config/constant'
 import { createStyle, type RowInfo } from '@/utils/tools'
+import { isQualityAvailable } from '@/utils'
 
 export const ITEM_HEIGHT = scaleSizeH(LIST_ITEM_HEIGHT)
 
 const useQualityTag = (musicInfo: LX.Music.MusicInfoOnline) => {
   const t = useI18n()
   let info: { type: BadgeType | null, text: string } = { type: null, text: '' }
-  if (musicInfo.meta._qualitys.flac24bit) {
+  if (isQualityAvailable(musicInfo, 'flac24bit')) {
     info.type = 'secondary'
     info.text = t('quality_lossless_24bit')
-  } else if (musicInfo.meta._qualitys.flac ?? musicInfo.meta._qualitys.ape) {
+  } else if (isQualityAvailable(musicInfo, 'flac') || isQualityAvailable(musicInfo, 'ape')) {
     info.type = 'secondary'
     info.text = t('quality_lossless')
-  } else if (musicInfo.meta._qualitys['320k']) {
+  } else if (isQualityAvailable(musicInfo, '320k')) {
     info.type = 'tertiary'
     info.text = t('quality_high_quality')
   }
@@ -168,4 +169,3 @@ const styles = createStyle({
     justifyContent: 'center',
   },
 })
-

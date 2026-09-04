@@ -52,13 +52,18 @@ export const getMusicUrl = async({ musicInfo, quality, isRefresh, allowToggleSou
 
   //   // return Promise.reject(new Error('该歌曲没有可播放的音频'))
   // }
-  const targetQuality = quality ?? getPlayQuality(settingState.setting['player.playQuality'], musicInfo)
+  const targetQuality = getPlayQuality(quality ?? settingState.setting['player.playQuality'], musicInfo)
   const cachedUrl = await getStoreMusicUrl(musicInfo, targetQuality)
   if (cachedUrl && !isRefresh) return cachedUrl
 
-  return handleGetOnlineMusicUrl({ musicInfo, quality, onToggleSource, isRefresh, allowToggleSource }).then(({ url, quality: targetQuality, musicInfo: targetMusicInfo, isFromCache }) => {
-    if (targetMusicInfo.id != musicInfo.id && !isFromCache) void saveMusicUrl(targetMusicInfo, targetQuality, url)
-    void saveMusicUrl(musicInfo, targetQuality, url)
+  return handleGetOnlineMusicUrl({ musicInfo, quality: targetQuality, onToggleSource, isRefresh, allowToggleSource }).then(({ url, quality: resolvedQuality, musicInfo: targetMusicInfo, isFromCache }) => {
+    // A fallback URL belongs to the matched fallback record. Saving it under
+    // the selected record makes a later play silently resolve another song.
+    if (targetMusicInfo.id != musicInfo.id) {
+      if (!isFromCache) void saveMusicUrl(targetMusicInfo, resolvedQuality, url)
+    } else {
+      void saveMusicUrl(musicInfo, resolvedQuality, url)
+    }
     return url
   })
 }
@@ -87,7 +92,7 @@ export const getLyricInfo = async({ musicInfo, isRefresh, allowToggleSource = tr
   allowToggleSource?: boolean
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
 }): Promise<LX.Player.LyricInfo> => {
-  if (!isRefresh) {
+  if (!isRefresh && musicInfo.source == 'wy') {
     const lyricInfo = await getCachedLyricInfo(musicInfo)
     if (lyricInfo) return buildLyricInfo(lyricInfo)
   }

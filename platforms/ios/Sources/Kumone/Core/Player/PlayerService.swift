@@ -236,10 +236,10 @@ final class PlayerService: ObservableObject {
 #if os(iOS)
         let names = await LXUserAPIService.shared.availableQualityNames(for: track)
         let available = AudioQuality.allCases.filter { names.contains($0.lxType) }
-        // Keep the picker reachable while a source is still loading or has
-        // not declared capabilities. LXUserAPIService performs the final
-        // downgrade to a supported quality when it resolves the URL.
-        return available
+        // Unknown per-song metadata must stay conservative. Showing every
+        // option while the source is loading makes a 320k-only track look
+        // like it can provide Hi-Res.
+        return available.isEmpty ? [.standard] : available
 #else
         return AudioQuality.allCases
 #endif
@@ -1145,7 +1145,10 @@ final class PlayerService: ObservableObject {
         }
     }
 
-    private func resolve(_ context: PlayContext) async throws -> (tracks: [Track], source: PlaySource)? {
+    // CarPlay uses the same context resolver as the in-app queue. Keeping this
+    // internal avoids a second playback pipeline while leaving the method out
+    // of the public package API.
+    func resolve(_ context: PlayContext) async throws -> (tracks: [Track], source: PlaySource)? {
         switch context.kind {
         case .fm:
             return nil

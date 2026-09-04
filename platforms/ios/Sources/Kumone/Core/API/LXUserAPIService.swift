@@ -146,8 +146,11 @@ final class LXUserAPIService: ObservableObject {
                 requestTrack = matched
             }
 
+            let sourceQualitys = qualityCapabilities[platform] ?? []
+            let trackQualitys = Self.qualityNames(for: requestTrack)
+            let supportedQualitys = sourceQualitys.filter(trackQualitys.contains)
             let requestedQuality = Self.lxQuality(for: quality,
-                                                  supported: qualityCapabilities[platform] ?? [])
+                                                  supported: supportedQualitys.isEmpty ? ["128k"] : supportedQualitys)
             do {
                 let response = try await request(source: platform, action: "musicUrl",
                                                  info: ["type": requestedQuality,
@@ -160,10 +163,13 @@ final class LXUserAPIService: ObservableObject {
                     failures.append("\(platformName)：没有返回有效播放地址")
                     continue
                 }
-                let actualQuality = Self.normalizedQuality((data["type"] as? String)
-                    ?? (data["quality"] as? String)
-                    ?? (data["format"] as? String)
-                    ?? requestedQuality)
+                let actualQuality = Self.resolvedQuality(
+                    returned: (data["type"] as? String)
+                        ?? (data["quality"] as? String)
+                        ?? (data["format"] as? String),
+                    requested: requestedQuality,
+                    available: supportedQualitys.isEmpty ? ["128k"] : supportedQualitys
+                )
                 return ResolvedURL(url: url, quality: actualQuality)
             } catch {
                 failures.append("\(platformName)：\(error.localizedDescription)")
@@ -222,8 +228,13 @@ final class LXUserAPIService: ObservableObject {
                 track = result?.first ?? sourceCheckTrack(for: platform)
             }
 
-            let requestedQuality = Self.lxQuality(for: SettingsManager.shared.audioQuality.rawValue,
-                                                   supported: qualityCapabilities[platform] ?? [])
+            let sourceQualitys = qualityCapabilities[platform] ?? []
+            let trackQualitys = Self.qualityNames(for: track)
+            let supportedQualitys = sourceQualitys.filter(trackQualitys.contains)
+            let requestedQuality = Self.lxQuality(
+                for: SettingsManager.shared.audioQuality.rawValue,
+                supported: supportedQualitys.isEmpty ? ["128k"] : supportedQualitys
+            )
             let info = musicInfo(for: track, platform: platform)
             do {
                 let response = try await request(source: platform, action: "musicUrl",
@@ -237,7 +248,13 @@ final class LXUserAPIService: ObservableObject {
                     continue
                 }
 
-                let actualQuality = (data["type"] as? String) ?? requestedQuality
+                let actualQuality = Self.resolvedQuality(
+                    returned: (data["type"] as? String)
+                        ?? (data["quality"] as? String)
+                        ?? (data["format"] as? String),
+                    requested: requestedQuality,
+                    available: supportedQualitys.isEmpty ? ["128k"] : supportedQualitys
+                )
                 let detail = "已通过 \(platformName) 的 musicUrl 接口，音质：\(actualQuality)"
                 let result = SourceCheckResult(status: .available,
                                                message: "音源可用",
@@ -636,11 +653,14 @@ final class LXUserAPIService: ObservableObject {
         // The picker describes the requested track's platform. Do not union
         // fallback platforms, otherwise it offers FLAC/Hi-Res that the active
         // source cannot actually serve.
-        let names = qualityCapabilities[primary] ?? []
+        let sourceNames = qualityCapabilities[primary] ?? []
+        let names = sourceNames.isEmpty ? ["128k"] : sourceNames
+        let trackNames = Self.qualityNames(for: track)
         let order = ["128k", "320k", "flac", "flac24bit"]
-        // An undeclared capability is conservatively treated as standard
-        // quality. The resolver applies the same downgrade at request time.
-        return names.isEmpty ? ["128k"] : order.filter { names.contains($0) }
+        // A source-level list describes what a provider can do in general;
+        // per-song metadata is required before a higher-quality option is
+        // exposed for this track.
+        return order.filter { names.contains($0) && trackNames.contains($0) }
     }
 
     private func musicInfo(for track: Track, platform: String) -> [String: Any] {
@@ -650,10 +670,13 @@ final class LXUserAPIService: ObservableObject {
             ?? track.sourceMetadata["songId"]
             ?? String(track.id)
         let albumID = track.sourceMetadata["albumId"] ?? String(track.album.id)
-        let qualities = ["128k", "320k", "flac", "flac24bit"]
-        let qualityInfo = qualities.map { ["type": $0, "size": ""] as [String: Any] }
+        let qualities = Self.qualityNames(for: track)
+        let qualityInfo = qualities.map { quality in
+            ["type": quality,
+             "size": track.sourceMetadata["lx.quality.\(quality).size"] ?? ""] as [String: Any]
+        }
         let qualityMap = Dictionary(uniqueKeysWithValues: qualities.map {
-            ($0, ["size": ""] as [String: Any])
+            ($0, ["size": track.sourceMetadata["lx.quality.\($0).size"] ?? ""] as [String: Any])
         })
         var info: [String: Any] = [
             "name": track.name,
@@ -686,6 +709,25 @@ final class LXUserAPIService: ObservableObject {
         return info
     }
 
+    private static func qualityNames(for track: Track) -> [String] {
+        let order = ["128k", "320k", "flac", "flac24bit"]
+        let concrete = order.filter { quality in
+            guard let value = track.sourceMetadata["lx.quality.\(quality).size"] else { return false }
+            return hasPositiveFileSize(value)
+        }
+        // Unknown metadata must never be presented as lossless/Hi-Res. The
+        // source may still negotiate this conservatively as standard quality.
+        return concrete.isEmpty ? ["128k"] : concrete
+    }
+
+    private static func hasPositiveFileSize(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty,
+              let match = normalized.range(of: #"^[0-9]+(?:\.[0-9]+)?"#, options: .regularExpression),
+              let number = Double(String(normalized[match])), number > 0 else { return false }
+        return true
+    }
+
     private static func lxQuality(for quality: String, supported: [String]) -> String {
         let requested: String
         switch quality {
@@ -712,6 +754,18 @@ final class LXUserAPIService: ObservableObject {
         case "flac24", "flac24bit", "hires", "highres": return "flac24bit"
         default: return value
         }
+    }
+
+    private static func resolvedQuality(returned: String?, requested: String,
+                                        available: [String]) -> String {
+        guard let returned else { return requested }
+        let normalized = normalizedQuality(returned)
+        let order = ["128k", "320k", "flac", "flac24bit"]
+        guard let requestedIndex = order.firstIndex(of: normalizedQuality(requested)),
+              let returnedIndex = order.firstIndex(of: normalized),
+              returnedIndex <= requestedIndex,
+              available.contains(normalized) else { return requested }
+        return normalized
     }
 }
 

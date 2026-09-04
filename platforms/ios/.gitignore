@@ -5,3 +5,5 @@
 !ios/KumoneIOS.xcodeproj
 xcuserdata/
 DerivedData/
+ios/Config/CarPlay.local.xcconfig
+ios/Config/Generated/

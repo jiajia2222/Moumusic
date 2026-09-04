@@ -111,6 +111,14 @@ const getMusicPlayUrl = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListIt
       isRefresh,
       onToggleSource(mInfo) {
         if (diffCurrentMusicInfo(musicInfo)) return
+        if (mInfo) {
+          // Keep the selected list item, but remember the exact fallback
+          // record that supplied the URL so the next retry cannot resolve a
+          // different recording again.
+          const targetInfo = 'progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo
+          targetInfo.meta.toggleMusicInfo = mInfo
+          global.lx.gettingUrlId = createGettingUrlId(musicInfo)
+        }
         setStatusText(global.i18n.t('toggle_source_try'))
       },
     })
@@ -665,4 +673,3 @@ export const dislikeMusic = async() => {
   await addDislikeInfo([{ name: minfo.name, singer: minfo.singer }])
   await playNext(true)
 }
-
