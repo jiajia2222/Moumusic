@@ -39,7 +39,7 @@ final class SearchViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var loadedTabs: Set<Tab> = []
     @Published var platform: LXCatalogPlatform = .aggregate
-    private var artistAvatarCache: [Int: String] = [:]
+    private var artistAvatarCache: [String: String] = [:]
 
     init(query: String) {
         self.query = query
@@ -156,27 +156,35 @@ final class SearchViewModel: ObservableObject {
         albums = albumResults
     }
 
-    /// LX search results do not consistently include artist artwork. For
-    /// NetEase results, enrich the first few visible artists from the real
-    /// artist endpoint and keep the result cached for the current session.
+    /// LX search results do not consistently include artist artwork. Enrich
+    /// only the visible artist cards with public NetEase artist metadata. The
+    /// selected catalogue still owns the actual song and playback results.
     private func enrichArtistAvatars() async {
-        guard platform == .wy else { return }
-
-        let targets = artists.compactMap { artist -> Int? in
-            guard let id = artist.neteaseID, id > 0, artist.avatarURL == nil,
-                  artistAvatarCache[id] == nil else { return nil }
-            return id
+        let targets = artists.compactMap { artist -> (String, Int?)? in
+            guard artist.avatarURL == nil, artistAvatarCache[artist.id] == nil else { return nil }
+            return (artist.id, artist.neteaseID)
         }
         guard !targets.isEmpty else {
             applyCachedArtistAvatars()
             return
         }
 
-        let responses = await withTaskGroup(of: (Int, String?).self, returning: [(Int, String?)].self) { group in
-            for id in targets.prefix(12) {
+        let responses = await withTaskGroup(of: (String, String?).self, returning: [(String, String?)].self) { group in
+            for (key, neteaseID) in targets.prefix(8) {
                 group.addTask {
-                    let response = try? await NeteaseAPI.artist(id: id)
-                    return (id, response?.artist.picUrl)
+                    if let neteaseID, neteaseID > 0 {
+                        let response = try? await NeteaseAPI.artist(id: neteaseID)
+                        return (key, response?.artist.picUrl)
+                    }
+
+                    // Non-NetEase LX sources expose artist names but often
+                    // omit a portrait. Resolve only the metadata card, never
+                    // the track itself, so the chosen source remains intact.
+                    let result = try? await NeteaseAPI.search(key, type: .artists, limit: 5)
+                    let match = result?.artists?.first {
+                        $0.name.localizedCaseInsensitiveCompare(key) == .orderedSame
+                    } ?? result?.artists?.first
+                    return (key, match?.picUrl)
                 }
             }
 
@@ -187,9 +195,9 @@ final class SearchViewModel: ObservableObject {
             return values
         }
 
-        for (id, avatarURL) in responses {
+        for (key, avatarURL) in responses {
             if let avatarURL, !avatarURL.isEmpty {
-                artistAvatarCache[id] = avatarURL
+                artistAvatarCache[key] = avatarURL
             }
         }
         applyCachedArtistAvatars()
@@ -198,7 +206,7 @@ final class SearchViewModel: ObservableObject {
     private func applyCachedArtistAvatars() {
         artists = artists.map { artist in
             var updated = artist
-            if let id = artist.neteaseID, let avatarURL = artistAvatarCache[id] {
+            if let avatarURL = artistAvatarCache[artist.id] {
                 updated.avatarURL = avatarURL
             }
             return updated
