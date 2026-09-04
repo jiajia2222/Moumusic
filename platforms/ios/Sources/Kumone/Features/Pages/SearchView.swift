@@ -188,7 +188,7 @@ final class SearchViewModel: ObservableObject {
                 }
             }
 
-            var values: [(Int, String?)] = []
+            var values: [(String, String?)] = []
             for await value in group {
                 values.append(value)
             }
