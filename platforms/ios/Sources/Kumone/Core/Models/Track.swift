@@ -3,16 +3,26 @@ import Foundation
 struct ArtistRef: Codable, Hashable, Identifiable {
     let id: Int
     let name: String
+    let picUrl: String?
 
-    init(id: Int, name: String) {
+    init(id: Int, name: String, picUrl: String? = nil) {
         self.id = id
         self.name = name
+        self.picUrl = picUrl
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, picUrl, img1v1Url, avatar, cover
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = (try? c.decode(Int.self, forKey: .id)) ?? 0
         name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        picUrl = (try? c.decode(String.self, forKey: .picUrl))
+            ?? (try? c.decode(String.self, forKey: .img1v1Url))
+            ?? (try? c.decode(String.self, forKey: .avatar))
+            ?? (try? c.decode(String.self, forKey: .cover))
     }
 }
 

@@ -433,15 +433,6 @@ async function handleRequest(request, response) {
     return
   }
 
-  const hostname = String(request.headers.host || '').split(':')[0].toLowerCase()
-  if ((hostname === 'demomusic.nadev.xyz' && pathname === '/') || pathname === '/demo') {
-    const html = await renderPage('demo.html', url)
-    response.statusCode = 200
-    response.setHeader('content-type', 'text/html; charset=utf-8')
-    response.setHeader('cache-control', 'no-cache')
-    response.end(html)
-    return
-  }
   if (pathname === '/' || pathname === '/aifadian') {
     const html = await renderPage('index.html', url)
     response.statusCode = 200

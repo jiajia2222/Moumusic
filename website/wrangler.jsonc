@@ -9,10 +9,6 @@
     {
       "pattern": "music.nadev.xyz",
       "custom_domain": true
-    },
-    {
-      "pattern": "demomusic.nadev.xyz",
-      "custom_domain": true
     }
   ],
   "assets": {

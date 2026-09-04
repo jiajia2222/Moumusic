@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor
 final class SearchViewModel: ObservableObject {
@@ -16,6 +19,7 @@ final class SearchViewModel: ObservableObject {
         let id: String
         let name: String
         let neteaseID: Int?
+        var avatarURL: String?
     }
 
     struct AlbumResult: Hashable, Identifiable {
@@ -32,11 +36,10 @@ final class SearchViewModel: ObservableObject {
     @Published var artists: [ArtistResult] = []
     @Published var albums: [AlbumResult] = []
     @Published var playlists: [LXPlaylistSummary] = []
-    @Published var hotKeywords: [String] = []
     @Published var isLoading = false
-    @Published var isLoadingHot = false
     @Published var loadedTabs: Set<Tab> = []
     @Published var platform: LXCatalogPlatform = .aggregate
+    private var artistAvatarCache: [Int: String] = [:]
 
     init(query: String) {
         self.query = query
@@ -60,8 +63,6 @@ final class SearchViewModel: ObservableObject {
         artists = []
         albums = []
         playlists = []
-        hotKeywords = []
-        Task { await loadHotKeywords() }
     }
 
     func load(tab: Tab, force: Bool = false) async {
@@ -79,6 +80,7 @@ final class SearchViewModel: ObservableObject {
             if let result = await songsTask {
                 songs = result
                 rebuildMetadata(from: result)
+                await enrichArtistAvatars()
                 didLoad = true
             }
             if let result = await playlistsTask {
@@ -89,15 +91,18 @@ final class SearchViewModel: ObservableObject {
             if let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100) {
                 songs = result
                 rebuildMetadata(from: result)
+                await enrichArtistAvatars()
                 didLoad = true
             }
         case .artists:
             songs = (try? await LXCatalogService.search(trimmed, platform: platform, limit: 100)) ?? songs
             rebuildMetadata(from: songs)
+            await enrichArtistAvatars()
             didLoad = true
         case .albums:
             songs = (try? await LXCatalogService.search(trimmed, platform: platform, limit: 100)) ?? songs
             rebuildMetadata(from: songs)
+            await enrichArtistAvatars()
             didLoad = true
         case .playlists:
             if let result = try? await LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 100) {
@@ -107,13 +112,6 @@ final class SearchViewModel: ObservableObject {
         }
 
         if didLoad { loadedTabs.insert(tab) }
-    }
-
-    func loadHotKeywords() async {
-        guard hotKeywords.isEmpty else { return }
-        isLoadingHot = true
-        defer { isLoadingHot = false }
-        hotKeywords = (try? await LXCatalogService.hotKeywords(platform: platform)) ?? []
     }
 
     private func rebuildMetadata(from tracks: [Track]) {
@@ -127,12 +125,18 @@ final class SearchViewModel: ObservableObject {
                 let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty else { continue }
                 let key = name.localizedLowercase
-                guard seenArtists.insert(key).inserted else { continue }
-                artistResults.append(ArtistResult(
-                    id: key,
-                    name: name,
-                    neteaseID: artist.id > 0 && platform == .wy ? artist.id : nil
-                ))
+                if seenArtists.insert(key).inserted {
+                    artistResults.append(ArtistResult(
+                        id: key,
+                        name: name,
+                        neteaseID: artist.id > 0 && platform == .wy ? artist.id : nil,
+                        avatarURL: artist.picUrl
+                    ))
+                } else if let avatarURL = artist.picUrl,
+                          let index = artistResults.firstIndex(where: { $0.id == key }),
+                          artistResults[index].avatarURL == nil {
+                    artistResults[index].avatarURL = avatarURL
+                }
             }
 
             let albumName = track.album.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -150,6 +154,55 @@ final class SearchViewModel: ObservableObject {
 
         artists = artistResults
         albums = albumResults
+    }
+
+    /// LX search results do not consistently include artist artwork. For
+    /// NetEase results, enrich the first few visible artists from the real
+    /// artist endpoint and keep the result cached for the current session.
+    private func enrichArtistAvatars() async {
+        guard platform == .wy else { return }
+
+        let targets = artists.compactMap { artist -> Int? in
+            guard let id = artist.neteaseID, id > 0, artist.avatarURL == nil,
+                  artistAvatarCache[id] == nil else { return nil }
+            return id
+        }
+        guard !targets.isEmpty else {
+            applyCachedArtistAvatars()
+            return
+        }
+
+        let responses = await withTaskGroup(of: (Int, String?).self, returning: [(Int, String?)].self) { group in
+            for id in targets.prefix(12) {
+                group.addTask {
+                    let response = try? await NeteaseAPI.artist(id: id)
+                    return (id, response?.artist.picUrl)
+                }
+            }
+
+            var values: [(Int, String?)] = []
+            for await value in group {
+                values.append(value)
+            }
+            return values
+        }
+
+        for (id, avatarURL) in responses {
+            if let avatarURL, !avatarURL.isEmpty {
+                artistAvatarCache[id] = avatarURL
+            }
+        }
+        applyCachedArtistAvatars()
+    }
+
+    private func applyCachedArtistAvatars() {
+        artists = artists.map { artist in
+            var updated = artist
+            if let id = artist.neteaseID, let avatarURL = artistAvatarCache[id] {
+                updated.avatarURL = avatarURL
+            }
+            return updated
+        }
     }
 }
 
@@ -177,7 +230,6 @@ struct SearchView: View {
                     }
                 } else {
                     emptySearchPrompt
-                    hotSearches
                 }
                 PlayerClearanceSpacer()
             }
@@ -188,18 +240,6 @@ struct SearchView: View {
         // versions get the normal native navigation search presentation.
         .searchable(text: $searchText, placement: .automatic,
                     prompt: "搜索歌曲、歌手、专辑、歌单")
-        .searchSuggestions {
-            if !model.hotKeywords.isEmpty {
-                ForEach(Array(model.hotKeywords.prefix(8)), id: \.self) { keyword in
-                    Button {
-                        searchText = keyword
-                        performSearch(keyword)
-                    } label: {
-                        Label(keyword, systemImage: "magnifyingglass")
-                    }
-                }
-            }
-        }
         .onSubmit(of: .search) {
             submitSearchAfterInputMethodCommits()
         }
@@ -210,8 +250,8 @@ struct SearchView: View {
         .task(id: "\(model.tab.rawValue)-\(model.platform.rawValue)") {
             await model.load(tab: model.tab)
         }
-        .task {
-            await model.loadHotKeywords()
+        .onDisappear {
+            resignSearchInput()
         }
     }
 
@@ -261,6 +301,7 @@ struct SearchView: View {
                     ForEach(LXCatalogPlatform.allCases) { platform in
                         Button {
                             model.setPlatform(platform)
+                            resignSearchInput()
                         } label: {
                             HStack(spacing: 5) {
                                 if model.platform == platform {
@@ -305,35 +346,6 @@ struct SearchView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 32)
-    }
-
-    private var hotSearches: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("热门搜索")
-                .font(.headline)
-                .padding(.horizontal, Theme.Layout.contentInset)
-            if model.isLoadingHot && model.hotKeywords.isEmpty {
-                SearchSkeletonRow()
-                    .padding(.horizontal, Theme.Layout.contentInset)
-            } else if model.hotKeywords.isEmpty {
-                Text("暂无热门关键词")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, Theme.Layout.contentInset)
-            } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
-                    ForEach(Array(model.hotKeywords.prefix(20)), id: \.self) { keyword in
-                        Button(keyword) {
-                            searchText = keyword
-                            performSearch(keyword)
-                        }
-                        .buttonStyle(.bordered)
-                        .frame(minHeight: 44)
-                    }
-                }
-                .padding(.horizontal, Theme.Layout.contentInset)
-            }
-        }
     }
 
     private var currentEmpty: Bool {
@@ -420,11 +432,24 @@ struct SearchView: View {
 
     private func artistCard(_ artist: SearchViewModel.ArtistResult) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: "person.crop.circle")
-                .font(.system(size: 52, weight: .light))
-                .foregroundStyle(.secondary)
+            ZStack {
+                Circle()
+                    .fill(.quaternary.opacity(0.35))
+                if let url = artist.avatarURL?.resizedImageURL(384) {
+                    CachedAsyncImage(url: url) {
+                        Image(systemName: "person.crop.circle")
+                            .font(.system(size: 52, weight: .light))
+                            .foregroundStyle(.secondary)
+                    }
+                    .clipShape(Circle())
+                } else {
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 52, weight: .light))
+                        .foregroundStyle(.secondary)
+                }
+            }
                 .frame(width: 128, height: 128)
-                .background(.quaternary.opacity(0.35), in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.16), lineWidth: 1))
             Text(artist.name)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.primary)
@@ -432,6 +457,25 @@ struct SearchView: View {
         }
         .frame(width: 140)
         .contentShape(Rectangle())
+    }
+
+    private func resignSearchInput() {
+        #if os(iOS)
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+        DispatchQueue.main.async {
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
+        }
+        #endif
     }
 
     private func albumCards(_ items: some Collection<SearchViewModel.AlbumResult>) -> some View {

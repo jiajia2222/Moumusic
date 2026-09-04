@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import SwiftUI
+import UIKit
 
 /// User-managed LX User API scripts. Moumusic ships no provider script: the
 /// user chooses the source file exported by LX Music or another compatible
@@ -90,6 +91,14 @@ final class LXSourceStore: ObservableObject {
 
     func select(_ id: String?) {
         guard id == nil || sources.contains(where: { $0.id == id }) else { return }
+        // The iOS 26 search tab owns a native search field. Resigning it here
+        // prevents a source tap in Settings from moving focus back to Search.
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
         selectedID = id
         if let id {
             UserDefaults.standard.set(id, forKey: Self.selectedKey)
