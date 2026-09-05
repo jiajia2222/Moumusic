@@ -276,51 +276,68 @@ enum LXCatalogService {
     }
 
     private static func searchKugou(_ keyword: String, page: Int, limit: Int) async throws -> [Track] {
-        // This is the endpoint used by LX Mobile. On iOS the HTTPS hostname
-        // often returns a valid-looking empty payload, while the legacy HTTP
-        // endpoint still returns the actual list. ATS is scoped to allow this
-        // KuGou host in secureURL(_:).
-        var components = URLComponents(string: "http://songsearch.kugou.com/song_search_v2")!
-        components.queryItems = [
-            URLQueryItem(name: "keyword", value: keyword),
-            URLQueryItem(name: "page", value: String(page)),
-            URLQueryItem(name: "pagesize", value: String(limit)),
-            URLQueryItem(name: "userid", value: "0"),
-            URLQueryItem(name: "clientver", value: "11089"),
-            URLQueryItem(name: "platform", value: "WebFilter"),
-            URLQueryItem(name: "filter", value: "2"),
-            URLQueryItem(name: "iscorrection", value: "1"),
-            URLQueryItem(name: "privilege_filter", value: "0"),
-            URLQueryItem(name: "area_code", value: "1"),
+        // LX Mobile uses this endpoint, but KuGou occasionally routes one
+        // request to a shard that answers HTTP 200 with an empty `lists` array.
+        // Retrying the identical URL can therefore keep returning no songs.
+        // Try the LX-compatible variant first, then harmless query variants
+        // and HTTPS before reporting a real failure.
+        let variants: [(scheme: String, clientVersion: String, platform: String)] = [
+            // This is the request shape used by LX Mobile's active KuGou
+            // adapter. Keep it first so iOS follows the maintained client.
+            ("https", "", "WebFilter"),
+            ("http", "11089", "WebFilter"),
+            ("http", "11409", "AndroidFilter"),
+            ("https", "11089", "WebFilter"),
         ]
-        let root = try await fetchObject(components.url!) as? [String: Any]
-        let data = root?["data"] as? [String: Any]
-        let rootItems = dictionaryArray(data, keys: ["lists", "list", "data"])
-        let groupedItems = rootItems.flatMap { dictionaryArray($0["Grp"], keys: ["list", "data"]) }
-        let items = rootItems + groupedItems
-        var output: [Track] = []
-        var seen = Set<String>()
-        for item in items {
-            guard let id = firstInt(item["Audioid"], item["audio_id"], item["audioid"],
-                                    item["songid"]), id > 0 else { continue }
-            let hash = firstText(item["FileHash"], item["filehash"], item["hash"]) ?? ""
-            guard seen.insert("\(id)-\(hash)").inserted else { continue }
-            let image = kugouImageURL(item)
-            let albumID = firstText(item["AlbumID"], item["album_id"], item["albumid"]) ?? ""
-            var metadata = ["songmid": String(id), "hash": hash, "albumId": albumID]
-            addQualityMetadata(&metadata, from: item, source: .kg)
-            if let image { metadata["coverURL"] = image }
-            output.append(Track(id: id,
-                                name: firstText(item["SongName"], item["songname"], item["filename"]) ?? "",
-                                artists: artists(from: firstText(item["Singers"], item["singername"], item["artist"])),
-                                album: AlbumRef(id: Int(albumID) ?? 0,
-                                               name: firstText(item["AlbumName"], item["album_name"], item["albumname"]) ?? "",
-                                               picUrl: image),
-                                durationMS: seconds(item["Duration"] ?? item["duration"] ?? item["timelength"]) * 1000,
-                                source: "kg",
-                                sourceMetadata: metadata))
+
+        for variant in variants {
+            var components = URLComponents(string: "\(variant.scheme)://songsearch.kugou.com/song_search_v2")!
+            var queryItems = [
+                URLQueryItem(name: "keyword", value: keyword),
+                URLQueryItem(name: "page", value: String(page)),
+                URLQueryItem(name: "pagesize", value: String(limit)),
+                URLQueryItem(name: "userid", value: "0"),
+                URLQueryItem(name: "clientver", value: variant.clientVersion),
+                URLQueryItem(name: "platform", value: variant.platform),
+                URLQueryItem(name: "filter", value: "2"),
+                URLQueryItem(name: "iscorrection", value: "1"),
+                URLQueryItem(name: "privilege_filter", value: "0"),
+                URLQueryItem(name: "area_code", value: "1"),
+            ]
+            components.queryItems = queryItems
+
+            guard let root = try? await fetchObject(components.url!) as? [String: Any],
+                  int(root["error_code"]) == 0,
+                  let data = root["data"] as? [String: Any] else { continue }
+            let rootItems = dictionaryArray(data, keys: ["lists", "list", "data"])
+            let groupedItems = rootItems.flatMap { dictionaryArray($0["Grp"], keys: ["list", "data"]) }
+            let items = rootItems + groupedItems
+            var output: [Track] = []
+            var seen = Set<String>()
+            for item in items {
+                guard let id = firstInt(item["Audioid"], item["audio_id"], item["audioid"],
+                                        item["songid"]), id > 0 else { continue }
+                let hash = firstText(item["FileHash"], item["filehash"], item["hash"]) ?? ""
+                guard seen.insert("\(id)-\(hash)").inserted else { continue }
+                let image = kugouImageURL(item)
+                let albumID = firstText(item["AlbumID"], item["album_id"], item["albumid"]) ?? ""
+                var metadata = ["songmid": String(id), "hash": hash, "albumId": albumID]
+                addQualityMetadata(&metadata, from: item, source: .kg)
+                if let image { metadata["coverURL"] = image }
+                output.append(Track(id: id,
+                                    name: firstText(item["SongName"], item["songname"], item["filename"]) ?? "",
+                                    artists: artists(from: firstText(item["Singers"], item["singername"], item["artist"])),
+                                    album: AlbumRef(id: Int(albumID) ?? 0,
+                                                   name: firstText(item["AlbumName"], item["album_name"], item["albumname"]) ?? "",
+                                                   picUrl: image),
+                                    durationMS: seconds(item["Duration"] ?? item["duration"] ?? item["timelength"]) * 1000,
+                                    source: "kg",
+                                    sourceMetadata: metadata))
+            }
+            if !output.isEmpty { return output }
         }
-        return output
+
+        throw LXCatalogError.invalidResponse
     }
 
     private static func searchMigu(_ keyword: String, page: Int, limit: Int) async throws -> [Track] {

@@ -11,23 +11,24 @@ enum MusicRecognitionState: Equatable {
     case listening
     case matching
     case matched
+    case identified(title: String, artist: String)
     case noMatch
     case failed(String)
 }
 
 /// Captures a short microphone sample with the system recognition catalog and
-/// then resolves the title through QQ Music's catalogue adapter. Audio is not
-/// uploaded by the app and playback remains owned by the selected LX source.
+/// then resolves the title through the enabled catalogue adapters. Audio is
+/// not uploaded by the app and playback remains owned by the selected LX source.
 final class MusicRecognitionService: NSObject, ObservableObject {
     @Published private(set) var state: MusicRecognitionState = .idle
     @Published private(set) var recognizedTrack: Track?
 
 #if os(iOS)
     private let audioEngine = AVAudioEngine()
-    private let mixerNode = AVAudioMixerNode()
     private var recognitionSession: SHSession?
-    private var isAudioConfigured = false
+    private var hasInputTap = false
     private var finishTask: Task<Void, Never>?
+    private var recognitionGeneration = 0
 #endif
 
     func start() {
@@ -43,6 +44,7 @@ final class MusicRecognitionService: NSObject, ObservableObject {
     func cancel() {
 #if os(iOS)
         Task { @MainActor [weak self] in
+            self?.recognitionGeneration += 1
             self?.stopCapture()
             self?.recognizedTrack = nil
             self?.state = .idle
@@ -58,9 +60,12 @@ final class MusicRecognitionService: NSObject, ObservableObject {
         guard state != .listening, state != .matching,
               state != .requestingPermission else { return }
 
+        recognitionGeneration += 1
+        let generation = recognitionGeneration
         recognizedTrack = nil
         state = .requestingPermission
         let granted = await requestMicrophonePermission()
+        guard generation == recognitionGeneration else { return }
         guard granted else {
             state = .failed("请在“设置 > 隐私与安全性 > 麦克风”中允许 Moumusic 使用麦克风")
             return
@@ -80,7 +85,8 @@ final class MusicRecognitionService: NSObject, ObservableObject {
             finishTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(8))
                 guard !Task.isCancelled else { return }
-                self?.finishWithoutMatch()
+                guard let self, self.recognitionGeneration == generation else { return }
+                self.finishWithoutMatch()
             }
         } catch {
             stopCapture()
@@ -98,28 +104,32 @@ final class MusicRecognitionService: NSObject, ObservableObject {
 
     private func configureAudioSession() throws {
         let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers])
+        try audioSession.setCategory(.playAndRecord, mode: .measurement,
+                                     options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth])
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
     }
 
     private func configureAudioEngine() throws {
-        guard !isAudioConfigured else { return }
-
         let inputNode = audioEngine.inputNode
-        let inputFormat = inputNode.inputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
-              let outputFormat = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)
-        else {
+        if hasInputTap {
+            inputNode.removeTap(onBus: 0)
+            hasInputTap = false
+        }
+
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             throw RecognitionError.microphoneUnavailable
         }
 
-        audioEngine.attach(mixerNode)
-        audioEngine.connect(inputNode, to: mixerNode, format: inputFormat)
-        audioEngine.connect(mixerNode, to: audioEngine.outputNode, format: outputFormat)
-        mixerNode.installTap(onBus: 0, bufferSize: 8_192, format: outputFormat) { [weak self] buffer, time in
+        // ShazamKit accepts the microphone's native PCM format. Tapping the
+        // input directly avoids a mixer/output graph that can fail on some
+        // Bluetooth and iOS 27 routes, while also preserving the real sample
+        // timestamps needed by streaming recognition.
+        inputNode.installTap(onBus: 0, bufferSize: 4_096, format: inputFormat) { [weak self] buffer, time in
             self?.recognitionSession?.matchStreamingBuffer(buffer, at: time)
         }
-        isAudioConfigured = true
+        audioEngine.prepare()
+        hasInputTap = true
     }
 
     @MainActor
@@ -134,6 +144,10 @@ final class MusicRecognitionService: NSObject, ObservableObject {
         finishTask?.cancel()
         finishTask = nil
         if audioEngine.isRunning { audioEngine.stop() }
+        if hasInputTap {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            hasInputTap = false
+        }
         recognitionSession = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
@@ -146,35 +160,56 @@ final class MusicRecognitionService: NSObject, ObservableObject {
               !title.isEmpty else { return }
 
         let artist = item.artist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let generation = recognitionGeneration
         stopCapture()
         state = .matching
 
         Task { [weak self] in
-            let query = [title, artist].filter { !$0.isEmpty }.joined(separator: " ")
-            let candidates = (try? await LXCatalogService.search(query, platform: .tx,
-                                                                   page: 1, limit: 12)) ?? []
-            let selected = Self.bestQQMatch(candidates, title: title, artist: artist)
+            let selected = await Self.resolveTrack(title: title, artist: artist)
             await MainActor.run {
                 guard let self else { return }
+                guard self.recognitionGeneration == generation, self.state == .matching else { return }
                 if let selected {
                     self.recognizedTrack = selected
                     self.state = .matched
                 } else {
-                    self.state = .noMatch
+                    // Shazam has already identified the song. Keep that fact
+                    // visible instead of collapsing a catalogue miss into a
+                    // misleading microphone-recognition failure.
+                    self.state = .identified(title: title, artist: artist)
                 }
             }
         }
     }
 
-    private static func bestQQMatch(_ tracks: [Track], title: String, artist: String) -> Track? {
+    private static func resolveTrack(title: String, artist: String) async -> Track? {
+        let queries = [
+            [title, artist].filter { !$0.isEmpty }.joined(separator: " "),
+            title,
+        ].filter { !$0.isEmpty }
+
+        for query in queries {
+            let candidates = (try? await LXCatalogService.search(query, platform: .aggregate,
+                                                                   page: 1, limit: 20)) ?? []
+            if let match = bestMatch(candidates, title: title, artist: artist) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private static func bestMatch(_ tracks: [Track], title: String, artist: String) -> Track? {
         guard !tracks.isEmpty else { return nil }
         let normalizedTitle = normalize(title)
         let normalizedArtist = normalize(artist)
 
-        return tracks.max { lhs, rhs in
+        guard let best = tracks.max(by: { lhs, rhs in
             score(lhs, title: normalizedTitle, artist: normalizedArtist)
                 < score(rhs, title: normalizedTitle, artist: normalizedArtist)
+        }), score(best, title: normalizedTitle, artist: normalizedArtist) > 0 else {
+            return nil
         }
+        return best
     }
 
     private static func score(_ track: Track, title: String, artist: String) -> Int {
@@ -191,11 +226,9 @@ final class MusicRecognitionService: NSObject, ObservableObject {
     }
 
     private static func normalize(_ value: String) -> String {
-        value.lowercased()
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "　", with: "")
-            .replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: "·", with: "")
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
     }
 #endif
 
@@ -280,8 +313,9 @@ struct MusicRecognitionView: View {
         switch service.state {
         case .requestingPermission: return "需要麦克风权限"
         case .listening: return "正在聆听"
-        case .matching: return "正在匹配 QQ 音乐"
+        case .matching: return "正在匹配可播放版本"
         case .matched: return "找到歌曲了"
+        case .identified: return "已识别到歌曲"
         case .noMatch: return "没有找到匹配"
         case .failed: return "识别暂时不可用"
         case .idle: return "听歌识曲"
@@ -290,10 +324,13 @@ struct MusicRecognitionView: View {
 
     private var message: String {
         switch service.state {
-        case .requestingPermission: return "允许后，Moumusic 会聆听约 8 秒并匹配 QQ 音乐歌曲。"
+        case .requestingPermission: return "允许后，Moumusic 会聆听约 8 秒并匹配可播放版本。"
         case .listening: return "请把手机靠近正在播放的音乐。"
-        case .matching: return "正在用歌曲名称和歌手匹配 QQ 音乐目录。"
-        case .matched: return "结果来自 QQ 音乐目录，播放会使用当前 LX 音源。"
+        case .matching: return "正在用歌曲名称和歌手匹配已启用的平台。"
+        case .matched: return "已找到可播放版本，播放会使用当前 LX 音源。"
+        case let .identified(title, artist):
+            let detail = artist.isEmpty ? "《\(title)》" : "《\(title)》—\(artist)"
+            return "已识别到\(detail)，但当前可用音源暂时没有可播放版本。"
         case .noMatch: return "请靠近音源后再试，或换一段更清晰的副歌。"
         case .failed(let text): return text
         case .idle: return "识别身边正在播放的歌曲。"
@@ -345,7 +382,7 @@ struct MusicRecognitionView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text("QQ 音乐")
+                Text(sourceName(for: track))
                     .font(.caption)
                     .foregroundStyle(Theme.accent)
             }
@@ -354,6 +391,11 @@ struct MusicRecognitionView: View {
         .padding(12)
         .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("识别结果：\(track.name)，\(track.artistNames)，QQ 音乐")
+        .accessibilityLabel("识别结果：\(track.name)，\(track.artistNames)，\(sourceName(for: track))")
+    }
+
+    private func sourceName(for track: Track) -> String {
+        let rawSource = track.source ?? track.sourceMetadata["source"] ?? ""
+        return LXCatalogPlatform(rawValue: rawSource)?.displayName ?? rawSource
     }
 }
