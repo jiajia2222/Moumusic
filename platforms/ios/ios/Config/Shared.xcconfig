@@ -14,8 +14,8 @@ INFOPLIST_KEY_CFBundleDisplayName = Moumusic
 INFOPLIST_KEY_CFBundleDevelopmentRegion = zh-Hans
 // Keep local/Xcode builds on the current public release. CI overrides this
 // with the version from the v* tag and verifies the final app bundle.
-MARKETING_VERSION = 1.0.10
-CURRENT_PROJECT_VERSION = 110
+MARKETING_VERSION = 1.0.12
+CURRENT_PROJECT_VERSION = 112
 DEVELOPMENT_TEAM = 
 CODE_SIGN_STYLE = Automatic
 
