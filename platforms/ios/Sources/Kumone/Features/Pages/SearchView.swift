@@ -80,6 +80,7 @@ final class SearchViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var loadedTabs: Set<Tab> = []
     @Published var platform: LXCatalogPlatform = .aggregate
+    @Published private(set) var hotKeywords: [String] = []
     private var artistAvatarCache: [String: String] = [:]
     private var requestGeneration = 0
 
@@ -99,6 +100,19 @@ final class SearchViewModel: ObservableObject {
         invalidatePendingResults()
     }
 
+    func loadHotKeywords() async {
+        let requestedPlatform = platform
+        let keywords = (try? await LXCatalogService.hotKeywords(platform: requestedPlatform)) ?? []
+        guard requestedPlatform == platform else { return }
+
+        var seen = Set<String>()
+        hotKeywords = keywords
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0.localizedLowercase).inserted }
+            .prefix(12)
+            .map { $0 }
+    }
+
     private func invalidatePendingResults() {
         requestGeneration += 1
         loadedTabs.removeAll()
@@ -106,6 +120,7 @@ final class SearchViewModel: ObservableObject {
         artists = []
         albums = []
         playlists = []
+        hotKeywords = []
         isLoading = false
     }
 
@@ -343,8 +358,12 @@ struct SearchView: View {
             model.setQuery(newValue)
         }
         .navigationTitle(searchText.isEmpty ? "搜索" : searchText)
-        .task(id: "\(model.tab.rawValue)-\(model.platform.rawValue)") {
-            await model.load(tab: model.tab)
+        .task(id: "\(model.tab.rawValue)-\(model.platform.rawValue)-\(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)") {
+            if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                await model.loadHotKeywords()
+            } else {
+                await model.load(tab: model.tab)
+            }
         }
         .onDisappear {
             resignSearchInput()
@@ -443,6 +462,40 @@ struct SearchView: View {
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
+
+            if !model.hotKeywords.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Label("热门搜索", systemImage: "flame.fill")
+                            .font(.headline)
+                        Spacer()
+                        Text(model.platform.displayName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 10)], spacing: 10) {
+                        ForEach(model.hotKeywords, id: \.self) { keyword in
+                            Button {
+                                performSearch(keyword)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "magnifyingglass")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(Theme.accent)
+                                    Text(keyword)
+                                        .lineLimit(1)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 44)
+                                .background(.quaternary.opacity(0.45), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
 
             if !history.entries.isEmpty {
                 HStack {
