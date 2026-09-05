@@ -64,7 +64,12 @@ final class SearchViewModel: ObservableObject {
     }
 
     var query: String
-    @Published var tab: Tab = .all
+    @Published var tab: Tab = .all {
+        didSet {
+            guard oldValue != tab else { return }
+            invalidatePendingResults()
+        }
+    }
     @Published var songs: [Track] = []
     @Published var artists: [ArtistResult] = []
     @Published var albums: [AlbumResult] = []
@@ -73,6 +78,7 @@ final class SearchViewModel: ObservableObject {
     @Published var loadedTabs: Set<Tab> = []
     @Published var platform: LXCatalogPlatform = .aggregate
     private var artistAvatarCache: [String: String] = [:]
+    private var requestGeneration = 0
 
     init(query: String) {
         self.query = query
@@ -81,29 +87,38 @@ final class SearchViewModel: ObservableObject {
     func setQuery(_ newQuery: String) {
         guard newQuery != query else { return }
         query = newQuery
-        loadedTabs.removeAll()
-        songs = []
-        artists = []
-        albums = []
-        playlists = []
+        invalidatePendingResults()
     }
 
     func setPlatform(_ newPlatform: LXCatalogPlatform) {
         guard newPlatform != platform else { return }
         platform = newPlatform
+        invalidatePendingResults()
+    }
+
+    private func invalidatePendingResults() {
+        requestGeneration += 1
         loadedTabs.removeAll()
         songs = []
         artists = []
         albums = []
         playlists = []
+        isLoading = false
     }
 
     func load(tab: Tab, force: Bool = false) async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, force || !loadedTabs.contains(tab) else { return }
 
+        let generation = requestGeneration
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if generation == requestGeneration { isLoading = false }
+        }
+
+        func isCurrentRequest() -> Bool {
+            generation == requestGeneration
+        }
 
         var didLoad = false
         switch tab {
@@ -111,40 +126,52 @@ final class SearchViewModel: ObservableObject {
             async let songsTask = try? LXCatalogService.search(trimmed, platform: platform, limit: 12)
             async let playlistsTask = try? LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 12)
             if let result = await songsTask {
+                guard isCurrentRequest() else { return }
                 songs = result
                 rebuildMetadata(from: result)
-                await enrichArtistAvatars()
+                await enrichArtistAvatars(generation: generation)
+                guard isCurrentRequest() else { return }
                 didLoad = true
             }
             if let result = await playlistsTask {
+                guard isCurrentRequest() else { return }
                 playlists = result
                 didLoad = true
             }
         case .songs:
             if let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100) {
+                guard isCurrentRequest() else { return }
                 songs = result
                 rebuildMetadata(from: result)
-                await enrichArtistAvatars()
+                await enrichArtistAvatars(generation: generation)
+                guard isCurrentRequest() else { return }
                 didLoad = true
             }
         case .artists:
-            songs = (try? await LXCatalogService.search(trimmed, platform: platform, limit: 100)) ?? songs
+            guard let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100),
+                  isCurrentRequest() else { return }
+            songs = result
             rebuildMetadata(from: songs)
-            await enrichArtistAvatars()
+            await enrichArtistAvatars(generation: generation)
+            guard isCurrentRequest() else { return }
             didLoad = true
         case .albums:
-            songs = (try? await LXCatalogService.search(trimmed, platform: platform, limit: 100)) ?? songs
+            guard let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100),
+                  isCurrentRequest() else { return }
+            songs = result
             rebuildMetadata(from: songs)
-            await enrichArtistAvatars()
+            await enrichArtistAvatars(generation: generation)
+            guard isCurrentRequest() else { return }
             didLoad = true
         case .playlists:
             if let result = try? await LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 100) {
+                guard isCurrentRequest() else { return }
                 playlists = result
                 didLoad = true
             }
         }
 
-        if didLoad { loadedTabs.insert(tab) }
+        if didLoad, isCurrentRequest() { loadedTabs.insert(tab) }
     }
 
     private func rebuildMetadata(from tracks: [Track]) {
@@ -192,12 +219,13 @@ final class SearchViewModel: ObservableObject {
     /// LX search results do not consistently include artist artwork. Enrich
     /// only the visible artist cards with public NetEase artist metadata. The
     /// selected catalogue still owns the actual song and playback results.
-    private func enrichArtistAvatars() async {
+    private func enrichArtistAvatars(generation: Int) async {
         let targets = artists.compactMap { artist -> (String, Int?)? in
             guard artist.avatarURL == nil, artistAvatarCache[artist.id] == nil else { return nil }
             return (artist.id, artist.neteaseID)
         }
         guard !targets.isEmpty else {
+            guard generation == requestGeneration else { return }
             applyCachedArtistAvatars()
             return
         }
@@ -228,6 +256,7 @@ final class SearchViewModel: ObservableObject {
             return values
         }
 
+        guard generation == requestGeneration else { return }
         for (key, avatarURL) in responses {
             if let avatarURL, !avatarURL.isEmpty {
                 artistAvatarCache[key] = avatarURL

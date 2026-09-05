@@ -907,20 +907,11 @@ enum LXCatalogService {
 
         switch platform {
         case .kw:
-            let lists = (try? await recommendedKuwoSonglists(limit: limit)) ?? []
-            return lists.isEmpty
-                ? try await searchSonglists("热门", platform: .kw, limit: limit)
-                : lists
+            return (try? await recommendedKuwoSonglists(limit: limit)) ?? []
         case .kg:
-            let lists = (try? await recommendedKugouSonglists(limit: limit)) ?? []
-            return lists.isEmpty
-                ? try await searchSonglists("热门", platform: .kg, limit: limit)
-                : lists
+            return (try? await recommendedKugouSonglists(limit: limit)) ?? []
         case .tx:
-            let lists = (try? await recommendedQQSonglists(limit: limit)) ?? []
-            return lists.isEmpty
-                ? try await searchSonglists("热门", platform: .tx, limit: limit)
-                : lists
+            return (try? await recommendedQQSonglists(limit: limit)) ?? []
         case .wy:
             let items = try await NeteaseAPI.personalizedPlaylists(limit: limit)
             return items.map {
@@ -930,10 +921,7 @@ enum LXCatalogService {
                                   source: .wy)
             }
         case .mg:
-            let lists = (try? await recommendedMiguSonglists(limit: limit)) ?? []
-            return lists.isEmpty
-                ? try await searchSonglists("热门", platform: .mg, limit: limit)
-                : lists
+            return (try? await recommendedMiguSonglists(limit: limit)) ?? []
         case .aggregate:
             throw LXCatalogError.unsupported
         }

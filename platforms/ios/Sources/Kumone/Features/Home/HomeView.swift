@@ -46,6 +46,8 @@ final class HomeViewModel: ObservableObject {
     private var activeRequest: LoadRequest?
     private var loadTask: Task<Void, Never>?
     private var loadGeneration = 0
+    private var lastLoadedAt: Date?
+    private static let recommendationTTL: TimeInterval = 5 * 60
     private static let didPerformInstallRefreshKey = "moumusic.home.didPerformInstallRefresh.v2"
 
     func load(loggedIn: Bool, mode: HomeRecommendationMode,
@@ -54,7 +56,10 @@ final class HomeViewModel: ObservableObject {
         if activeRequest == request {
             switch state {
             case .loaded:
-                return
+                if let lastLoadedAt,
+                   Date().timeIntervalSince(lastLoadedAt) < Self.recommendationTTL {
+                    return
+                }
             case .loading, .error:
                 // The actual request is owned by the model rather than by the
                 // SwiftUI view task. This lets it survive the first TabView
@@ -98,6 +103,7 @@ final class HomeViewModel: ObservableObject {
                            platform: request.platform, generation: generation)
             guard generation == loadGeneration else { return }
             if case .loaded = state {
+                lastLoadedAt = Date()
                 if warmStart {
                     UserDefaults.standard.set(true, forKey: Self.didPerformInstallRefreshKey)
                 }
@@ -177,6 +183,7 @@ final class HomeViewModel: ObservableObject {
         loadTask?.cancel()
         loadTask = nil
         activeRequest = nil
+        lastLoadedAt = nil
         state = .idle
         await load(loggedIn: loggedIn, mode: mode, platform: platform)
     }
@@ -250,6 +257,15 @@ struct HomeView: View {
             await model.load(loggedIn: account.isLoggedIn,
                              mode: settings.homeRecommendationMode,
                              platform: settings.homeRecommendationPlatform)
+        }
+        .onAppear {
+            // The shared model keeps scroll state between tabs, but the feed
+            // itself must be refreshed after its short cache expires.
+            Task {
+                await model.load(loggedIn: account.isLoggedIn,
+                                 mode: settings.homeRecommendationMode,
+                                 platform: settings.homeRecommendationPlatform)
+            }
         }
         .refreshable {
             await model.reload(loggedIn: account.isLoggedIn,
