@@ -53,7 +53,7 @@ jobs:
           test -n "$ANDROID_KEY_PASSWORD"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release.p12
           chmod 600 release.p12
-          printf 'storeFile=release.p12\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \\
+          printf 'storeFile=release.p12\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
             "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD" > keystore.properties
           chmod 600 keystore.properties
 
