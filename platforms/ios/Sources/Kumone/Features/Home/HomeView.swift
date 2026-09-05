@@ -243,7 +243,6 @@ struct HomeView: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
     @StateObject private var model = HomeViewModel.shared
-    @State private var showRecognition = false
 
     var body: some View {
         ScrollView {
@@ -287,12 +286,6 @@ struct HomeView: View {
                                mode: settings.homeRecommendationMode,
                                platform: settings.homeRecommendationPlatform)
         }
-        .sheet(isPresented: $showRecognition) {
-            NavigationStack {
-                MusicRecognitionView()
-            }
-            .environmentObject(player)
-        }
     }
 
     private var lxLoadedBody: some View {
@@ -307,8 +300,6 @@ struct HomeView: View {
                 Spacer()
             }
             .padding(.horizontal, Theme.Layout.contentInset)
-
-            recognitionButton
 
             if !model.lxRecommendPlaylists.isEmpty {
                 Shelf(title: "推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
@@ -405,7 +396,6 @@ struct HomeView: View {
     private var loadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 34) {
             homePlatformPicker
-            recognitionButton
             featureCards
                 .padding(.top, 8)
 
@@ -476,23 +466,6 @@ struct HomeView: View {
     }
 
     // MARK: - Feature cards
-
-    private var recognitionButton: some View {
-        Button {
-            showRecognition = true
-        } label: {
-            Label("听歌识曲", systemImage: "waveform.badge.mic")
-                .font(.headline)
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 52)
-                .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("使用麦克风识别当前正在播放的歌曲")
-        .padding(.horizontal, Theme.Layout.contentInset)
-    }
 
     private var featureCards: some View {
         ScrollView(.horizontal, showsIndicators: false) {
