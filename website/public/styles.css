@@ -326,6 +326,32 @@ button.sponsor-card { width: 100%; color: inherit; text-align: left; cursor: poi
 .dialog-details dd { margin: 0; font-size: 13px; font-weight: 650; }
 .dialog-thanks { margin: 0; color: var(--accent); font-size: 12px; }
 
+.support-dialog,
+.chatway-dialog { width: 100%; max-width: 100%; padding: 0; color: var(--ink); background: transparent; border: 0; }
+.support-dialog::backdrop,
+.chatway-dialog::backdrop { background: rgba(16, 18, 22, 0.46); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.support-dialog__surface,
+.chatway-dialog__surface { position: relative; display: flex; flex-direction: column; width: min(calc(100% - 28px), 900px); height: min(760px, calc(100dvh - 40px)); margin: auto; padding: 28px; border: 1px solid var(--border); border-radius: 30px; background: var(--glass-strong); -webkit-backdrop-filter: blur(26px) saturate(1.16); backdrop-filter: blur(26px) saturate(1.16); box-shadow: var(--shadow); }
+.chatway-dialog__surface { width: min(calc(100% - 28px), 620px); height: min(720px, calc(100dvh - 40px)); }
+.support-dialog__close { position: absolute; top: 14px; right: 16px; z-index: 1; width: 36px; height: 36px; color: var(--muted); font-size: 26px; line-height: 1; cursor: pointer; background: rgba(128, 128, 128, 0.1); border: 1px solid var(--line); border-radius: 50%; }
+.support-dialog__close:hover,
+.support-dialog__close:focus-visible { color: var(--accent); border-color: rgba(228, 101, 85, 0.46); }
+.support-dialog__surface h2,
+.chatway-dialog__surface h2 { margin: 8px 48px 7px 0; font-size: clamp(25px, 3vw, 34px); letter-spacing: -0.055em; }
+.support-dialog__intro { margin: 0 48px 18px 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.support-dialog__frame-wrap,
+.chatway-dialog__frame-wrap { flex: 1; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 22px; background: var(--glass-strong); }
+.support-dialog__frame-wrap iframe,
+.chatway-dialog__frame-wrap iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+.support-dialog__fallback { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; }
+.support-dialog__fallback a { color: var(--accent-deep); text-decoration: underline; text-underline-offset: 3px; }
+.chatway-fallback { position: fixed; right: 24px; bottom: 24px; z-index: 45; display: inline-flex; align-items: center; gap: 9px; min-height: 43px; padding: 0 16px; color: var(--ink); font: inherit; font-size: 12px; font-weight: 680; cursor: pointer; border: 1px solid var(--border); border-radius: 999px; background: var(--glass-strong); -webkit-backdrop-filter: blur(18px) saturate(1.18); backdrop-filter: blur(18px) saturate(1.18); box-shadow: var(--shadow); }
+.chatway-fallback:hover,
+.chatway-fallback:focus-visible { transform: translateY(-2px); border-color: var(--accent); }
+.chatway-fallback__dot { width: 8px; height: 8px; border-radius: 50%; background: #4ca678; box-shadow: 0 0 0 4px rgba(76, 166, 120, 0.13); }
+.release-version { margin: 7px 0 0; color: var(--accent-deep); font-size: 11px; font-weight: 700; line-height: 1.4; }
+.install-hero__meta .release-version { margin: 0; }
+
 :focus-visible { outline: 3px solid rgba(228, 101, 85, 0.4); outline-offset: 3px; }
 [hidden] { display: none !important; }
 
@@ -1068,4 +1094,12 @@ html[data-theme="dark"] .stat-card {
     --home-coral: #e86659;
     --home-coral-dark: #bd4d43;
   }
+}
+
+@media (max-width: 720px) {
+  .support-dialog__surface,
+  .chatway-dialog__surface { width: 100%; height: min(92dvh, 760px); margin: 0; padding: 24px 16px max(16px, env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; }
+  .support-dialog__surface h2,
+  .chatway-dialog__surface h2 { font-size: 27px; }
+  .chatway-fallback { right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); }
 }

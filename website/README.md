@@ -7,6 +7,8 @@
 - `/api/aifadian/sponsors`：脱敏后的赞助者名单
 - `/api/aifadian/orders`：脱敏后的最近订单
 - `/api/aifadian/stats`：支持者数量、最近支持时间和可选金额统计
+- `/api/releases/latest`：读取当前 GitHub Release 的版本信息
+- `/download/ios`、`/download/android`：始终跳转到 GitHub 的 `releases/latest/download` 下载入口
 - `/health`：服务健康检查
 
 ## 本地运行
@@ -32,6 +34,9 @@ node --env-file=.env src/server.mjs
 | `AFDIAN_USER_ID` | 爱发电开发者 API 的 user_id，仅服务端使用 |
 | `AFDIAN_TOKEN` | 爱发电开发者 API Token，仅服务端使用 |
 | `AFDIAN_URL` | 公开的爱发电主页地址 |
+| `AFDIAN_PLAN_URL` | 站内支持弹窗使用的爱发电方案页 |
+| `CHATWAY_SCRIPT_ID` | Chatway 官方脚本 ID |
+| `CHATWAY_WIDGET_ID` | Chatway 官方组件 ID，用于桌面端备用内嵌入口 |
 | `SHOW_SPONSOR_AMOUNT` | `true` 时显示金额，默认关闭 |
 | `SITE_NAME` | 页面显示昵称 |
 | `SITE_AVATAR` | 头像 URL，可留空使用首字母头像 |
@@ -42,11 +47,17 @@ node --env-file=.env src/server.mjs
 
 `AFDIAN_TOKEN` 永远不会进入 HTML、JavaScript、API 响应或日志。项目也不会托管 P12、mobileprovision、企业证书或密码。
 
+安装页会通过 `/api/releases/latest` 显示最新版本；下载按钮使用 `/download/ios` 和 `/download/android`，由 GitHub 的 `releases/latest/download` 在访问时解析最新文件，不再固定某个版本号。
+
+爱发电支持按钮会在本站打开方案页弹窗，付款仍由爱发电官方页面处理；如果浏览器禁止第三方内嵌页面，弹窗内提供官方直达链接。Chatway 使用官方脚本，并在桌面端组件未加载时提供同一组件的备用入口。
+
 ## API 说明
 
 服务端使用爱发电官方 `query-sponsor` 和 `query-order` OpenAPI，按官方规则生成 `md5(token + params + ts + user_id)` 签名，分页获取数据并在返回前只保留页面需要的字段。结果缓存 10 分钟，避免每次刷新都请求上游。
 
 官方文档：[爱发电开发者 API 和 Webhook](https://guide.afdian.com/creator/developer)。
+
+Chatway 安装说明：[在任意网站安装 Chatway](https://chatway.app/help/how-to-install-chatway/how-to-install-chatway-on-any-website)。
 
 ## 测试
 

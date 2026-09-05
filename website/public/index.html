@@ -11,7 +11,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://music.nadev.xyz/" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=20260904-theme" />
+    <link rel="stylesheet" href="/styles.css?v=20260905-chat-payment" />
     <title data-i18n="meta.homeTitle">Moumusic｜安装与支持</title>
   </head>
   <body class="home-page">
@@ -191,9 +191,40 @@
       </div>
     </dialog>
 
+    <dialog class="support-dialog" id="afdian-payment-dialog" aria-labelledby="afdian-payment-title">
+      <div class="support-dialog__surface glass-card">
+        <button class="support-dialog__close" id="afdian-dialog-close" type="button" aria-label="关闭" data-i18n-aria-label="supportDialog.close">×</button>
+        <p class="dialog-kicker" data-i18n="supportDialog.kicker">SUPPORT MOUMUSIC</p>
+        <h2 id="afdian-payment-title" data-i18n="supportDialog.title">选择支持方案</h2>
+        <p class="support-dialog__intro" data-i18n="supportDialog.body">付款由爱发电官方页面安全处理。</p>
+        <div class="support-dialog__frame-wrap">
+          <iframe id="afdian-payment-frame" title="爱发电支持方案" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="payment *"></iframe>
+        </div>
+        <p class="support-dialog__fallback"><span data-i18n="supportDialog.fallback">如果内嵌页面被浏览器拦截：</span> <a id="afdian-direct-link" href="https://ifdian.net/a/moumou2026/plan" target="_blank" rel="noopener noreferrer" data-i18n="supportDialog.openDirect">在新窗口打开爱发电</a></p>
+      </div>
+    </dialog>
+
+    <button class="chatway-fallback" id="chatway-fallback" type="button" hidden aria-controls="chatway-dialog">
+      <span class="chatway-fallback__dot" aria-hidden="true"></span>
+      <span data-i18n="chatway.fallbackButton">在线反馈</span>
+    </button>
+    <dialog class="chatway-dialog" id="chatway-dialog" aria-labelledby="chatway-dialog-title">
+      <div class="chatway-dialog__surface glass-card">
+        <button class="support-dialog__close" id="chatway-dialog-close" type="button" aria-label="关闭" data-i18n-aria-label="supportDialog.close">×</button>
+        <p class="dialog-kicker" data-i18n="chatway.kicker">CHATWAY</p>
+        <h2 id="chatway-dialog-title" data-i18n="chatway.title">联系支持</h2>
+        <div class="chatway-dialog__frame-wrap">
+          <iframe id="chatway-fallback-frame" title="Chatway 在线反馈" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="microphone; camera"></iframe>
+        </div>
+        <p class="support-dialog__fallback"><a href="https://github.com/jiajia2222/Moumusic/issues/new/choose" target="_blank" rel="noopener noreferrer" data-i18n="chatway.issueLink">也可以提交 GitHub Issue</a></p>
+      </div>
+    </dialog>
+
     <div id="site-config" hidden>__SITE_CONFIG__</div>
-    <script src="/i18n.js" defer></script>
-    <script src="/app.js" defer></script>
-    <script id="chatway" async="true" src="https://cdn.chatway.app/widget.js?id=Ol4m4dkJ9UJP"></script>
+    <script src="/i18n.js?v=20260905-chat-payment" defer></script>
+    <script src="/support.js?v=20260905-chat-payment" defer></script>
+    <script src="/chatway.js?v=20260905-chat-payment" defer></script>
+    <script src="/app.js?v=20260905-chat-payment" defer></script>
+    <script id="chatway" async="true" src="https://cdn.chatway.app/widget.js?id=__CHATWAY_SCRIPT_ID__&widget_id=__CHATWAY_WIDGET_ID__"></script>
   </body>
 </html>

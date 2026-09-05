@@ -7,7 +7,7 @@ try {
 }
 
 const $ = id => document.getElementById(id)
-const supportLink = siteConfig.afdianUrl || 'https://www.ifdian.net/a/moumou2026'
+const supportLink = siteConfig.afdianPlanUrl || siteConfig.afdianUrl || 'https://ifdian.net/a/moumou2026/plan'
 const showAmount = Boolean(siteConfig.showAmount)
 const i18n = window.MoumusicI18n || { language: () => 'zh', t: key => key }
 let supporters = []

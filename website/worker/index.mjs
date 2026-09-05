@@ -14,6 +14,9 @@ const RELEASE_ASSET_NAMES = {
 }
 const CACHE_TTL_SECONDS = 10 * 60
 const DEFAULT_AFDIAN_URL = 'https://www.ifdian.net/a/moumou2026'
+const DEFAULT_AFDIAN_PLAN_URL = 'https://ifdian.net/a/moumou2026/plan'
+const DEFAULT_CHATWAY_SCRIPT_ID = 'Ol4m4dkJ9UJP'
+const DEFAULT_CHATWAY_WIDGET_ID = 'qfybc7qkscn3ptkgxwrv'
 const memoryCache = new Map()
 const rateBuckets = new Map()
 
@@ -45,6 +48,17 @@ function safeHttpUrl(value, fallback = '') {
   }
 }
 
+function deriveAfdianPlanUrl(value, fallback = DEFAULT_AFDIAN_PLAN_URL) {
+  try {
+    const url = new URL(String(value || ''))
+    if (!['https:', 'http:'].includes(url.protocol)) return fallback
+    if (!/\/plan\/?$/i.test(url.pathname)) url.pathname = `${url.pathname.replace(/\/$/, '')}/plan`
+    return url.toString()
+  } catch {
+    return fallback
+  }
+}
+
 function getConfig(env) {
   return {
     userId: String(env.AFDIAN_USER_ID || '').trim(),
@@ -55,6 +69,7 @@ function getConfig(env) {
 
 function getPublicConfig(env, request) {
   const siteOrigin = request ? new URL(request.url).origin : 'https://music.nadev.xyz'
+  const afdianUrl = safeHttpUrl(env.AFDIAN_URL, DEFAULT_AFDIAN_URL)
   return {
     name: String(env.SITE_NAME || 'MouMou').trim() || 'MouMou',
     avatar: safeHttpUrl(env.SITE_AVATAR),
@@ -62,10 +77,13 @@ function getPublicConfig(env, request) {
     taglineEn: env.SITE_TAGLINE_EN || 'Download the app, add a source you are allowed to use, and start playing.',
     thanks: env.SITE_THANKS || '感谢每一位支持者，让 Moumusic 可以持续更新。',
     thanksEn: env.SITE_THANKS_EN || 'Thank you to every supporter for helping Moumusic keep moving.',
-    afdianUrl: safeHttpUrl(env.AFDIAN_URL, DEFAULT_AFDIAN_URL),
+    afdianUrl,
+    afdianPlanUrl: deriveAfdianPlanUrl(env.AFDIAN_PLAN_URL || afdianUrl),
     showAmount: envBoolean(env.SHOW_SPONSOR_AMOUNT),
     iosDownloadUrl: safeHttpUrl(env.IOS_DOWNLOAD_URL, `${siteOrigin}/download/ios`),
     androidDownloadUrl: safeHttpUrl(env.ANDROID_DOWNLOAD_URL, `${siteOrigin}/download/android`),
+    chatwayScriptId: String(env.CHATWAY_SCRIPT_ID || DEFAULT_CHATWAY_SCRIPT_ID).trim(),
+    chatwayWidgetId: String(env.CHATWAY_WIDGET_ID || DEFAULT_CHATWAY_WIDGET_ID).trim(),
   }
 }
 
@@ -165,14 +183,24 @@ async function getLatestReleaseAsset(request, ctx, platform) {
   throw new AfdianError('RELEASE_ASSET_MISSING', `No ${platform} asset found in recent releases.`, 503)
 }
 
+async function getLatestReleaseInfo(request, ctx) {
+  const [ios, android] = await Promise.all([
+    getLatestReleaseAsset(request, ctx, 'ios'),
+    getLatestReleaseAsset(request, ctx, 'android'),
+  ])
+  const version = [ios.version, android.version].find(value => value && value !== 'latest') || 'latest'
+  return { version, ios, android }
+}
+
 async function redirectToLatestRelease(request, ctx, platform) {
   try {
-    const asset = await getLatestReleaseAsset(request, ctx, platform)
+    const name = RELEASE_ASSET_NAMES[platform]?.[0]
+    if (!name) throw new AfdianError('RELEASE_ASSET_MISSING', `No ${platform} asset configured.`, 503)
     return new Response(null, {
       status: 302,
       headers: {
-        location: asset.url,
-        'cache-control': 'public, max-age=300, stale-while-revalidate=600',
+        location: `${GITHUB_RELEASE_DOWNLOAD_BASE}/${encodeURIComponent(name)}`,
+        'cache-control': 'no-store',
       },
     })
   } catch (error) {
@@ -377,7 +405,11 @@ async function renderPage(request, env, filename) {
   const assetRequest = new Request(assetUrl, { headers: request.headers })
   const asset = await env.ASSETS.fetch(assetRequest)
   if (!asset.ok) return new Response('Not found', { status: 404 })
-  const html = (await asset.text()).replace('__SITE_CONFIG__', safeJson(getPublicConfig(env, request)))
+  const config = getPublicConfig(env, request)
+  const html = (await asset.text())
+    .replace('__SITE_CONFIG__', safeJson(config))
+    .replaceAll('__CHATWAY_SCRIPT_ID__', encodeURIComponent(config.chatwayScriptId))
+    .replaceAll('__CHATWAY_WIDGET_ID__', encodeURIComponent(config.chatwayWidgetId))
   const headers = securityHeaders(new Headers(asset.headers))
   headers.set('content-type', 'text/html; charset=utf-8')
   headers.set('cache-control', 'no-cache')
@@ -389,7 +421,7 @@ function securityHeaders(headers = new Headers()) {
   headers.set('X-Frame-Options', 'DENY')
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-  headers.set('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://cdn.chatway.app https://fonts.googleapis.com; script-src 'self' https://cdn.chatway.app; connect-src 'self' https://www.cloudflare.com https://chatway.app https://*.chatway.app wss://*.chatway.app; frame-src 'self' https://chatway.app https://*.chatway.app; font-src 'self' https://cdn.chatway.app https://*.chatway.app https://fonts.gstatic.com data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+  headers.set('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://cdn.chatway.app https://fonts.googleapis.com; script-src 'self' https://cdn.chatway.app; connect-src 'self' https://www.cloudflare.com https://chatway.app https://*.chatway.app https://lottie.host https://*.sentry.io wss://*.chatway.app; frame-src 'self' https://chatway.app https://*.chatway.app https://ifdian.net https://www.ifdian.net; font-src 'self' https://cdn.chatway.app https://*.chatway.app https://fonts.gstatic.com data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
   return headers
 }
 
@@ -445,6 +477,10 @@ async function handleRequest(request, env, ctx) {
   if (pathname === '/api/site-config') return jsonResponse(200, { success: true, config: getPublicConfig(env, request) })
 
   try {
+    if (pathname === '/api/releases/latest') {
+      const release = await getLatestReleaseInfo(request, ctx)
+      return jsonResponse(200, { success: true, release }, 'no-store')
+    }
     if (pathname === '/api/aifadian/sponsors') {
       return jsonResponse(200, { success: true, supporters: await getSponsors(env, ctx), cacheTtlSeconds: CACHE_TTL_SECONDS }, 'public, max-age=60, stale-while-revalidate=600')
     }

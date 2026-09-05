@@ -22,6 +22,9 @@ const releaseAssetNames = {
   android: ['Moumusic-android-unsigned.apk', 'moumusic-mobile-v1.0.2-universal.apk'],
 }
 const defaultAfdianUrl = 'https://www.ifdian.net/a/moumou2026'
+const defaultAfdianPlanUrl = 'https://ifdian.net/a/moumou2026/plan'
+const defaultChatwayScriptId = 'Ol4m4dkJ9UJP'
+const defaultChatwayWidgetId = 'qfybc7qkscn3ptkgxwrv'
 const cache = new Map()
 const latestReleaseCache = new Map()
 const rateBuckets = new Map()
@@ -55,6 +58,7 @@ function getConfig() {
 
 function getPublicConfig(baseUrl = `http://localhost:${port}`) {
   const siteOrigin = new URL(baseUrl).origin
+  const afdianUrl = safeHttpUrl(process.env.AFDIAN_URL) || defaultAfdianUrl
   return {
     name: process.env.SITE_NAME || 'MouMou',
     avatar: safeHttpUrl(process.env.SITE_AVATAR) || '',
@@ -62,10 +66,24 @@ function getPublicConfig(baseUrl = `http://localhost:${port}`) {
     taglineEn: process.env.SITE_TAGLINE_EN || 'Download the app, add a source you are allowed to use, and start playing.',
     thanks: process.env.SITE_THANKS || '感谢每一位支持者，让 Moumusic 可以持续更新。',
     thanksEn: process.env.SITE_THANKS_EN || 'Thank you to every supporter for helping Moumusic keep moving.',
-    afdianUrl: safeHttpUrl(process.env.AFDIAN_URL) || defaultAfdianUrl,
+    afdianUrl,
+    afdianPlanUrl: deriveAfdianPlanUrl(process.env.AFDIAN_PLAN_URL || afdianUrl),
     showAmount: envBoolean(process.env.SHOW_SPONSOR_AMOUNT),
     iosDownloadUrl: safeHttpUrl(process.env.IOS_DOWNLOAD_URL) || `${siteOrigin}/download/ios`,
     androidDownloadUrl: safeHttpUrl(process.env.ANDROID_DOWNLOAD_URL) || `${siteOrigin}/download/android`,
+    chatwayScriptId: String(process.env.CHATWAY_SCRIPT_ID || defaultChatwayScriptId).trim(),
+    chatwayWidgetId: String(process.env.CHATWAY_WIDGET_ID || defaultChatwayWidgetId).trim(),
+  }
+}
+
+function deriveAfdianPlanUrl(value, fallback = defaultAfdianPlanUrl) {
+  try {
+    const url = new URL(String(value || ''))
+    if (!['https:', 'http:'].includes(url.protocol)) return fallback
+    if (!/\/plan\/?$/i.test(url.pathname)) url.pathname = `${url.pathname.replace(/\/$/, '')}/plan`
+    return url.toString()
+  } catch {
+    return fallback
   }
 }
 
@@ -149,6 +167,15 @@ async function getLatestReleaseAsset(platform) {
     return directAsset
   }
   throw new AfdianError('RELEASE_ASSET_MISSING', `No ${platform} asset found in recent releases.`, 503)
+}
+
+async function getLatestReleaseInfo() {
+  const [ios, android] = await Promise.all([
+    getLatestReleaseAsset('ios'),
+    getLatestReleaseAsset('android'),
+  ])
+  const version = [ios.version, android.version].find(value => value && value !== 'latest') || 'latest'
+  return { version, ios, android }
 }
 
 function assertAfdianConfig(config) {
@@ -339,7 +366,11 @@ function safeJson(value) {
 
 async function renderPage(filename, baseUrl) {
   const template = await readFile(join(publicRoot, filename), 'utf8')
-  return template.replace('__SITE_CONFIG__', safeJson(getPublicConfig(baseUrl)))
+  const config = getPublicConfig(baseUrl)
+  return template
+    .replace('__SITE_CONFIG__', safeJson(config))
+    .replaceAll('__CHATWAY_SCRIPT_ID__', encodeURIComponent(config.chatwayScriptId))
+    .replaceAll('__CHATWAY_WIDGET_ID__', encodeURIComponent(config.chatwayWidgetId))
 }
 
 function logEvent(event, fields = {}) {
@@ -351,7 +382,7 @@ function setSecurityHeaders(response) {
   response.setHeader('X-Frame-Options', 'DENY')
   response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
   response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-  response.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://cdn.chatway.app https://fonts.googleapis.com; script-src 'self' https://cdn.chatway.app; connect-src 'self' https://www.cloudflare.com https://chatway.app https://*.chatway.app wss://*.chatway.app; frame-src 'self' https://chatway.app https://*.chatway.app; font-src 'self' https://cdn.chatway.app https://*.chatway.app https://fonts.gstatic.com data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+  response.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://cdn.chatway.app https://fonts.googleapis.com; script-src 'self' https://cdn.chatway.app; connect-src 'self' https://www.cloudflare.com https://chatway.app https://*.chatway.app https://lottie.host https://*.sentry.io wss://*.chatway.app; frame-src 'self' https://chatway.app https://*.chatway.app https://ifdian.net https://www.ifdian.net; font-src 'self' https://cdn.chatway.app https://*.chatway.app https://fonts.gstatic.com data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 }
 
 function sendJson(response, status, body) {
@@ -363,10 +394,11 @@ function sendJson(response, status, body) {
 
 async function sendLatestReleaseRedirect(response, platform) {
   try {
-    const asset = await getLatestReleaseAsset(platform)
+    const name = releaseAssetNames[platform]?.[0]
+    if (!name) throw new AfdianError('RELEASE_ASSET_MISSING', `No ${platform} asset configured.`, 503)
     response.statusCode = 302
-    response.setHeader('location', asset.url)
-    response.setHeader('cache-control', 'public, max-age=300, stale-while-revalidate=600')
+    response.setHeader('location', `${githubReleaseDownloadBase}/${encodeURIComponent(name)}`)
+    response.setHeader('cache-control', 'no-store')
     response.end()
   } catch (error) {
     sendJson(response, error instanceof AfdianError ? error.status : 503, {
@@ -467,6 +499,7 @@ async function handleRequest(request, response) {
   }
 
   const apiHandlers = {
+    '/api/releases/latest': async () => ({ release: await getLatestReleaseInfo() }),
     '/api/aifadian/sponsors': async () => ({ supporters: await getSponsors() }),
     '/api/aifadian/orders': async () => ({ orders: await getOrders() }),
     '/api/aifadian/stats': async () => ({ stats: await getStats() }),

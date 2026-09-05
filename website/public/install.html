@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#121519" media="(prefers-color-scheme: dark)" />
     <meta name="description" data-i18n-content="meta.installDescription" content="Moumusic iOS 与 Android 安装说明。" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css?v=20260904-theme" />
+    <link rel="stylesheet" href="/styles.css?v=20260905-chat-payment" />
     <title data-i18n="meta.installTitle">安装说明 | Moumusic</title>
   </head>
   <body>
@@ -37,6 +37,7 @@
           <div class="install-hero__meta">
             <span class="release-dot" aria-hidden="true"></span>
             <span data-i18n="install.releaseMeta">下载入口始终指向 GitHub 最新 Release</span>
+            <span class="release-version" id="latest-release-version" aria-live="polite" data-i18n="install.versionLoading">正在获取最新版本…</span>
             <a href="https://github.com/jiajia2222/Moumusic/releases/latest" target="_blank" rel="noopener noreferrer" data-i18n="install.releaseLink">查看 Release ↗</a>
           </div>
         </section>
@@ -45,6 +46,7 @@
           <article class="install-card glass-card" id="ios">
             <div class="platform-line"><span class="platform-icon"></span><span>iPhone / iPad</span></div>
             <h2 data-i18n="install.iosTitle">iOS 安装</h2>
+            <p class="release-version" id="ios-release-version" aria-live="polite" data-i18n="install.versionLoading">正在获取最新版本…</p>
             <p class="install-lead" data-i18n="install.iosLead">下载未签名 IPA，再用自己的签名方式安装。</p>
             <ol class="steps">
               <li><span>01</span><div data-i18n="install.iosStep1" data-i18n-html="true">下载最新的 <strong>iOS IPA</strong>。</div></li>
@@ -59,6 +61,7 @@
           <article class="install-card glass-card" id="android">
             <div class="platform-line"><span class="platform-icon platform-icon--android">◆</span><span>Android</span></div>
             <h2 data-i18n="install.androidTitle">Android 安装</h2>
+            <p class="release-version" id="android-release-version" aria-live="polite" data-i18n="install.versionLoading">正在获取最新版本…</p>
             <p class="install-lead" data-i18n="install.androidLead">下载 APK 后按系统提示完成安装。</p>
             <ol class="steps">
               <li><span>01</span><div data-i18n="install.androidStep1" data-i18n-html="true">下载最新的 <strong>Android APK</strong>。</div></li>
@@ -97,9 +100,38 @@
         <a id="install-support" href="#support" target="_blank" rel="noopener noreferrer" data-i18n="footer.afdian">前往爱发电</a>
       </footer>
     </div>
+    <dialog class="support-dialog" id="afdian-payment-dialog" aria-labelledby="afdian-payment-title">
+      <div class="support-dialog__surface glass-card">
+        <button class="support-dialog__close" id="afdian-dialog-close" type="button" aria-label="关闭" data-i18n-aria-label="supportDialog.close">×</button>
+        <p class="dialog-kicker" data-i18n="supportDialog.kicker">SUPPORT MOUMUSIC</p>
+        <h2 id="afdian-payment-title" data-i18n="supportDialog.title">选择支持方案</h2>
+        <p class="support-dialog__intro" data-i18n="supportDialog.body">付款由爱发电官方页面安全处理。</p>
+        <div class="support-dialog__frame-wrap">
+          <iframe id="afdian-payment-frame" title="爱发电支持方案" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="payment *"></iframe>
+        </div>
+        <p class="support-dialog__fallback"><span data-i18n="supportDialog.fallback">如果内嵌页面被浏览器拦截：</span> <a id="afdian-direct-link" href="https://ifdian.net/a/moumou2026/plan" target="_blank" rel="noopener noreferrer" data-i18n="supportDialog.openDirect">在新窗口打开爱发电</a></p>
+      </div>
+    </dialog>
+    <button class="chatway-fallback" id="chatway-fallback" type="button" hidden aria-controls="chatway-dialog">
+      <span class="chatway-fallback__dot" aria-hidden="true"></span>
+      <span data-i18n="chatway.fallbackButton">在线反馈</span>
+    </button>
+    <dialog class="chatway-dialog" id="chatway-dialog" aria-labelledby="chatway-dialog-title">
+      <div class="chatway-dialog__surface glass-card">
+        <button class="support-dialog__close" id="chatway-dialog-close" type="button" aria-label="关闭" data-i18n-aria-label="supportDialog.close">×</button>
+        <p class="dialog-kicker" data-i18n="chatway.kicker">CHATWAY</p>
+        <h2 id="chatway-dialog-title" data-i18n="chatway.title">联系支持</h2>
+        <div class="chatway-dialog__frame-wrap">
+          <iframe id="chatway-fallback-frame" title="Chatway 在线反馈" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="microphone; camera"></iframe>
+        </div>
+        <p class="support-dialog__fallback"><a href="https://github.com/jiajia2222/Moumusic/issues/new/choose" target="_blank" rel="noopener noreferrer" data-i18n="chatway.issueLink">也可以提交 GitHub Issue</a></p>
+      </div>
+    </dialog>
     <div id="site-config" hidden>__SITE_CONFIG__</div>
-    <script src="/i18n.js" defer></script>
-    <script src="/install.js" defer></script>
-    <script id="chatway" async="true" src="https://cdn.chatway.app/widget.js?id=Ol4m4dkJ9UJP"></script>
+    <script src="/i18n.js?v=20260905-chat-payment" defer></script>
+    <script src="/support.js?v=20260905-chat-payment" defer></script>
+    <script src="/chatway.js?v=20260905-chat-payment" defer></script>
+    <script src="/install.js?v=20260905-chat-payment" defer></script>
+    <script id="chatway" async="true" src="https://cdn.chatway.app/widget.js?id=__CHATWAY_SCRIPT_ID__&widget_id=__CHATWAY_WIDGET_ID__"></script>
   </body>
 </html>
