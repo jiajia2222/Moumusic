@@ -4,6 +4,39 @@ import UIKit
 #endif
 
 @MainActor
+final class SearchHistoryStore: ObservableObject {
+    static let shared = SearchHistoryStore()
+
+    @Published private(set) var entries: [String]
+
+    private let key = "moumusic.searchHistory.v1"
+    private let limit = 12
+
+    private init() {
+        entries = UserDefaults.standard.stringArray(forKey: key) ?? []
+    }
+
+    func add(_ value: String) {
+        let query = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        entries.removeAll { $0.localizedCaseInsensitiveCompare(query) == .orderedSame }
+        entries.insert(query, at: 0)
+        entries = Array(entries.prefix(limit))
+        UserDefaults.standard.set(entries, forKey: key)
+    }
+
+    func remove(_ value: String) {
+        entries.removeAll { $0 == value }
+        UserDefaults.standard.set(entries, forKey: key)
+    }
+
+    func clear() {
+        entries.removeAll()
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+
+@MainActor
 final class SearchViewModel: ObservableObject {
     enum Tab: String, CaseIterable, Identifiable {
         case all = "综合"
@@ -216,6 +249,7 @@ final class SearchViewModel: ObservableObject {
 
 struct SearchView: View {
     @StateObject private var model: SearchViewModel
+    @StateObject private var history = SearchHistoryStore.shared
     @State private var searchText: String = ""
 
     init(query: String) {
@@ -267,6 +301,7 @@ struct SearchView: View {
         let query = (submittedText ?? searchText).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
         searchText = query
+        history.add(query)
         model.setQuery(query)
         Task { await model.load(tab: model.tab, force: true) }
     }
@@ -339,21 +374,63 @@ struct SearchView: View {
     }
 
     private var emptySearchPrompt: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 48, weight: .light))
-                .foregroundStyle(.tertiary)
-                .padding(.top, 44)
-            Text("搜索歌曲、歌手、专辑或歌单")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-            Text("点击底部搜索框开始，聚合搜索也可以切换到单个平台。")
-                .font(.subheadline)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 48, weight: .light))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 44)
+                Text("搜索歌曲、歌手、专辑或歌单")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                Text("使用底部搜索框开始，聚合搜索也可以切换到单个平台。")
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+
+            if !history.entries.isEmpty {
+                HStack {
+                    Label("搜索历史", systemImage: "clock.arrow.circlepath")
+                        .font(.headline)
+                    Spacer()
+                    Button("清空") { history.clear() }
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 10)], spacing: 10) {
+                    ForEach(history.entries, id: \.self) { item in
+                        HStack(spacing: 6) {
+                            Button {
+                                searchText = item
+                                performSearch(item)
+                            } label: {
+                                Text(item)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                history.remove(item)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("删除搜索记录")
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 44)
+                        .background(.quaternary.opacity(0.45), in: Capsule())
+                    }
+                }
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 32)
+        .padding(.horizontal, Theme.Layout.contentInset)
     }
 
     private var currentEmpty: Bool {

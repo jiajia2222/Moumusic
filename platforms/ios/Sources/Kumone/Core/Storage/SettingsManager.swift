@@ -38,6 +38,18 @@ enum AudioQuality: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The LX source protocol uses these concrete formats. Keeping the
+    /// technical value in the picker prevents two generic NetEase labels from
+    /// being mistaken for different source qualities.
+    var sourceDisplayName: String {
+        switch self {
+        case .standard: return "128 kbps"
+        case .higher, .exhigh: return "320 kbps"
+        case .lossless: return "无损 FLAC"
+        case .hires: return "Hi-Res / FLAC 24-bit"
+        }
+    }
+
     init?(lxType: String) {
         switch lxType.lowercased() {
         case "128k", "m4a": self = .standard
@@ -255,7 +267,7 @@ final class SettingsManager: ObservableObject {
         showDesktopLyrics = defaults.object(forKey: Keys.desktopLyrics) as? Bool ?? false
         desktopLyricsCentered = defaults.object(forKey: Keys.desktopLyricsCentered) as? Bool ?? false
         homeRecommendationMode = defaults.string(forKey: Keys.homeRecommendationMode)
-            .flatMap(HomeRecommendationMode.init) ?? .netease
+            .flatMap(HomeRecommendationMode.init) ?? .lx
         let storedPlatform = defaults.string(forKey: Keys.homeRecommendationPlatform)
             .flatMap(LXCatalogPlatform.init)
         homeRecommendationPlatform = storedPlatform.flatMap {

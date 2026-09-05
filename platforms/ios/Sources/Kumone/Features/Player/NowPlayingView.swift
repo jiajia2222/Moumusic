@@ -610,7 +610,7 @@ struct NowPlayingView: View {
                 .padding(.horizontal, 2)
             HStack(spacing: 8) {
                 Button { showQualityPicker = true } label: {
-                    Label("音质：\(player.servedQuality.map { AudioQuality(lxType: $0)?.displayName ?? $0 } ?? player.currentQuality.badge)", systemImage: "waveform")
+                    Label("音质：\(player.servedQuality.map { AudioQuality(lxType: $0)?.sourceDisplayName ?? $0 } ?? "检测中")", systemImage: "waveform")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.9))
                         .padding(.horizontal, 12)
@@ -737,7 +737,7 @@ struct NowPlayingView: View {
         Button {
             showQualityPicker = true
         } label: {
-            Label("音质：\(player.servedQuality.map { AudioQuality(lxType: $0)?.displayName ?? $0 } ?? player.currentQuality.badge)", systemImage: "waveform")
+            Label("音质：\(player.servedQuality.map { AudioQuality(lxType: $0)?.sourceDisplayName ?? $0 } ?? "检测中")", systemImage: "waveform")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
                 .padding(.horizontal, 12)
@@ -1100,7 +1100,7 @@ private struct QualityPickerSheet: View {
                                 dismiss()
                             } label: {
                                 HStack {
-                                    Text(quality.displayName)
+                                Text(quality.sourceDisplayName)
                                     Spacer()
                                     if player.currentQuality == quality {
                                         Image(systemName: "checkmark")

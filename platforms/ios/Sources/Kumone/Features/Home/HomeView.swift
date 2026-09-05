@@ -150,12 +150,10 @@ final class HomeViewModel: ObservableObject {
         guard generation == loadGeneration else { return }
         let hotSongs = await hotSongsTask ?? []
         guard generation == loadGeneration else { return }
-        if hotSongs.isEmpty,
-           let search = try? await NeteaseAPI.search("热歌榜", type: .songs, limit: 30) {
-            recommendTracks = (search.songs ?? []).map { $0.normalizedForLXPlayback() }
-        } else {
-            recommendTracks = hotSongs.map { $0.normalizedForLXPlayback() }
-        }
+        // Never replace a live recommendation feed with a fixed keyword
+        // search. An empty response is shown as an empty state and can be
+        // retried with pull-to-refresh.
+        recommendTracks = hotSongs.map { $0.normalizedForLXPlayback() }
         guard generation == loadGeneration else { return }
         toplists = Array((await toplistsTask ?? []).prefix(12))
         newAlbums = await albumsTask ?? []
@@ -252,6 +250,11 @@ struct HomeView: View {
             await model.load(loggedIn: account.isLoggedIn,
                              mode: settings.homeRecommendationMode,
                              platform: settings.homeRecommendationPlatform)
+        }
+        .refreshable {
+            await model.reload(loggedIn: account.isLoggedIn,
+                               mode: settings.homeRecommendationMode,
+                               platform: settings.homeRecommendationPlatform)
         }
     }
 

@@ -235,10 +235,10 @@ final class PlayerService: ObservableObject {
         guard let track = currentTrack else { return [] }
 #if os(iOS)
         let names = await LXUserAPIService.shared.availableQualityNames(for: track)
-        let available = AudioQuality.allCases.filter { names.contains($0.lxType) }
-        // Unknown per-song metadata must stay conservative. Showing every
-        // option while the source is loading makes a 320k-only track look
-        // like it can provide Hi-Res.
+        var seenTypes = Set<String>()
+        let available = AudioQuality.allCases.filter {
+            names.contains($0.lxType) && seenTypes.insert($0.lxType).inserted
+        }
         return available.isEmpty ? [.standard] : available
 #else
         return AudioQuality.allCases
@@ -813,9 +813,29 @@ final class PlayerService: ObservableObject {
                 return
             }
             do {
-                let lx = try await LXUserAPIService.shared.resolveMusicURL(for: track, quality: quality)
-                resolvedURL = lx.url
-                servedByLXQuality = lx.quality
+                var resolved: LXUserAPIService.ResolvedURL?
+                var lastError: Error?
+                // A signed source URL can expire or fail once while the
+                // provider is waking up. Retry the same track once before
+                // reporting a playback failure; advancing the queue here
+                // would make an intermittent QQ result look like a wrong song.
+                for attempt in 0..<2 {
+                    do {
+                        resolved = try await LXUserAPIService.shared.resolveMusicURL(
+                            for: track, quality: quality)
+                        break
+                    } catch {
+                        lastError = error
+                        if attempt == 0 {
+                            try? await Task.sleep(for: .milliseconds(350))
+                        }
+                    }
+                }
+                guard let resolved else {
+                    throw lastError ?? LXUserAPIService.LXError.resolveFailed([])
+                }
+                resolvedURL = resolved.url
+                servedByLXQuality = resolved.quality
             } catch {
                 guard generation == resolveGeneration else { return }
                 consecutiveFailures += 1

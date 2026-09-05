@@ -125,8 +125,10 @@ final class DownloadManager: NSObject, ObservableObject {
 
     func availableQualities(for track: Track) async -> [AudioQuality] {
         let names = await LXUserAPIService.shared.availableQualityNames(for: track)
-        let result = AudioQuality.allCases.filter { names.contains($0.lxType) }
-        // Do not turn missing song-level metadata into a false Hi-Res menu.
+        var seenTypes = Set<String>()
+        let result = AudioQuality.allCases.filter {
+            names.contains($0.lxType) && seenTypes.insert($0.lxType).inserted
+        }
         return result.isEmpty ? [.standard] : result
     }
 

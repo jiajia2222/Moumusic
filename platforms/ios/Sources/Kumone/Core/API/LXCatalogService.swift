@@ -259,36 +259,64 @@ enum LXCatalogService {
         // when Array.join() converts undefined to an empty string.  Swift's
         // String.Index traps instead, so signing must be allowed to fail safely.
         guard let sign = zzcSign(body) else { return [] }
-        let url = URL(string: "https://u.y.qq.com/cgi-bin/musics.fcg?sign=\(sign)")!
+        var urlComponents = URLComponents(string: "https://u.y.qq.com/cgi-bin/musics.fcg")!
+        urlComponents.queryItems = [URLQueryItem(name: "sign", value: sign)]
+        guard let url = urlComponents.url else { throw LXCatalogError.invalidResponse }
         var requestObject = URLRequest(url: url)
         requestObject.httpMethod = "POST"
         requestObject.httpBody = body
         requestObject.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        requestObject.setValue("https://y.qq.com", forHTTPHeaderField: "Origin")
+        requestObject.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        requestObject.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
         requestObject.setValue("QQMusic 14090508(android 12)", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: requestObject)
-        guard (response as? HTTPURLResponse)?.statusCode == 200,
-              let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let req = root["req"] as? [String: Any],
-              let reqData = req["data"] as? [String: Any],
-              let items = reqData["body"] as? [String: Any],
-              let songs = items["item_song"] as? [[String: Any]] else { return [] }
+        var root: [String: Any]?
+        var lastError: Error?
+        for attempt in 0..<2 {
+            do {
+                let (data, response) = try await session.data(for: requestObject)
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                    throw LXCatalogError.invalidResponse
+                }
+                root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                if let root,
+                   !dictionaryArray(root, keys: ["item_song", "song", "songlist", "list"]).isEmpty {
+                    break
+                }
+            } catch {
+                lastError = error
+            }
+            if attempt == 0 {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+        if root == nil, let lastError { throw lastError }
+        guard let root else { return [] }
+
+        // QQ has returned both `body.item_song` and `body.song.list` for the
+        // same mobile API over time. Walk only these song aliases; the old
+        // single-path cast made a perfectly valid response look like an empty
+        // result whenever QQ changed the envelope for a region.
+        let songs = dictionaryArray(root, keys: ["item_song", "song", "songlist", "list"])
         return songs.compactMap { item in
-            guard let id = int(item["id"]), id > 0 else { return nil }
-            let album = item["album"] as? [String: Any]
-            let file = item["file"] as? [String: Any]
-            let albumMid = text(album?["mid"]) ?? ""
-            let mediaMid = text(file?["media_mid"]) ?? ""
+            guard let id = firstInt(item["id"], item["songid"], item["songId"], item["song_id"]), id > 0 else { return nil }
+            let album = (item["album"] as? [String: Any])
+                ?? (item["album_info"] as? [String: Any])
+            let file = (item["file"] as? [String: Any])
+                ?? (item["file_info"] as? [String: Any])
+            let albumMid = firstText(album?["mid"], album?["album_mid"], item["albummid"]) ?? ""
+            let mediaMid = firstText(file?["media_mid"], item["media_mid"], item["strMediaMid"]) ?? ""
             let image = albumMid.isEmpty ? nil : "https://y.gtimg.cn/music/photo_new/T002R500x500M000\(albumMid).jpg"
-            var metadata = ["songmid": text(item["mid"]) ?? String(id),
+            var metadata = ["songmid": firstText(item["mid"], item["songmid"], mediaMid) ?? String(id),
                             "id": String(id),
                             "strMediaMid": mediaMid,
                             "albumMid": albumMid]
             addQualityMetadata(&metadata, from: item, source: .tx)
-            return Track(id: id, name: text(item["title"]) ?? text(item["name"]) ?? "",
-                         artists: qqArtists(item["singer"]),
-                         album: AlbumRef(id: int(album?["id"]) ?? 0,
-                                        name: text(album?["name"]) ?? "", picUrl: image),
-                         durationMS: seconds(item["interval"]) * 1000,
+            return Track(id: id, name: firstText(item["title"], item["songname"], item["songName"], item["name"]) ?? "",
+                         artists: qqArtists(item["singer"] ?? item["singers"] ?? item["artist"]),
+                         album: AlbumRef(id: firstInt(album?["id"], album?["albumid"], item["albumid"]) ?? 0,
+                                        name: firstText(album?["name"], album?["title"], item["albumname"]) ?? "", picUrl: image),
+                         durationMS: seconds(item["interval"] ?? item["duration"]) * 1000,
                           source: "tx",
                           sourceMetadata: metadata)
         }
@@ -455,10 +483,10 @@ enum LXCatalogService {
             set("flac24bit", item["ResFileSize"] ?? item["filesize_high"] ?? audio?["filesize_high"])
         case .tx:
             let file = item["file"] as? [String: Any]
-            set("128k", file?["size_128mp3"])
-            set("320k", file?["size_320mp3"])
-            set("flac", file?["size_flac"])
-            set("flac24bit", file?["size_hires"])
+            set("128k", file?["size_128mp3"] ?? file?["size_128"] ?? item["size_128mp3"])
+            set("320k", file?["size_320mp3"] ?? file?["size_320"] ?? item["size_320mp3"])
+            set("flac", file?["size_flac"] ?? file?["size_lossless"] ?? item["size_flac"])
+            set("flac24bit", file?["size_hires"] ?? file?["size_flac24"] ?? item["size_hires"])
         case .mg:
             guard let formats = item["newRateFormats"] as? [[String: Any]] else { return }
             for format in formats {
@@ -563,8 +591,12 @@ enum LXCatalogService {
     private static func int(_ value: Any?) -> Int? {
         if let value = value as? Int { return value }
         if let value = value as? NSNumber { return value.intValue }
-        if let value = value as? String { return Int(value) }
+        if let value = value as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
         return nil
+    }
+
+    private static func firstInt(_ values: Any?...) -> Int? {
+        values.compactMap(int).first
     }
 
     private static func seconds(_ value: Any?) -> Int {
@@ -587,7 +619,11 @@ enum LXCatalogService {
     private static func qqArtists(_ value: Any?) -> [ArtistRef] {
         if let list = value as? [[String: Any]] {
             return list.enumerated().map { ArtistRef(id: int($0.element["id"]) ?? -($0.offset + 1),
-                                                     name: text($0.element["name"]) ?? "") }
+                                                     name: firstText($0.element["name"], $0.element["title"], $0.element["singername"]) ?? "",
+                                                     picUrl: normalizedImageURL(firstText($0.element["picurl"], $0.element["picUrl"], $0.element["avatar"]))) }
+        }
+        if let object = value as? [String: Any] {
+            return qqArtists(object["list"] ?? object["singer"] ?? object["items"])
         }
         return artists(from: text(value))
     }
@@ -681,12 +717,9 @@ enum LXCatalogService {
             seen.insert("\($0.name.lowercased())|\($0.artistNames.lowercased())").inserted
         }
 
-        // A platform may expose playlists while temporarily refusing their
-        // details.  Keep a real platform search as a small fallback, but do
-        // not use the hot-word endpoint that produced the old dummy feed.
-        if tracks.isEmpty {
-            tracks = (try? await search("热门歌曲", platform: platform, limit: limit)) ?? []
-        }
+        // If a platform exposes only the playlist feed temporarily, keep the
+        // page honest rather than filling it with a fixed hot-search query.
+        // The next pull-to-refresh will request the live source feed again.
         return (playlists, Array(tracks.prefix(limit)))
     }
 

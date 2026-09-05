@@ -230,7 +230,7 @@ struct TrackRow: View {
 
     private var qualityName: String {
         if isCurrent, let served = player.servedQuality {
-            return AudioQuality(lxType: served)?.displayName ?? served.uppercased()
+            return AudioQuality(lxType: served)?.sourceDisplayName ?? served.uppercased()
         }
         // A global playback preference is only a request. It must not be
         // shown as this song's actual quality before the LX source resolves
@@ -238,7 +238,7 @@ struct TrackRow: View {
         // cannot, wait until playback reports the served quality.
         for lxType in ["flac24bit", "flac", "320k", "128k"]
             where hasQualitySize(lxType) {
-            return AudioQuality(lxType: lxType)?.displayName ?? lxType
+            return AudioQuality(lxType: lxType)?.sourceDisplayName ?? lxType
         }
         return "待检测"
     }

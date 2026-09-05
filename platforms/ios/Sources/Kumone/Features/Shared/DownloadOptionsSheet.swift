@@ -33,7 +33,7 @@ struct DownloadOptionsSheet: View {
                             selectedQuality = quality
                         } label: {
                             HStack {
-                                Text(quality.displayName)
+                                Text(quality.sourceDisplayName)
                                 Spacer()
                                 if selectedQuality == quality {
                                     Image(systemName: "checkmark")

@@ -146,15 +146,15 @@ final class LXUserAPIService: ObservableObject {
                 requestTrack = matched
             }
 
-            let sourceQualitys = qualityCapabilities[platform] ?? []
-            let trackQualitys = Self.qualityNames(for: requestTrack)
-            let supportedQualitys = sourceQualitys.filter(trackQualitys.contains)
+            let supportedQualitys = supportedQualityNames(for: requestTrack, platform: platform)
             let requestedQuality = Self.lxQuality(for: quality,
                                                   supported: supportedQualitys.isEmpty ? ["128k"] : supportedQualitys)
             do {
                 let response = try await request(source: platform, action: "musicUrl",
                                                  info: ["type": requestedQuality,
-                                                        "musicInfo": musicInfo(for: requestTrack, platform: platform)])
+                                                        "musicInfo": musicInfo(for: requestTrack,
+                                                                                platform: platform,
+                                                                                qualities: supportedQualitys)])
                 guard let data = response["data"] as? [String: Any],
                       let rawURL = data["url"] as? String,
                       let url = URL(string: rawURL),
@@ -228,14 +228,12 @@ final class LXUserAPIService: ObservableObject {
                 track = result?.first ?? sourceCheckTrack(for: platform)
             }
 
-            let sourceQualitys = qualityCapabilities[platform] ?? []
-            let trackQualitys = Self.qualityNames(for: track)
-            let supportedQualitys = sourceQualitys.filter(trackQualitys.contains)
+            let supportedQualitys = supportedQualityNames(for: track, platform: platform)
             let requestedQuality = Self.lxQuality(
                 for: SettingsManager.shared.audioQuality.rawValue,
                 supported: supportedQualitys.isEmpty ? ["128k"] : supportedQualitys
             )
-            let info = musicInfo(for: track, platform: platform)
+            let info = musicInfo(for: track, platform: platform, qualities: supportedQualitys)
             do {
                 let response = try await request(source: platform, action: "musicUrl",
                                                  info: ["type": requestedQuality, "musicInfo": info])
@@ -653,24 +651,44 @@ final class LXUserAPIService: ObservableObject {
         // The picker describes the requested track's platform. Do not union
         // fallback platforms, otherwise it offers FLAC/Hi-Res that the active
         // source cannot actually serve.
-        let sourceNames = qualityCapabilities[primary] ?? []
-        let names = sourceNames.isEmpty ? ["128k"] : sourceNames
-        let trackNames = Self.qualityNames(for: track)
-        let order = ["128k", "320k", "flac", "flac24bit"]
-        // A source-level list describes what a provider can do in general;
-        // per-song metadata is required before a higher-quality option is
-        // exposed for this track.
-        return order.filter { names.contains($0) && trackNames.contains($0) }
+        return supportedQualityNames(for: track, platform: primary)
     }
 
-    private func musicInfo(for track: Track, platform: String) -> [String: Any] {
+    /// Return the qualities that can safely be requested for this track.
+    ///
+    /// LX source `qualitys` describes the source adapter's capabilities, while
+    /// catalogue file sizes describe the individual song.  Use both when the
+    /// catalogue knows the song.  When it does not, use the source declaration
+    /// for normal/lossless requests, but keep Hi-Res hidden because a source
+    /// declaration alone cannot prove a 24-bit file exists.
+    private func supportedQualityNames(for track: Track, platform: String) -> [String] {
+        let order = ["128k", "320k", "flac", "flac24bit"]
+        let declared = qualityCapabilities[platform, default: []]
+            .map { Self.normalizedQuality($0) }
+            .filter { order.contains($0) }
+        let sourceNames = declared.isEmpty ? ["128k"] : order.filter(declared.contains)
+        let concrete = Self.qualityNames(for: track)
+
+        if !concrete.isEmpty {
+            return order.filter { sourceNames.contains($0) && concrete.contains($0) }
+        }
+
+        // The LX protocol does not return a song's bit depth in `musicUrl`.
+        // Do not advertise Hi-Res merely because a source script lists it.
+        return sourceNames.filter { $0 != "flac24bit" }
+    }
+
+    private func musicInfo(for track: Track, platform: String,
+                           qualities requestedQualities: [String]? = nil) -> [String: Any] {
         // LX's User API receives the legacy MusicInfo object, not Kumone's
         // internal Track. This mirrors LX Mobile's toOldMusicInfo() exactly.
         let songmid = track.sourceMetadata["songmid"]
             ?? track.sourceMetadata["songId"]
             ?? String(track.id)
         let albumID = track.sourceMetadata["albumId"] ?? String(track.album.id)
-        let qualities = Self.qualityNames(for: track)
+        let qualities = requestedQualities?.isEmpty == false
+            ? requestedQualities!
+            : (Self.qualityNames(for: track).isEmpty ? ["128k"] : Self.qualityNames(for: track))
         let qualityInfo = qualities.map { quality in
             ["type": quality,
              "size": track.sourceMetadata["lx.quality.\(quality).size"] ?? ""] as [String: Any]
@@ -715,9 +733,7 @@ final class LXUserAPIService: ObservableObject {
             guard let value = track.sourceMetadata["lx.quality.\(quality).size"] else { return false }
             return hasPositiveFileSize(value)
         }
-        // Unknown metadata must never be presented as lossless/Hi-Res. The
-        // source may still negotiate this conservatively as standard quality.
-        return concrete.isEmpty ? ["128k"] : concrete
+        return concrete
     }
 
     private static func hasPositiveFileSize(_ value: String) -> Bool {
