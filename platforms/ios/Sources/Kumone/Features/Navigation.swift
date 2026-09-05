@@ -62,6 +62,8 @@ enum Destination: Hashable {
     case playlist(Int)
     case lxPlaylist(source: LXCatalogPlatform, id: String)
     case album(Int)
+    case lxAlbum(source: LXCatalogPlatform, id: String?, name: String,
+                 artistName: String, coverURL: String?)
     case artist(Int)
     case lxArtist(source: LXCatalogPlatform, name: String, avatarURL: String?)
     case daily
@@ -86,6 +88,9 @@ struct DestinationsModifier: ViewModifier {
                     LXPlaylistDetailView(source: source, playlistID: id)
                 case .album(let id):
                     AlbumDetailView(albumID: id)
+                case .lxAlbum(let source, let id, let name, let artistName, let coverURL):
+                    LXAlbumDetailView(source: source, albumID: id, albumName: name,
+                                      artistName: artistName, coverURL: coverURL)
                 case .artist(let id):
                     ArtistDetailView(artistID: id)
                 case .lxArtist(let source, let name, let avatarURL):

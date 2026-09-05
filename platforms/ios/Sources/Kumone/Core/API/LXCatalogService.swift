@@ -50,6 +50,10 @@ enum LXCatalogError: LocalizedError {
 }
 
 enum LXCatalogService {
+    private static let browserUserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        + "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
@@ -59,6 +63,9 @@ enum LXCatalogService {
 
     static func search(_ keyword: String, platform: LXCatalogPlatform,
                        page: Int = 1, limit: Int = 30) async throws -> [Track] {
+        let keyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty else { return [] }
+
         if platform == .aggregate {
             let results = await withTaskGroup(of: [Track].self, returning: [[Track]].self) { group in
                 for item in LXCatalogPlatform.allCases where item != .aggregate {
@@ -77,6 +84,34 @@ enum LXCatalogService {
             }
         }
 
+        // QQ's mobile endpoint rejects large pages and KuGou intermittently
+        // returns an empty 200 response when queried only once. Keep these
+        // details at the catalogue boundary so every caller (songs, artists,
+        // albums and cross-source matching) gets the same reliable behavior.
+        let requestLimit = max(1, min(limit, platform == .tx ? 50 : 100))
+        let attempts = platform == .tx || platform == .kg ? 3 : 2
+        var lastError: Error?
+
+        for attempt in 0..<attempts {
+            do {
+                let result = try await searchOnce(keyword, platform: platform,
+                                                  page: page, limit: requestLimit)
+                if !result.isEmpty || attempt == attempts - 1 { return result }
+            } catch {
+                lastError = error
+            }
+
+            if attempt < attempts - 1 {
+                try? await Task.sleep(for: .milliseconds(180 * (attempt + 1)))
+            }
+        }
+
+        if let lastError { throw lastError }
+        return []
+    }
+
+    private static func searchOnce(_ keyword: String, platform: LXCatalogPlatform,
+                                   page: Int, limit: Int) async throws -> [Track] {
         switch platform {
         case .kw: return try await searchKuwo(keyword, page: page, limit: limit)
         case .kg: return try await searchKugou(keyword, page: page, limit: limit)
@@ -104,6 +139,90 @@ enum LXCatalogService {
               !candidates.isEmpty else { return nil }
 
         return NeteaseTrackMatcher.bestCandidate(for: sourceTrack, in: candidates)
+    }
+
+    /// Loads an album as a source-owned detail page. LX sources do not share
+    /// NetEase's numeric album IDs, so the page first uses the source ID from
+    /// the search result and then falls back to an album-name search when a
+    /// provider omits that ID or changes its detail envelope.
+    static func albumTracks(source: LXCatalogPlatform, albumID: String?,
+                            name: String, artistName: String) async throws -> [Track] {
+        guard source != .aggregate else { throw LXCatalogError.unsupported }
+        let albumName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !albumName.isEmpty else { throw LXCatalogError.invalidResponse }
+        let requestLimit = source == .tx ? 50 : 100
+        let query = [albumName, artistName.trimmingCharacters(in: .whitespacesAndNewlines)]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+
+        var candidates = try await search(query, platform: source, page: 1, limit: requestLimit)
+        if let albumID, !albumID.isEmpty {
+            let idMatches = candidates.filter {
+                sourceAlbumIdentifier($0, source: source) == albumID
+            }
+            if !idMatches.isEmpty { return idMatches }
+        }
+
+        var matches = candidates.filter {
+            albumMatches($0, albumName: albumName, artistName: artistName)
+        }
+        if !matches.isEmpty { return matches }
+
+        // A combined album/artist query can be ranked too narrowly by QQ or
+        // KuGou. A second album-only request keeps the detail page source
+        // native without falling back to an unrelated global search screen.
+        if !artistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            candidates = try await search(albumName, platform: source, page: 1, limit: requestLimit)
+            if let albumID, !albumID.isEmpty {
+                let idMatches = candidates.filter {
+                    sourceAlbumIdentifier($0, source: source) == albumID
+                }
+                if !idMatches.isEmpty { return idMatches }
+            }
+            matches = candidates.filter {
+                albumMatches($0, albumName: albumName, artistName: artistName)
+            }
+            if !matches.isEmpty { return matches }
+        }
+
+        throw LXCatalogError.invalidResponse
+    }
+
+    private static func sourceAlbumIdentifier(_ track: Track,
+                                               source: LXCatalogPlatform) -> String? {
+        switch source {
+        case .tx:
+            return firstText(track.sourceMetadata["albumMid"], track.sourceMetadata["albumId"])
+        case .kw, .kg, .mg:
+            return firstText(track.sourceMetadata["albumId"],
+                             track.album.id > 0 ? String(track.album.id) : nil)
+        case .wy, .aggregate:
+            return track.album.id > 0 ? String(track.album.id) : nil
+        }
+    }
+
+    private static func albumMatches(_ track: Track, albumName: String,
+                                     artistName: String) -> Bool {
+        let targetAlbum = normalizedSearchText(albumName)
+        let valueAlbum = normalizedSearchText(track.album.name)
+        guard !targetAlbum.isEmpty, !valueAlbum.isEmpty,
+              valueAlbum == targetAlbum || valueAlbum.contains(targetAlbum)
+                || targetAlbum.contains(valueAlbum) else { return false }
+
+        let targetArtist = normalizedSearchText(artistName)
+        guard !targetArtist.isEmpty else { return true }
+        return track.artists.contains { artist in
+            let value = normalizedSearchText(artist.name)
+            return !value.isEmpty && (value == targetArtist || value.contains(targetArtist)
+                                      || targetArtist.contains(value))
+        }
+    }
+
+    private static func normalizedSearchText(_ value: String) -> String {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
     }
 
     private static func searchNetease(_ keyword: String, page: Int, limit: Int) async throws -> [Track] {
@@ -157,13 +276,17 @@ enum LXCatalogService {
     }
 
     private static func searchKugou(_ keyword: String, page: Int, limit: Int) async throws -> [Track] {
-        var components = URLComponents(string: "https://songsearch.kugou.com/song_search_v2")!
+        // This is the endpoint used by LX Mobile. On iOS the HTTPS hostname
+        // often returns a valid-looking empty payload, while the legacy HTTP
+        // endpoint still returns the actual list. ATS is scoped to allow this
+        // KuGou host in secureURL(_:).
+        var components = URLComponents(string: "http://songsearch.kugou.com/song_search_v2")!
         components.queryItems = [
             URLQueryItem(name: "keyword", value: keyword),
             URLQueryItem(name: "page", value: String(page)),
             URLQueryItem(name: "pagesize", value: String(limit)),
             URLQueryItem(name: "userid", value: "0"),
-            URLQueryItem(name: "clientver", value: ""),
+            URLQueryItem(name: "clientver", value: "11089"),
             URLQueryItem(name: "platform", value: "WebFilter"),
             URLQueryItem(name: "filter", value: "2"),
             URLQueryItem(name: "iscorrection", value: "1"),
@@ -172,24 +295,28 @@ enum LXCatalogService {
         ]
         let root = try await fetchObject(components.url!) as? [String: Any]
         let data = root?["data"] as? [String: Any]
-        let items = data?["lists"] as? [[String: Any]] ?? []
+        let rootItems = dictionaryArray(data, keys: ["lists", "list", "data"])
+        let groupedItems = rootItems.flatMap { dictionaryArray($0["Grp"], keys: ["list", "data"]) }
+        let items = rootItems + groupedItems
         var output: [Track] = []
         var seen = Set<String>()
-        for item in items + items.flatMap({ $0["Grp"] as? [[String: Any]] ?? [] }) {
-            guard let id = int(item["Audioid"]), id > 0 else { continue }
-            let hash = text(item["FileHash"]) ?? ""
+        for item in items {
+            guard let id = firstInt(item["Audioid"], item["audio_id"], item["audioid"],
+                                    item["songid"]), id > 0 else { continue }
+            let hash = firstText(item["FileHash"], item["filehash"], item["hash"]) ?? ""
             guard seen.insert("\(id)-\(hash)").inserted else { continue }
             let image = kugouImageURL(item)
-            var metadata = ["songmid": String(id), "hash": hash,
-                            "albumId": text(item["AlbumID"]) ?? ""]
+            let albumID = firstText(item["AlbumID"], item["album_id"], item["albumid"]) ?? ""
+            var metadata = ["songmid": String(id), "hash": hash, "albumId": albumID]
             addQualityMetadata(&metadata, from: item, source: .kg)
             if let image { metadata["coverURL"] = image }
             output.append(Track(id: id,
-                                name: text(item["SongName"]) ?? "",
-                                artists: artists(from: text(item["Singers"])),
-                                album: AlbumRef(id: int(item["AlbumID"]) ?? 0,
-                                               name: text(item["AlbumName"]) ?? "", picUrl: image),
-                                durationMS: seconds(item["Duration"]) * 1000,
+                                name: firstText(item["SongName"], item["songname"], item["filename"]) ?? "",
+                                artists: artists(from: firstText(item["Singers"], item["singername"], item["artist"])),
+                                album: AlbumRef(id: Int(albumID) ?? 0,
+                                               name: firstText(item["AlbumName"], item["album_name"], item["albumname"]) ?? "",
+                                               picUrl: image),
+                                durationMS: seconds(item["Duration"] ?? item["duration"] ?? item["timelength"]) * 1000,
                                 source: "kg",
                                 sourceMetadata: metadata))
         }
@@ -237,66 +364,69 @@ enum LXCatalogService {
     }
 
     private static func searchQQ(_ keyword: String, page: Int, limit: Int) async throws -> [Track] {
-        let request: [String: Any] = [
-            "comm": ["ct": "11", "cv": "14090508", "v": "14090508",
-                     "tmeAppID": "qqmusic", "phonetype": "EBG-AN10",
-                     "deviceScore": "553.47", "devicelevel": "50",
-                     "newdevicelevel": "20", "rom": "HuaWei/EMOTION/EmotionUI_14.2.0",
-                     "os_ver": "12", "OpenUDID": "0", "OpenUDID2": "0",
-                     "QIMEI36": "0", "udid": "0", "chid": "0", "aid": "0",
-                     "oaid": "0", "taid": "0", "tid": "0", "wid": "0",
-                     "uid": "0", "sid": "0", "modeSwitch": "6", "teenMode": "0",
-                     "ui_mode": "2", "nettype": "1020", "v4ip": ""],
-            "req": ["module": "music.search.SearchCgiService",
-                    "method": "DoSearchForQQMusicMobile",
-                    "param": ["search_type": 0, "searchid": String(Int.random(in: 100000000...999999999)),
-                              "query": keyword, "page_num": page, "num_per_page": limit,
-                              "highlight": 0, "nqc_flag": 0, "multi_zhida": 0,
-                              "cat": 2, "grp": 1, "sin": 0, "sem": 0]],
-        ]
-        let body = try JSONSerialization.data(withJSONObject: request)
-        // The LX JavaScript implementation ignores an out-of-range hash index
-        // when Array.join() converts undefined to an empty string.  Swift's
-        // String.Index traps instead, so signing must be allowed to fail safely.
-        guard let sign = zzcSign(body) else { return [] }
-        var urlComponents = URLComponents(string: "https://u.y.qq.com/cgi-bin/musics.fcg")!
-        urlComponents.queryItems = [URLQueryItem(name: "sign", value: sign)]
-        guard let url = urlComponents.url else { throw LXCatalogError.invalidResponse }
-        var requestObject = URLRequest(url: url)
-        requestObject.httpMethod = "POST"
-        requestObject.httpBody = body
-        requestObject.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        requestObject.setValue("https://y.qq.com", forHTTPHeaderField: "Origin")
-        requestObject.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
-        requestObject.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
-        requestObject.setValue("QQMusic 14090508(android 12)", forHTTPHeaderField: "User-Agent")
-        var root: [String: Any]?
+        var lastRoot: [String: Any]?
         var lastError: Error?
-        for attempt in 0..<2 {
+
+        for attempt in 0..<3 {
+            let searchID = (0..<16).map { _ in String(Int.random(in: 0...9)) }.joined()
+            let request: [String: Any] = [
+                "comm": ["ct": "11", "cv": "14090508", "v": "14090508",
+                         "tmeAppID": "qqmusic", "phonetype": "EBG-AN10",
+                         "deviceScore": "553.47", "devicelevel": "50",
+                         "newdevicelevel": "20", "rom": "HuaWei/EMOTION/EmotionUI_14.2.0",
+                         "os_ver": "12", "OpenUDID": "0", "OpenUDID2": "0",
+                         "QIMEI36": "0", "udid": "0", "chid": "0", "aid": "0",
+                         "oaid": "0", "taid": "0", "tid": "0", "wid": "0",
+                         "uid": "0", "sid": "0", "modeSwitch": "6", "teenMode": "0",
+                         "ui_mode": "2", "nettype": "1020", "v4ip": ""],
+                "req": ["module": "music.search.SearchCgiService",
+                        "method": "DoSearchForQQMusicMobile",
+                        "param": ["search_type": 0, "searchid": searchID,
+                                  "query": keyword, "page_num": page, "num_per_page": min(limit, 50),
+                                  "highlight": 0, "nqc_flag": 0, "multi_zhida": 0,
+                                  "cat": 2, "grp": 1, "sin": 0, "sem": 0]],
+            ]
             do {
+                let body = try JSONSerialization.data(withJSONObject: request)
+                // The LX JavaScript implementation ignores an out-of-range hash
+                // index when Array.join() converts undefined to an empty string.
+                // Swift's String.Index traps instead, so signing must fail safely.
+                guard let sign = zzcSign(body) else { throw LXCatalogError.invalidResponse }
+                var urlComponents = URLComponents(string: "https://u.y.qq.com/cgi-bin/musics.fcg")!
+                urlComponents.queryItems = [URLQueryItem(name: "sign", value: sign)]
+                guard let url = urlComponents.url else { throw LXCatalogError.invalidResponse }
+                var requestObject = URLRequest(url: url)
+                requestObject.httpMethod = "POST"
+                requestObject.httpBody = body
+                requestObject.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                requestObject.setValue("https://y.qq.com", forHTTPHeaderField: "Origin")
+                requestObject.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+                requestObject.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+                requestObject.setValue("QQMusic 14090508(android 12)", forHTTPHeaderField: "User-Agent")
                 let (data, response) = try await session.data(for: requestObject)
-                guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                guard (response as? HTTPURLResponse)?.statusCode == 200,
+                      let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     throw LXCatalogError.invalidResponse
                 }
-                root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                if let root,
-                   !dictionaryArray(root, keys: ["item_song", "song", "songlist", "list"]).isEmpty {
-                    break
-                }
+                lastRoot = root
+                let songs = qqTracks(from: root)
+                if !songs.isEmpty || attempt == 2 { return songs }
             } catch {
                 lastError = error
             }
-            if attempt == 0 {
-                try? await Task.sleep(for: .milliseconds(250))
-            }
+            if attempt < 2 { try? await Task.sleep(for: .milliseconds(220 * (attempt + 1))) }
         }
-        if root == nil, let lastError { throw lastError }
-        guard let root else { return [] }
 
+        if let lastRoot { return qqTracks(from: lastRoot) }
+        if let lastError { throw lastError }
+        return []
+    }
+
+    private static func qqTracks(from root: [String: Any]) -> [Track] {
         // QQ has returned both `body.item_song` and `body.song.list` for the
         // same mobile API over time. Walk only these song aliases; the old
-        // single-path cast made a perfectly valid response look like an empty
-        // result whenever QQ changed the envelope for a region.
+        // single-path cast made a valid response look empty when QQ changed
+        // the envelope for a region.
         let songs = dictionaryArray(root, keys: ["item_song", "song", "songlist", "list"])
         return songs.compactMap { item in
             guard let id = firstInt(item["id"], item["songid"], item["songId"], item["song_id"]), id > 0 else { return nil }
@@ -310,7 +440,8 @@ enum LXCatalogService {
             var metadata = ["songmid": firstText(item["mid"], item["songmid"], mediaMid) ?? String(id),
                             "id": String(id),
                             "strMediaMid": mediaMid,
-                            "albumMid": albumMid]
+                            "albumMid": albumMid,
+                            "albumId": albumMid]
             addQualityMetadata(&metadata, from: item, source: .tx)
             return Track(id: id, name: firstText(item["title"], item["songname"], item["songName"], item["name"]) ?? "",
                          artists: qqArtists(item["singer"] ?? item["singers"] ?? item["artist"]),
@@ -327,7 +458,7 @@ enum LXCatalogService {
         var request = URLRequest(url: secureURL(url))
         request.httpMethod = method
         request.httpBody = body
-        request.setValue("Moumusic/0.4", forHTTPHeaderField: "User-Agent")
+        request.setValue(browserUserAgent, forHTTPHeaderField: "User-Agent")
         headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -356,7 +487,7 @@ enum LXCatalogService {
         var request = URLRequest(url: secureURL(url))
         request.httpMethod = method
         request.httpBody = body
-        request.setValue("Moumusic/0.5", forHTTPHeaderField: "User-Agent")
+        request.setValue(browserUserAgent, forHTTPHeaderField: "User-Agent")
         headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -367,7 +498,7 @@ enum LXCatalogService {
 
     private static func fetchText(_ url: URL) async throws -> String {
         var request = URLRequest(url: secureURL(url))
-        request.setValue("Moumusic/0.5", forHTTPHeaderField: "User-Agent")
+        request.setValue(browserUserAgent, forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let text = String(data: data, encoding: .utf8) else {
@@ -1503,6 +1634,7 @@ enum LXCatalogService {
             if let id = text(item["id"]) { metadata["id"] = id }
             metadata["strMediaMid"] = text(nestedFile?["media_mid"]) ?? ""
             metadata["albumMid"] = albumMid
+            metadata["albumId"] = albumMid
             addQualityMetadata(&metadata, from: item, source: source)
             if let albumImageURL { metadata["coverURL"] = albumImageURL }
         case .mg:

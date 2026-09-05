@@ -20,11 +20,24 @@ private final class LXArtistDetailViewModel: ObservableObject {
         do {
             let results = try await LXCatalogService.search(artistName, platform: source, limit: 100)
             let target = Self.normalized(artistName)
-            tracks = results.filter { track in
+            let exactMatches = results.filter { track in
                 track.artists.contains { artist in
                     let value = Self.normalized(artist.name)
                     return value == target || value.contains(target) || target.contains(value)
                 }
+            }
+            if !exactMatches.isEmpty {
+                tracks = exactMatches
+            } else {
+                // QQ/KuGou/Kuwo sometimes return artist aliases or omit the
+                // artist field on part of a valid result. Keeping the
+                // provider-ranked response is preferable to a blank artist
+                // page, and it still stays inside the selected source.
+                let relevantMatches = results.filter { track in
+                    let searchable = Self.normalized("\(track.name) \(track.artistNames)")
+                    return !target.isEmpty && searchable.contains(target)
+                }
+                tracks = relevantMatches.isEmpty ? results : relevantMatches
             }
         } catch {
             tracks = []

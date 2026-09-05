@@ -62,6 +62,8 @@ final class SearchViewModel: ObservableObject {
         let artistName: String
         let coverURL: String?
         let neteaseID: Int?
+        let source: LXCatalogPlatform
+        let sourceID: String?
     }
 
     var query: String
@@ -198,7 +200,7 @@ final class SearchViewModel: ObservableObject {
             for artist in track.artists {
                 let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty else { continue }
-                let key = name.localizedLowercase
+                let key = "\(trackSource.rawValue)|\(name.localizedLowercase)"
                 if seenArtists.insert(key).inserted {
                     artistResults.append(ArtistResult(
                         id: key,
@@ -216,14 +218,22 @@ final class SearchViewModel: ObservableObject {
 
             let albumName = track.album.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !albumName.isEmpty else { continue }
-            let albumKey = "\(albumName.localizedLowercase)|\(track.artistNames.localizedLowercase)"
+            let albumKey = "\(trackSource.rawValue)|\(albumName.localizedLowercase)|\(track.artistNames.localizedLowercase)"
             guard seenAlbums.insert(albumKey).inserted else { continue }
+            let sourceID = [track.sourceMetadata["albumMid"], track.sourceMetadata["albumId"]]
+                .compactMap { value -> String? in
+                    guard let value, !value.isEmpty else { return nil }
+                    return value
+                }
+                .first ?? (track.album.id > 0 ? String(track.album.id) : nil)
             albumResults.append(AlbumResult(
                 id: albumKey,
                 name: albumName,
                 artistName: track.artistNames,
                 coverURL: track.album.picUrl,
-                neteaseID: track.album.id > 0 && platform == .wy ? track.album.id : nil
+                neteaseID: track.album.id > 0 && trackSource == .wy ? track.album.id : nil,
+                source: trackSource,
+                sourceID: sourceID
             ))
         }
 
@@ -235,9 +245,9 @@ final class SearchViewModel: ObservableObject {
     /// only the visible artist cards with public NetEase artist metadata. The
     /// selected catalogue still owns the actual song and playback results.
     private func enrichArtistAvatars(generation: Int) async {
-        let targets = artists.compactMap { artist -> (String, Int?)? in
+        let targets = artists.compactMap { artist -> (id: String, name: String, neteaseID: Int?)? in
             guard artist.avatarURL == nil, artistAvatarCache[artist.id] == nil else { return nil }
-            return (artist.id, artist.neteaseID)
+            return (artist.id, artist.name, artist.neteaseID)
         }
         guard !targets.isEmpty else {
             guard generation == requestGeneration else { return }
@@ -246,21 +256,21 @@ final class SearchViewModel: ObservableObject {
         }
 
         let responses = await withTaskGroup(of: (String, String?).self, returning: [(String, String?)].self) { group in
-            for (key, neteaseID) in targets.prefix(8) {
+            for target in targets.prefix(8) {
                 group.addTask {
-                    if let neteaseID, neteaseID > 0 {
+                    if let neteaseID = target.neteaseID, neteaseID > 0 {
                         let response = try? await NeteaseAPI.artist(id: neteaseID)
-                        return (key, response?.artist.picUrl)
+                        return (target.id, response?.artist.picUrl)
                     }
 
                     // Non-NetEase LX sources expose artist names but often
                     // omit a portrait. Resolve only the metadata card, never
                     // the track itself, so the chosen source remains intact.
-                    let result = try? await NeteaseAPI.search(key, type: .artists, limit: 5)
+                    let result = try? await NeteaseAPI.search(target.name, type: .artists, limit: 5)
                     let match = result?.artists?.first {
-                        $0.name.localizedCaseInsensitiveCompare(key) == .orderedSame
+                        $0.name.localizedCaseInsensitiveCompare(target.name) == .orderedSame
                     } ?? result?.artists?.first
-                    return (key, match?.picUrl)
+                    return (target.id, match?.picUrl)
                 }
             }
 
@@ -615,11 +625,13 @@ struct SearchView: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                Button {
-                    model.tab = .songs
-                    searchText = album.name
-                    performSearch(album.name)
-                } label: {
+                NavigationLink(value: Destination.lxAlbum(
+                    source: album.source,
+                    id: album.sourceID,
+                    name: album.name,
+                    artistName: album.artistName,
+                    coverURL: album.coverURL
+                )) {
                     albumCard(album)
                 }
                 .buttonStyle(.plain)
