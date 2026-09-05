@@ -136,7 +136,21 @@ final class HomeViewModel: ObservableObject {
             let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
             guard generation == loadGeneration else { return }
             lxRecommendPlaylists = content.playlists
-            recommendTracks = content.tracks
+            var tracks = content.tracks
+
+            // The WY catalogue has a reliable live song feed, while its
+            // recommended playlist details can occasionally fail independently
+            // of the playlist list request. Keep the homepage useful in that
+            // case and normalize these tracks before they enter the queue so
+            // playback still goes through the selected LX source.
+            if platform == .wy {
+                let liveTracks = (try? await NeteaseAPI.hotSongs(limit: 30))?
+                    .map { $0.normalizedForLXPlayback() } ?? []
+                if !liveTracks.isEmpty {
+                    tracks = liveTracks
+                }
+            }
+            recommendTracks = tracks
             state = recommendTracks.isEmpty && lxRecommendPlaylists.isEmpty
                 ? .error("LX 暂无推荐结果，请检查网络或切换推荐平台")
                 : .loaded
@@ -147,7 +161,7 @@ final class HomeViewModel: ObservableObject {
         // No account or NetEase audio URL is used here; queued tracks are
         // resolved by the selected LX User API in PlayerService.
         async let playlistsTask = fetchRecommendPlaylists(loggedIn: loggedIn)
-        async let hotSongsTask = try? NeteaseAPI.personalizedNewSongs(limit: 30)
+        async let hotSongsTask = try? NeteaseAPI.hotSongs(limit: 30)
         async let toplistsTask = try? NeteaseAPI.toplists()
         async let albumsTask = try? NeteaseAPI.newAlbums(limit: 20)
         async let artistsTask = try? NeteaseAPI.topArtists()
@@ -229,6 +243,7 @@ struct HomeView: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
     @StateObject private var model = HomeViewModel.shared
+    @State private var showRecognition = false
 
     var body: some View {
         ScrollView {
@@ -272,6 +287,12 @@ struct HomeView: View {
                                mode: settings.homeRecommendationMode,
                                platform: settings.homeRecommendationPlatform)
         }
+        .sheet(isPresented: $showRecognition) {
+            NavigationStack {
+                MusicRecognitionView()
+            }
+            .environmentObject(player)
+        }
     }
 
     private var lxLoadedBody: some View {
@@ -279,13 +300,15 @@ struct HomeView: View {
             homePlatformPicker
 
             HStack(spacing: 10) {
-                Image(systemName: "waveform")
+                Image(systemName: model.activePlatform == .wy ? "flame.fill" : "waveform")
                     .foregroundStyle(Theme.accent)
-                Text("\(model.activePlatform.displayName) 推荐")
+                Text(model.activePlatform == .wy ? "网易云热门歌曲" : "\(model.activePlatform.displayName) 推荐")
                     .font(.title3.weight(.semibold))
                 Spacer()
             }
             .padding(.horizontal, Theme.Layout.contentInset)
+
+            recognitionButton
 
             if !model.lxRecommendPlaylists.isEmpty {
                 Shelf(title: "推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
@@ -296,7 +319,7 @@ struct HomeView: View {
             }
 
             if !model.recommendTracks.isEmpty {
-                SectionHeader(title: "推荐歌曲")
+                SectionHeader(title: model.activePlatform == .wy ? "热门歌曲" : "推荐歌曲")
                     .padding(.horizontal, Theme.Layout.contentInset)
                 TrackListView(tracks: model.recommendTracks)
                     .padding(.horizontal, Theme.Layout.contentInset - 10)
@@ -382,6 +405,7 @@ struct HomeView: View {
     private var loadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 34) {
             homePlatformPicker
+            recognitionButton
             featureCards
                 .padding(.top, 8)
 
@@ -452,6 +476,23 @@ struct HomeView: View {
     }
 
     // MARK: - Feature cards
+
+    private var recognitionButton: some View {
+        Button {
+            showRecognition = true
+        } label: {
+            Label("听歌识曲", systemImage: "waveform.badge.mic")
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 52)
+                .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("使用麦克风识别当前正在播放的歌曲")
+        .padding(.horizontal, Theme.Layout.contentInset)
+    }
 
     private var featureCards: some View {
         ScrollView(.horizontal, showsIndicators: false) {

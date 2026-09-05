@@ -84,10 +84,14 @@ final class ExploreViewModel: ObservableObject {
         do {
             let result: [LXPlaylistSummary]
             if selectedCategory == "推荐" && page == 1 {
-                result = try await LXCatalogService.recommendedSonglists(platform: platform, limit: 30)
+                let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
+                result = content.playlists
+                tracks = content.tracks
                 if platform == .wy {
                     toplists = Array(((try? await NeteaseAPI.toplists()) ?? []).prefix(10))
-                    tracks = (try? await LXCatalogService.recommendedTracks(platform: .wy, limit: 30)) ?? []
+                    let liveTracks = (try? await NeteaseAPI.hotSongs(limit: 30))?
+                        .map { $0.normalizedForLXPlayback() } ?? []
+                    if !liveTracks.isEmpty { tracks = liveTracks }
                 }
             } else if (selectedCategory == "最热" || selectedCategory == "最新") && platform != .wy {
                 result = try await LXCatalogService.sortedSonglists(platform: platform,
@@ -128,10 +132,11 @@ struct ExploreView: View {
                 platformPicker
                 categoryChips
 
-                if model.isLoading && model.playlists.isEmpty {
+                if model.isLoading && model.playlists.isEmpty && model.tracks.isEmpty {
                     ProgressView()
                         .frame(maxWidth: .infinity, minHeight: 300)
-                } else if let errorMessage = model.errorMessage, model.playlists.isEmpty {
+                } else if let errorMessage = model.errorMessage,
+                          model.playlists.isEmpty && model.tracks.isEmpty {
                     ErrorStateView(message: errorMessage) {
                         Task { await model.loadMore() }
                     }
@@ -144,8 +149,8 @@ struct ExploreView: View {
                             .padding(.horizontal, Theme.Layout.contentInset)
                     }
 
-                    if model.platform == .wy && !model.tracks.isEmpty {
-                        SectionHeader(title: "网易云热门歌曲")
+                    if !model.tracks.isEmpty {
+                        SectionHeader(title: "\(model.platform.displayName) 热门歌曲")
                             .padding(.horizontal, Theme.Layout.contentInset)
                         TrackListView(tracks: model.tracks)
                             .padding(.horizontal, Theme.Layout.contentInset - 10)

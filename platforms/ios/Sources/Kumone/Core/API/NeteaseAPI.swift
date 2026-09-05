@@ -699,6 +699,30 @@ enum NeteaseAPI {
 
     // MARK: - Personalized extras
 
+    /// The public hot-song chart is a live catalogue feed. The detail
+    /// endpoint often returns only a ten-song preview, so fill the remainder
+    /// from its track id list before handing the result to the UI.
+    static func hotSongs(limit: Int = 30) async throws -> [Track] {
+        do {
+            let response = try await playlistDetail(id: 3_778_678)
+            var tracks = response.playlist.tracks
+            let remainingIDs = response.playlist.trackIds.map(\.id).dropFirst(tracks.count)
+            if !remainingIDs.isEmpty {
+                for chunk in stride(from: 0, to: remainingIDs.count, by: 500)
+                    .map({ Array(remainingIDs.dropFirst($0).prefix(500)) }) {
+                    guard let more = try? await songDetails(ids: chunk) else { break }
+                    tracks += more.songs
+                    if tracks.count >= limit { break }
+                }
+            }
+            if !tracks.isEmpty { return Array(tracks.prefix(limit)) }
+        } catch {
+            // Fall through to the live new-song feed when the hot chart is
+            // temporarily rate-limited or unavailable in the current region.
+        }
+        return try await personalizedNewSongs(limit: limit)
+    }
+
     struct PersonalizedNewsongResponse: Decodable {
         struct Item: Decodable {
             let id: Int
