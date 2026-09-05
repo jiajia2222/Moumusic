@@ -193,7 +193,7 @@ final class SearchViewModel: ObservableObject {
 
         for track in tracks {
             let trackSource = platform == .aggregate
-                ? (LXCatalogPlatform(rawValue: track.source) ?? .wy)
+                ? (track.source.flatMap { LXCatalogPlatform(rawValue: $0) } ?? .wy)
                 : platform
             for artist in track.artists {
                 let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
