@@ -52,6 +52,7 @@ final class SearchViewModel: ObservableObject {
         let id: String
         let name: String
         let neteaseID: Int?
+        let source: LXCatalogPlatform
         var avatarURL: String?
     }
 
@@ -148,13 +149,23 @@ final class SearchViewModel: ObservableObject {
                 didLoad = true
             }
         case .artists:
-            guard let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100),
-                  isCurrentRequest() else { return }
-            songs = result
-            rebuildMetadata(from: songs)
-            await enrichArtistAvatars(generation: generation)
-            guard isCurrentRequest() else { return }
-            didLoad = true
+            if platform == .wy {
+                guard let result = try? await NeteaseAPI.search(trimmed, type: .artists, limit: 100),
+                      isCurrentRequest() else { return }
+                artists = (result.artists ?? []).map {
+                    ArtistResult(id: "wy-\($0.id)", name: $0.name,
+                                 neteaseID: $0.id, source: .wy, avatarURL: $0.picUrl)
+                }
+                didLoad = true
+            } else {
+                guard let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100),
+                      isCurrentRequest() else { return }
+                songs = result
+                rebuildMetadata(from: songs)
+                await enrichArtistAvatars(generation: generation)
+                guard isCurrentRequest() else { return }
+                didLoad = true
+            }
         case .albums:
             guard let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100),
                   isCurrentRequest() else { return }
@@ -181,6 +192,9 @@ final class SearchViewModel: ObservableObject {
         var seenAlbums = Set<String>()
 
         for track in tracks {
+            let trackSource = platform == .aggregate
+                ? (LXCatalogPlatform(rawValue: track.source) ?? .wy)
+                : platform
             for artist in track.artists {
                 let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty else { continue }
@@ -189,7 +203,8 @@ final class SearchViewModel: ObservableObject {
                     artistResults.append(ArtistResult(
                         id: key,
                         name: name,
-                        neteaseID: artist.id > 0 && platform == .wy ? artist.id : nil,
+                        neteaseID: artist.id > 0 && trackSource == .wy ? artist.id : nil,
+                        source: trackSource,
                         avatarURL: artist.picUrl
                     ))
                 } else if let avatarURL = artist.picUrl,
@@ -532,11 +547,11 @@ struct SearchView: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                Button {
-                    model.tab = .songs
-                    searchText = artist.name
-                    performSearch(artist.name)
-                } label: {
+                NavigationLink(value: Destination.lxArtist(
+                    source: artist.source,
+                    name: artist.name,
+                    avatarURL: artist.avatarURL
+                )) {
                     artistCard(artist)
                 }
                 .buttonStyle(.plain)

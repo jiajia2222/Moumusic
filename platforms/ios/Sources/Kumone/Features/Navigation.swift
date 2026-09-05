@@ -63,6 +63,7 @@ enum Destination: Hashable {
     case lxPlaylist(source: LXCatalogPlatform, id: String)
     case album(Int)
     case artist(Int)
+    case lxArtist(source: LXCatalogPlatform, name: String, avatarURL: String?)
     case daily
     case toplists
     case recents
@@ -87,6 +88,8 @@ struct DestinationsModifier: ViewModifier {
                     AlbumDetailView(albumID: id)
                 case .artist(let id):
                     ArtistDetailView(artistID: id)
+                case .lxArtist(let source, let name, let avatarURL):
+                    LXArtistDetailView(source: source, artistName: name, avatarURL: avatarURL)
                 case .daily:
                     DailySongsView()
                 case .toplists:

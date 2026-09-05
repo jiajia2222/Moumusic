@@ -213,6 +213,7 @@ public struct IOSMainWindow: View {
                 Label("搜索", systemImage: "magnifyingglass")
             }
         }
+        .tabViewSearchActivation(.searchTabSelection)
     }
 
     private var customTabInterface: some View {
