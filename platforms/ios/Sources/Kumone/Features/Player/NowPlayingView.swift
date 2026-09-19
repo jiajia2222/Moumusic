@@ -1414,6 +1414,8 @@ private struct CompactTrackHeader: View {
                         }
 #endif
 
+                        SleepTimerMenu(player: player)
+
                         Divider()
 
                         Button {
@@ -2233,6 +2235,8 @@ private struct MinimalTrackInfoRow: View {
             } label: {
                 Label("加入歌单…", systemImage: "music.note.list")
             }
+
+            SleepTimerMenu(player: player)
 
             Divider()
 

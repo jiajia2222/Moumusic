@@ -76,6 +76,19 @@ brew install owo-network/brew/kumone --cask
 
 更新：iOS 应用无法自我替换。设置 → 关于 → **检查更新** 会提示是否有新版本并给出下载链接，下载新 IPA 后用同一工具重新安装即可，登录状态与设置会保留。AltStore / SideStore 也可通过 source 自动追踪发布。
 
+#### CarPlay 构建
+
+Moumusic 已包含 Kumone CarPlay 连接器，支持推荐、精选、漫游、我的、播放队列以及车机播放控制。由于 `com.apple.developer.carplay-audio` 是 Apple 的受限能力，CarPlay 必须作为单独的构建选项开启。获得 Apple 的 CarPlay Audio 授权后，在 macOS 执行：
+
+```bash
+cd platforms/ios
+make configure-carplay
+cd ios
+xcodegen generate
+```
+
+然后使用包含 CarPlay Audio 能力的描述文件签名。普通无签名 IPA 默认不携带该受限能力；发布普通版本前执行 `make configure` 清理生成的 CarPlay 配置。
+
 #### 应用内自动更新（仅限 TrollStore / 巨魔）
 
 在装有 **[TrollStore](https://github.com/opa334/TrollStore)（巨魔）** 的设备上，Kumone 可自我更新：设置 → 关于 → **检查更新**（启动时也会检查）会带进度圆环下载新 IPA，并通过 `apple-magnifier://install?url=…` 移交给 TrollStore 一键自动安装 —— 与 Dopamine 的机制相同。此功能**仅在 TrollStore 下可用**：普通 AltStore/SideStore 侧载版以个人证书签名，没有在设备上安装 IPA 的权限，因此会降级为打开发布页手动重新侧载。

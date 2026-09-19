@@ -84,6 +84,26 @@ Updates** tells you when a newer release exists and links to it; download the
 new IPA and reinstall with the same tool — sign-in state and settings are kept.
 AltStore / SideStore can also track the release automatically via a source.
 
+#### CarPlay build
+
+Moumusic includes the Kumone CarPlay connector: 推荐、精选、漫游、我的、播放队列
+以及车机播放控制。CarPlay is intentionally opt-in because Apple restricts the
+`com.apple.developer.carplay-audio` entitlement. On macOS, after an App ID has
+been approved for CarPlay Audio, run:
+
+```bash
+cd platforms/ios
+make configure-carplay
+cd ios
+xcodegen generate
+```
+
+Then sign the generated project with a provisioning profile containing the
+CarPlay Audio capability. Run `make configure` before a normal unsigned build
+to remove the generated CarPlay plist/entitlement overlay. A normal IPA without
+that Apple-approved capability cannot expose CarPlay, even if the source code
+contains the scene delegate.
+
 #### In-app auto-update (TrollStore only)
 
 On a device with **[TrollStore](https://github.com/opa334/TrollStore)** (巨魔),

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.17 - 2026-09-19
+
+### Added
+
+- iOS: sync the upstream Kumone 0.3.18 sleep timer. Playback can stop after
+  15/30/45/60/90 minutes or at the end of the current song from the now-playing
+  menu.
+- iOS: keep CarPlay as an explicit opt-in build. The CarPlay connector includes
+  the upstream queue, Now Playing, shuffle/repeat, and previous/next behavior
+  without forcing the restricted entitlement into the ordinary unsigned IPA.
+
 ## 1.0.16 - 2026-09-15
 
 ### Fixed / Added

@@ -172,6 +172,7 @@ final class PlayerService: ObservableObject {
     @Published private(set) var isTrial = false
     let clock = PlaybackClock()
     let lyricsCursor = LyricsCursor()
+    let sleepTimer = SleepTimer()
     /// Passthrough to the clock so existing `progress` reads/writes keep working.
     var progress: TimeInterval {
         get { clock.progress }
@@ -274,6 +275,9 @@ final class PlayerService: ObservableObject {
 
     private init() {
         engine.actionAtItemEnd = .pause
+        sleepTimer.onDeadlineReached = { [weak self] in
+            self?.pause()
+        }
 #if os(iOS)
         volume = 1
         engine.volume = 1
@@ -730,6 +734,13 @@ final class PlayerService: ObservableObject {
 
     private func handleItemEnded() {
         scrobbleIfNeeded(completed: true)
+        if sleepTimer.consumeEndOfCurrentTrack() {
+            progress = duration
+            updateLyricsCursor(at: duration)
+            pause()
+            engine.replaceCurrentItem(with: nil)
+            return
+        }
         if repeatMode == .one, !isFMMode {
             scrobbled = false
             seek(to: 0)
