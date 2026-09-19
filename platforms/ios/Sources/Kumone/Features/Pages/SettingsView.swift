@@ -14,6 +14,18 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("默认播放音质") {
+                Picker("默认播放音质", selection: $settings.audioQuality) {
+                    ForEach(AudioQuality.allCases) { quality in
+                        Text("\(quality.displayName) · \(quality.sourceDisplayName)")
+                            .tag(quality)
+                    }
+                }
+                Text("播放时优先请求此档位；当前歌曲或音源不支持时，自动按实际能力向下回退，并在播放页显示真实音质。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("播放") {
 #if os(iOS)
                 Toggle("播放失败时切换平台", isOn: $settings.enableSourcePlatformFallback)

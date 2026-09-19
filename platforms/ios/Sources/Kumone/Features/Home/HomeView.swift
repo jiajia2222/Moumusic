@@ -344,6 +344,17 @@ struct HomeView: View {
             }
         }
         .navigationTitle("推荐")
+        #if os(iOS)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink(value: Destination.recents) {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .accessibilityLabel("最近播放")
+                .accessibilityHint("打开最近播放的歌曲列表")
+            }
+        }
+        #endif
         .task(id: "\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)") {
             await model.load(loggedIn: account.isLoggedIn,
                              mode: settings.homeRecommendationMode,
