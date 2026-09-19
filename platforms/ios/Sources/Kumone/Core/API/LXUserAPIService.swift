@@ -35,6 +35,15 @@ final class LXUserAPIService: ObservableObject {
         var isAvailable: Bool { status == .available }
     }
 
+    private struct MusicURLCandidate {
+        let source: LXSourceStore.Source
+        let sourcePriority: Int
+        let platform: String
+        let track: Track
+        let supportedQualities: [String]
+        let requestedQuality: String
+    }
+
     static let shared = LXUserAPIService()
 
     private let session: URLSession
@@ -122,6 +131,8 @@ final class LXUserAPIService: ObservableObject {
     }
 
     func resolveMusicURL(for track: Track, quality: String) async throws -> ResolvedURL {
+        return try await resolveMusicURLAcrossSources(for: track, quality: quality)
+#if false
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
         guard context != nil else { throw LXError.noSource }
@@ -178,6 +189,109 @@ final class LXUserAPIService: ObservableObject {
         throw LXError.resolveFailed(failures.isEmpty
             ? ["当前音源没有可用的 musicUrl 平台"]
             : failures)
+#endif
+    }
+    private func resolveMusicURLAcrossSources(for track: Track, quality: String) async throws -> ResolvedURL {
+        let playbackSources = LXSourceStore.shared.playbackSources
+        guard !playbackSources.isEmpty else { throw LXError.noSource }
+
+        let primaryPlatform = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
+        var candidates: [MusicURLCandidate] = []
+        var failures: [String] = []
+
+        // Collect all possible source/platform/quality combinations first.
+        // This prevents a low-quality result from the preferred source from
+        // masking a higher-quality result exposed by another enabled source.
+        for (sourcePriority, source) in playbackSources.enumerated() {
+            guard await activate(source) else {
+                failures.append("\(source.name): unavailable")
+                continue
+            }
+            let platforms = sourceCandidates(for: track, action: "musicUrl")
+            if platforms.isEmpty {
+                failures.append("\(source.name): no musicUrl platform")
+                continue
+            }
+
+            for platform in platforms {
+                let requestTrack: Track
+                if platform == primaryPlatform {
+                    requestTrack = track
+                } else {
+                    // IDs are platform-specific. Match the song before using
+                    // a different platform's musicUrl endpoint.
+                    guard let matched = await LXCatalogService.matchingTrack(track, on: platform) else {
+                        failures.append("\(source.name)/\(platform): track not found")
+                        continue
+                    }
+                    requestTrack = matched
+                }
+
+                let supported = supportedQualityNames(for: requestTrack, platform: platform)
+                let requested = Self.lxQuality(for: quality,
+                                               supported: supported.isEmpty ? ["128k"] : supported)
+                candidates.append(MusicURLCandidate(
+                    source: source,
+                    sourcePriority: sourcePriority,
+                    platform: platform,
+                    track: requestTrack,
+                    supportedQualities: supported,
+                    requestedQuality: requested
+                ))
+            }
+        }
+
+        candidates.sort {
+            let leftQuality = Self.qualityRank($0.requestedQuality)
+            let rightQuality = Self.qualityRank($1.requestedQuality)
+            if leftQuality != rightQuality { return leftQuality > rightQuality }
+            return $0.sourcePriority < $1.sourcePriority
+        }
+
+        for candidate in candidates {
+            guard await activate(candidate.source) else {
+                failures.append("\(candidate.source.name)/\(candidate.platform): unavailable")
+                continue
+            }
+            do {
+                let response = try await request(
+                    source: candidate.platform,
+                    action: "musicUrl",
+                    info: [
+                        "type": candidate.requestedQuality,
+                        "musicInfo": musicInfo(
+                            for: candidate.track,
+                            platform: candidate.platform,
+                            qualities: candidate.supportedQualities
+                        )
+                    ]
+                )
+                guard let data = response["data"] as? [String: Any],
+                      let rawURL = data["url"] as? String,
+                      let url = URL(string: rawURL),
+                      let scheme = url.scheme?.lowercased(),
+                      scheme == "http" || scheme == "https" else {
+                    failures.append("\(candidate.source.name)/\(candidate.platform): invalid URL")
+                    continue
+                }
+
+                let actualQuality = Self.resolvedQuality(
+                    returned: (data["type"] as? String)
+                        ?? (data["quality"] as? String)
+                        ?? (data["format"] as? String),
+                    requested: candidate.requestedQuality,
+                    available: candidate.supportedQualities.isEmpty ? ["128k"] : candidate.supportedQualities
+                )
+                return ResolvedURL(url: url, quality: actualQuality)
+            } catch {
+                failures.append("\(candidate.source.name)/\(candidate.platform): \(error.localizedDescription)")
+            }
+        }
+
+        if candidates.isEmpty && failures.isEmpty {
+            throw LXError.sourceUnavailable("No enabled LX source exposes musicUrl")
+        }
+        throw LXError.resolveFailed(failures)
     }
 
     /// Performs a real, read-only musicUrl request against the selected LX
@@ -273,6 +387,8 @@ final class LXUserAPIService: ObservableObject {
     }
 
     func resolveLyrics(for track: Track) async throws -> ResolvedLyrics {
+        return try await resolveLyricsAcrossSources(for: track)
+#if false
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
         guard context != nil else { throw LXError.noSource }
@@ -294,6 +410,41 @@ final class LXUserAPIService: ObservableObject {
                     continue
                 }
                 return lyrics
+            }
+        }
+        throw LXError.resolveFailed([])
+#endif
+    }
+    private func resolveLyricsAcrossSources(for track: Track) async throws -> ResolvedLyrics {
+        let playbackSources = LXSourceStore.shared.playbackSources
+        guard !playbackSources.isEmpty else { throw LXError.noSource }
+
+        let primaryPlatform = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
+        for source in playbackSources {
+            guard await activate(source) else { continue }
+            for platform in sourceCandidates(for: track, action: "lyric") {
+                let requestTrack: Track
+                if platform == primaryPlatform {
+                    requestTrack = track
+                } else {
+                    guard let matched = await LXCatalogService.matchingTrack(track, on: platform) else { continue }
+                    requestTrack = matched
+                }
+
+                for attempt in 0..<2 {
+                    guard let response = try? await request(
+                        source: platform,
+                        action: "lyric",
+                        info: [
+                            "type": "lyric",
+                            "musicInfo": musicInfo(for: requestTrack, platform: platform)
+                        ]
+                    ), let lyrics = await lyricPayload(from: response) else {
+                        if attempt == 0 { try? await Task.sleep(for: .milliseconds(350)) }
+                        continue
+                    }
+                    return lyrics
+                }
             }
         }
         throw LXError.resolveFailed([])
@@ -564,7 +715,7 @@ final class LXUserAPIService: ObservableObject {
     /// arrive.  We still stop after a bounded interval and report the source
     /// state instead of inventing capabilities.
     private func waitForSourceReady() async {
-        guard LXSourceStore.shared.selectedSource != nil else { return }
+        guard loadedID != nil else { return }
         for _ in 0..<120 {
             if !capabilities.isEmpty || context == nil || pendingInitializationID == nil { return }
             try? await Task.sleep(for: .milliseconds(50))
@@ -609,6 +760,14 @@ final class LXUserAPIService: ObservableObject {
         }
     }
 
+    private func activate(_ source: LXSourceStore.Source) async -> Bool {
+        if loadedID != source.id || context == nil {
+            load(source)
+        }
+        await waitForSourceReady()
+        return loadedID == source.id && context != nil && !capabilities.isEmpty
+    }
+
     private func canonicalPlatform(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
               !value.isEmpty else { return nil }
@@ -645,14 +804,25 @@ final class LXUserAPIService: ObservableObject {
     }
 
     func availableQualityNames(for track: Track) async -> [String] {
-        ensureSelectedSourceLoaded()
-        await waitForSourceReady()
-        guard LXSourceStore.shared.selectedSource != nil else { return [] }
-        let primary = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
-        // The picker describes the requested track's platform. Do not union
-        // fallback platforms, otherwise it offers FLAC/Hi-Res that the active
-        // source cannot actually serve.
-        return supportedQualityNames(for: track, platform: primary)
+        let playbackSources = LXSourceStore.shared.playbackSources
+        guard !playbackSources.isEmpty else { return [] }
+        let primaryPlatform = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
+        var available = Set<String>()
+        for source in playbackSources {
+            guard await activate(source) else { continue }
+            for platform in sourceCandidates(for: track, action: "musicUrl") {
+                let qualityTrack: Track
+                if platform == primaryPlatform {
+                    qualityTrack = track
+                } else {
+                    guard let matched = await LXCatalogService.matchingTrack(track, on: platform) else { continue }
+                    qualityTrack = matched
+                }
+                available.formUnion(supportedQualityNames(for: qualityTrack, platform: platform))
+            }
+        }
+        let order = ["128k", "320k", "flac", "flac24bit"]
+        return order.filter(available.contains)
     }
 
     /// Return the qualities that can safely be requested for this track.
@@ -760,6 +930,16 @@ final class LXUserAPIService: ObservableObject {
         return order[...requestedIndex].reversed().first(where: supported.contains)
             ?? supported.first
             ?? "128k"
+    }
+
+    private static func qualityRank(_ value: String) -> Int {
+        switch normalizedQuality(value) {
+        case "128k": return 0
+        case "320k": return 1
+        case "flac": return 2
+        case "flac24bit": return 3
+        default: return -1
+        }
     }
 
     private static func normalizedQuality(_ value: String) -> String {

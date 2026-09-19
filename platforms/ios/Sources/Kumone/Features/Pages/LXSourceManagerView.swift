@@ -81,6 +81,12 @@ struct LXSourceManagerView: View {
     @ViewBuilder
     private var sourceListSection: some View {
         Section {
+            Text("\u{5df2}\u{542f}\u{7528} \(lxStore.playbackSources.count) \u{4e2a}\u{97f3}\u{6e90}")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("\u{5de6}\u{4fa7}\u{5355}\u{9009}\u{9996}\u{9009}\u{97f3}\u{6e90}\u{ff0c}\u{53f3}\u{4fa7}\u{5f00}\u{5173}\u{53ef}\u{540c}\u{65f6}\u{542f}\u{7528}\u{591a}\u{4e2a}\u{97f3}\u{6e90}\u{3002}\u{64ad}\u{653e}\u{65f6}\u{4f18}\u{5148}\u{6700}\u{9ad8}\u{97f3}\u{8d28}\u{ff0c}\u{5931}\u{8d25}\u{540e}\u{81ea}\u{52a8}\u{5907}\u{7528}\u{3002}")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             if lxStore.sources.isEmpty {
                 emptySourceView
             } else {
@@ -256,6 +262,17 @@ struct LXSourceManagerView: View {
             }
             .buttonStyle(.plain)
             .frame(minHeight: 56)
+
+            Toggle(
+                "\u{542f}\u{7528} \(source.name)",
+                isOn: Binding(
+                    get: { lxStore.isEnabled(source.id) },
+                    set: { lxStore.setEnabled(source.id, enabled: $0) }
+                )
+            )
+            .labelsHidden()
+            .frame(width: 52)
+            .accessibilityLabel("\u{542f}\u{7528}\u{97f3}\u{6e90} \(source.name)")
 
             Button {
                 checkSource(source)

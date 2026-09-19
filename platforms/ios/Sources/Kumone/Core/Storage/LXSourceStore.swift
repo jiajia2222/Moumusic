@@ -25,13 +25,26 @@ final class LXSourceStore: ObservableObject {
 
     @Published private(set) var sources: [Source] = []
     @Published private(set) var selectedID: String?
+    @Published private(set) var enabledIDs: [String] = []
 
     var selectedSource: Source? {
         guard let selectedID else { return nil }
         return sources.first { $0.id == selectedID }
     }
 
+    /// Enabled sources in playback priority order. The selected source is
+    /// always tried first; the remaining enabled sources are tried in the
+    /// order in which the user enabled them.
+    var playbackSources: [Source] {
+        let preferred = selectedSource.map { [$0] } ?? []
+        let rest = enabledIDs.compactMap { id in
+            sources.first { $0.id == id && $0.id != selectedID }
+        }
+        return preferred + rest
+    }
+
     private static let selectedKey = "lx.selectedSource"
+    private static let enabledKey = "lx.enabledSources"
 
     private init() {
         selectedID = UserDefaults.standard.string(forKey: Self.selectedKey)
@@ -40,6 +53,19 @@ final class LXSourceStore: ObservableObject {
         if selectedID != nil, selectedSource == nil {
             selectedID = sources.first?.id
         }
+
+        let storedEnabled = UserDefaults.standard.stringArray(forKey: Self.enabledKey) ?? []
+        enabledIDs = storedEnabled.filter { id in sources.contains { $0.id == id } }
+        if enabledIDs.isEmpty {
+            enabledIDs = selectedID.map { [$0] } ?? sources.first.map { [$0.id] } ?? []
+        }
+        if let selectedID, !enabledIDs.contains(selectedID) {
+            enabledIDs.insert(selectedID, at: 0)
+        }
+        if selectedID == nil {
+            selectedID = enabledIDs.first
+        }
+        persistEnabled()
     }
 
     func importScript(_ data: Data, suggestedName: String, sourceURL: String? = nil) throws {
@@ -55,11 +81,16 @@ final class LXSourceStore: ObservableObject {
             throw ImportError.invalidScript
         }
 
-        sources.removeAll { $0.id == source.id || $0.name == source.name }
+        let replacedIDs = Set(sources.filter { $0.id == source.id || $0.name == source.name }.map(\.id))
+        sources.removeAll { replacedIDs.contains($0.id) }
+        enabledIDs.removeAll { replacedIDs.contains($0) }
         sources.append(source)
         sources.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        if !enabledIDs.contains(source.id) {
+            enabledIDs.append(source.id)
+        }
         persist()
-        if selectedID == nil || selectedID == source.id || selectedSource == nil {
+        if selectedID == nil || selectedSource == nil {
             select(source.id)
         }
     }
@@ -99,24 +130,66 @@ final class LXSourceStore: ObservableObject {
             from: nil,
             for: nil
         )
+        if let id, !enabledIDs.contains(id) {
+            enabledIDs.insert(id, at: 0)
+        }
         selectedID = id
         if let id {
             UserDefaults.standard.set(id, forKey: Self.selectedKey)
         } else {
             UserDefaults.standard.removeObject(forKey: Self.selectedKey)
         }
+        persistEnabled()
         LXUserAPIService.shared.loadSelectedSource()
+    }
+
+    func isEnabled(_ id: String) -> Bool {
+        enabledIDs.contains(id)
+    }
+
+    /// Enables or disables a source without changing the preferred source.
+    /// Keep at least one source enabled so playback cannot silently fall back
+    /// to a source the user turned off.
+    func setEnabled(_ id: String, enabled: Bool) {
+        guard sources.contains(where: { $0.id == id }) else { return }
+        if enabled {
+            guard !enabledIDs.contains(id) else { return }
+            enabledIDs.append(id)
+        } else {
+            guard enabledIDs.count > 1 else { return }
+            enabledIDs.removeAll { $0 == id }
+            if selectedID == id {
+                selectedID = enabledIDs.first
+                if let selectedID {
+                    UserDefaults.standard.set(selectedID, forKey: Self.selectedKey)
+                }
+            }
+        }
+        persistEnabled()
+        if selectedID == id || !enabled {
+            LXUserAPIService.shared.loadSelectedSource()
+        }
     }
 
     func remove(_ source: Source) {
         sources.removeAll { $0.id == source.id }
-        if selectedID == source.id { selectedID = sources.first?.id }
+        enabledIDs.removeAll { $0 == source.id }
+        if selectedID == source.id {
+            selectedID = enabledIDs.first ?? sources.first?.id
+        }
+        if let selectedID, !enabledIDs.contains(selectedID) {
+            enabledIDs.insert(selectedID, at: 0)
+        }
+        if enabledIDs.isEmpty, let selectedID {
+            enabledIDs = [selectedID]
+        }
         persist()
         if let selectedID {
             UserDefaults.standard.set(selectedID, forKey: Self.selectedKey)
         } else {
             UserDefaults.standard.removeObject(forKey: Self.selectedKey)
         }
+        persistEnabled()
         LXUserAPIService.shared.loadSelectedSource()
     }
 
@@ -324,6 +397,11 @@ final class LXSourceStore: ObservableObject {
         if let data = try? JSONEncoder().encode(sources) {
             try? data.write(to: Self.fileURL, options: .atomic)
         }
+        persistEnabled()
+    }
+
+    private func persistEnabled() {
+        UserDefaults.standard.set(enabledIDs, forKey: Self.enabledKey)
     }
 
     private static var directoryURL: URL {
