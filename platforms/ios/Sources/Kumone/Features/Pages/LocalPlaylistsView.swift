@@ -268,11 +268,11 @@ struct LocalPlaylistDetailView: View {
                         TrackListView(
                             tracks: filteredTracks(playlist.tracks),
                             source: .none,
-                            selectedTrackKeys: isSelectingTracks ? $selectedTrackKeys : nil,
                             onRemoved: { track in
                                 store.remove(track, from: playlistID)
                                 selectedTrackKeys.remove(track.playbackKey)
-                            }
+                            },
+                            selectedTrackKeys: isSelectingTracks ? $selectedTrackKeys : nil
                         )
                         .padding(.horizontal, Theme.Layout.contentInset - 10)
                     }
