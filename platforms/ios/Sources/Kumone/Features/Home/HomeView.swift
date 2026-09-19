@@ -47,17 +47,83 @@ final class HomeViewModel: ObservableObject {
     private var loadTask: Task<Void, Never>?
     private var loadGeneration = 0
     private var lastLoadedAt: Date?
-    private static let recommendationTTL: TimeInterval = 5 * 60
     private static let didPerformInstallRefreshKey = "moumusic.home.didPerformInstallRefresh.v2"
+    private let recommendationCache = HomeRecommendationCache.shared
+
+    private func cacheKey(for request: LoadRequest) -> HomeRecommendationCache.Key {
+        HomeRecommendationCache.Key(
+            loggedIn: request.loggedIn,
+            mode: request.mode.rawValue,
+            platform: request.platform.rawValue
+        )
+    }
+
+    private func resetContent() {
+        recommendPlaylists = []
+        radarPlaylists = []
+        toplists = []
+        newAlbums = []
+        topArtists = []
+        dailyFirstCover = nil
+        recommendTracks = []
+        lxRecommendPlaylists = []
+    }
+
+    private func apply(_ snapshot: HomeRecommendationCache.Snapshot) {
+        recommendPlaylists = snapshot.recommendPlaylists
+        radarPlaylists = snapshot.radarPlaylists
+        toplists = snapshot.toplists
+        newAlbums = snapshot.newAlbums
+        topArtists = snapshot.topArtists
+        dailyFirstCover = snapshot.dailyFirstCover
+        recommendTracks = snapshot.recommendTracks
+        lxRecommendPlaylists = snapshot.lxRecommendPlaylists
+        state = snapshot.hasContent ? .loaded : .idle
+    }
+
+    private func saveSnapshot(at date: Date = Date()) {
+        guard let activeRequest else { return }
+        recommendationCache.save(
+            HomeRecommendationCache.Snapshot(
+                savedAt: date,
+                recommendPlaylists: recommendPlaylists,
+                radarPlaylists: radarPlaylists,
+                toplists: toplists,
+                newAlbums: newAlbums,
+                topArtists: topArtists,
+                dailyFirstCover: dailyFirstCover,
+                recommendTracks: recommendTracks,
+                lxRecommendPlaylists: lxRecommendPlaylists
+            ),
+            for: cacheKey(for: activeRequest)
+        )
+    }
 
     func load(loggedIn: Bool, mode: HomeRecommendationMode,
               platform: LXCatalogPlatform) async {
         let request = LoadRequest(loggedIn: loggedIn, mode: mode, platform: platform)
+        let requestKey = cacheKey(for: request)
+
+        // Apply a source-specific snapshot before starting a request. This is
+        // the stale-while-revalidate pattern used by Beans Music: fresh data
+        // returns immediately; stale data remains visible while refreshing.
+        if activeRequest != request {
+            activeRequest = request
+            if let snapshot = recommendationCache.snapshot(for: requestKey) {
+                apply(snapshot)
+                lastLoadedAt = snapshot.savedAt
+            } else {
+                resetContent()
+                lastLoadedAt = nil
+                state = .idle
+            }
+        }
+
         if activeRequest == request {
             switch state {
             case .loaded:
                 if let lastLoadedAt,
-                   Date().timeIntervalSince(lastLoadedAt) < Self.recommendationTTL {
+                   Date().timeIntervalSince(lastLoadedAt) < recommendationCache.ttl {
                     return
                 }
             case .loading, .error:
@@ -128,7 +194,12 @@ final class HomeViewModel: ObservableObject {
         guard generation == loadGeneration else { return }
         activeMode = mode
         activePlatform = mode == .netease ? .wy : platform
-        state = .loading
+        let hasExistingContent = !recommendTracks.isEmpty || !recommendPlaylists.isEmpty
+            || !lxRecommendPlaylists.isEmpty || !toplists.isEmpty
+            || !newAlbums.isEmpty || !topArtists.isEmpty
+        if !hasExistingContent {
+            state = .loading
+        }
 
         if mode == .lx {
             // LX recommendations are catalogue-only. The selected source is
@@ -151,6 +222,7 @@ final class HomeViewModel: ObservableObject {
                 }
             }
             recommendTracks = tracks
+            saveSnapshot()
             state = recommendTracks.isEmpty && lxRecommendPlaylists.isEmpty
                 ? .error("LX 暂无推荐结果，请检查网络或切换推荐平台")
                 : .loaded
@@ -185,6 +257,7 @@ final class HomeViewModel: ObservableObject {
             }
             await loadRadarPlaylists()
         }
+        saveSnapshot()
         state = recommendPlaylists.isEmpty && recommendTracks.isEmpty
             && newAlbums.isEmpty && toplists.isEmpty && topArtists.isEmpty
             ? .error("网易云推荐暂时不可用，请检查网络后重试")
@@ -193,10 +266,14 @@ final class HomeViewModel: ObservableObject {
 
     func reload(loggedIn: Bool, mode: HomeRecommendationMode,
                 platform: LXCatalogPlatform) async {
+        if let activeRequest {
+            recommendationCache.invalidate(cacheKey(for: activeRequest))
+        }
         loadGeneration += 1
         loadTask?.cancel()
         loadTask = nil
         activeRequest = nil
+        resetContent()
         lastLoadedAt = nil
         state = .idle
         await load(loggedIn: loggedIn, mode: mode, platform: platform)

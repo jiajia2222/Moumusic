@@ -6,15 +6,30 @@ final class LXPlaylistDetailViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
-    func load(source: LXCatalogPlatform, playlistID: String) async {
-        guard detail == nil, !isLoading else { return }
+    func load(source: LXCatalogPlatform, playlistID: String, force: Bool = false) async {
+        let cache = LXPlaylistDetailCache.shared
+        if !force, let cached = cache.cached(source: source, id: playlistID) {
+            detail = cached.detail
+            errorMessage = nil
+            if cache.isFresh(cached) {
+                return
+            }
+        }
+
+        guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
         do {
-            detail = try await LXCatalogService.playlistDetail(source: source, id: playlistID)
+            let loaded = try await LXCatalogService.playlistDetail(source: source, id: playlistID)
+            detail = loaded
+            cache.save(loaded)
         } catch {
-            errorMessage = error.localizedDescription
+            // Keep a stale but valid detail page usable if the provider has a
+            // temporary outage or changes its response envelope.
+            if detail == nil {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }
@@ -36,7 +51,7 @@ struct LXPlaylistDetailView: View {
                     .frame(maxWidth: .infinity, minHeight: 360)
             } else if let errorMessage = model.errorMessage, model.detail == nil {
                 ErrorStateView(message: errorMessage) {
-                    Task { await model.load(source: source, playlistID: playlistID) }
+                    Task { await model.load(source: source, playlistID: playlistID, force: true) }
                 }
                 .frame(minHeight: 360)
             } else if let detail = model.detail {
