@@ -228,6 +228,13 @@ struct LocalPlaylistDetailView: View {
     @EnvironmentObject private var player: PlayerService
     @State private var showRename = false
     @State private var renameText = ""
+    @State private var showAddTracks = false
+    @State private var playlistQuery = ""
+    @State private var isSelectingTracks = false
+    @State private var selectedTrackKeys = Set<String>()
+    #if os(iOS)
+    @State private var showSelectedDownload = false
+    #endif
 
     var body: some View {
         ScrollView {
@@ -259,10 +266,12 @@ struct LocalPlaylistDetailView: View {
                             .frame(minHeight: 260)
                     } else {
                         TrackListView(
-                            tracks: playlist.tracks,
+                            tracks: filteredTracks(playlist.tracks),
                             source: .none,
+                            selectedTrackKeys: isSelectingTracks ? $selectedTrackKeys : nil,
                             onRemoved: { track in
                                 store.remove(track, from: playlistID)
+                                selectedTrackKeys.remove(track.playbackKey)
                             }
                         )
                         .padding(.horizontal, Theme.Layout.contentInset - 10)
@@ -282,6 +291,41 @@ struct LocalPlaylistDetailView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
+                    isSelectingTracks.toggle()
+                    if !isSelectingTracks { selectedTrackKeys.removeAll() }
+                } label: {
+                    Label(isSelectingTracks ? "完成选择" : "选择歌曲",
+                          systemImage: isSelectingTracks ? "checkmark" : "checklist")
+                }
+                if isSelectingTracks, let playlist = store.playlist(id: playlistID), !selectedTrackKeys.isEmpty {
+                    Button {
+                        showAddTracks = true
+                    } label: {
+                        Label("加入歌单", systemImage: "text.badge.plus")
+                    }
+                    #if os(iOS)
+                    Button {
+                        showSelectedDownload = true
+                    } label: {
+                        Label("下载所选", systemImage: "arrow.down.circle")
+                    }
+                    #endif
+                    Button(role: .destructive) {
+                        store.remove(selectedTracks(from: playlist), from: playlistID)
+                        selectedTrackKeys.removeAll()
+                        isSelectingTracks = false
+                    } label: {
+                        Label("删除所选", systemImage: "trash")
+                    }
+                }
+                if !isSelectingTracks, !(store.playlist(id: playlistID)?.tracks.isEmpty ?? true) {
+                    Button {
+                        showAddTracks = true
+                    } label: {
+                        Label("添加到歌单", systemImage: "text.badge.plus")
+                    }
+                }
+                Button {
                     renameText = store.playlist(id: playlistID)?.name ?? ""
                     showRename = true
                 } label: {
@@ -299,6 +343,34 @@ struct LocalPlaylistDetailView: View {
             Button("保存") { store.rename(id: playlistID, name: renameText) }
             Button("取消", role: .cancel) {}
         }
+        .sheet(isPresented: $showAddTracks) {
+            if let playlist = store.playlist(id: playlistID) {
+                let tracks = selectedTracks(from: playlist)
+                AddToPlaylistSheet(tracks: tracks.isEmpty ? playlist.tracks : tracks)
+            }
+        }
+        #if os(iOS)
+        .sheet(isPresented: $showSelectedDownload) {
+            if let playlist = store.playlist(id: playlistID) {
+                DownloadOptionsSheet(tracks: selectedTracks(from: playlist))
+            }
+        }
+        #endif
+        .searchable(text: $playlistQuery, prompt: "搜索此歌单")
+    }
+
+    private func filteredTracks(_ tracks: [Track]) -> [Track] {
+        let query = playlistQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return tracks }
+        return tracks.filter { track in
+            track.name.localizedCaseInsensitiveContains(query)
+                || track.artistNames.localizedCaseInsensitiveContains(query)
+                || track.album.name.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private func selectedTracks(from playlist: LocalPlaylist) -> [Track] {
+        playlist.tracks.filter { selectedTrackKeys.contains($0.playbackKey) }
     }
 
     private func header(_ playlist: LocalPlaylist) -> some View {

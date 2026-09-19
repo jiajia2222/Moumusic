@@ -95,10 +95,38 @@ final class LocalPlaylistStore: ObservableObject {
         ToastCenter.shared.show("已添加到「\(playlists[index].name)」")
     }
 
+    /// Adds a group of tracks while preserving the order supplied by the caller.
+    /// Local playlists are source-agnostic, so duplicates are skipped using the
+    /// same source-aware key as the single-track API.
+    @discardableResult
+    func add(_ tracks: [Track], to playlistID: UUID) -> Int {
+        guard let index = playlists.firstIndex(where: { $0.id == playlistID }) else { return 0 }
+
+        var existingKeys = Set(playlists[index].tracks.map(trackKey))
+        var added = 0
+        for track in tracks {
+            let key = trackKey(track)
+            guard existingKeys.insert(key).inserted else { continue }
+            playlists[index].tracks.append(track)
+            added += 1
+        }
+
+        if added > 0 { persist() }
+        return added
+    }
+
     func remove(_ track: Track, from playlistID: UUID) {
         guard let index = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
         let key = trackKey(track)
         playlists[index].tracks.removeAll { trackKey($0) == key }
+        persist()
+    }
+
+    func remove(_ tracks: [Track], from playlistID: UUID) {
+        guard let index = playlists.firstIndex(where: { $0.id == playlistID }) else { return }
+        let keys = Set(tracks.map(trackKey))
+        guard !keys.isEmpty else { return }
+        playlists[index].tracks.removeAll { keys.contains(trackKey($0)) }
         persist()
     }
 

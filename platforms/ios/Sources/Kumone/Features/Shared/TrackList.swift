@@ -476,6 +476,9 @@ struct TrackListView: View {
     var context: PlayContext?
     var removableFromPlaylistID: Int?
     var onRemoved: ((Track) -> Void)?
+    /// Optional selection binding used by local-playlist batch actions.
+    /// Existing callers stay in the normal, non-selectable mode.
+    var selectedTrackKeys: Binding<Set<String>>? = nil
 
     #if os(iOS)
     @State private var showBatchDownload = false
@@ -511,16 +514,41 @@ struct TrackListView: View {
 
             LazyVStack(spacing: 1) {
             ForEach(Array(tracks.enumerated()), id: \.element.playbackKey) { index, track in
-                TrackRow(
-                    track: track,
-                    index: style == .albumTrack ? (track.trackNo > 0 ? track.trackNo : index + 1) : index + 1,
-                    style: style,
-                    playability: playability(of: track),
-                    removableFromPlaylistID: removableFromPlaylistID,
-                    onRemoved: { onRemoved?(track) }
-                ) {
-                    player.play(tracks: playableTracks, source: source, startAt: track,
-                                context: context)
+                HStack(spacing: 6) {
+                    if let selection = selectedTrackKeys {
+                        Button {
+                            var keys = selection.wrappedValue
+                            let key = track.playbackKey
+                            if keys.contains(key) {
+                                keys.remove(key)
+                            } else {
+                                keys.insert(key)
+                            }
+                            selection.wrappedValue = keys
+                        } label: {
+                            Image(systemName: selection.wrappedValue.contains(track.playbackKey)
+                                  ? "checkmark.circle.fill" : "circle")
+                                .font(.title3)
+                                .foregroundStyle(selection.wrappedValue.contains(track.playbackKey)
+                                                 ? Theme.accent : .secondary)
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(selection.wrappedValue.contains(track.playbackKey)
+                                            ? "取消选择 \(track.name)" : "选择 \(track.name)")
+                    }
+
+                    TrackRow(
+                        track: track,
+                        index: style == .albumTrack ? (track.trackNo > 0 ? track.trackNo : index + 1) : index + 1,
+                        style: style,
+                        playability: playability(of: track),
+                        removableFromPlaylistID: removableFromPlaylistID,
+                        onRemoved: { onRemoved?(track) }
+                    ) {
+                        player.play(tracks: playableTracks, source: source, startAt: track,
+                                    context: context)
+                    }
                 }
             }
             }
@@ -555,7 +583,15 @@ struct TrackListView: View {
 // MARK: - Add to playlist
 
 struct AddToPlaylistSheet: View {
-    let track: Track
+    let tracks: [Track]
+
+    init(track: Track) {
+        tracks = [track]
+    }
+
+    init(tracks: [Track]) {
+        self.tracks = tracks
+    }
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var localStore = LocalPlaylistStore.shared
@@ -642,14 +678,17 @@ struct AddToPlaylistSheet: View {
     }
 
     private func add(to playlist: LocalPlaylist) {
-        localStore.add(track, to: playlist.id)
+        let added = localStore.add(tracks, to: playlist.id)
+        if added > 0 {
+            ToastCenter.shared.show("已添加 \(added) 首歌曲")
+        }
         dismiss()
     }
 
     private func createLocalAndAdd() {
         let name = newName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        _ = localStore.create(name: name, tracks: [track])
+        _ = localStore.create(name: name, tracks: tracks)
         ToastCenter.shared.show("已收藏到「\(name)」")
         dismiss()
     }
