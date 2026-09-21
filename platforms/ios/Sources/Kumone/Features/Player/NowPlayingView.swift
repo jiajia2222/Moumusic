@@ -2264,7 +2264,7 @@ private struct MinimalTrackInfoRow: View {
                         player.playbackRate = Float(rate)
                     } label: {
                         HStack {
-                            Text("\(rate, specifier: \"%.2g\")×")
+                            Text("\(rate)×")
                             if abs(Double(player.playbackRate) - rate) < 0.01 {
                                 Image(systemName: "checkmark")
                             }
@@ -2272,7 +2272,7 @@ private struct MinimalTrackInfoRow: View {
                     }
                 }
             } label: {
-                Label("播放速度 · \(player.playbackRate, specifier: \"%.2g\")×", systemImage: "speedometer")
+                Label("播放速度", systemImage: "speedometer")
             }
 
             SleepTimerMenu(player: player)
