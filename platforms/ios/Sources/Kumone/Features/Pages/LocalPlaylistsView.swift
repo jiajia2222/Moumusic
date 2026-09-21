@@ -145,6 +145,13 @@ struct ImportPlaylistSheet: View {
                         }
                 }
 
+                Section("汽水音乐") {
+                    Text("支持汽水音乐单曲分享链接。粘贴汽水分享链接后，应用会使用内置接口获取播放地址、歌词和真实音质，不需要另外导入 LX 音源。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 Section {
                     Button {
                         showFileImporter = true

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.25 - 2026-09-21
+
+### Added / 新增
+
+**iOS**: built-in Qishui Music share-link playback through the documented BugPk API. Paste a Qishui single-track share link into the local playlist importer; no LX source import is required for that track.
+
+**iOS**：新增内置汽水音乐分享链接解析。将汽水单曲分享链接粘贴到本地歌单导入即可播放，不需要另外导入 LX 音源。
+
+**iOS**: Qishui responses now provide their lyric payload and actual bitrate to the player. The displayed quality is derived from the returned bitrate/format, so a roughly 128 kbps file is not labeled Hi-Res.
+
+**iOS**：汽水接口返回的歌词和真实码率会直接交给播放器，音质显示根据返回码率 / 格式判断，不会把约 128 kbps 的文件误报成 Hi-Res。
+
+### Fixed / 修复
+
+**iOS**: imported Qishui tracks can play and show lyrics even when no LX User API source is selected. Signed audio URLs remain temporary and are never saved to the playlist.
+
+**iOS**：导入的汽水歌曲即使没有选择 LX User API 音源也可以播放和显示歌词；临时签名播放地址不会保存到歌单。
+
 ## 1.0.24 - 2026-09-21
 
 ### Added / 新增

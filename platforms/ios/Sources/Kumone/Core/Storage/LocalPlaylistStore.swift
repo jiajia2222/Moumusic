@@ -278,11 +278,13 @@ private enum PlaylistImportService {
     private enum RemotePlaylistPlatform {
         case netease
         case catalog(LXCatalogPlatform)
+        case qishuiSong
 
         var displayName: String {
             switch self {
             case .netease: return LXCatalogPlatform.wy.displayName
             case .catalog(let platform): return platform.displayName
+            case .qishuiSong: return "汽水音乐（内置 API）"
             }
         }
     }
@@ -319,7 +321,50 @@ private enum PlaylistImportService {
             } catch {
                 throw PlaylistImportError.invalidFormat
             }
+        case .qishuiSong:
+            guard let shareURL = URL(string: reference.id) else {
+                throw PlaylistImportError.unsupportedLink
+            }
+            return try await importQishuiSong(url: shareURL)
         }
+    }
+
+    private static func importQishuiSong(url: URL) async throws -> ImportedPlaylist {
+        let resolved = try await QishuiAPI.shared.resolve(sharedURL: url)
+        let artistName = resolved.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let albumName = resolved.albumName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = resolved.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? [artistName, albumName].filter { !$0.isEmpty }.joined(separator: " - ")
+        guard !title.isEmpty else { throw PlaylistImportError.invalidFormat }
+
+        let artist = artistName.isEmpty ? "汽水音乐" : artistName
+        let trackID = stableID("qishui|\(url.absoluteString)")
+        let artistID = stableID("qishui-artist|\(artist)")
+        var metadata = [
+            "songmid": String(trackID),
+            "qishuiURL": url.absoluteString,
+        ]
+        if !resolved.quality.isEmpty {
+            let quality = resolved.quality
+            metadata["qishui.quality"] = quality
+        }
+
+        let track = Track(
+            id: trackID,
+            name: title,
+            artists: [ArtistRef(id: artistID, name: artist)],
+            album: AlbumRef(id: 0, name: albumName.isEmpty ? "汽水音乐" : albumName,
+                            picUrl: resolved.coverURL),
+            durationMS: resolved.durationMS,
+            source: "sd",
+            sourceMetadata: metadata
+        )
+        return ImportedPlaylist(
+            name: title,
+            coverURL: resolved.coverURL,
+            sourceName: "汽水音乐（内置 API）",
+            tracks: [track]
+        )
     }
 
     private static func importNeteasePlaylist(id: String) async throws -> ImportedPlaylist {
@@ -444,6 +489,10 @@ private enum PlaylistImportService {
                 ?? firstID(after: ["collection", "playlist"])
             guard let id, !id.isEmpty else { return nil }
             return RemotePlaylistReference(platform: .catalog(.mg), id: id)
+        }
+
+        if QishuiAPI.isSupportedShareURL(url) {
+            return RemotePlaylistReference(platform: .qishuiSong, id: url.absoluteString)
         }
 
         return nil
