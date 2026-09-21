@@ -212,7 +212,7 @@ final class PlayerService: ObservableObject {
 
     /// Playback speed is owned by the player so it is consistent across the
     /// full-screen player, mini-player, CarPlay and interruption resume.
-    @Published var playbackRate: Float {
+    @Published var playbackRate: Float = 1 {
         didSet {
             let clamped = min(max(playbackRate, 0.5), 2.0)
             if clamped != playbackRate {
