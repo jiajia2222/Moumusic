@@ -108,37 +108,37 @@ actor QishuiAPI {
             throw APIError.requestFailed
         }
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              isSuccess(root["code"]),
+              Self.isSuccess(root["code"]),
               let payload = root["data"] as? [String: Any],
-              let rawAudioURL = text(in: payload, keys: ["url", "audio_url", "audioUrl"]),
+              let rawAudioURL = Self.text(in: payload, keys: ["url", "audio_url", "audioUrl"]),
               let audioURL = URL(string: rawAudioURL.replacingOccurrences(of: "http://", with: "https://")),
               ["http", "https"].contains(audioURL.scheme?.lowercased() ?? "") else {
             throw APIError.invalidResponse
         }
 
-        let metadata = dictionary(in: payload, keys: ["video_meta", "videoMeta", "audio_meta", "audioMeta", "meta"])
-        let bitrate = integer(in: metadata, keys: ["real_bitrate", "realBitrate", "bitrate"])
-            ?? integer(in: payload, keys: ["real_bitrate", "realBitrate", "bitrate"])
-        let format = text(in: metadata, keys: ["vtype", "format", "codec", "codec_type"])
-            ?? text(in: payload, keys: ["format", "codec"])
-        let qualityHint = text(in: metadata, keys: ["quality"])
-            ?? text(in: payload, keys: ["quality"])
-        let lyric = text(in: payload, keys: ["lyric", "lyrics", "lrc"])
+        let metadata = Self.dictionary(in: payload, keys: ["video_meta", "videoMeta", "audio_meta", "audioMeta", "meta"])
+        let bitrate = Self.integer(in: metadata, keys: ["real_bitrate", "realBitrate", "bitrate"])
+            ?? Self.integer(in: payload, keys: ["real_bitrate", "realBitrate", "bitrate"])
+        let format = Self.text(in: metadata, keys: ["vtype", "format", "codec", "codec_type"])
+            ?? Self.text(in: payload, keys: ["format", "codec"])
+        let qualityHint = Self.text(in: metadata, keys: ["quality"])
+            ?? Self.text(in: payload, keys: ["quality"])
+        let lyric = Self.text(in: payload, keys: ["lyric", "lyrics", "lrc"])
         let verbatimLyric = lyric.map(Self.normalizeVerbatimLyric)
-        let title = text(in: payload, keys: ["name", "songname", "song_name", "title", "music_name"])
-        let albumName = text(in: payload, keys: ["albumname", "album_name", "album"])
-        let artistName = text(in: payload, keys: ["artistsname", "artistname", "artist", "singer", "author"])
-        let coverURL = normalizedURL(
-            text(in: payload, keys: ["cover", "cover_url", "coverUrl", "albumcover", "albumCover", "pic", "picUrl", "image"])
-        ) ?? firstString(in: payload, keys: ["artistsmedium_avatar_url", "artistsMediumAvatarURL"])
-        let durationMS = durationMilliseconds(
-            value(in: metadata, keys: ["duration_ms", "durationMS", "timelength", "duration"])
-                ?? value(in: payload, keys: ["duration_ms", "durationMS", "timelength", "duration"])
+        let title = Self.text(in: payload, keys: ["name", "songname", "song_name", "title", "music_name"])
+        let albumName = Self.text(in: payload, keys: ["albumname", "album_name", "album"])
+        let artistName = Self.text(in: payload, keys: ["artistsname", "artistname", "artist", "singer", "author"])
+        let coverURL = Self.normalizedURL(
+            Self.text(in: payload, keys: ["cover", "cover_url", "coverUrl", "albumcover", "albumCover", "pic", "picUrl", "image"])
+        ) ?? Self.firstString(in: payload, keys: ["artistsmedium_avatar_url", "artistsMediumAvatarURL"])
+        let durationMS = Self.durationMilliseconds(
+            Self.value(in: metadata, keys: ["duration_ms", "durationMS", "timelength", "duration"])
+                ?? Self.value(in: payload, keys: ["duration_ms", "durationMS", "timelength", "duration"])
         )
 
         let result = Resolution(
             audioURL: audioURL,
-            quality: qualityName(bitrate: bitrate, format: format, hint: qualityHint),
+            quality: Self.qualityName(bitrate: bitrate, format: format, hint: qualityHint),
             lyric: lyric,
             verbatimLyric: verbatimLyric,
             title: title,
