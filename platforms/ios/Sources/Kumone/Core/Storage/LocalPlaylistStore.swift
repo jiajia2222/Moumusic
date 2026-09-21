@@ -40,7 +40,7 @@ enum PlaylistImportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .emptyInput: return "请输入歌单链接、文字或 JSON 文件内容"
-        case .unsupportedLink: return "无法识别歌单链接；支持网易云、QQ、酷狗、酷我和咪咕公开歌单"
+        case .unsupportedLink: return "无法识别歌单链接；支持网易云、QQ、酷狗、酷我、咪咕和汽水公开歌单"
         case .invalidFormat: return "无法识别歌单格式"
         case .noTracks: return "歌单中没有可导入的歌曲"
         }
@@ -279,12 +279,14 @@ private enum PlaylistImportService {
         case netease
         case catalog(LXCatalogPlatform)
         case qishuiSong
+        case qishuiPlaylist
 
         var displayName: String {
             switch self {
             case .netease: return LXCatalogPlatform.wy.displayName
             case .catalog(let platform): return platform.displayName
             case .qishuiSong: return "汽水音乐（内置 API）"
+            case .qishuiPlaylist: return "汽水音乐"
             }
         }
     }
@@ -326,6 +328,11 @@ private enum PlaylistImportService {
                 throw PlaylistImportError.unsupportedLink
             }
             return try await importQishuiSong(url: shareURL)
+        case .qishuiPlaylist:
+            guard let shareURL = URL(string: reference.id) else {
+                throw PlaylistImportError.unsupportedLink
+            }
+            return try await importQishuiPlaylist(url: shareURL)
         }
     }
 
@@ -364,6 +371,40 @@ private enum PlaylistImportService {
             coverURL: resolved.coverURL,
             sourceName: "汽水音乐（内置 API）",
             tracks: [track]
+        )
+    }
+
+    private static func importQishuiPlaylist(url: URL) async throws -> ImportedPlaylist {
+        let resolved = try await QishuiAPI.shared.resolvePlaylist(sharedURL: url)
+        let tracks = resolved.tracks.enumerated().map { index, item in
+            let artistName = item.artistName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let artist = artistName.isEmpty ? "汽水音乐" : artistName
+            let trackID = Int(item.id) ?? stableID("qishui|\(item.id)|\(item.name)|\(index)")
+            let artistID = stableID("qishui-artist|\(artist)")
+            var metadata = [
+                "songmid": item.id,
+                "qishuiTrackID": item.id,
+                "qishuiURL": item.shareURL.absoluteString,
+            ]
+            if let albumName = item.albumName, !albumName.isEmpty {
+                metadata["qishui.album"] = albumName
+            }
+            return Track(
+                id: trackID,
+                name: item.name,
+                artists: [ArtistRef(id: artistID, name: artist)],
+                album: AlbumRef(id: 0, name: item.albumName ?? "汽水音乐", picUrl: item.coverURL),
+                durationMS: item.durationMS,
+                source: "sd",
+                sourceMetadata: metadata
+            )
+        }
+        guard !tracks.isEmpty else { throw PlaylistImportError.noTracks }
+        return ImportedPlaylist(
+            name: resolved.name,
+            coverURL: resolved.coverURL,
+            sourceName: "汽水音乐",
+            tracks: tracks
         )
     }
 
@@ -489,6 +530,17 @@ private enum PlaylistImportService {
                 ?? firstID(after: ["collection", "playlist"])
             guard let id, !id.isEmpty else { return nil }
             return RemotePlaylistReference(platform: .catalog(.mg), id: id)
+        }
+
+        if QishuiAPI.isPlaylistURL(url) {
+            return RemotePlaylistReference(platform: .qishuiPlaylist, id: url.absoluteString)
+        }
+
+        // A short `/s/...` URL is ambiguous until its redirect target is
+        // known. Returning nil here makes importPlaylist resolve it first;
+        // otherwise it would be sent to the single-track endpoint.
+        if QishuiAPI.isShortShareURL(url) {
+            return nil
         }
 
         if QishuiAPI.isSupportedShareURL(url) {

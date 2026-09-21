@@ -21,6 +21,24 @@ actor QishuiAPI {
         let durationMS: Int
     }
 
+    struct PlaylistResolution: Sendable {
+        struct Track: Sendable {
+            let id: String
+            let name: String
+            let artistName: String
+            let albumName: String?
+            let coverURL: String?
+            let durationMS: Int
+            let shareURL: URL
+        }
+
+        let id: String
+        let name: String
+        let coverURL: String?
+        let revision: Int
+        let tracks: [Track]
+    }
+
     enum APIError: LocalizedError {
         case invalidShareURL
         case requestFailed
@@ -81,6 +99,26 @@ actor QishuiAPI {
         guard isQishuiHost else { return false }
         let path = url.path.lowercased()
         return path.contains("/s/") || path.contains("/share/") || path.contains("/track")
+    }
+
+    static func isPlaylistURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased(), host == "music.douyin.com" || host.hasSuffix(".douyin.com") else {
+            return false
+        }
+        let path = url.path.lowercased()
+        let hasPlaylistPath = path.contains("/qishui/share/playlist")
+            || path.contains("/share/playlist")
+        let hasPlaylistID = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains {
+            ["playlist_id", "playlistid"].contains($0.name.lowercased())
+        } == true
+        return hasPlaylistPath || (hasPlaylistID && path.contains("playlist"))
+    }
+
+    /// Short Qishui share URLs must be resolved before deciding whether they
+    /// represent a track or a playlist. Treating `/s/...` as a song here was
+    /// the reason public playlist links were sent to the single-track API.
+    static func isShortShareURL(_ url: URL) -> Bool {
+        url.path.lowercased().hasPrefix("/s/")
     }
 
     func resolve(sharedURL: URL) async throws -> Resolution {
@@ -151,6 +189,126 @@ actor QishuiAPI {
         return result
     }
 
+    func resolvePlaylist(sharedURL: URL) async throws -> PlaylistResolution {
+        let requestURL = try await finalURL(for: sharedURL)
+        guard Self.isPlaylistURL(requestURL) else { throw APIError.invalidShareURL }
+
+        var request = URLRequest(url: requestURL)
+        request.timeoutInterval = 30
+        request.setValue("Moumusic/1.0 (iOS; Qishui playlist resolver)", forHTTPHeaderField: "User-Agent")
+        request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError.requestFailed
+        }
+        guard (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) == true,
+              let html = String(data: data, encoding: .utf8),
+              let routerData = Self.routerData(from: html),
+              let loaderData = routerData["loaderData"] as? [String: Any],
+              let page = loaderData["playlist_page"] as? [String: Any],
+              let medias = page["medias"] as? [[String: Any]] else {
+            throw APIError.invalidResponse
+        }
+
+        let playlistInfo = page["playlistInfo"] as? [String: Any] ?? [:]
+        let playlistID = Self.text(in: playlistInfo, keys: ["id", "playlist_id"])
+            ?? Self.queryValue(requestURL, names: ["playlist_id", "playlistid"])
+        guard let playlistID, !playlistID.isEmpty else { throw APIError.invalidResponse }
+
+        let playlistName = Self.text(in: playlistInfo, keys: ["title", "name", "public_title"])
+            ?? "汽水歌单"
+        let coverURL = Self.imageURL(in: playlistInfo["url_cover"])
+        let revision = Self.integer(in: playlistInfo, keys: ["update_time", "updateTime", "create_time"]) ?? 0
+
+        let tracks = medias.compactMap { media -> PlaylistResolution.Track? in
+            guard let entity = media["entity"] as? [String: Any],
+                  let track = entity["track"] as? [String: Any],
+                  let id = Self.text(in: track, keys: ["id"]),
+                  let name = Self.text(in: track, keys: ["name", "title"]),
+                  let shareURL = URL(string: "https://music.douyin.com/qishui/share/track?track_id=\(id)") else {
+                return nil
+            }
+
+            let artists = track["artists"] as? [[String: Any]] ?? []
+            let artistName = artists.compactMap { Self.text(in: $0, keys: ["name", "simple_display_name"]) }
+                .joined(separator: " / ")
+            let album = track["album"] as? [String: Any]
+            let albumName = Self.text(in: album ?? [:], keys: ["name"])
+            let cover = Self.imageURL(in: album?["url_cover"])
+            let durationMS = Self.integer(in: track, keys: ["duration", "duration_ms", "durationMS"]) ?? 0
+            return PlaylistResolution.Track(
+                id: id,
+                name: name,
+                artistName: artistName,
+                albumName: albumName,
+                coverURL: cover,
+                durationMS: durationMS,
+                shareURL: shareURL
+            )
+        }
+
+        guard !tracks.isEmpty else { throw APIError.unavailable }
+        return PlaylistResolution(id: playlistID, name: playlistName, coverURL: coverURL,
+                                  revision: revision, tracks: tracks)
+    }
+
+    private func finalURL(for url: URL) async throws -> URL {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+                         forHTTPHeaderField: "User-Agent")
+        do {
+            let (_, response) = try await session.data(for: request)
+            return response.url ?? url
+        } catch {
+            throw APIError.requestFailed
+        }
+    }
+
+    private static func routerData(from html: String) -> [String: Any]? {
+        guard let marker = html.range(of: "_ROUTER_DATA"),
+              let openBrace = html[marker.upperBound...].firstIndex(of: "{") else {
+            return nil
+        }
+
+        var index = openBrace
+        var depth = 0
+        var inString = false
+        var escaped = false
+        while index < html.endIndex {
+            let character = html[index]
+            if inString {
+                if escaped {
+                    escaped = false
+                } else if character == "\\" {
+                    escaped = true
+                } else if character == "\"" {
+                    inString = false
+                }
+            } else if character == "\"" {
+                inString = true
+            } else if character == "{" {
+                depth += 1
+            } else if character == "}" {
+                depth -= 1
+                if depth == 0 {
+                    let json = String(html[openBrace...index])
+                    guard let data = json.data(using: .utf8),
+                          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        return nil
+                    }
+                    return object
+                }
+            }
+            index = html.index(after: index)
+        }
+        return nil
+    }
+
     private static func isSuccess(_ value: Any?) -> Bool {
         if let number = value as? NSNumber { return number.intValue == 200 }
         if let string = value as? String { return string == "200" }
@@ -201,6 +359,24 @@ actor QishuiAPI {
               !value.isEmpty else { return nil }
         let normalized = value.hasPrefix("//") ? "https:" + value : value.replacingOccurrences(of: "http://", with: "https://")
         return URL(string: normalized) == nil ? nil : normalized
+    }
+
+    private static func queryValue(_ url: URL, names: [String]) -> String? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first {
+            names.contains($0.name.lowercased())
+        }?.value
+    }
+
+    private static func imageURL(in value: Any?) -> String? {
+        guard let object = value as? [String: Any] else {
+            return normalizedURL(value as? String)
+        }
+        let uri = text(in: object, keys: ["uri"])
+        let base = firstString(in: object, keys: ["urls"])
+        guard let uri, let base else { return nil }
+        let prefix = object["template_prefix"] as? String ?? "tplv-b829550vbb"
+        let value = "\(base)\(uri)~\(prefix)-crop-center:720:720.jpg"
+        return normalizedURL(value)
     }
 
     private static func durationMilliseconds(_ value: Any?) -> Int {

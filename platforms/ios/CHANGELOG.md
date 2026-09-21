@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.27 - 2026-09-22
+
+### Fixed / 修复
+
+**iOS**: fixed Qishui public playlist imports being sent to the single-track API. Public playlist pages are now parsed for their real track list, playlist name, artwork, artist, album, and duration metadata.
+
+**iOS**：修复汽水公开歌单被误送到单曲接口、提示返回格式不正确的问题。现在会解析汽水公开歌单页面中的真实歌曲、歌单名称、封面、歌手、专辑和时长信息。
+
+**iOS**: every imported Qishui playlist track keeps its Qishui track ID and share URL, so playback, lyrics, and actual bitrate still resolve through the Qishui endpoint instead of falling back to NetEase or an LX platform.
+
+**iOS**：汽水歌单中的每首歌曲都会保留汽水 track ID 和分享链接，播放、歌词和真实音质继续通过汽水接口解析，不会回退到网易云或其他 LX 平台。
+
 ## 1.0.26 - 2026-09-21
 
 ### Fixed / 修复

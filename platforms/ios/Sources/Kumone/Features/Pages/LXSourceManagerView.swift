@@ -166,7 +166,7 @@ struct LXSourceManagerView: View {
                         .foregroundStyle(.green)
                 }
 
-                Text("将汽水音乐单曲分享链接粘贴到“本地歌单 → 导入歌单”，Moumusic 会直接调用内置解析接口播放，并读取接口返回的歌词和真实音质。")
+                Text("将汽水音乐单曲或公开歌单分享链接粘贴到“本地歌单 → 导入歌单”，Moumusic 会读取汽水公开歌单曲目，并逐首调用内置解析接口播放，读取接口返回的歌词和真实音质。")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
