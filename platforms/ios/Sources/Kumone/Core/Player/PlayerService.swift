@@ -287,6 +287,11 @@ final class PlayerService: ObservableObject {
     private var consecutiveFailures = 0
     private var scrobbled = false
     private var startScrobbled = false
+#if os(iOS)
+    /// NetEase IDs are metadata matches only. LX remains the only audio URL
+    /// resolver on iOS.
+    private var pendingNeteaseTrackIDs: [String: Int] = [:]
+#endif
     private var runtimeStarted = false
 
     private init() {
@@ -1000,7 +1005,9 @@ final class PlayerService: ObservableObject {
 
         if !startScrobbled {
             startScrobbled = true
-#if !os(iOS)
+#if os(iOS)
+            syncListeningStart(track: track, sourceID: source.sourceID)
+#else
             let tid = track.id
             let sid = source.sourceID
             Task.detached { await NeteaseAPI.scrobbleStart(trackID: tid, sourceID: sid) }
@@ -1176,12 +1183,58 @@ final class PlayerService: ObservableObject {
 
     // MARK: - Scrobble
 
+#if os(iOS)
+    private func neteaseTrackID(for track: Track) async -> Int? {
+        if track.source == nil && track.sourceMetadata["source"] == nil {
+            return track.id
+        }
+        let matched = try? await NeteaseAPI.matchingSong(
+            for: track, limit: 12, requireDuration: false
+        )
+        return matched?.id
+    }
+
+    private func syncListeningStart(track: Track, sourceID: Int) {
+        guard AccountStore.shared.isLoggedIn else { return }
+        let key = track.playbackKey
+        Task { [weak self] in
+            guard let trackID = await self?.neteaseTrackID(for: track) else { return }
+            // This is an account history event only. The actual audio URL was
+            // already resolved through the selected LX User API source.
+            await NeteaseAPI.scrobbleStart(trackID: trackID, sourceID: sourceID)
+            guard !Task.isCancelled else { return }
+            self?.pendingNeteaseTrackIDs[key] = trackID
+        }
+    }
+
+    private func syncListeningFinish(track: Track, sourceID: Int, seconds: Int) {
+        guard AccountStore.shared.isLoggedIn, seconds > 0 else { return }
+        let key = track.playbackKey
+        let knownID = pendingNeteaseTrackIDs[key]
+        Task { [weak self] in
+            let trackID: Int?
+            if let knownID {
+                trackID = knownID
+            } else {
+                trackID = await self?.neteaseTrackID(for: track)
+            }
+            guard let trackID else { return }
+            await NeteaseAPI.scrobbleFinish(trackID: trackID, sourceID: sourceID, seconds: seconds)
+            guard !Task.isCancelled else { return }
+            ListeningSyncStore.shared.record(seconds: seconds)
+            self?.pendingNeteaseTrackIDs.removeValue(forKey: key)
+        }
+    }
+#endif
+
     private func scrobbleIfNeeded(completed: Bool) {
         guard let track = currentTrack, !scrobbled, progress > 1 else { return }
         scrobbled = true
         let seconds = completed ? Int(duration) : Int(progress)
         let sourceID = source.sourceID
-#if !os(iOS)
+#if os(iOS)
+        syncListeningFinish(track: track, sourceID: sourceID, seconds: seconds)
+#else
         Task.detached {
             await NeteaseAPI.scrobbleFinish(trackID: track.id, sourceID: sourceID, seconds: seconds)
         }

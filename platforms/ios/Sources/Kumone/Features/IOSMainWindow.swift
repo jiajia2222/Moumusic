@@ -34,9 +34,13 @@ public struct IOSMainWindow: View {
             .environmentObject(toasts)
             .tint(Theme.accent)
             .preferredColorScheme(settings.appearance.colorScheme)
-            // iOS is source-only: no provider account or built-in catalogue
-            // session is started from the app shell.
-            .environment(\.openLogin, {})
+            // Login is exposed on a separate account page. It is metadata
+            // synchronisation only; audio URLs still come exclusively from LX.
+            .environment(\.openLogin, {
+                selectedTab = .settings
+                settingsPath = NavigationPath()
+                settingsPath.append(Destination.accountSync)
+            })
             .task {
                 // Let the first scene commit before touching AVAudioSession,
                 // MPRemoteCommandCenter, persisted playback state, or a user
@@ -44,6 +48,7 @@ public struct IOSMainWindow: View {
                 // still keeps all runtime setup on the main actor.
                 await Task.yield()
                 player.startRuntime()
+                await account.bootstrap()
                 if settings.autoCheckUpdates {
                     IOSUpdater.shared.check(interactive: false)
                 }

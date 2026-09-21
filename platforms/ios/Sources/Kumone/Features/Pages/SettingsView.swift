@@ -30,6 +30,17 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+#if os(iOS)
+            Section("账号与同步") {
+                NavigationLink(value: Destination.accountSync) {
+                    Label("账号同步", systemImage: "person.crop.circle.badge.checkmark")
+                }
+                Text("登录只同步账号资料、每日推荐、播放记录和听歌时长，不会作为音源；歌曲仍由已导入的 LX 音源播放。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+#endif
+
             Section("播放") {
 #if os(iOS)
                 Toggle("播放失败时切换平台", isOn: $settings.enableSourcePlatformFallback)

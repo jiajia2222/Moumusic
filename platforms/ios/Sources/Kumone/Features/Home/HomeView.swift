@@ -380,6 +380,9 @@ struct HomeView: View {
         LazyVStack(alignment: .leading, spacing: 22) {
             homePlatformPicker
 
+            dailyRecommendationLink
+                .padding(.horizontal, Theme.Layout.contentInset)
+
             HStack(spacing: 10) {
                 Image(systemName: model.activePlatform == .wy ? "flame.fill" : "waveform")
                     .foregroundStyle(Theme.accent)
@@ -559,19 +562,18 @@ struct HomeView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 16) {
                 Color.clear.frame(width: max(0, Theme.Layout.contentInset - 16), height: 1)
-                if account.isLoggedIn {
-                    NavigationLink(value: Destination.daily) {
-                        FeatureCard(
-                            title: "每日推荐",
-                            subtitle: "根据你的口味生成",
-                            icon: "calendar",
-                            coverURL: model.dailyFirstCover?.resizedImageURL(512),
-                            showsDate: true
-                        )
-                    }
-                    .buttonStyle(.plain)
-
+                // Daily recommendations are always visible; the page shows
+                // a separate login CTA when account sync is unavailable.
+                NavigationLink(value: Destination.daily) {
+                    FeatureCard(
+                        title: "每日推荐",
+                        subtitle: "根据你的口味生成",
+                        icon: "calendar",
+                        coverURL: model.dailyFirstCover?.resizedImageURL(512),
+                        showsDate: true
+                    )
                 }
+                .buttonStyle(.plain)
 
                 Button {
                     player.startFM()
@@ -605,6 +607,32 @@ struct HomeView: View {
             .padding(.vertical, 6)
         }
         .compatScrollClipDisabled()
+    }
+
+    private var dailyRecommendationLink: some View {
+        NavigationLink(value: Destination.daily) {
+            HStack(spacing: 14) {
+                Image(systemName: "calendar.badge.plus")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("每日推荐")
+                        .font(.headline)
+                    Text(account.isLoggedIn ? "同步你的专属推荐" : "登录后同步你的每日歌单")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private func startHeartbeatMode() {

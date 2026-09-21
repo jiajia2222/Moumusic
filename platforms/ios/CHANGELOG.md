@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.20 - 2026-09-21
+
+### Added
+
+- iOS: add a dedicated account synchronisation page and optional NetEase QR/SMS login.
+- iOS: add daily recommendations as a standalone page, including a login state when account sync is unavailable.
+- iOS: synchronise matched listening records and effective listening duration without using account login as an audio source.
+- iOS: keep online playback routed through the selected LX User API source.
+
 ## 1.0.19 - 2026-09-21
 
 ### Fixed

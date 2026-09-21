@@ -1,10 +1,11 @@
 import Foundation
 
-/// Compatibility shell for views shared with the desktop target.
+/// Account state used for optional metadata synchronisation.
 ///
-/// Moumusic iOS no longer exposes or calls a provider account. Keeping this
-/// small in-memory shell avoids breaking shared player views while ensuring
-/// an old cookie can never trigger a NetEase request.
+/// This store never supplies an audio URL. Online playback on iOS remains
+/// exclusively the responsibility of the selected LX User API source. The
+/// account is only used for profile data, daily recommendations, play records,
+/// and listening-duration synchronisation.
 @MainActor
 final class AccountStore: ObservableObject {
     static let shared = AccountStore()
@@ -16,8 +17,8 @@ final class AccountStore: ObservableObject {
     @Published var likedArtists: [ArtistSummary] = []
     @Published var isBootstrapped = false
 
-    var isLoggedIn: Bool { false }
-    var hasAuthCookie: Bool { false }
+    var isLoggedIn: Bool { NeteaseClient.shared.isLoggedIn && profile != nil }
+    var hasAuthCookie: Bool { NeteaseClient.shared.isLoggedIn }
     var vipType: Int { profile?.vipType ?? 0 }
 
     var likedSongsPlaylist: PlaylistSummary? {
@@ -36,19 +37,32 @@ final class AccountStore: ObservableObject {
 
     private init() {}
 
-    /// Kept for shared desktop call sites; it intentionally performs no
-    /// network work on any platform.
+    /// Called at launch and after login succeeds.
     func bootstrap() async {
-        isBootstrapped = true
+        defer { isBootstrapped = true }
+        guard hasAuthCookie else { return }
+        refreshCookieIfNeeded()
+        do {
+            profile = try await NeteaseAPI.userAccount()
+        } catch {
+            return
+        }
+        await refreshLibrary()
     }
 
     func refreshLibrary() async {
-        // Provider library removed. Local playlists are managed by
-        // LocalPlaylistStore instead.
+        guard let uid = profile?.userId else { return }
+        async let playlists = try? NeteaseAPI.userPlaylists(uid: uid)
+        async let liked = try? NeteaseAPI.likedTrackIDs(uid: uid)
+        userPlaylists = await playlists ?? userPlaylists
+        if let ids = await liked { likedTrackIDs = Set(ids) }
     }
 
     func refreshSublists() async {
-        // Provider library removed.
+        async let albums = try? NeteaseAPI.likedAlbums()
+        async let artists = try? NeteaseAPI.likedArtists()
+        likedAlbums = await albums ?? likedAlbums
+        likedArtists = await artists ?? likedArtists
     }
 
     func isLiked(_ trackID: Int) -> Bool {
@@ -56,18 +70,75 @@ final class AccountStore: ObservableObject {
     }
 
     func toggleLike(trackID: Int) async {
-        _ = trackID
-        ToastCenter.shared.show("账号收藏已移除，请使用本地歌单")
+        guard isLoggedIn else {
+            ToastCenter.shared.show("登录后即可收藏歌曲")
+            return
+        }
+        let like = !likedTrackIDs.contains(trackID)
+        if like { likedTrackIDs.insert(trackID) } else { likedTrackIDs.remove(trackID) }
+        do {
+            try await NeteaseAPI.likeTrack(id: trackID, like: like)
+        } catch {
+            if like { likedTrackIDs.remove(trackID) } else { likedTrackIDs.insert(trackID) }
+            ToastCenter.shared.show(error.localizedDescription)
+        }
+        NowPlayingManager.shared.refreshLikeState()
     }
 
     func logout() async {
+        await NeteaseAPI.logout()
         profile = nil
         likedTrackIDs = []
         userPlaylists = []
         likedAlbums = []
         likedArtists = []
+        isBootstrapped = true
     }
 
+    /// Refresh the login cookie at most once per calendar day.
+    private func refreshCookieIfNeeded() {
+        let key = "auth.lastCookieRefresh"
+        let today = Calendar.current.startOfDay(for: .now).timeIntervalSince1970
+        guard UserDefaults.standard.double(forKey: key) < today else { return }
+        UserDefaults.standard.set(today, forKey: key)
+        Task { await NeteaseAPI.refreshLogin() }
+    }
+}
+
+/// Local, credential-free mirror of the listening sync state shown on the
+/// account page.
+@MainActor
+final class ListeningSyncStore: ObservableObject {
+    static let shared = ListeningSyncStore()
+
+    @Published private(set) var syncedSeconds: Int
+    @Published private(set) var syncedTrackCount: Int
+    @Published private(set) var lastSyncedAt: Date?
+
+    private init() {
+        let defaults = UserDefaults.standard
+        syncedSeconds = defaults.integer(forKey: "account.sync.syncedSeconds")
+        syncedTrackCount = defaults.integer(forKey: "account.sync.syncedTrackCount")
+        lastSyncedAt = defaults.object(forKey: "account.sync.lastSyncedAt") as? Date
+    }
+
+    func record(seconds: Int) {
+        guard seconds > 0 else { return }
+        syncedSeconds += seconds
+        syncedTrackCount += 1
+        lastSyncedAt = .now
+        let defaults = UserDefaults.standard
+        defaults.set(syncedSeconds, forKey: "account.sync.syncedSeconds")
+        defaults.set(syncedTrackCount, forKey: "account.sync.syncedTrackCount")
+        defaults.set(lastSyncedAt, forKey: "account.sync.lastSyncedAt")
+    }
+
+    var formattedDuration: String {
+        let hours = syncedSeconds / 3600
+        let minutes = (syncedSeconds % 3600) / 60
+        if hours > 0 { return "\(hours)小时 \(minutes)分钟" }
+        return "\(max(minutes, 1))分钟"
+    }
 }
 
 // MARK: - Toasts

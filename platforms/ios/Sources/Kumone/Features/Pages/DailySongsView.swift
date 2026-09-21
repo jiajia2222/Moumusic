@@ -7,15 +7,21 @@ struct DailySongsView: View {
 
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
+    @Environment(\.openLogin) private var openLogin
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                header
-                    .padding(.horizontal, Theme.Layout.contentInset)
-                    .padding(.top, 16)
+                if account.isLoggedIn {
+                    header
+                        .padding(.horizontal, Theme.Layout.contentInset)
+                        .padding(.top, 16)
+                }
 
-                if isLoading {
+                if !account.isLoggedIn {
+                    loginState
+                        .frame(minHeight: 300)
+                } else if isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity, minHeight: 300)
                 } else if let errorMessage {
@@ -35,7 +41,7 @@ struct DailySongsView: View {
             }
         }
         .navigationTitle("每日推荐")
-        .task {
+        .task(id: account.isLoggedIn) {
             if tracks.isEmpty {
                 await load()
             }
@@ -87,6 +93,26 @@ struct DailySongsView: View {
             .padding(20)
         }
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous))
+    }
+
+    private var loginState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "calendar.badge.plus")
+                .font(.system(size: 42, weight: .medium))
+                .foregroundStyle(Theme.accent)
+            Text("登录后查看每日推荐")
+                .font(.title3.weight(.semibold))
+            Text("登录只用于同步推荐和听歌记录，播放仍然使用已导入的 LX 音源。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            Button("去登录") { openLogin() }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.accent)
+                .frame(minHeight: 44)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private var dateString: String {
