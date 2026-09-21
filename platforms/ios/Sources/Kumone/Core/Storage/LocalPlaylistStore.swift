@@ -247,8 +247,11 @@ private enum PlaylistImportService {
             var lastError: Error?
             var foundSupportedLink = false
             for url in candidates {
-                guard playlistReference(from: url) != nil
-                    || (try? await resolvedPlaylistReference(from: url)) != nil else {
+                var reference = playlistReference(from: url)
+                if reference == nil {
+                    reference = try? await resolvedPlaylistReference(from: url)
+                }
+                guard reference != nil else {
                     continue
                 }
                 foundSupportedLink = true
