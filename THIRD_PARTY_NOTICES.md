@@ -21,3 +21,12 @@ assets; the project licenses do not replace those file-level obligations.
 Moumusic does not bundle or distribute third-party source scripts or provider
 URLs. Users are responsible for imported sources and must follow applicable
 service terms, copyright rules and upstream licenses.
+
+## Beans-Music
+
+- Upstream: https://github.com/XIaodou0416/Beans-Music
+- License: MIT
+- Use in Moumusic: feature and UX reference only. The wallpaper persistence,
+  ambient background and playback-speed behavior were implemented in
+  Moumusic's own code; Beans-Music provider login, bundled providers and
+  authentication code are not included.

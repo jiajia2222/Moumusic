@@ -210,6 +210,22 @@ final class PlayerService: ObservableObject {
         }
     }
 
+    /// Playback speed is owned by the player so it is consistent across the
+    /// full-screen player, mini-player, CarPlay and interruption resume.
+    @Published var playbackRate: Float {
+        didSet {
+            let clamped = min(max(playbackRate, 0.5), 2.0)
+            if clamped != playbackRate {
+                playbackRate = clamped
+                return
+            }
+            UserDefaults.standard.set(Double(playbackRate), forKey: "player.playbackRate")
+            guard isPlaying else { return }
+            engine.rate = playbackRate
+            NowPlayingManager.shared.updateElapsed(progress, rate: Double(playbackRate))
+        }
+    }
+
     @Published private(set) var isFMMode = false
     @Published private(set) var fmUpcoming: [Track] = []
     /// Where playback was most recently started from, newest first —
@@ -285,6 +301,11 @@ final class PlayerService: ObservableObject {
         volume = UserDefaults.standard.object(forKey: "player.volume") as? Float ?? 0.8
         engine.volume = volume
 #endif
+        if let storedRate = UserDefaults.standard.object(forKey: "player.playbackRate") as? Double {
+            playbackRate = min(max(Float(storedRate), 0.5), 2.0)
+        } else {
+            playbackRate = 1
+        }
         repeatMode = UserDefaults.standard.string(forKey: "player.repeat")
             .flatMap(RepeatMode.init) ?? .off
         shuffleEnabled = UserDefaults.standard.bool(forKey: "player.shuffle")
@@ -349,7 +370,10 @@ final class PlayerService: ObservableObject {
                 // pixel. Half a second is still smoother than the eye needs.
                 if abs(seconds - self.progress) > 0.45 {
                     self.progress = seconds
-                    NowPlayingManager.shared.updateElapsed(seconds, rate: self.isPlaying ? 1 : 0)
+                    NowPlayingManager.shared.updateElapsed(
+                        seconds,
+                        rate: self.isPlaying ? Double(self.playbackRate) : 0
+                    )
                 }
             }
         }
@@ -388,8 +412,9 @@ final class PlayerService: ObservableObject {
             wasPlayingBeforeInterruption = false
             try? AVAudioSession.sharedInstance().setActive(true)
             engine.play()
+            engine.rate = playbackRate
             isPlaying = true
-            NowPlayingManager.shared.updateElapsed(progress, rate: 1)
+            NowPlayingManager.shared.updateElapsed(progress, rate: Double(playbackRate))
         @unknown default:
             break
         }
@@ -450,9 +475,10 @@ final class PlayerService: ObservableObject {
             return
         } else {
             engine.play()
+            engine.rate = playbackRate
             isPlaying = true
         }
-        NowPlayingManager.shared.updateElapsed(progress, rate: isPlaying ? 1 : 0)
+        NowPlayingManager.shared.updateElapsed(progress, rate: isPlaying ? Double(playbackRate) : 0)
     }
 
     func pause() {
@@ -558,7 +584,10 @@ final class PlayerService: ObservableObject {
             guard let completion else { return }
             Task { @MainActor in completion() }
         }
-        NowPlayingManager.shared.updateElapsed(seconds, rate: isPlaying ? 1 : 0)
+        NowPlayingManager.shared.updateElapsed(
+            seconds,
+            rate: isPlaying ? Double(playbackRate) : 0
+        )
     }
 
     func toggleShuffle() {
@@ -945,10 +974,12 @@ final class PlayerService: ObservableObject {
                 Task { @MainActor in
                     guard let self, generation == self.resolveGeneration else { return }
                     self.engine.play()
+                    self.engine.rate = self.playbackRate
                 }
             }
         } else {
             engine.play()
+            engine.rate = playbackRate
         }
         isPlaying = true
 

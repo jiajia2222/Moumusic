@@ -7,6 +7,7 @@ public struct IOSMainWindow: View {
     @StateObject private var settings = SettingsManager.shared
     @StateObject private var toasts = ToastCenter.shared
     @StateObject private var updater = IOSUpdater.shared
+    @ObservedObject private var backgroundStore = BackgroundImageStore.shared
     @Namespace private var nowPlayingTransition
     @Environment(\.colorScheme) private var systemColorScheme
 
@@ -138,7 +139,19 @@ public struct IOSMainWindow: View {
         // Keep every iOS form factor on the same source-only surface. The
         // old split view still contains the desktop/provider navigation and
         // would reintroduce those entry points on iPad.
-        tabInterface
+        ZStack {
+            if backgroundStore.syncToApp, let image = backgroundStore.image {
+                MoumusicWallpaperView(
+                    image: image,
+                    blurRadius: backgroundStore.blurRadius,
+                    dimAmount: 0.16
+                )
+            } else {
+                Color(uiColor: .systemBackground)
+                    .ignoresSafeArea()
+            }
+            tabInterface
+        }
     }
 
     private func nowPlayingPresentation(

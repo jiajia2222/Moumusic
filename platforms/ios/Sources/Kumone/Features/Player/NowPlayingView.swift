@@ -12,6 +12,7 @@ struct NowPlayingView: View {
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var settings: SettingsManager
     #if os(iOS)
+    @ObservedObject private var backgroundStore = BackgroundImageStore.shared
     @Environment(\.dismissNowPlayingAction) private var dismissNowPlayingAction
     @Environment(\.dismissNowPlayingDragAction) private var dismissNowPlayingDragAction
     #endif
@@ -190,10 +191,33 @@ struct NowPlayingView: View {
 
     private var backdrop: some View {
         ZStack {
+#if os(iOS)
+            if backgroundStore.syncToPlayer, let image = backgroundStore.image {
+                MoumusicWallpaperView(
+                    image: image,
+                    blurRadius: backgroundStore.blurRadius,
+                    dimAmount: 0.32
+                )
+            } else {
+                artworkBackdrop
+            }
+#else
+            artworkBackdrop
+#endif
+        }
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.8), value: colors)
+    }
+
+    private var artworkBackdrop: some View {
+        ZStack {
             LinearGradient(
                 colors: [colors.primary, colors.secondary],
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
+            #if os(iOS)
+            MoumusicAmbientGlow(colors: colors, isPlaying: player.isPlaying)
+            #endif
             RadialGradient(
                 colors: [.white.opacity(0.12), .clear],
                 center: .topLeading, startRadius: 0, endRadius: 700
@@ -203,8 +227,6 @@ struct NowPlayingView: View {
                 startPoint: .top, endPoint: .bottom
             )
         }
-        .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.8), value: colors)
     }
 
     private func loadArtwork() async {
@@ -2234,6 +2256,23 @@ private struct MinimalTrackInfoRow: View {
                 showAddToPlaylist = true
             } label: {
                 Label("加入歌单…", systemImage: "music.note.list")
+            }
+
+            Menu {
+                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { rate in
+                    Button {
+                        player.playbackRate = Float(rate)
+                    } label: {
+                        HStack {
+                            Text("\(rate, specifier: \"%.2g\")×")
+                            if abs(Double(player.playbackRate) - rate) < 0.01 {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label("播放速度 · \(player.playbackRate, specifier: \"%.2g\")×", systemImage: "speedometer")
             }
 
             SleepTimerMenu(player: player)

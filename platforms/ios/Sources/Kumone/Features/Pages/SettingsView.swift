@@ -1,10 +1,14 @@
 import SwiftUI
+#if os(iOS)
+import PhotosUI
+#endif
 
 struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
 #if os(iOS)
     @EnvironmentObject private var player: PlayerService
     @StateObject private var lxStore = LXSourceStore.shared
+    @ObservedObject private var backgroundStore = BackgroundImageStore.shared
 #endif
     @State private var cacheSize = "计算中…"
 #if os(iOS)
@@ -75,6 +79,64 @@ struct SettingsView: View {
                     ForEach(NowPlayingMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
                     }
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) {
+                        Label("背景图片", systemImage: "photo.on.rectangle.angled")
+                        Spacer()
+                        if backgroundStore.image != nil {
+                            Text("已设置")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if let image = backgroundStore.image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(height: 92)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(.white.opacity(0.18), lineWidth: 1)
+                            }
+                            .accessibilityHidden(true)
+                    }
+
+                    HStack(spacing: 12) {
+                        PhotosPicker(selection: $backgroundStore.photoSelection,
+                                     matching: .images,
+                                     photoLibrary: .shared()) {
+                            Label("选择图片", systemImage: "photo.badge.plus")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
+
+                        if backgroundStore.image != nil {
+                            Button(role: .destructive) {
+                                backgroundStore.clear()
+                            } label: {
+                                Label("移除", systemImage: "trash")
+                            }
+                            .frame(minHeight: 44)
+                        }
+                    }
+
+                    Toggle("同步到播放页", isOn: $backgroundStore.syncToPlayer)
+                    Toggle("同步到应用页面", isOn: $backgroundStore.syncToApp)
+                    HStack {
+                        Text("背景模糊")
+                        Slider(value: $backgroundStore.blurRadius, in: 0...24, step: 1)
+                        Text("\(Int(backgroundStore.blurRadius))")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24, alignment: .trailing)
+                    }
+                    Text("图片会缩放并压缩保存到本机；开启应用同步时，首页和其他页面也会使用这张图。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 #endif
                 Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
@@ -155,6 +217,9 @@ struct SettingsView: View {
         .sheet(isPresented: $showDownloads) {
             DownloadsView()
                 .environmentObject(player)
+        }
+        .onChange(of: backgroundStore.photoSelection) { _ in
+            Task { await backgroundStore.importSelection() }
         }
 #endif
     }

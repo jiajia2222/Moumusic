@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.18 - 2026-09-21
+
+### Added
+
+- iOS: add a local wallpaper library with Photos support, persisted JPEG
+  storage, blur control, and independent player/app synchronization switches.
+- iOS: add a low-frequency artwork ambient glow that pauses while stopped or
+  when Reduce Motion is enabled.
+- iOS: add persistent playback speed controls (0.5×–2×) to the now-playing
+  menu; CarPlay and interruption resume keep the selected speed.
+- iOS: extend the Beans-Music feature reference with an independent,
+  source-only Moumusic implementation. Provider login and bundled provider
+  interfaces remain excluded; playback still uses the selected LX User API.
+
 ## 1.0.17 - 2026-09-19
 
 ### Added
