@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.23 - 2026-09-21
+
+### Added / 新增
+
+**iOS**: playlist import now recognizes public NetEase, QQ Music, Kugou, Kuwo, and Migu playlist links, including links embedded in pasted sentences or share text.
+
+**iOS**：歌单导入现在支持网易云、QQ 音乐、酷狗、酷我和咪咕公开歌单链接，也会自动从用户粘贴的整段文字或分享文本中提取链接。
+
+**iOS**: provider-native playlist details are converted into one local playlist while preserving each track's source metadata for LX playback.
+
+**iOS**：各平台歌单详情会统一保存为本地歌单，同时保留每首歌的平台标识，让播放继续走已启用的 LX 音源。
+
+### Fixed / 修复
+
+**iOS**: source descriptions in the LX source manager now use readable Dynamic Type text and can be expanded or collapsed instead of being compressed into tiny two-line captions.
+
+**iOS**：修复 LX 音源管理页描述文字过小的问题，改用可读的动态字体，并支持展开 / 收起完整描述。
+
+**iOS**: playlist text files can now be imported with common UTF-8, UTF-16, UTF-32, and Windows-1252 encodings, even when the file has no standard extension.
+
+**iOS**：歌单文本文件现在支持 UTF-8、UTF-16、UTF-32 和 Windows-1252 等常见编码，即使文件没有标准扩展名也可以选择导入。
+
 ## 1.0.22 - 2026-09-21
 
 ### Added / 新增

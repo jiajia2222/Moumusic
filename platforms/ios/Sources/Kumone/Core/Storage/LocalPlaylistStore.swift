@@ -39,8 +39,8 @@ enum PlaylistImportError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .emptyInput: return "请输入歌单 JSON 文件内容"
-        case .unsupportedLink: return "只支持网易云公开歌单链接；其他软件请导出 JSON 后导入"
+        case .emptyInput: return "请输入歌单链接、文字或 JSON 文件内容"
+        case .unsupportedLink: return "无法识别歌单链接；支持网易云、QQ、酷狗、酷我和咪咕公开歌单"
         case .invalidFormat: return "无法识别歌单格式"
         case .noTracks: return "歌单中没有可导入的歌曲"
         }
@@ -239,9 +239,29 @@ private enum PlaylistImportService {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { throw PlaylistImportError.emptyInput }
 
-        if let url = URL(string: value), let scheme = url.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" {
-            return try await importNeteasePlaylist(from: url)
+        // A share sheet often gives us a sentence rather than a bare URL,
+        // for example: “这是我收藏的歌单 https://y.qq.com/...”。Extract
+        // every URL first and try recognized playlist links in order.
+        let candidates = extractURLs(from: value)
+        if !candidates.isEmpty {
+            var lastError: Error?
+            var foundSupportedLink = false
+            for url in candidates {
+                guard playlistReference(from: url) != nil
+                    || (try? await resolvedPlaylistReference(from: url)) != nil else {
+                    continue
+                }
+                foundSupportedLink = true
+                do {
+                    return try await importRemotePlaylist(from: url)
+                } catch {
+                    lastError = error
+                }
+            }
+            if foundSupportedLink {
+                throw lastError ?? PlaylistImportError.invalidFormat
+            }
+            throw PlaylistImportError.unsupportedLink
         }
 
         if let data = value.data(using: .utf8),
@@ -252,14 +272,55 @@ private enum PlaylistImportService {
         throw PlaylistImportError.invalidFormat
     }
 
-    private static func importNeteasePlaylist(from url: URL) async throws -> ImportedPlaylist {
+    private enum RemotePlaylistPlatform {
+        case netease
+        case catalog(LXCatalogPlatform)
+
+        var displayName: String {
+            switch self {
+            case .netease: return LXCatalogPlatform.wy.displayName
+            case .catalog(let platform): return platform.displayName
+            }
+        }
+    }
+
+    private struct RemotePlaylistReference {
+        let platform: RemotePlaylistPlatform
+        let id: String
+    }
+
+    private static func importRemotePlaylist(from url: URL) async throws -> ImportedPlaylist {
         let resolvedURL = (try? await resolveRedirect(from: url)) ?? url
-        guard let host = resolvedURL.host?.lowercased(),
-              host.contains("163cn.tv") || host.contains("music.163.com"),
-              let playlistID = neteasePlaylistID(from: resolvedURL)
-                ?? neteasePlaylistID(from: url) else {
+        guard let reference = playlistReference(from: resolvedURL)
+                ?? playlistReference(from: url) else {
             throw PlaylistImportError.unsupportedLink
         }
+
+        switch reference.platform {
+        case .netease:
+            return try await importNeteasePlaylist(id: reference.id)
+        case .catalog(let platform):
+            guard platform != .aggregate else { throw PlaylistImportError.unsupportedLink }
+            do {
+                let detail = try await LXCatalogService.playlistDetail(source: platform,
+                                                                         id: reference.id)
+                guard !detail.tracks.isEmpty else { throw PlaylistImportError.noTracks }
+                return ImportedPlaylist(
+                    name: detail.name,
+                    coverURL: detail.coverURL,
+                    sourceName: platform.displayName,
+                    tracks: detail.tracks
+                )
+            } catch let error as PlaylistImportError {
+                throw error
+            } catch {
+                throw PlaylistImportError.invalidFormat
+            }
+        }
+    }
+
+    private static func importNeteasePlaylist(id: String) async throws -> ImportedPlaylist {
+        guard let playlistID = Int(id) else { throw PlaylistImportError.unsupportedLink }
 
         var components = URLComponents(string: "https://music.163.com/api/v6/playlist/detail")!
         components.queryItems = [
@@ -301,6 +362,107 @@ private enum PlaylistImportService {
             ?? string(playlist["cover"])
         return ImportedPlaylist(name: name, coverURL: cover,
                                 sourceName: "网易云", tracks: tracks)
+    }
+
+    private static func resolvedPlaylistReference(from url: URL) async throws -> RemotePlaylistReference {
+        let resolvedURL = try await resolveRedirect(from: url)
+        guard let reference = playlistReference(from: resolvedURL) else {
+            throw PlaylistImportError.unsupportedLink
+        }
+        return reference
+    }
+
+    /// Finds the public playlist identifier in a platform share URL. The
+    /// patterns intentionally stay provider-specific so a song or artist URL
+    /// cannot accidentally be imported as a playlist.
+    private static func playlistReference(from url: URL) -> RemotePlaylistReference? {
+        guard let host = url.host?.lowercased() else { return nil }
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let query = Dictionary(uniqueKeysWithValues: (components?.queryItems ?? []).map {
+            ($0.name.lowercased(), $0.value ?? "")
+        })
+        let parts = url.path.split(separator: "/").map(String.init)
+
+        func firstID(after markers: [String]) -> String? {
+            for marker in markers {
+                guard let index = parts.firstIndex(where: { $0.lowercased() == marker }),
+                      index + 1 < parts.count else { continue }
+                let value = parts[index + 1].split(separator: ".").first.map(String.init) ?? ""
+                if !value.isEmpty { return value }
+            }
+            return nil
+        }
+
+        if host.contains("163cn.tv") || host.contains("music.163.com") {
+            let path = url.path.lowercased()
+            let fragment = url.fragment?.lowercased() ?? ""
+            guard host.contains("163cn.tv") || path.contains("playlist") || fragment.contains("playlist") else {
+                return nil
+            }
+            if let id = neteasePlaylistID(from: url) {
+                return RemotePlaylistReference(platform: .netease, id: String(id))
+            }
+            return nil
+        }
+
+        if host == "y.qq.com" || host.hasSuffix(".y.qq.com") || host == "c.y.qq.com" {
+            let id = query["disstid"] ?? query["playlistid"] ?? query["playlist_id"]
+                ?? firstID(after: ["playlist", "playsquare"])
+            guard let id, !id.isEmpty else { return nil }
+            return RemotePlaylistReference(platform: .catalog(.tx), id: id)
+        }
+
+        if host.contains("kugou.com") {
+            let id = query["globalid"] ?? query["listid"] ?? query["playlistid"]
+                ?? firstID(after: ["single", "playlist", "special"])
+            guard let id, !id.isEmpty else { return nil }
+            // Kugou's newer share page appends the adapter and page size,
+            // e.g. `/single/12345-5-9999.html`; the detail adapter expects
+            // only the numeric special ID.
+            let normalizedID: String
+            if let first = id.split(separator: "-").first,
+               Int(first) != nil {
+                normalizedID = String(first)
+            } else {
+                normalizedID = id
+            }
+            return RemotePlaylistReference(platform: .catalog(.kg), id: normalizedID)
+        }
+
+        if host.contains("kuwo.cn") {
+            let id = query["pid"] ?? query["playlistid"] ?? query["playlist_id"]
+                ?? firstID(after: ["playlist_detail", "playlist", "songlist"])
+            guard let id, !id.isEmpty else { return nil }
+            return RemotePlaylistReference(platform: .catalog(.kw), id: id)
+        }
+
+        if host.contains("migu.cn") {
+            let id = query["playlistid"] ?? query["playlist_id"]
+                ?? firstID(after: ["collection", "playlist"])
+            guard let id, !id.isEmpty else { return nil }
+            return RemotePlaylistReference(platform: .catalog(.mg), id: id)
+        }
+
+        return nil
+    }
+
+    private static func extractURLs(from text: String) -> [URL] {
+        let pattern = #"https?://[^\s<>\"'，。！？；、）)\]}]+"#
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return []
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        return expression.matches(in: text, range: range).compactMap { match in
+            guard let matchRange = Range(match.range, in: text) else { return nil }
+            var raw = String(text[matchRange])
+            while let last = raw.last, ".,!?;:，。！？；、".contains(last) {
+                raw.removeLast()
+            }
+            guard let url = URL(string: raw),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else { return nil }
+            return url
+        }
     }
 
     private static func resolveRedirect(from url: URL) async throws -> URL {

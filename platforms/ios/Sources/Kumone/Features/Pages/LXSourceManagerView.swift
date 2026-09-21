@@ -16,6 +16,7 @@ struct LXSourceManagerView: View {
     @State private var lxError: String?
     @State private var testingSourceID: String?
     @State private var sourceCheckResults: [String: LXUserAPIService.SourceCheckResult] = [:]
+    @State private var expandedSourceIDs: Set<String> = []
 
     var body: some View {
         content
@@ -126,8 +127,9 @@ struct LXSourceManagerView: View {
                 }
 
                 Text("可同时启用多个音源。播放时会优先使用当前源，失败后按启用顺序自动备用。")
-                    .font(.caption2)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -170,8 +172,9 @@ struct LXSourceManagerView: View {
                     }
                 }
                 Text("导入后会自动选中并加载该音源；播放时不会再次请求在线链接。")
-                    .font(.caption2)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -240,8 +243,9 @@ struct LXSourceManagerView: View {
                 }
 
                 Text("测试会请求一首公开歌曲的 musicUrl，只检查播放地址是否有效，不会保存或下载歌曲。")
-                    .font(.caption2)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -367,11 +371,31 @@ struct LXSourceManagerView: View {
             }
 
             if !source.description.isEmpty {
-                Text(source.description)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .padding(.leading, 54)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(source.description)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(expandedSourceIDs.contains(source.id) ? nil : 3)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button {
+                        if expandedSourceIDs.contains(source.id) {
+                            expandedSourceIDs.remove(source.id)
+                        } else {
+                            expandedSourceIDs.insert(source.id)
+                        }
+                    } label: {
+                        Label(
+                            expandedSourceIDs.contains(source.id) ? "收起描述" : "展开完整描述",
+                            systemImage: expandedSourceIDs.contains(source.id)
+                                ? "chevron.up" : "chevron.down"
+                        )
+                    }
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Theme.accent)
+                    .frame(minHeight: 32, alignment: .leading)
+                }
+                .padding(.leading, 54)
             }
 
             if let result = sourceCheckResults[source.id] {

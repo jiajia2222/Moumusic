@@ -135,9 +135,11 @@ struct ImportPlaylistSheet: View {
                         .font(.body)
                         .overlay(alignment: .topLeading) {
                             if input.isEmpty {
-                                Text("粘贴网易云公开歌单链接，或粘贴其他音乐软件导出的歌单 JSON。网易云歌曲仍由已选 LX 音源负责播放。")
+                                Text("粘贴任意支持平台的歌单链接，或粘贴包含链接的整段文字。也支持其他音乐软件导出的歌单 JSON；网易云、QQ、酷狗、酷我和咪咕歌曲会保留原平台标识，并由已选 LX 音源负责播放。")
                                     .foregroundStyle(.tertiary)
                                     .padding(.top, 8)
+                                    .padding(.trailing, 8)
+                                    .fixedSize(horizontal: false, vertical: true)
                                     .allowsHitTesting(false)
                             }
                         }
@@ -164,9 +166,10 @@ struct ImportPlaylistSheet: View {
                 }
 
                 Section("说明") {
-                    Text("歌单只保存到本机，不会修改原音乐软件。支持网易云公开歌单链接和 JSON；在线目录只读取公开信息，实际播放仍使用你自己添加的 LX 音源。")
+                    Text("歌单只保存到本机，不会修改原音乐软件。支持网易云、QQ、酷狗、酷我和咪咕的公开歌单链接，也支持从分享文本中自动识别链接及导入 JSON。在线目录只读取公开信息，实际播放仍使用你自己添加的 LX 音源。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .navigationTitle("导入歌单")
@@ -180,14 +183,14 @@ struct ImportPlaylistSheet: View {
             }
             .fileImporter(
                 isPresented: $showFileImporter,
-                allowedContentTypes: [.json, .plainText],
+                allowedContentTypes: [.item],
                 allowsMultipleSelection: false
             ) { result in
                 guard case .success(let urls) = result, let url = urls.first else { return }
                 let accessed = url.startAccessingSecurityScopedResource()
                 defer { if accessed { url.stopAccessingSecurityScopedResource() } }
                 do {
-                    input = try String(contentsOf: url, encoding: .utf8)
+                    input = try readTextFile(at: url)
                 } catch {
                     errorMessage = "读取文件失败：\(error.localizedDescription)"
                 }
@@ -218,6 +221,18 @@ struct ImportPlaylistSheet: View {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    private func readTextFile(at url: URL) throws -> String {
+        let data = try Data(contentsOf: url)
+        for encoding in [String.Encoding.utf8, .utf16, .utf16LittleEndian,
+                         .utf16BigEndian, .utf32, .utf32LittleEndian,
+                         .utf32BigEndian, .windowsCP1252] {
+            if let text = String(data: data, encoding: encoding), !text.isEmpty {
+                return text
+            }
+        }
+        throw CocoaError(.fileReadInapplicableStringEncoding)
     }
 }
 
