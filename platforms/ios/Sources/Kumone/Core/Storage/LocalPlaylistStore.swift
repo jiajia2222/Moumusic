@@ -8,15 +8,26 @@ struct LocalPlaylist: Codable, Hashable, Identifiable {
     var sourceName: String?
     var tracks: [Track]
     let createdAt: Date
+    /// When present, this local playlist mirrors a user-selected cloud
+    /// playlist. The source is intentionally explicit so another provider can
+    /// be added without confusing it with a normal local import.
+    var remoteSource: String?
+    var remotePlaylistID: String?
+    var remoteRevision: Int?
 
     init(id: UUID = UUID(), name: String, coverURL: String? = nil,
-         sourceName: String? = nil, tracks: [Track] = [], createdAt: Date = .now) {
+         sourceName: String? = nil, tracks: [Track] = [], createdAt: Date = .now,
+         remoteSource: String? = nil, remotePlaylistID: String? = nil,
+         remoteRevision: Int? = nil) {
         self.id = id
         self.name = name
         self.coverURL = coverURL
         self.sourceName = sourceName
         self.tracks = tracks
         self.createdAt = createdAt
+        self.remoteSource = remoteSource
+        self.remotePlaylistID = remotePlaylistID
+        self.remoteRevision = remoteRevision
     }
 }
 
@@ -57,6 +68,60 @@ final class LocalPlaylistStore: ObservableObject {
 
     func playlist(id: UUID) -> LocalPlaylist? {
         playlists.first { $0.id == id }
+    }
+
+    func containsRemotePlaylist(source: String, id: Int) -> Bool {
+        playlists.contains {
+            $0.remoteSource == source && $0.remotePlaylistID == String(id)
+        }
+    }
+
+    /// Creates or updates a local mirror of a cloud playlist. Existing local
+    /// imports are never matched by name; only an explicit provider + remote
+    /// ID can be updated automatically.
+    @discardableResult
+    func upsertRemotePlaylist(
+        source: String,
+        remoteID: Int,
+        name: String,
+        coverURL: String?,
+        sourceName: String,
+        revision: Int,
+        tracks: [Track]
+    ) -> (id: UUID, inserted: Bool, changed: Bool) {
+        let normalizedTracks = tracks.map { $0.normalizedForLXPlayback() }
+        if let index = playlists.firstIndex(where: {
+            $0.remoteSource == source && $0.remotePlaylistID == String(remoteID)
+        }) {
+            let old = playlists[index]
+            let changed = old.name != name
+                || old.coverURL != coverURL
+                || old.remoteRevision != revision
+                || old.tracks != normalizedTracks
+            guard changed else {
+                return (old.id, false, false)
+            }
+            playlists[index].name = name
+            playlists[index].coverURL = coverURL
+            playlists[index].sourceName = sourceName
+            playlists[index].tracks = normalizedTracks
+            playlists[index].remoteRevision = revision
+            persist()
+            return (old.id, false, true)
+        }
+
+        let playlist = LocalPlaylist(
+            name: name,
+            coverURL: coverURL,
+            sourceName: sourceName,
+            tracks: normalizedTracks,
+            remoteSource: source,
+            remotePlaylistID: String(remoteID),
+            remoteRevision: revision
+        )
+        playlists.insert(playlist, at: 0)
+        persist()
+        return (playlist.id, true, true)
     }
 
     @discardableResult

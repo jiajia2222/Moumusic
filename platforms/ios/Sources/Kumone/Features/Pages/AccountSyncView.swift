@@ -11,6 +11,7 @@ struct AccountSyncView: View {
     @State private var isRefreshing = false
     @State private var records: [PlayRecordItem] = []
     @State private var recordsError: String?
+    @State private var showPlaylistPicker = false
 
     var body: some View {
         ScrollView {
@@ -19,6 +20,7 @@ struct AccountSyncView: View {
 
                 if account.isLoggedIn, let profile = account.profile {
                     profileCard(profile)
+                    cloudPlaylistsCard
                     syncCard
                     recentRecords
                 } else {
@@ -52,6 +54,13 @@ struct AccountSyncView: View {
                 LoginSheet()
                     .navigationTitle("登录账号")
                     .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showPlaylistPicker) {
+            NavigationStack {
+                RemotePlaylistPickerView()
+                    .environmentObject(account)
             }
             .presentationDetents([.large])
         }
@@ -150,6 +159,41 @@ struct AccountSyncView: View {
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
+    private var cloudPlaylistsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Label("云端歌单", systemImage: "music.note.list")
+                    .font(.headline)
+                Spacer()
+                if account.isSyncingPlaylists {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            Text("已获取 (account.userPlaylists.count) 个歌单，包含我喜欢的音乐和收藏歌单。选择后才会加入本地歌单；已加入的歌单会在每次打开应用时检查更新。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                showPlaylistPicker = true
+            } label: {
+                Label("选择要加入的歌单", systemImage: "checklist")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.borderedProminent)
+
+            if let error = account.lastPlaylistSyncError {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
     private func syncMetric(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(value)
@@ -198,5 +242,166 @@ struct AccountSyncView: View {
             recordsError = "播放记录暂时无法获取，稍后可重试。"
         }
         isRefreshing = false
+    }
+}
+
+/// Lets the user opt individual cloud playlists into the local playlist page.
+/// The source is intentionally provider-specific; an LX User API script does
+/// not provide a common account or playlist protocol for other platforms.
+struct RemotePlaylistPickerView: View {
+    @EnvironmentObject private var account: AccountStore
+    @StateObject private var localPlaylists = LocalPlaylistStore.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedIDs = Set<Int>()
+    @State private var isImporting = false
+
+    private var likedPlaylists: [PlaylistSummary] {
+        account.userPlaylists.filter(\.isLikedSongsList)
+    }
+
+    private var createdPlaylists: [PlaylistSummary] {
+        account.createdPlaylists
+    }
+
+    private var subscribedPlaylists: [PlaylistSummary] {
+        account.subscribedPlaylists
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("选择要同步的歌单", systemImage: "arrow.down.circle")
+                        .font(.title3.weight(.semibold))
+                    Text("只会导入你勾选的歌单。之后应用每次打开都会检查已加入歌单的更新时间，有变化时自动更新本地副本。")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 4)
+
+                playlistSection("我喜欢的音乐", playlists: likedPlaylists)
+                playlistSection("我的歌单", playlists: createdPlaylists)
+                playlistSection("收藏的歌单", playlists: subscribedPlaylists)
+
+                if account.userPlaylists.isEmpty {
+                    EmptyStateView(
+                        icon: "music.note.list",
+                        title: "暂时没有云端歌单",
+                        subtitle: "请先刷新账号数据，或确认当前账号有可见歌单。"
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 240)
+                }
+
+                PlayerClearanceSpacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+        }
+        .scrollIndicators(.hidden)
+        .navigationTitle("同步歌单")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("取消") { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button {
+                    importSelected()
+                } label: {
+                    if isImporting {
+                        ProgressView()
+                    } else {
+                        Text("添加 \(selectedIDs.count)")
+                    }
+                }
+                .disabled(isImporting || selectedIDs.isEmpty)
+            }
+        }
+        .task {
+            selectedIDs = Set(account.userPlaylists.filter {
+                localPlaylists.containsRemotePlaylist(source: "netease", id: $0.id)
+            }.map(\.id))
+        }
+    }
+
+    @ViewBuilder
+    private func playlistSection(_ title: String, playlists: [PlaylistSummary]) -> some View {
+        if !playlists.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title)
+                    .font(.headline)
+                VStack(spacing: 8) {
+                    ForEach(playlists) { playlist in
+                        playlistRow(playlist)
+                    }
+                }
+            }
+        }
+    }
+
+    private func playlistRow(_ playlist: PlaylistSummary) -> some View {
+        let isSelected = selectedIDs.contains(playlist.id)
+        let isImported = localPlaylists.containsRemotePlaylist(source: "netease", id: playlist.id)
+
+        return Button {
+            if isSelected {
+                selectedIDs.remove(playlist.id)
+            } else {
+                selectedIDs.insert(playlist.id)
+            }
+        } label: {
+            HStack(spacing: 12) {
+                CachedAsyncImage(url: playlist.coverURL?.resizedImageURL(128), animated: false)
+                    .frame(width: 52, height: 52)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(playlist.name)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        if isImported {
+                            Text("已加入")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Theme.accent)
+                        }
+                    }
+                    Text("\(playlist.trackCount) 首 · \(playlist.creator?.nickname ?? "云端歌单")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? Theme.accent : .secondary)
+                    .frame(width: 44, height: 44)
+            }
+            .padding(10)
+            .background(
+                isSelected ? Theme.accent.opacity(0.10) : Color.primary.opacity(0.045),
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(playlist.name)，\(isSelected ? "已选择" : "未选择")")
+    }
+
+    private func importSelected() {
+        isImporting = true
+        Task {
+            let report = await account.importSelectedPlaylists(selectedIDs)
+            isImporting = false
+            if report.failed.isEmpty {
+                ToastCenter.shared.show("已添加 \(report.changedCount) 个歌单，后续会自动同步更新")
+                dismiss()
+            } else {
+                ToastCenter.shared.show("已完成部分同步，\(report.failed.count) 个歌单稍后重试")
+                dismiss()
+            }
+        }
     }
 }

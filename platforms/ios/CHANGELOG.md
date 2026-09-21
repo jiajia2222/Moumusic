@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.22 - 2026-09-21
+
+### Added / 新增
+
+**iOS**: an account playlist sync page. After login, users can choose which NetEase playlists to add locally, including “Liked Songs” and subscribed playlists.
+
+**iOS**：新增账号歌单同步页。登录后可选择要加入本地歌单的云端歌单，包含「我喜欢的音乐」和收藏的歌单。
+
+**iOS**: selected cloud playlists store their provider and remote ID, so they can be refreshed without creating duplicate local playlists.
+
+**iOS**：已选择的云端歌单会保存平台和远程 ID，后续更新时不会重复创建本地歌单。
+
+### Fixed / 修复
+
+**iOS**: when the app returns to the foreground, it refreshes account playlist metadata and updates selected local mirrors when the server revision changes.
+
+**iOS**：应用回到前台时会刷新账号歌单信息，检测到服务器版本变化后自动更新已选择的本地副本。
+
+**iOS**：导入的云端歌曲统一标记为网易云目录歌曲，实际音频仍只通过已启用的 LX 音源解析。
+
 ## 1.0.21 - 2026-09-21
 
 ### Added / 新增

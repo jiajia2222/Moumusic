@@ -57,10 +57,13 @@ struct PlaylistSummary: Decodable, Hashable, Identifiable {
     let specialType: Int
     let privacy: Int
     let subscribed: Bool
+    /// Server-side playlist revision. NetEase changes this when the playlist
+    /// contents are edited; it lets local mirrors skip unnecessary downloads.
+    let updateTime: Int
 
     private enum CodingKeys: String, CodingKey {
         case id, name, picUrl, coverImgUrl, playCount, playcount, trackCount
-        case copywriter, creator, specialType, privacy, subscribed
+        case copywriter, creator, specialType, privacy, subscribed, updateTime
     }
 
     init(from decoder: Decoder) throws {
@@ -78,6 +81,7 @@ struct PlaylistSummary: Decodable, Hashable, Identifiable {
         specialType = (try? c.decode(Int.self, forKey: .specialType)) ?? 0
         privacy = (try? c.decode(Int.self, forKey: .privacy)) ?? 0
         subscribed = (try? c.decode(Bool.self, forKey: .subscribed)) ?? false
+        updateTime = (try? c.decode(Int.self, forKey: .updateTime)) ?? 0
     }
 
     /// The auto-created "我喜欢的音乐" playlist.

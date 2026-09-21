@@ -10,6 +10,7 @@ public struct IOSMainWindow: View {
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
     @Namespace private var nowPlayingTransition
     @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.scenePhase) private var scenePhase
 
     /// The app's intended scheme, read on this ancestor so the search-active
     /// tab environment can't invert it (#31).
@@ -51,6 +52,12 @@ public struct IOSMainWindow: View {
                 await account.bootstrap()
                 if settings.autoCheckUpdates {
                     IOSUpdater.shared.check(interactive: false)
+                }
+            }
+            .onChange(of: scenePhase) { phase in
+                guard phase == .active else { return }
+                Task { @MainActor in
+                    await account.refreshForOpen()
                 }
             }
             .sheet(isPresented: $updater.showSheet) {

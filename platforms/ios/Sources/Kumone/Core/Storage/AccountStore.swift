@@ -16,6 +16,18 @@ final class AccountStore: ObservableObject {
     @Published var likedAlbums: [AlbumSummary] = []
     @Published var likedArtists: [ArtistSummary] = []
     @Published var isBootstrapped = false
+    @Published private(set) var isSyncingPlaylists = false
+    @Published private(set) var lastPlaylistSyncAt: Date?
+    @Published private(set) var lastPlaylistSyncError: String?
+
+    struct PlaylistSyncReport: Equatable {
+        let inserted: Int
+        let updated: Int
+        let unchanged: Int
+        let failed: [String]
+
+        var changedCount: Int { inserted + updated }
+    }
 
     var isLoggedIn: Bool { NeteaseClient.shared.isLoggedIn && profile != nil }
     var hasAuthCookie: Bool { NeteaseClient.shared.isLoggedIn }
@@ -56,6 +68,39 @@ final class AccountStore: ObservableObject {
         async let liked = try? NeteaseAPI.likedTrackIDs(uid: uid)
         userPlaylists = await playlists ?? userPlaylists
         if let ids = await liked { likedTrackIDs = Set(ids) }
+        await syncImportedPlaylistCopies()
+        lastPlaylistSyncAt = .now
+    }
+
+    /// Refresh account-owned cloud playlists when the app comes back to the
+    /// foreground. This never imports every remote playlist automatically:
+    /// only copies explicitly selected by the user are updated.
+    func refreshForOpen(force: Bool = false) async {
+        guard hasAuthCookie else { return }
+        let now = Date()
+        if !force,
+           let last = lastPlaylistSyncAt,
+           now.timeIntervalSince(last) < 20 {
+            return
+        }
+        if profile == nil {
+            await bootstrap()
+            return
+        }
+        refreshCookieIfNeeded()
+        await refreshLibrary()
+    }
+
+    /// Imports the selected cloud playlists into the app's local playlist
+    /// page. The remote provider and ID are stored so later foreground opens
+    /// can update the same local copy instead of creating duplicates.
+    func importSelectedPlaylists(_ ids: Set<Int>) async -> PlaylistSyncReport {
+        guard isLoggedIn else {
+            return PlaylistSyncReport(inserted: 0, updated: 0, unchanged: 0,
+                                      failed: ["请先登录网易云音乐"])
+        }
+        let selected = userPlaylists.filter { ids.contains($0.id) }
+        return await syncPlaylists(selected, force: true)
     }
 
     func refreshSublists() async {
@@ -93,6 +138,103 @@ final class AccountStore: ObservableObject {
         likedAlbums = []
         likedArtists = []
         isBootstrapped = true
+    }
+
+    private func syncImportedPlaylistCopies() async {
+        let mirrored = LocalPlaylistStore.shared.playlists.filter {
+            $0.remoteSource == "netease" && $0.remotePlaylistID != nil
+        }
+        guard !mirrored.isEmpty else { return }
+
+        let candidates = mirrored.compactMap { local -> PlaylistSummary? in
+            guard let rawID = local.remotePlaylistID, let id = Int(rawID) else { return nil }
+            return userPlaylists.first { $0.id == id }
+        }
+        guard !candidates.isEmpty else { return }
+        _ = await syncPlaylists(candidates, force: false)
+    }
+
+    private func syncPlaylists(
+        _ candidates: [PlaylistSummary],
+        force: Bool
+    ) async -> PlaylistSyncReport {
+        guard !candidates.isEmpty else {
+            lastPlaylistSyncAt = .now
+            return PlaylistSyncReport(inserted: 0, updated: 0, unchanged: 0, failed: [])
+        }
+
+        isSyncingPlaylists = true
+        lastPlaylistSyncError = nil
+        defer {
+            isSyncingPlaylists = false
+            lastPlaylistSyncAt = .now
+        }
+
+        var inserted = 0
+        var updated = 0
+        var unchanged = 0
+        var failed: [String] = []
+
+        for summary in candidates {
+            if !force,
+               let local = LocalPlaylistStore.shared.playlists.first(where: {
+                   $0.remoteSource == "netease"
+                       && $0.remotePlaylistID == String(summary.id)
+               }),
+               summary.updateTime > 0,
+               local.remoteRevision == summary.updateTime {
+                unchanged += 1
+                continue
+            }
+
+            do {
+                let tracks = try await allTracks(for: summary.id)
+                guard !tracks.isEmpty else {
+                    failed.append("\(summary.name)：没有可同步的歌曲")
+                    continue
+                }
+                let result = LocalPlaylistStore.shared.upsertRemotePlaylist(
+                    source: "netease",
+                    remoteID: summary.id,
+                    name: summary.name,
+                    coverURL: summary.coverURL,
+                    sourceName: "网易云",
+                    revision: summary.updateTime > 0 ? summary.updateTime : summary.trackCount,
+                    tracks: tracks
+                )
+                if result.inserted { inserted += 1 }
+                else if result.changed { updated += 1 }
+                else { unchanged += 1 }
+            } catch {
+                failed.append(summary.name)
+            }
+        }
+
+        if !failed.isEmpty {
+            lastPlaylistSyncError = "部分歌单暂时无法同步"
+        }
+        return PlaylistSyncReport(
+            inserted: inserted,
+            updated: updated,
+            unchanged: unchanged,
+            failed: failed
+        )
+    }
+
+    private func allTracks(for playlistID: Int) async throws -> [Track] {
+        let response = try await NeteaseAPI.playlistDetail(id: playlistID)
+        var tracks = response.playlist.tracks
+        let allIDs = response.playlist.trackIds.map(\.id)
+
+        if tracks.count < allIDs.count {
+            let remaining = Array(allIDs.dropFirst(tracks.count))
+            for start in stride(from: 0, to: remaining.count, by: 500) {
+                let chunk = Array(remaining.dropFirst(start).prefix(500))
+                guard let details = try? await NeteaseAPI.songDetails(ids: chunk) else { continue }
+                tracks.append(contentsOf: details.songs)
+            }
+        }
+        return tracks.map { $0.normalizedForLXPlayback() }
     }
 
     /// Refresh the login cookie at most once per calendar day.
