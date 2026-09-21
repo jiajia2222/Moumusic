@@ -69,15 +69,14 @@ final class LXSourceStore: ObservableObject {
     }
 
     func importScript(_ data: Data, suggestedName: String, sourceURL: String? = nil) throws {
-        guard let raw = String(data: data, encoding: .utf8),
+        guard let raw = decodeText(data),
               !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ImportError.invalidEncoding
         }
 
-        let source = decodeExport(raw, sourceURL: sourceURL)
+        let source = decodeExport(raw, suggestedName: suggestedName, sourceURL: sourceURL)
             ?? sourceFromHeader(raw, suggestedName: suggestedName, sourceURL: sourceURL)
-        let script = source.script.lowercased()
-        guard script.contains("musicurl") || script.contains("lyric") || script.contains("globalthis.lx") else {
+        guard isLXScript(source.script) else {
             throw ImportError.invalidScript
         }
 
@@ -89,10 +88,13 @@ final class LXSourceStore: ObservableObject {
         if !enabledIDs.contains(source.id) {
             enabledIDs.append(source.id)
         }
+        // Importing is an explicit user action. Make the imported source the
+        // preferred source immediately, instead of leaving the user on an old
+        // source and making a successful import look like it did nothing.
+        selectedID = source.id
+        UserDefaults.standard.set(source.id, forKey: Self.selectedKey)
         persist()
-        if selectedID == nil || selectedSource == nil {
-            select(source.id)
-        }
+        LXUserAPIService.shared.loadSelectedSource()
     }
 
     /// Downloads and imports an LX User API script. The script remains local
@@ -108,11 +110,13 @@ final class LXSourceStore: ObservableObject {
 
         var request = URLRequest(url: url)
         request.setValue("Moumusic LX source importer", forHTTPHeaderField: "User-Agent")
+        request.setValue("text/plain, application/json, application/javascript, */*", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 30
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ImportError.downloadFailed
         }
-        guard data.count <= 9_000_000 else { throw ImportError.tooLarge }
+        guard data.count <= 16_000_000 else { throw ImportError.tooLarge }
 
         let suggestedName = url.deletingPathExtension().lastPathComponent.isEmpty
             ? (url.host ?? "LX 音源")
@@ -204,11 +208,11 @@ final class LXSourceStore: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .readFailed: return "无法读取所选文件，请先将文件下载到“文件”App后重试"
-            case .invalidEncoding: return "无法读取音源文件，请选择 UTF-8 文本或 JSON 文件"
+            case .invalidEncoding: return "无法读取音源文件，请选择 LX 导出的 .js、.json 或纯文本文件"
             case .invalidScript: return "这不是可识别的 LX User API 音源"
             case .invalidURL: return "请输入有效的 HTTP 或 HTTPS 音源链接"
             case .downloadFailed: return "音源下载失败，请检查链接和网络"
-            case .tooLarge: return "音源文件超过 9 MB，已拒绝导入"
+            case .tooLarge: return "音源文件超过 16 MB，已拒绝导入"
             }
         }
     }
@@ -294,9 +298,48 @@ final class LXSourceStore: ObservableObject {
         var url: String? { metadata.url }
     }
 
-    private func decodeExport(_ raw: String, sourceURL: String?) -> Source? {
+    /// Files shared by LX Mobile are normally UTF-8 JavaScript, but Files.app
+    /// and some desktop editors can export the same script as UTF-16. Do not
+    /// turn an unknown byte stream into replacement characters: that would
+    /// make a damaged file look like a valid script and fail much later in the
+    /// JavaScript bridge.
+    private func decodeText(_ data: Data) -> String? {
+        let encodings: [String.Encoding] = [
+            .utf8,
+            .utf16LittleEndian,
+            .utf16BigEndian,
+            .utf32LittleEndian,
+            .utf32BigEndian,
+            .isoLatin1
+        ]
+        for encoding in encodings {
+            if let text = String(data: data, encoding: encoding),
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return text
+            }
+        }
+        return nil
+    }
+
+    private func decodeExport(
+        _ raw: String,
+        suggestedName: String,
+        sourceURL: String?
+    ) -> Source? {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.first == "\u{FEFF}" { text.removeFirst() }
+
+        // JSON exports have changed shape across LX versions. Prefer a
+        // permissive object walk before the older Decodable model so that
+        // wrappers such as {"data": {"script": "..."}} and arrays from
+        // desktop exports are accepted as well.
+        if let source = decodeJSONExport(
+            text,
+            suggestedName: suggestedName,
+            sourceURL: sourceURL
+        ) {
+            return source
+        }
 
         var candidates = [text]
         if let start = text.firstIndex(of: "{"),
@@ -309,19 +352,31 @@ final class LXSourceStore: ObservableObject {
             guard let data = candidate.data(using: .utf8) else { continue }
             let decoder = JSONDecoder()
             if let value = try? decoder.decode(Export.self, from: data),
-               let source = makeSource(from: value, sourceURL: sourceURL) {
+               let source = makeSource(
+                from: value,
+                suggestedName: suggestedName,
+                sourceURL: sourceURL
+               ) {
                 return source
             }
             if let values = try? decoder.decode([Export].self, from: data),
                let value = values.first(where: { $0.script != nil || $0.info?.script != nil }),
-               let source = makeSource(from: value, sourceURL: sourceURL) {
+               let source = makeSource(
+                from: value,
+                suggestedName: suggestedName,
+                sourceURL: sourceURL
+               ) {
                 return source
             }
         }
         return nil
     }
 
-    private func makeSource(from value: Export, sourceURL: String?) -> Source? {
+    private func makeSource(
+        from value: Export,
+        suggestedName: String,
+        sourceURL: String?
+    ) -> Source? {
         let metadata = value.info
         guard let script = value.script ?? metadata?.script,
               !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -337,7 +392,7 @@ final class LXSourceStore: ObservableObject {
 
         return Source(
             id: firstNonEmpty([value.id, metadata?.id]) ?? UUID().uuidString,
-            name: firstNonEmpty([value.name, metadata?.name]) ?? "LX 音源",
+            name: firstNonEmpty([value.name, metadata?.name]) ?? suggestedName,
             description: firstNonEmpty([value.description, value.desc, metadata?.description, metadata?.desc]) ?? "",
             version: normalizeVersion(firstNonEmpty([value.version, metadata?.version])),
             author: firstNonEmpty([value.author, metadata?.author]) ?? "",
@@ -345,6 +400,122 @@ final class LXSourceStore: ObservableObject {
             script: script,
             sourceURL: sourceURL ?? firstNonEmpty([value.sourceURL, value.url, metadata?.sourceURL, metadata?.url])
         )
+    }
+
+    private func decodeJSONExport(
+        _ text: String,
+        suggestedName: String,
+        sourceURL: String?
+    ) -> Source? {
+        guard let data = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) else {
+            return nil
+        }
+        return sourceFromJSONValue(
+            object,
+            suggestedName: suggestedName,
+            sourceURL: sourceURL
+        )
+    }
+
+    private func sourceFromJSONValue(
+        _ value: Any,
+        suggestedName: String,
+        sourceURL: String?
+    ) -> Source? {
+        if let values = value as? [Any] {
+            for item in values {
+                if let source = sourceFromJSONValue(
+                    item,
+                    suggestedName: suggestedName,
+                    sourceURL: sourceURL
+                ) {
+                    return source
+                }
+            }
+            return nil
+        }
+
+        guard let dictionary = value as? [String: Any] else { return nil }
+
+        let scriptKeys = [
+            "script", "source", "sourceCode", "code", "content",
+            "javascript", "js", "userApi", "api"
+        ]
+        for key in scriptKeys {
+            guard let scriptValue = valueForKey(key, in: dictionary),
+                  let script = jsonString(scriptValue),
+                  isLXScript(script) else { continue }
+
+            return Source(
+                id: jsonString(valueForKeys(["id", "sourceId", "key"], in: dictionary))
+                    ?? UUID().uuidString,
+                name: jsonString(valueForKeys(["name", "title"], in: dictionary))
+                    ?? suggestedName,
+                description: jsonString(valueForKeys(["description", "desc"], in: dictionary))
+                    ?? "",
+                version: normalizeVersion(
+                    jsonString(valueForKeys(["version", "ver", "sourceVersion"], in: dictionary))
+                ),
+                author: jsonString(valueForKeys(["author", "creator"], in: dictionary))
+                    ?? "",
+                homepage: jsonString(valueForKeys(["homepage", "homePage"], in: dictionary))
+                    ?? "",
+                script: script,
+                sourceURL: sourceURL ?? jsonString(
+                    valueForKeys(["sourceURL", "sourceUrl", "url"], in: dictionary)
+                )
+            )
+        }
+
+        // Search known wrapper fields first, then any remaining nested value.
+        // The latter keeps imports compatible with future LX export wrappers.
+        let preferredKeys = ["data", "result", "value", "source", "info", "metadata"]
+        let orderedValues = preferredKeys.compactMap { valueForKey($0, in: dictionary) }
+            + dictionary
+                .filter { pair in !preferredKeys.contains(where: { $0.caseInsensitiveCompare(pair.key) == .orderedSame }) }
+                .map { $0.value }
+        for nested in orderedValues {
+            if let source = sourceFromJSONValue(
+                nested,
+                suggestedName: suggestedName,
+                sourceURL: sourceURL
+            ) {
+                return source
+            }
+        }
+        return nil
+    }
+
+    private func valueForKey(_ key: String, in dictionary: [String: Any]) -> Any? {
+        dictionary.first { $0.key.caseInsensitiveCompare(key) == .orderedSame }?.value
+    }
+
+    private func valueForKeys(_ keys: [String], in dictionary: [String: Any]) -> Any? {
+        keys.compactMap { valueForKey($0, in: dictionary) }.first
+    }
+
+    private func jsonString(_ value: Any?) -> String? {
+        if let value = value as? String {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let number = value as? NSNumber {
+            let doubleValue = number.doubleValue
+            return doubleValue.rounded() == doubleValue
+                ? String(Int(doubleValue))
+                : String(doubleValue)
+        }
+        return nil
+    }
+
+    private func isLXScript(_ script: String) -> Bool {
+        let value = script.lowercased()
+        return value.contains("musicurl")
+            || value.contains("music_url")
+            || value.contains("globalthis.lx")
+            || value.contains("lyric")
+            || value.contains("getlyric")
     }
 
     private func normalizeVersion(_ value: String?) -> String {

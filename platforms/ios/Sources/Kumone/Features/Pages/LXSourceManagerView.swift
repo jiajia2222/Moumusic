@@ -19,7 +19,6 @@ struct LXSourceManagerView: View {
 
     var body: some View {
         content
-        .formStyle(.grouped)
         .navigationTitle("LX 音源")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -30,10 +29,9 @@ struct LXSourceManagerView: View {
         .fileImporter(
             isPresented: $isImportingFile,
             // LX sources are commonly exported as .js, .json, .txt, or a
-            // filename without an extension. UTType filtering hid valid
-            // files from the Files picker, so validate the contents after
-            // the user chooses a generic data item instead.
-            allowedContentTypes: [.data]
+            // filename without an extension. Validate contents after the
+            // user chooses a generic item instead of hiding valid exports.
+            allowedContentTypes: [.item]
         ) { result in
             do {
                 let url = try result.get()
@@ -69,35 +67,68 @@ struct LXSourceManagerView: View {
         }
     }
 
-    @ViewBuilder
     private var content: some View {
-        Form {
-            sourceListSection
-            importSection
-            statusSection
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                managerHeader
+                sourceListSection
+                importSection
+                statusSection
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 28)
         }
+        .scrollIndicators(.hidden)
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
     }
 
-    @ViewBuilder
+    private var managerHeader: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "waveform.circle.fill")
+                .font(.system(size: 44))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Theme.accent)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("LX User API")
+                    .font(.title2.weight(.bold))
+                Text(lxStore.selectedSource.map { "当前使用：\($0.name)" } ?? "导入音源后即可开始搜索和播放")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 4)
+    }
+
     private var sourceListSection: some View {
-        Section {
-            Text("\u{5df2}\u{542f}\u{7528} \(lxStore.playbackSources.count) \u{4e2a}\u{97f3}\u{6e90}")
+        glassCard {
+            VStack(alignment: .leading, spacing: 14) {
+                cardTitle("已添加的音源", systemImage: "checkmark.shield")
+                HStack(spacing: 8) {
+                    Label("已启用 \(lxStore.playbackSources.count) 个", systemImage: "bolt.fill")
+                    Text("·")
+                    Text("点击卡片切换首选源")
+                }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("\u{5de6}\u{4fa7}\u{5355}\u{9009}\u{9996}\u{9009}\u{97f3}\u{6e90}\u{ff0c}\u{53f3}\u{4fa7}\u{5f00}\u{5173}\u{53ef}\u{540c}\u{65f6}\u{542f}\u{7528}\u{591a}\u{4e2a}\u{97f3}\u{6e90}\u{3002}\u{64ad}\u{653e}\u{65f6}\u{4f18}\u{5148}\u{6700}\u{9ad8}\u{97f3}\u{8d28}\u{ff0c}\u{5931}\u{8d25}\u{540e}\u{81ea}\u{52a8}\u{5907}\u{7528}\u{3002}")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            if lxStore.sources.isEmpty {
-                emptySourceView
-            } else {
-                ForEach(lxStore.sources) { source in
-                    sourceRow(source)
+
+                if lxStore.sources.isEmpty {
+                    emptySourceView
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(lxStore.sources) { source in
+                            modernSourceRow(source)
+                        }
+                    }
                 }
+
+                Text("可同时启用多个音源。播放时会优先使用当前源，失败后按启用顺序自动备用。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-        } header: {
-            Text("已添加的音源")
-        } footer: {
-            Text("点击音源行即可切换当前播放源。删除按钮固定显示在右侧，也支持左滑删除。")
         }
     }
 
@@ -118,76 +149,147 @@ struct LXSourceManagerView: View {
     }
 
     private var importSection: some View {
-        Section("添加音源") {
-            Button {
-                isImportingFile = true
-            } label: {
-                Label("从文件导入", systemImage: "doc.badge.plus")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        glassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                cardTitle("添加音源", systemImage: "plus.circle")
+                HStack(spacing: 10) {
+                    importAction(
+                        title: "从文件导入",
+                        subtitle: ".js / .json / .txt",
+                        systemImage: "doc.badge.plus"
+                    ) {
+                        isImportingFile = true
+                    }
+                    importAction(
+                        title: "从在线链接导入",
+                        subtitle: "下载后保存到本机",
+                        systemImage: "link.badge.plus"
+                    ) {
+                        onlineSourceURL = ""
+                        isShowingOnlineImport = true
+                    }
+                }
+                Text("导入后会自动选中并加载该音源；播放时不会再次请求在线链接。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-            .frame(minHeight: 44)
-
-            Button {
-                onlineSourceURL = ""
-                isShowingOnlineImport = true
-            } label: {
-                Label("从在线链接导入", systemImage: "link.badge.plus")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(minHeight: 44)
         }
     }
 
-    @ViewBuilder
     private var statusSection: some View {
-        Section {
-            LabeledContent("状态", value: lxAPI.statusMessage)
-            if !activeCapabilitiesText.isEmpty {
-                Text(activeCapabilitiesText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let source = lxStore.selectedSource,
-               let result = sourceCheckResults[source.id] {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: result.isAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundStyle(result.isAvailable ? .green : .red)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(result.message)
-                            .font(.subheadline.weight(.medium))
-                        if let detail = result.detail {
-                            Text(detail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+        glassCard {
+            VStack(alignment: .leading, spacing: 12) {
+                cardTitle("当前音源状态", systemImage: "waveform.path.ecg")
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Circle()
+                        .fill(lxStore.selectedSource == nil ? Color.orange : Color.green)
+                        .frame(width: 8, height: 8)
+                    Text(lxAPI.statusMessage)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(2)
+                }
+
+                if !activeCapabilitiesText.isEmpty {
+                    Text(activeCapabilitiesText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))
+                }
+
+                if let source = lxStore.selectedSource,
+                   let result = sourceCheckResults[source.id] {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: result.isAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(result.isAvailable ? .green : .red)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(result.message)
+                                .font(.subheadline.weight(.medium))
+                            if let detail = result.detail {
+                                Text(detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
-            }
-            Button("重新加载当前音源") {
-                lxAPI.loadSelectedSource()
-            }
-            .disabled(lxStore.selectedSource == nil)
-            .frame(minHeight: 44)
-            Button {
-                if let source = lxStore.selectedSource {
-                    checkSource(source)
+
+                HStack(spacing: 10) {
+                    Button("重新加载") {
+                        lxAPI.loadSelectedSource()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(lxStore.selectedSource == nil)
+
+                    Button {
+                        if let source = lxStore.selectedSource {
+                            checkSource(source)
+                        }
+                    } label: {
+                        if testingSourceID == lxStore.selectedID {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Label("测试音源", systemImage: "checkmark.shield")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(lxStore.selectedSource == nil || testingSourceID != nil)
                 }
-            } label: {
-                if testingSourceID == lxStore.selectedID {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                } else {
-                    Label("测试当前音源", systemImage: "checkmark.shield")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+
+                Text("测试会请求一首公开歌曲的 musicUrl，只检查播放地址是否有效，不会保存或下载歌曲。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-            .disabled(lxStore.selectedSource == nil || testingSourceID != nil)
-            .frame(minHeight: 44)
-        } header: {
-            Text("当前音源状态")
-        } footer: {
-            Text("点击“测试”会用一首公开测试歌曲请求所选音源的 musicUrl 接口，只检查是否返回有效播放地址，不会保存或下载歌曲。")
         }
+    }
+
+    private func glassCard<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .padding(16)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            }
+    }
+
+    private func cardTitle(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(.primary)
+    }
+
+    private func importAction(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+            .padding(12)
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private var activeCapabilitiesText: String {
@@ -196,6 +298,136 @@ struct LXSourceManagerView: View {
             .map { "\(LXCatalogPlatform.displayName(for: $0.key))：\($0.value.joined(separator: ", "))" }
             .sorted()
             .joined(separator: "\n")
+    }
+
+    @ViewBuilder
+    private func modernSourceRow(_ source: LXSourceStore.Source) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Button {
+                    lxStore.select(source.id)
+                } label: {
+                    Image(systemName: lxStore.selectedID == source.id
+                          ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 28))
+                        .foregroundStyle(lxStore.selectedID == source.id ? Theme.accent : .secondary)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("选择音源 (source.name)")
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(source.name)
+                            .font(.body.weight(.semibold))
+                            .lineLimit(1)
+                        if lxStore.selectedID == source.id {
+                            Text("当前")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Theme.accent)
+                        }
+                    }
+                    let detail = [source.author, source.version]
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " · ")
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button {
+                    checkSource(source)
+                } label: {
+                    if testingSourceID == source.id {
+                        ProgressView()
+                            .frame(width: 44, height: 44)
+                    } else {
+                        Image(systemName: "checkmark.shield")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 44, height: 44)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(testingSourceID != nil)
+                .accessibilityLabel("测试 (source.name)")
+
+                Button(role: .destructive) {
+                    sourceToDelete = source
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("删除 (source.name)")
+            }
+
+            if !source.description.isEmpty {
+                Text(source.description)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .padding(.leading, 54)
+            }
+
+            if let result = sourceCheckResults[source.id] {
+                HStack(spacing: 4) {
+                    Image(systemName: result.isAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    Text(result.message)
+                }
+                .font(.caption)
+                .foregroundStyle(result.isAvailable ? .green : .red)
+                .padding(.leading, 54)
+            }
+
+            HStack(spacing: 14) {
+                Toggle(
+                    "启用备用播放",
+                    isOn: Binding(
+                        get: { lxStore.isEnabled(source.id) },
+                        set: { lxStore.setEnabled(source.id, enabled: $0) }
+                    )
+                )
+                .font(.caption)
+                .tint(Theme.accent)
+                .accessibilityLabel("启用音源 (source.name)")
+
+                Spacer(minLength: 0)
+
+                if let sourceURL = source.sourceURL, let url = URL(string: sourceURL) {
+                    Link(destination: url) {
+                        Label("在线链接", systemImage: "link")
+                            .font(.caption)
+                    }
+                } else if !source.homepage.isEmpty, let url = URL(string: source.homepage) {
+                    Link(destination: url) {
+                        Label("主页", systemImage: "link")
+                            .font(.caption)
+                    }
+                }
+            }
+            .padding(.leading, 54)
+        }
+        .padding(10)
+        .background(
+            lxStore.selectedID == source.id
+                ? Theme.accent.opacity(0.10)
+                : Color.primary.opacity(0.045),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(
+                    lxStore.selectedID == source.id
+                        ? Theme.accent.opacity(0.35)
+                        : Color.primary.opacity(0.06),
+                    lineWidth: 1
+                )
+        }
     }
 
     @ViewBuilder

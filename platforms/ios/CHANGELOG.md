@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.21 - 2026-09-21
+
+### Added / 新增
+
+**iOS**: a redesigned LX source manager with glass cards, clearer source status, and separate file/online import actions.
+
+**iOS**：重做 LX 音源管理页，加入玻璃卡片、清晰的音源状态，以及分开的本地文件 / 在线链接导入入口。
+
+### Fixed / 修复
+
+**iOS**: import LX User API files from Files.app without depending on a filename extension; UTF-8, UTF-16, nested JSON exports, and LX header metadata are supported.
+
+**iOS**：修复从“文件”App 导入 LX User API 依赖扩展名的问题，支持 UTF-8、UTF-16、嵌套 JSON 导出格式和 LX 文件头元数据。
+
+**iOS**: importing a source now selects and loads it immediately, while online imports use a bounded request and keep the downloaded script local for playback.
+
+**iOS**：导入音源后会立即选中并加载，在线导入增加请求限制，播放时继续使用本地保存的脚本。
+
 ## 1.0.20 - 2026-09-21
 
 ### Added
