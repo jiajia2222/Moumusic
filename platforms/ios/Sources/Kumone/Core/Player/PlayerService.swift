@@ -434,7 +434,10 @@ final class PlayerService: ObservableObject {
         queue = tracks
         self.source = source
         playNextList.removeAll()
-        let startTrack = track ?? tracks[0]
+        // When shuffle is already enabled, starting a playlist should not
+        // silently pin the first catalogue item. An explicit `startAt` still
+        // wins when the user tapped a particular song.
+        let startTrack = track ?? (shuffleEnabled ? tracks.randomElement()! : tracks[0])
         if shuffleEnabled {
             reshuffle(keeping: startTrack)
             currentIndex = 0
@@ -593,13 +596,25 @@ final class PlayerService: ObservableObject {
     func toggleShuffle() {
         guard !isFMMode else { return }
         shuffleEnabled.toggle()
-        guard let current = currentTrack else { return }
         if shuffleEnabled {
-            reshuffle(keeping: current)
-            currentIndex = 0
+            if let current = currentTrack {
+                reshuffle(keeping: current)
+                currentIndex = 0
+            } else if !queue.isEmpty {
+                // A restored queue can exist before the current item is
+                // resolved. Build the shuffled order now instead of leaving
+                // `activeQueue` empty until the next play request.
+                shuffledQueue = queue.shuffled()
+                currentIndex = -1
+            }
         } else {
-            currentIndex = queue.firstIndex(where: { $0.playbackKey == current.playbackKey }) ?? 0
+            if let current = currentTrack {
+                currentIndex = queue.firstIndex(where: { $0.playbackKey == current.playbackKey }) ?? 0
+            } else {
+                currentIndex = -1
+            }
         }
+        persistState()
     }
 
     func cycleRepeatMode() {
@@ -1176,7 +1191,7 @@ final class PlayerService: ObservableObject {
     // MARK: - Shuffle helpers
 
     private func reshuffle(keeping first: Track) {
-        var rest = queue.filter { $0.id != first.id }
+        var rest = queue.filter { $0.playbackKey != first.playbackKey }
         rest.shuffle()
         shuffledQueue = [first] + rest
     }

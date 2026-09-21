@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.19 - 2026-09-21
+
+### Fixed
+
+- iOS: make shuffle playback choose a random starting track, always build a
+  shuffled queue, and preserve the random order when advancing or restoring a
+  queue.
+- CI: stop compiling and attaching Android release artifacts; future tags
+  publish iOS artifacts only.
+
 ## 1.0.18 - 2026-09-21
 
 ### Added
