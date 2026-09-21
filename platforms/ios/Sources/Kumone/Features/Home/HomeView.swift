@@ -323,25 +323,30 @@ struct HomeView: View {
 
     var body: some View {
         ScrollView {
-            switch model.state {
-            case .idle, .loading:
-                loadingBody
-            case .error(let message):
-                ErrorStateView(message: message) {
-                    Task {
-                        await model.reload(loggedIn: account.isLoggedIn,
-                                           mode: settings.homeRecommendationMode,
-                                           platform: settings.homeRecommendationPlatform)
+            VStack(alignment: .leading, spacing: 14) {
+                communityAnnouncement
+
+                switch model.state {
+                case .idle, .loading:
+                    loadingBody
+                case .error(let message):
+                    ErrorStateView(message: message) {
+                        Task {
+                            await model.reload(loggedIn: account.isLoggedIn,
+                                               mode: settings.homeRecommendationMode,
+                                               platform: settings.homeRecommendationPlatform)
+                        }
+                    }
+                    .frame(minHeight: 400)
+                case .loaded:
+                    if model.activeMode == .lx {
+                        lxLoadedBody
+                    } else {
+                        loadedBody
                     }
                 }
-                .frame(minHeight: 400)
-            case .loaded:
-                if model.activeMode == .lx {
-                    lxLoadedBody
-                } else {
-                    loadedBody
-                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle("推荐")
         #if os(iOS)
@@ -374,6 +379,49 @@ struct HomeView: View {
                                mode: settings.homeRecommendationMode,
                                platform: settings.homeRecommendationPlatform)
         }
+    }
+
+    private var communityAnnouncement: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "megaphone.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 42, height: 42)
+                .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("公告")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                Text("Moumusic QQ 群：945130957")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Text("欢迎加入交流群，反馈问题和获取更新通知")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+
+            Spacer(minLength: 8)
+            Image(systemName: "person.3.fill")
+                .font(.title3)
+                .foregroundStyle(Theme.accent.opacity(0.75))
+                .accessibilityHidden(true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(Theme.accent.opacity(0.16), lineWidth: 1)
+        }
+        .padding(.horizontal, Theme.Layout.contentInset)
+        .padding(.top, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("公告：Moumusic QQ 群 945130957，欢迎加入交流群，反馈问题和获取更新通知")
     }
 
     private var lxLoadedBody: some View {

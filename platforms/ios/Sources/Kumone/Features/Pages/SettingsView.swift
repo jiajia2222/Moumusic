@@ -11,6 +11,7 @@ struct SettingsView: View {
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
 #endif
     @State private var cacheSize = "计算中…"
+    private let afdianURL = URL(string: "https://afdian.com/a/moumou2026")!
 #if os(iOS)
     @State private var showSourceManager = false
     @State private var showDownloads = false
@@ -212,6 +213,46 @@ struct SettingsView: View {
                 Text("播放、歌词和封面支持用户导入的 LX User API 音源。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section("赞赏与支持") {
+                Link(destination: afdianURL) {
+                    HStack(spacing: 12) {
+                        CachedAsyncImage(
+                            url: URL(string: "https://afdian.com/favicon.ico"),
+                            animated: false
+                        ) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                    .fill(Color.orange.opacity(0.16))
+                                Image(systemName: "heart.fill")
+                                    .font(.title3.weight(.semibold))
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("在爱发电支持 Moumusic")
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text("每一份支持都会帮助我继续维护项目")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 8)
+                        Image(systemName: "arrow.up.right")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("在爱发电支持 Moumusic")
+                .accessibilityHint("打开爱发电支持页面")
             }
         }
         .formStyle(.grouped)

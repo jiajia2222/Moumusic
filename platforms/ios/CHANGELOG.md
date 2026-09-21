@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.24 - 2026-09-21
+
+### Added / 新增
+
+**iOS**: an announcement card is now shown at the top of the Home page with the Moumusic QQ group number `945130957`.
+
+**iOS**：首页顶部新增公告卡片，显示 Moumusic QQ 群号 `945130957`，方便加入交流群反馈问题和获取更新通知。
+
+**iOS**: the bottom of Settings now includes a glass-style Afdian support card with the site icon fallback; tapping it opens the Moumusic support page.
+
+**iOS**：设置页面底部新增玻璃风格的爱发电支持卡片，站点图标加载失败时自动使用心形图标，点击后打开 Moumusic 爱发电页面。
+
 ## 1.0.23 - 2026-09-21
 
 ### Added / 新增
