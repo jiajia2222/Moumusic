@@ -304,14 +304,27 @@ final class LXSourceStore: ObservableObject {
     /// make a damaged file look like a valid script and fail much later in the
     /// JavaScript bridge.
     private func decodeText(_ data: Data) -> String? {
-        let encodings: [String.Encoding] = [
-            .utf8,
+        // LX source files are UTF-8 by contract, but Files.app and desktop
+        // editors can add a UTF-16/UTF-32 BOM. The BOM-aware encodings must be
+        // tried before the endian-specific fallbacks, otherwise a valid JSON
+        // export can be decoded as a string containing NUL characters.
+        var encodings: [String.Encoding] = [.utf8, .utf16, .utf32]
+        if data.starts(with: [0xFF, 0xFE, 0x00, 0x00]) {
+            encodings.insert(.utf32LittleEndian, at: 0)
+        } else if data.starts(with: [0x00, 0x00, 0xFE, 0xFF]) {
+            encodings.insert(.utf32BigEndian, at: 0)
+        } else if data.starts(with: [0xFF, 0xFE]) {
+            encodings.insert(.utf16LittleEndian, at: 0)
+        } else if data.starts(with: [0xFE, 0xFF]) {
+            encodings.insert(.utf16BigEndian, at: 0)
+        }
+        encodings.append(contentsOf: [
             .utf16LittleEndian,
             .utf16BigEndian,
             .utf32LittleEndian,
             .utf32BigEndian,
             .isoLatin1
-        ]
+        ])
         for encoding in encodings {
             if let text = String(data: data, encoding: encoding),
                !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -423,6 +436,35 @@ final class LXSourceStore: ObservableObject {
         suggestedName: String,
         sourceURL: String?
     ) -> Source? {
+        // Some LX backup/export tools wrap the source JSON one more time as a
+        // JSON string, for example {"data":"{\"script\":\"...\"}"}.
+        // Unwrap that string before walking the object so local exports from
+        // both desktop and mobile LX can be imported.
+        if let text = value as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if isLXScript(trimmed) {
+                return Source(
+                    id: UUID().uuidString,
+                    name: suggestedName,
+                    description: "",
+                    version: "",
+                    author: "",
+                    homepage: "",
+                    script: trimmed,
+                    sourceURL: sourceURL
+                )
+            }
+            if let data = trimmed.data(using: .utf8),
+               let nested = try? JSONSerialization.jsonObject(with: data) {
+                return sourceFromJSONValue(
+                    nested,
+                    suggestedName: suggestedName,
+                    sourceURL: sourceURL
+                )
+            }
+            return nil
+        }
+
         if let values = value as? [Any] {
             for item in values {
                 if let source = sourceFromJSONValue(
@@ -440,7 +482,7 @@ final class LXSourceStore: ObservableObject {
 
         let scriptKeys = [
             "script", "source", "sourceCode", "code", "content",
-            "javascript", "js", "userApi", "api"
+            "javascript", "js", "userApi", "userAPI", "lxUserAPI", "api"
         ]
         for key in scriptKeys {
             guard let scriptValue = valueForKey(key, in: dictionary),
@@ -516,6 +558,8 @@ final class LXSourceStore: ObservableObject {
             || value.contains("globalthis.lx")
             || value.contains("lyric")
             || value.contains("getlyric")
+            || value.contains("event_names")
+            || value.contains("send(event_names")
     }
 
     private func normalizeVersion(_ value: String?) -> String {

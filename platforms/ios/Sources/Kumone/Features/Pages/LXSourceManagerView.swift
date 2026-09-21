@@ -187,7 +187,7 @@ struct LXSourceManagerView: View {
                 HStack(spacing: 10) {
                     importAction(
                         title: "从文件导入",
-                        subtitle: ".js / .json / .txt",
+                        subtitle: ".js / .json / .txt / 无扩展名",
                         systemImage: "doc.badge.plus"
                     ) {
                         isImportingFile = true
@@ -603,31 +603,57 @@ struct LXSourceManagerView: View {
             if accessed { url.stopAccessingSecurityScopedResource() }
         }
 
-        var coordinationError: NSError?
-        var data: Data?
-        NSFileCoordinator().coordinate(
-            readingItemAt: url,
-            options: [],
-            error: &coordinationError
-        ) { coordinatedURL in
-            data = try? Data(contentsOf: coordinatedURL, options: .mappedIfSafe)
+        // Read the security-scoped URL directly first. Coordinating the URL
+        // before reading it breaks some Files.app providers (especially local
+        // Downloads and iCloud Drive) even though the file is available.
+        let data: Data
+        do {
+            data = try Data(contentsOf: url, options: .mappedIfSafe)
+        } catch let directError {
+            // A few document providers only expose a stable URL while it is
+            // being coordinated. Keep this as a fallback, not the main path.
+            var coordinationError: NSError?
+            var coordinatedData: Data?
+            NSFileCoordinator().coordinate(
+                readingItemAt: url,
+                options: [],
+                error: &coordinationError
+            ) { coordinatedURL in
+                coordinatedData = try? Data(contentsOf: coordinatedURL, options: .mappedIfSafe)
+            }
+
+            if let coordinatedData {
+                data = coordinatedData
+            } else {
+                // Some providers return a temporary URL that cannot be mapped
+                // directly. Copying it into our process first gives the
+                // parser a normal local file and also prevents a revoked
+                // provider URL from being retained by the app.
+                let temporaryURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("moumusic-lx-import-\(UUID().uuidString)")
+                do {
+                    try FileManager.default.copyItem(at: url, to: temporaryURL)
+                    defer { try? FileManager.default.removeItem(at: temporaryURL) }
+                    data = try Data(contentsOf: temporaryURL, options: .mappedIfSafe)
+                } catch {
+                    throw coordinationError ?? directError
+                }
+            }
         }
 
-        // Some local providers do not participate in file coordination. A
-        // direct read is still valid while the security-scoped URL is open.
-        if data == nil {
-            data = try? Data(contentsOf: url, options: .mappedIfSafe)
-        }
-        guard let data else {
-            if let coordinationError {
-                throw coordinationError
-            }
+        guard !data.isEmpty else {
             throw LXSourceStore.ImportError.readFailed
         }
+        guard data.count <= 16_000_000 else {
+            throw LXSourceStore.ImportError.tooLarge
+        }
+
+        let withoutExtension = url.deletingPathExtension().lastPathComponent
+        let suggestedName = withoutExtension.isEmpty ? url.lastPathComponent : withoutExtension
 
         try lxStore.importScript(
             data,
-            suggestedName: url.deletingPathExtension().lastPathComponent
+            suggestedName: suggestedName.isEmpty ? "LX 音源" : suggestedName
         )
     }
 

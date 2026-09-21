@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.26 - 2026-09-21
+
+### Fixed / 修复
+
+**iOS**: fixed local LX User API imports from Files.app and iCloud Drive by reading security-scoped files directly first, then falling back to coordinated and temporary local copies.
+
+**iOS**：修复从“文件”App 和 iCloud Drive 导入本地 LX 音源失败的问题：优先读取安全作用域文件，失败时回退到文件协调和临时本地副本。
+
+**iOS**: local source imports now accept BOM-marked UTF-8/UTF-16/UTF-32 files and nested JSON/string export wrappers, while preserving the source script locally after import.
+
+**iOS**：本地音源现在兼容带 BOM 的 UTF-8/UTF-16/UTF-32 文件，以及嵌套 JSON / JSON 字符串导出格式；导入后会将音源脚本保存在本机。
+
 ## 1.0.25 - 2026-09-21
 
 ### Added / 新增
