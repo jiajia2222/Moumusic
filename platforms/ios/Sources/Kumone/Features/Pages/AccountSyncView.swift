@@ -188,7 +188,7 @@ struct AccountSyncView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: account.lastPlaylistSyncAt == nil ? "clock" : "checkmark.circle.fill")
-                    .foregroundStyle(account.lastPlaylistSyncAt == nil ? .secondary : .green)
+                    .foregroundStyle(account.lastPlaylistSyncAt == nil ? Color.secondary : Color.green)
                 Text(lastPlaylistSyncText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
