@@ -8,6 +8,21 @@ import Foundation
 actor QishuiAPI {
     static let shared = QishuiAPI()
 
+    struct QRCodePayload: Sendable {
+        let token: String
+        let value: String
+        let copywriting: String
+        let expiresIn: Int
+    }
+
+    enum QRLoginStatus: Sendable {
+        case waiting
+        case scanned
+        case success(cookie: String?, sessionID: String?)
+        case expired
+        case failed(String)
+    }
+
     struct Profile {
         let id: String
         let name: String
@@ -61,13 +76,128 @@ actor QishuiAPI {
     private let playlistEndpoint = URL(string: "https://api.qishui.com/luna/playlist/detail")!
     private let discoverEndpoint = URL(string: "https://beta-luna.douyin.com/luna/discover/mix")!
     private let profileEndpoint = URL(string: "https://api.qishui.com/luna/pc/me")!
+    private let passportEndpoint = URL(string: "https://api.qishui.com")!
     private let session: URLSession
+
+    private enum Passport {
+        static let aid = "386088"
+        static let iid = "27960026095955"
+        static let jssdkVersion = "2.4.13"
+        static let jssdkType = "normal"
+        static let next = "https://api.qishui.com"
+        static let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+    }
 
     private init() {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 45
         session = URLSession(configuration: configuration)
+    }
+
+    /// Starts the provider's native passport QR flow. The returned `value` is
+    /// the payload encoded by the QR image; it is not a webpage login form.
+    /// The user scans it with the Douyin app, as required by the current
+    /// Qishui passport flow.
+    func qrCode() async throws -> QRCodePayload {
+        var components = URLComponents(
+            url: passportEndpoint.appendingPathComponent("passport/web/get_qrcode/"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [
+            URLQueryItem(name: "passport_jssdk_version", value: Passport.jssdkVersion),
+            URLQueryItem(name: "passport_jssdk_type", value: Passport.jssdkType),
+            URLQueryItem(name: "is_from_ttaccountsdk", value: "1"),
+            URLQueryItem(name: "aid", value: Passport.aid),
+            URLQueryItem(name: "next", value: Passport.next),
+            URLQueryItem(name: "need_logo", value: "false"),
+            URLQueryItem(name: "need_short_url", value: "false"),
+            URLQueryItem(name: "is_new_login", value: "1")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = 20
+        request.setValue(Passport.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+        guard (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) == true,
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw APIError.requestFailed
+        }
+
+        let payload = Self.dictionary(in: root, keys: ["data"]) ?? root
+        guard let token = Self.text(in: payload, keys: ["token", "qrcode_token"]),
+              let value = Self.text(in: payload, keys: ["qrcode", "qr_code", "qrcode_url"]),
+              !token.isEmpty, !value.isEmpty else {
+            throw APIError.invalidResponse
+        }
+        return QRCodePayload(
+            token: token,
+            value: value,
+            copywriting: Self.text(in: payload, keys: ["copywriting", "message"])
+                ?? "使用抖音 App 扫码登录",
+            expiresIn: Self.integer(in: payload, keys: ["expire_time", "expires_in"]) ?? 180
+        )
+    }
+
+    /// Polls the same passport QR session. Credentials are only returned to
+    /// the in-process session store after the provider confirms the scan.
+    func qrLoginStatus(token: String) async throws -> QRLoginStatus {
+        var components = URLComponents(
+            url: passportEndpoint.appendingPathComponent("passport/web/check_qrconnect/"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [
+            URLQueryItem(name: "passport_jssdk_version", value: Passport.jssdkVersion),
+            URLQueryItem(name: "passport_jssdk_type", value: Passport.jssdkType),
+            URLQueryItem(name: "is_from_ttaccountsdk", value: "1"),
+            URLQueryItem(name: "aid", value: Passport.aid),
+            URLQueryItem(name: "iid", value: Passport.iid)
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue(Passport.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = Self.formEncoded([
+            "need_logo": "false",
+            "need_short_url": "false",
+            "is_frontier": "true",
+            "token": token,
+            "is_new_login": "1",
+            "next": Passport.next
+        ])
+
+        let (data, response) = try await session.data(for: request)
+        guard (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) == true,
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw APIError.requestFailed
+        }
+
+        let payload = Self.dictionary(in: root, keys: ["data"]) ?? root
+        let rawStatus = Self.text(in: payload, keys: ["status", "code", "status_code"])
+            ?? String(Self.integer(in: payload, keys: ["status", "code", "status_code"]) ?? -1)
+        let status = rawStatus.lowercased()
+        switch status {
+        // The passport endpoint returns `new` for a freshly-created QR code.
+        // Treat it as a waiting state instead of surfacing a false login error.
+        case "new", "801", "wait", "waiting", "pending":
+            return .waiting
+        case "802", "scan", "scanned", "scaned", "scanning", "confirm":
+            return .scanned
+        case "803", "success", "confirmed", "ok":
+            let auth = Self.dictionary(in: payload, keys: ["auth", "credential"])
+            let sessionID = Self.text(in: auth ?? payload, keys: ["sessionid", "session_id"])
+            let cookie = Self.cookieHeader(from: response as? HTTPURLResponse)
+            return .success(cookie: cookie.isEmpty ? nil : cookie, sessionID: sessionID)
+        case "800", "expired", "timeout":
+            return .expired
+        default:
+            let message = Self.text(in: payload, keys: ["message", "msg", "error_message"])
+                ?? "汽水扫码登录失败"
+            return .failed(message)
+        }
     }
 
     /// Validates a pasted browser Cookie against Qishui's account endpoint.
@@ -550,6 +680,44 @@ actor QishuiAPI {
         if let value = value as? NSNumber { return value.intValue }
         if let value = value as? String, let number = Int(value) { return number }
         return nil
+    }
+
+    private static func dictionary(in object: [String: Any], keys: [String]) -> [String: Any]? {
+        for key in keys {
+            if let value = object[key] as? [String: Any] { return value }
+        }
+        return nil
+    }
+
+    private static func formEncoded(_ values: [String: String]) -> Data? {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+        let body = values
+            .sorted { $0.key < $1.key }
+            .map { key, value in
+                let escapedKey = key.addingPercentEncoding(withAllowedCharacters: allowed) ?? key
+                let escapedValue = value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+                return "\(escapedKey)=\(escapedValue)"
+            }
+            .joined(separator: "&")
+        return body.data(using: .utf8)
+    }
+
+    private static func cookieHeader(from response: HTTPURLResponse?) -> String {
+        guard let response else { return "" }
+        let rawValues = response.allHeaderFields.reduce(into: [String]()) { result, entry in
+            guard String(describing: entry.key).lowercased() == "set-cookie" else { return }
+            if let values = entry.value as? [String] {
+                result.append(contentsOf: values)
+            } else {
+                result.append(String(describing: entry.value))
+            }
+        }
+        return rawValues
+            .flatMap { $0.split(separator: ",") }
+            .compactMap { $0.split(separator: ";", maxSplits: 1).first }
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "; ")
     }
 
     private static func bool(in object: [String: Any], keys: [String]) -> Bool {
