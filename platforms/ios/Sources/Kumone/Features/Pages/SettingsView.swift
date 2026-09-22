@@ -163,11 +163,7 @@ struct SettingsView: View {
 #endif
 
             Section("外观") {
-                Picker("主题", selection: $settings.appearance) {
-                    ForEach(AppAppearance.allCases) { appearance in
-                        Text(appearance.displayName).tag(appearance)
-                    }
-                }
+                AppearancePicker(selection: $settings.appearance)
 #if os(iOS)
                 Picker("播放器模式", selection: $settings.nowPlayingMode) {
                     ForEach(NowPlayingMode.allCases) { mode in
@@ -363,6 +359,10 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+#if os(iOS)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+#endif
 #if os(macOS)
         .frame(width: 440, height: 520)
 #endif
@@ -428,5 +428,41 @@ struct SettingsView: View {
                 ToastCenter.shared.show("缓存已清除")
             }
         }
+    }
+}
+
+/// A compact three-way control matching the native settings pattern in the
+/// reference UI. The binding applies the same transition whether the user
+/// taps a segment or changes the value from an accessibility action.
+private struct AppearancePicker: View {
+    @Binding var selection: AppAppearance
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Picker("主题", selection: appearanceBinding) {
+            ForEach(AppAppearance.allCases) { appearance in
+                Text(appearance.displayName)
+                    .tag(appearance)
+            }
+        }
+        .pickerStyle(.segmented)
+        .tint(Theme.accent)
+        .animation(reduceMotion ? nil : AppAnimation.smooth, value: selection)
+    }
+
+    private var appearanceBinding: Binding<AppAppearance> {
+        Binding(
+            get: { selection },
+            set: { newValue in
+                guard newValue != selection else { return }
+                if reduceMotion {
+                    selection = newValue
+                } else {
+                    withAnimation(AppAnimation.smooth) {
+                        selection = newValue
+                    }
+                }
+            }
+        )
     }
 }

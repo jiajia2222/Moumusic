@@ -13,6 +13,7 @@ public struct IOSMainWindow: View {
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
     @Namespace private var nowPlayingTransition
     @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
     /// The app's intended scheme, read on this ancestor so the search-active
@@ -41,6 +42,7 @@ public struct IOSMainWindow: View {
             .environmentObject(toasts)
             .tint(Theme.accent)
             .preferredColorScheme(settings.appearance.colorScheme)
+            .animation(reduceMotion ? nil : AppAnimation.smooth, value: settings.appearance)
             // Login is exposed on a separate account page. It is metadata
             // synchronisation only; audio URLs still come exclusively from LX.
             .environment(\.openLogin, {
@@ -171,7 +173,9 @@ public struct IOSMainWindow: View {
                     .ignoresSafeArea()
             }
             tabInterface
+                .background(Color.clear)
         }
+        .animation(AppAnimation.smooth, value: backgroundStore.image != nil)
     }
 
     private func nowPlayingPresentation(
@@ -246,6 +250,8 @@ public struct IOSMainWindow: View {
                 tabStack(.search) { SearchView(query: "") }
             }
         }
+        .toolbarBackground(.hidden, for: .tabBar)
+        .background(Color.clear)
     }
 
     private var customTabInterface: some View {
@@ -307,6 +313,7 @@ public struct IOSMainWindow: View {
         NavigationStack(path: binding(for: tab)) {
             content().appDestinations()
         }
+        .background(Color.clear)
     }
 
     @ViewBuilder

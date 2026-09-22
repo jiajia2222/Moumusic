@@ -36,17 +36,28 @@ final class BackgroundImageStore: ObservableObject {
         photoSelection = nil
         blurRadius = UserDefaults.standard.object(forKey: Keys.blurRadius) as? Double ?? 8
         syncToPlayer = UserDefaults.standard.object(forKey: Keys.syncToPlayer) as? Bool ?? true
-        syncToApp = UserDefaults.standard.object(forKey: Keys.syncToApp) as? Bool ?? false
+        syncToApp = UserDefaults.standard.object(forKey: Keys.syncToApp) as? Bool ?? true
         image = loadStoredImage()
     }
 
     func importSelection() async {
-        guard let photoSelection else { return }
+        guard let selection = photoSelection else { return }
+        defer { photoSelection = nil }
+
         do {
-            guard let data = try await photoSelection.loadTransferable(type: Data.self) else { return }
-            _ = save(data: data)
+            guard let data = try await selection.loadTransferable(type: Data.self),
+                  save(data: data) else {
+                ToastCenter.shared.show("无法读取图片，请重新选择")
+                return
+            }
+
+            // A selected wallpaper should be visible immediately. The user
+            // can still turn either destination off from Settings afterwards.
+            syncToApp = true
+            syncToPlayer = true
+            ToastCenter.shared.show("背景图片已更新")
         } catch {
-            ToastCenter.shared.show("背景图片读取失败")
+            ToastCenter.shared.show("背景图片读取失败，请检查照片权限")
         }
     }
 
