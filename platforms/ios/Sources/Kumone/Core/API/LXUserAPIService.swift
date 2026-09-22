@@ -131,6 +131,21 @@ final class LXUserAPIService: ObservableObject {
     }
 
     func resolveMusicURL(for track: Track, quality: String) async throws -> ResolvedURL {
+        let sourceMode = SettingsManager.shared.playbackSourceMode
+        if sourceMode != .thirdParty {
+            if AccountStore.shared.isLoggedIn, Self.isNeteaseTrack(track) {
+                do {
+                    return try await resolveOfficialMusicURL(for: track, quality: quality)
+                } catch {
+                    // Automatic mode is deliberately resilient: an expired
+                    // account session, a VIP-only denial, or a missing
+                    // official URL hands the same track to LX below.
+                    if sourceMode == .official { throw error }
+                }
+            } else if sourceMode == .official {
+                throw LXError.sourceUnavailable("请先登录网易云账号，并选择网易云歌曲")
+            }
+        }
         return try await resolveMusicURLAcrossSources(for: track, quality: quality)
 #if false
         ensureSelectedSourceLoaded()
@@ -191,6 +206,40 @@ final class LXUserAPIService: ObservableObject {
             : failures)
 #endif
     }
+
+    /// Resolves only through the user's authenticated NetEase account. This
+    /// uses the same encrypted official endpoint as the macOS player; it does
+    /// not bypass VIP checks or manufacture a URL when the account is not
+    /// entitled to play the requested track.
+    private func resolveOfficialMusicURL(for track: Track, quality: String) async throws -> ResolvedURL {
+        let requested = AudioQuality(rawValue: quality)
+            ?? AudioQuality(lxType: quality)
+            ?? .standard
+        let data = try await NeteaseAPI.songURL(ids: [track.id], level: requested.neteaseLevel).first
+        guard let data,
+              let rawURL = data.url,
+              let url = URL(string: rawURL.replacingOccurrences(of: "http://", with: "https://")),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            throw LXError.sourceUnavailable("官方账号没有返回可播放地址")
+        }
+        if data.freeTrialInfo != nil {
+            throw LXError.sourceUnavailable("官方账号只返回试听片段")
+        }
+        return ResolvedURL(url: url, quality: NeteaseAPI.officialQuality(for: data).lxType)
+    }
+
+    private static func isNeteaseTrack(_ track: Track) -> Bool {
+        guard let rawSource = track.source ?? track.sourceMetadata["source"] else {
+            // Native NetEase catalogue responses do not carry an LX source
+            // marker. They are the only unmarked tracks in the queue.
+            return true
+        }
+        let source = rawSource
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return source.isEmpty || ["wy", "163", "netease", "neteasecloudmusic", "cloudmusic"].contains(source)
+    }
+
     private func resolveMusicURLAcrossSources(for track: Track, quality: String) async throws -> ResolvedURL {
         let playbackSources = LXSourceStore.shared.playbackSources
         guard !playbackSources.isEmpty else { throw LXError.noSource }

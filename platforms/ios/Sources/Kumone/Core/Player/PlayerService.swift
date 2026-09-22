@@ -251,7 +251,17 @@ final class PlayerService: ObservableObject {
     func availableQualitiesForCurrentTrack() async -> [AudioQuality] {
         guard let track = currentTrack else { return [] }
 #if os(iOS)
-        let names = await LXUserAPIService.shared.availableQualityNames(for: track)
+        var names = Set(await LXUserAPIService.shared.availableQualityNames(for: track))
+        let source = (track.source ?? track.sourceMetadata["source"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let isNativeNetease = source.isEmpty || ["wy", "163", "netease",
+                                                  "neteasecloudmusic", "cloudmusic"].contains(source)
+        if SettingsManager.shared.playbackSourceMode != .thirdParty,
+           AccountStore.shared.isLoggedIn,
+           isNativeNetease {
+            names.formUnion(await NeteaseAPI.officialQualityNames(for: track.id))
+        }
         var seenTypes = Set<String>()
         let available = AudioQuality.allCases.filter {
             names.contains($0.lxType) && seenTypes.insert($0.lxType).inserted
@@ -858,17 +868,22 @@ final class PlayerService: ObservableObject {
 #endif
 
 #if os(iOS)
-        // Every online track, including a NetEase catalogue result, must use
-        // the selected LX User API. There is intentionally no native NetEase
-        // URL fallback and no third-party Kuwo/unblock fallback on iOS.
+        // Automatic mode may use the logged-in official account first. The
+        // resolver falls back to enabled LX sources when that route fails.
         if let local = DownloadManager.shared.record(for: track),
            FileManager.default.fileExists(atPath: local.fileURL.path) {
             resolvedURL = local.fileURL
             servedByLXQuality = local.quality
         } else {
-            guard LXSourceStore.shared.selectedSource != nil else {
+            let sourceValue = (track.source ?? track.sourceMetadata["source"] ?? "")
+                .lowercased()
+            let canUseOfficial = SettingsManager.shared.playbackSourceMode != .thirdParty
+                && AccountStore.shared.isLoggedIn
+                && (sourceValue.isEmpty || ["wy", "163", "netease",
+                                             "neteasecloudmusic", "cloudmusic"].contains(sourceValue))
+            guard LXSourceStore.shared.selectedSource != nil || canUseOfficial else {
                 guard generation == resolveGeneration else { return }
-                ToastCenter.shared.show("请先在设置 → LX 音源中选择播放音源")
+                ToastCenter.shared.show("请先登录账号或在设置 → LX 音源中选择播放音源")
                 isPlaying = false
                 return
             }

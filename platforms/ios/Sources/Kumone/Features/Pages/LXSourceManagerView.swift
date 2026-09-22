@@ -34,11 +34,16 @@ struct LXSourceManagerView: View {
             // user chooses a generic item instead of hiding valid exports.
             allowedContentTypes: [.data, .item]
         ) { result in
-            do {
-                let url = try result.get()
-                try importSourceFile(at: url)
-            } catch {
-                lxError = error.localizedDescription
+            guard case .success(let url) = result else {
+                if case .failure(let error) = result { lxError = error.localizedDescription }
+                return
+            }
+            Task { @MainActor in
+                do {
+                    try await importSourceFile(at: url)
+                } catch {
+                    lxError = error.localizedDescription
+                }
             }
         }
         .sheet(isPresented: $isShowingOnlineImport) {
@@ -567,7 +572,7 @@ struct LXSourceManagerView: View {
         }
     }
 
-    private func importSourceFile(at url: URL) throws {
+    private func importSourceFile(at url: URL) async throws {
         let accessed = url.startAccessingSecurityScopedResource()
         defer {
             if accessed { url.stopAccessingSecurityScopedResource() }
@@ -621,7 +626,7 @@ struct LXSourceManagerView: View {
         let withoutExtension = url.deletingPathExtension().lastPathComponent
         let suggestedName = withoutExtension.isEmpty ? url.lastPathComponent : withoutExtension
 
-        try lxStore.importScript(
+        try await lxStore.importSourceData(
             data,
             suggestedName: suggestedName.isEmpty ? "LX 音源" : suggestedName
         )

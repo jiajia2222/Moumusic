@@ -376,9 +376,9 @@ enum NeteaseAPI {
 
     // MARK: - Tracks
 
-#if os(macOS)
     /// The desktop target still has its historical native player. iOS is
-    /// source-only and does not compile this NetEase URL endpoint.
+    /// allowed to use the same endpoint only when the user explicitly signs
+    /// in and selects automatic or official account playback.
     struct SongURLResponse: Decodable {
         let data: [SongURLData]
     }
@@ -389,7 +389,56 @@ enum NeteaseAPI {
         if level == "sky" { payload["immerseType"] = "c51" }
         return try await eapi(SongURLResponse.self, "/song/enhance/player/url/v1", payload).data
     }
-#endif
+
+    /// Probes the authenticated account endpoint and returns only quality
+    /// tiers for which this song actually has a non-preview URL. The player
+    /// uses this instead of advertising every quality label in the UI.
+    static func officialQualityNames(for id: Int) async -> [String] {
+        guard id > 0 else { return [] }
+        let probes: [AudioQuality] = [.master, .atmos, .dolby, .surround,
+                                      .hires, .lossless, .exhigh, .standard]
+        var available = Set<String>()
+        for requested in probes {
+            guard let response = try? await songURL(ids: [id], level: requested.neteaseLevel),
+                  let data = response.first,
+                  let rawURL = data.url,
+                  let url = URL(string: rawURL),
+                  let scheme = url.scheme?.lowercased(),
+                  ["http", "https"].contains(scheme),
+                  data.freeTrialInfo == nil else { continue }
+            available.insert(officialQuality(for: data).lxType)
+        }
+        return AudioQuality.allCases
+            .map(\.lxType)
+            .filter { available.contains($0) }
+            .reduce(into: []) { result, name in
+                if !result.contains(name) { result.append(name) }
+            }
+    }
+
+    /// Maps the server's returned level/format/bitrate to the real tier that
+    /// was served. This deliberately prefers response metadata over the
+    /// requested tier because VIP restrictions can downgrade a request.
+    static func officialQuality(for data: SongURLData) -> AudioQuality {
+        if let level = data.level, let quality = AudioQuality(neteaseLevel: level) {
+            return quality
+        }
+        if let type = data.type?.lowercased() {
+            if type.contains("24") || type.contains("hires") || type.contains("highres") {
+                return .hires
+            }
+            if type.contains("flac") || type.contains("ape") {
+                return data.br >= 900_000 ? .hires : .lossless
+            }
+        }
+        switch data.br {
+        case 900_000...: return .hires
+        case 600_000..<900_000: return .lossless
+        case 300_000..<600_000: return .exhigh
+        case 160_000..<300_000: return .higher
+        default: return .standard
+        }
+    }
 
     static func lyric(id: Int) async throws -> LyricResponse {
         // `/song/lyric/v1` also returns verbatim (word-by-word) `yrc`. Fall back

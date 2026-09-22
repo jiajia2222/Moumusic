@@ -97,6 +97,19 @@ final class LXSourceStore: ObservableObject {
         LXUserAPIService.shared.loadSelectedSource()
     }
 
+    /// Imports either an inline LX script/export or a local JSON descriptor
+    /// that points to its script URL. The latter is common when a source was
+    /// exported from a desktop client or saved from a source catalogue.
+    func importSourceData(_ data: Data, suggestedName: String) async throws {
+        do {
+            try importScript(data, suggestedName: suggestedName)
+        } catch let error as ImportError {
+            guard case .invalidScript = error,
+                  let url = Self.remoteScriptURL(in: data) else { throw error }
+            try await importOnlineScript(url.absoluteString)
+        }
+    }
+
     /// Downloads and imports an LX User API script. The script remains local
     /// after import; the URL is metadata only and is never fetched at playback
     /// time. This mirrors LX Mobile's explicit online-import flow.
@@ -562,6 +575,50 @@ final class LXSourceStore: ObservableObject {
             || value.contains("getlyric")
             || value.contains("event_names")
             || value.contains("send(event_names")
+    }
+
+    private static func remoteScriptURL(in data: Data) -> URL? {
+        guard let text = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+
+        func validURL(_ value: String) -> URL? {
+            guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  let scheme = url.scheme?.lowercased(),
+                  ["http", "https"].contains(scheme),
+                  url.host != nil else { return nil }
+            return url
+        }
+
+        if let direct = validURL(text) { return direct }
+        guard let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
+
+        func find(_ value: Any) -> URL? {
+            if let dictionary = value as? [String: Any] {
+                let preferredKeys = [
+                    "scriptURL", "scriptUrl", "sourceURL", "sourceUrl",
+                    "apiUrl", "apiURL", "url"
+                ]
+                for key in preferredKeys {
+                    if let candidate = dictionary.first(where: {
+                        $0.key.caseInsensitiveCompare(key) == .orderedSame
+                    })?.value,
+                       let string = candidate as? String,
+                       let url = validURL(string) {
+                        return url
+                    }
+                }
+                for nested in dictionary.values {
+                    if let url = find(nested) { return url }
+                }
+            } else if let values = value as? [Any] {
+                for nested in values {
+                    if let url = find(nested) { return url }
+                }
+            }
+            return nil
+        }
+
+        return find(object)
     }
 
     private func normalizeVersion(_ value: String?) -> String {

@@ -7,6 +7,7 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
 #if os(iOS)
     @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var account: AccountStore
     @StateObject private var lxStore = LXSourceStore.shared
     @StateObject private var qishui = QishuiSessionStore.shared
     @StateObject private var qqMusic = QQMusicSessionStore.shared
@@ -26,13 +27,37 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("音源与音质") {
+                Picker("播放来源", selection: $settings.playbackSourceMode) {
+                    ForEach(PlaybackSourceMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+#if os(iOS)
+                .pickerStyle(.segmented)
+#endif
+                Text(settings.playbackSourceMode.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+#if os(iOS)
+                HStack(spacing: 8) {
+                    Image(systemName: account.isLoggedIn ? "checkmark.circle.fill" : "person.crop.circle.badge.xmark")
+                        .foregroundStyle(account.isLoggedIn ? .green : .secondary)
+                    Text(account.isLoggedIn
+                         ? "网易云官方账号已登录，可优先尝试账号音质"
+                         : "未登录网易云官方账号，自动模式将直接使用 LX 音源")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+#endif
+
                 Picker("默认播放音质", selection: $settings.audioQuality) {
                     ForEach(AudioQuality.allCases) { quality in
                         Text("\(quality.displayName) · \(quality.sourceDisplayName)")
                             .tag(quality)
                     }
                 }
-                Text("播放时优先请求此档位；当前歌曲或音源不支持时，自动按实际能力向下回退，并在播放页显示真实音质。")
+                Text("自动模式会先请求账号可用的官方音质；账号未登录、歌曲受限或官方接口无播放地址时，才回退到 LX 音源。最终显示以实际返回的音质为准。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

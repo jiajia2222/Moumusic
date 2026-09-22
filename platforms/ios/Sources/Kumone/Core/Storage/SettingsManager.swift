@@ -91,6 +91,66 @@ enum AudioQuality: String, CaseIterable, Identifiable {
         default: return false
         }
     }
+
+    /// NetEase's official account endpoint uses different level names from
+    /// LX User API. Keep this mapping in one place so the player can request
+    /// an account URL without changing the third-party source protocol.
+    var neteaseLevel: String {
+        switch self {
+        case .master: return "jymaster"
+        case .atmos: return "jyeffect"
+        case .dolby: return "dolby"
+        case .surround: return "sky"
+        case .hires: return "hires"
+        case .lossless: return "lossless"
+        case .exhigh, .higher: return "exhigh"
+        case .standard: return "standard"
+        }
+    }
+
+    init?(neteaseLevel: String) {
+        switch neteaseLevel.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "jymaster", "master": self = .master
+        case "jyeffect", "atmos", "immersive": self = .atmos
+        case "dolby", "dolby_atmos": self = .dolby
+        case "sky", "surround", "spatial": self = .surround
+        case "hires", "highres": self = .hires
+        case "lossless", "flac": self = .lossless
+        case "exhigh", "higher": self = .exhigh
+        case "standard", "128k": self = .standard
+        default: return nil
+        }
+    }
+}
+
+/// Selects which authorized playback route is attempted first on iOS.
+/// `automatic` is the user-friendly mode: use the logged-in official account
+/// when it can return a playable URL, then fall back to enabled LX sources.
+enum PlaybackSourceMode: String, CaseIterable, Identifiable {
+    case automatic
+    case official
+    case thirdParty
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .automatic: return String(localized: "自动")
+        case .official: return String(localized: "官方账号")
+        case .thirdParty: return String(localized: "第三方音源")
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .automatic:
+            return String(localized: "优先使用已登录的官方账号音质，失败后回退到已启用的 LX 音源")
+        case .official:
+            return String(localized: "只使用已登录账号的官方授权播放；未登录或不可用时不会偷偷换源")
+        case .thirdParty:
+            return String(localized: "只使用已导入并启用的 LX 音源")
+        }
+    }
 }
 
 enum AppAppearance: String, CaseIterable, Identifiable {
@@ -178,6 +238,7 @@ final class SettingsManager: ObservableObject {
 
     private enum Keys {
         static let quality = "settings.audioQuality"
+        static let playbackSourceMode = "settings.playbackSourceMode"
         static let appearance = "settings.appearance"
         #if os(iOS)
         static let nowPlayingMode = "settings.nowPlayingMode"
@@ -200,6 +261,10 @@ final class SettingsManager: ObservableObject {
 
     @Published var audioQuality: AudioQuality {
         didSet { UserDefaults.standard.set(audioQuality.rawValue, forKey: Keys.quality) }
+    }
+
+    @Published var playbackSourceMode: PlaybackSourceMode {
+        didSet { UserDefaults.standard.set(playbackSourceMode.rawValue, forKey: Keys.playbackSourceMode) }
     }
 
     @Published var appearance: AppAppearance {
@@ -283,6 +348,8 @@ final class SettingsManager: ObservableObject {
     private init() {
         let defaults = UserDefaults.standard
         audioQuality = defaults.string(forKey: Keys.quality).flatMap(AudioQuality.init(rawValue:)) ?? .exhigh
+        playbackSourceMode = defaults.string(forKey: Keys.playbackSourceMode)
+            .flatMap(PlaybackSourceMode.init(rawValue:)) ?? .automatic
         appearance = defaults.string(forKey: Keys.appearance).flatMap(AppAppearance.init) ?? .auto
         #if os(iOS)
         nowPlayingMode = defaults.string(forKey: Keys.nowPlayingMode).flatMap(NowPlayingMode.init) ?? .immersive

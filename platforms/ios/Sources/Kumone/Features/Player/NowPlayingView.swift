@@ -1119,7 +1119,7 @@ private struct QualityPickerSheet: View {
                                         Text(quality.sourceDisplayName)
                                             .font(.body.weight(.medium))
                                         if quality.isPlatformSpecific {
-                                            Text("由当前 LX 音源声明，最终以返回地址为准")
+                                            Text("由当前播放来源实时探测，最终以返回地址为准")
                                                 .font(.caption2)
                                                 .foregroundStyle(.secondary)
                                         }
@@ -1137,7 +1137,7 @@ private struct QualityPickerSheet: View {
                     }
                 } else if !loading {
                     Section("选择音质") {
-                        Text("当前 LX 音源没有返回可用音质，请检查音源是否支持该平台。")
+                        Text("当前播放来源没有返回可用音质，请检查账号状态或音源是否支持该平台。")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -1147,7 +1147,7 @@ private struct QualityPickerSheet: View {
                 }
 
                 Section {
-                    Text("如果选定音质不可用，播放器会自动回退到当前音源支持的较低音质。")
+                    Text("如果选定音质不可用，自动模式会先尝试账号能力，再回退到已启用的第三方音源。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

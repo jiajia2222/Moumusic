@@ -322,8 +322,7 @@ struct LyricContributor: Decodable {
     let nickname: String?
 }
 
-#if os(macOS)
-// MARK: - Desktop-only native song URL
+// MARK: - Official account song URL
 
 struct SongURLData: Decodable, Hashable {
     let id: Int
@@ -358,7 +357,6 @@ struct FreeTrialInfo: Codable, Hashable {
     let start: Int?
     let end: Int?
 }
-#endif
 
 // MARK: - Cloud disk
 
