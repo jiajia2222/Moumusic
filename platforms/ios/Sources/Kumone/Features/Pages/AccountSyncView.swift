@@ -154,6 +154,16 @@ struct AccountSyncView: View {
             Text("播放歌曲达到有效时长后，Moumusic 会把匹配到的歌曲播放记录和时长同步到账号。LX 音源只负责提供音频地址。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if let date = syncStore.lastSyncedAt {
+                Text("最近上报 " + RelativeDateTimeFormatter().localizedString(for: date, relativeTo: .now))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                Text("播放达到有效时长后会自动上报")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .padding(16)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -171,10 +181,24 @@ struct AccountSyncView: View {
                 }
             }
 
-            Text("已获取 (account.userPlaylists.count) 个歌单，包含我喜欢的音乐和收藏歌单。选择后才会加入本地歌单；已加入的歌单会在每次打开应用时检查更新。")
+            Text("已获取 \(account.userPlaylists.count) 个歌单，包含我喜欢的音乐和收藏歌单。选择后才会加入本地歌单；已加入的歌单会在每次打开应用时检查更新。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Image(systemName: account.lastPlaylistSyncAt == nil ? "clock" : "checkmark.circle.fill")
+                    .foregroundStyle(account.lastPlaylistSyncAt == nil ? .secondary : .green)
+                Text(lastPlaylistSyncText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button("刷新") {
+                    Task { await refresh() }
+                }
+                .font(.caption.weight(.semibold))
+                .disabled(isRefreshing || account.isSyncingPlaylists)
+            }
 
             Button {
                 showPlaylistPicker = true
@@ -192,6 +216,11 @@ struct AccountSyncView: View {
         }
         .padding(16)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var lastPlaylistSyncText: String {
+        guard let date = account.lastPlaylistSyncAt else { return "尚未同步云端歌单" }
+        return "上次同步 \(RelativeDateTimeFormatter().localizedString(for: date, relativeTo: .now))"
     }
 
     private func syncMetric(title: String, value: String) -> some View {
@@ -232,16 +261,24 @@ struct AccountSyncView: View {
     }
 
     private func refresh() async {
-        guard account.isLoggedIn, let uid = account.profile?.userId else { return }
+        guard account.isLoggedIn else { return }
         isRefreshing = true
         recordsError = nil
+        defer { isRefreshing = false }
+
+        // Refresh the account first. The previous implementation captured the
+        // user ID before bootstrap(), so a stale profile could be used for the
+        // first records request after login or account switching.
         await account.bootstrap()
+        guard account.isLoggedIn, let uid = account.profile?.userId else {
+            recordsError = "账号状态已失效，请重新登录后再试。"
+            return
+        }
         do {
             records = try await NeteaseAPI.playRecords(uid: uid, week: true)
         } catch {
             recordsError = "播放记录暂时无法获取，稍后可重试。"
         }
-        isRefreshing = false
     }
 }
 

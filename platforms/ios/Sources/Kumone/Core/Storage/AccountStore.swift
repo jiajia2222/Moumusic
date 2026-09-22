@@ -64,12 +64,27 @@ final class AccountStore: ObservableObject {
 
     func refreshLibrary() async {
         guard let uid = profile?.userId else { return }
+        lastPlaylistSyncError = nil
         async let playlists = try? NeteaseAPI.userPlaylists(uid: uid)
         async let liked = try? NeteaseAPI.likedTrackIDs(uid: uid)
-        userPlaylists = await playlists ?? userPlaylists
-        if let ids = await liked { likedTrackIDs = Set(ids) }
-        await syncImportedPlaylistCopies()
-        lastPlaylistSyncAt = .now
+        let fetchedPlaylists = await playlists
+        let fetchedLiked = await liked
+
+        if let fetchedPlaylists {
+            userPlaylists = fetchedPlaylists
+        } else {
+            lastPlaylistSyncError = "云端歌单暂时无法获取，稍后可重试。"
+        }
+        if let fetchedLiked {
+            likedTrackIDs = Set(fetchedLiked)
+        }
+
+        // Do not show a successful sync timestamp when the playlist request
+        // failed and the screen is still displaying stale cached data.
+        if fetchedPlaylists != nil {
+            await syncImportedPlaylistCopies()
+            lastPlaylistSyncAt = .now
+        }
     }
 
     /// Refresh account-owned cloud playlists when the app comes back to the
