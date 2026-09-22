@@ -327,7 +327,8 @@ final class LXSourceStore: ObservableObject {
         ])
         for encoding in encodings {
             if let text = String(data: data, encoding: encoding),
-               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !text.unicodeScalars.contains(where: { $0.value == 0 }) {
                 return text
             }
         }
@@ -482,7 +483,8 @@ final class LXSourceStore: ObservableObject {
 
         let scriptKeys = [
             "script", "source", "sourceCode", "code", "content",
-            "javascript", "js", "userApi", "userAPI", "lxUserAPI", "api"
+            "javascript", "js", "userApi", "userAPI", "userApiScript",
+            "apiScript", "lxUserAPI", "api", "body"
         ]
         for key in scriptKeys {
             guard let scriptValue = valueForKey(key, in: dictionary),

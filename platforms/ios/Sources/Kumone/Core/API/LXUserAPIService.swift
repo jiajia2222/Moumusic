@@ -166,7 +166,7 @@ final class LXUserAPIService: ObservableObject {
                                                   supported: supportedQualitys.isEmpty ? ["128k"] : supportedQualitys)
             do {
                 let response = try await request(source: platform, action: "musicUrl",
-                                                 info: ["type": requestedQuality,
+                                                 info: ["type": protocolQualityToken(requestedQuality, platform: platform),
                                                         "musicInfo": musicInfo(for: requestTrack,
                                                                                 platform: platform,
                                                                                 qualities: supportedQualitys)])
@@ -262,7 +262,7 @@ final class LXUserAPIService: ObservableObject {
                     source: candidate.platform,
                     action: "musicUrl",
                     info: [
-                        "type": candidate.requestedQuality,
+                        "type": protocolQualityToken(candidate.requestedQuality, platform: candidate.platform),
                         "musicInfo": musicInfo(
                             for: candidate.track,
                             platform: candidate.platform,
@@ -354,7 +354,7 @@ final class LXUserAPIService: ObservableObject {
             let info = musicInfo(for: track, platform: platform, qualities: supportedQualitys)
             do {
                 let response = try await request(source: platform, action: "musicUrl",
-                                                 info: ["type": requestedQuality, "musicInfo": info])
+                                                 info: ["type": protocolQualityToken(requestedQuality, platform: platform), "musicInfo": info])
                 guard let data = response["data"] as? [String: Any],
                       let rawURL = data["url"] as? String,
                       let url = URL(string: rawURL),
@@ -820,10 +820,14 @@ final class LXUserAPIService: ObservableObject {
         )
     }
 
+    // Canonical LX quality tokens, ordered from lowest to highest. Source-specific
+    // names are normalized into this list only when the imported source declares them.
+    private static let qualityOrder = ["128k", "320k", "flac", "flac24bit", "surround", "dolby", "atmos", "jymaster"]
+
     func availableQualityNames(for track: Track) async -> [String] {
         if let shareURL = QishuiAPI.sharedURL(for: track),
            let resolved = try? await QishuiAPI.shared.resolve(sharedURL: shareURL) {
-            return [resolved.quality]
+            return [Self.normalizedQuality(resolved.quality)]
         }
         let playbackSources = LXSourceStore.shared.playbackSources
         guard !playbackSources.isEmpty else { return [] }
@@ -842,8 +846,9 @@ final class LXUserAPIService: ObservableObject {
                 available.formUnion(supportedQualityNames(for: qualityTrack, platform: platform))
             }
         }
-        let order = ["128k", "320k", "flac", "flac24bit"]
-        return order.filter(available.contains)
+        let order = Self.qualityOrder
+        // The UI is best-first; protocol requests still use the canonical order.
+        return order.reversed().filter(available.contains)
     }
 
     /// Return the qualities that can safely be requested for this track.
@@ -854,7 +859,7 @@ final class LXUserAPIService: ObservableObject {
     /// for normal/lossless requests, but keep Hi-Res hidden because a source
     /// declaration alone cannot prove a 24-bit file exists.
     private func supportedQualityNames(for track: Track, platform: String) -> [String] {
-        let order = ["128k", "320k", "flac", "flac24bit"]
+        let order = Self.qualityOrder
         let declared = qualityCapabilities[platform, default: []]
             .map { Self.normalizedQuality($0) }
             .filter { order.contains($0) }
@@ -870,6 +875,16 @@ final class LXUserAPIService: ObservableObject {
         return sourceNames.filter { $0 != "flac24bit" }
     }
 
+    /// Preserve the token expected by the selected LX script. The UI treats
+    /// aliases such as master/jymaster as one tier, but the request keeps the
+    /// exact token advertised by the active source.
+    private func protocolQualityToken(_ quality: String, platform: String) -> String {
+        let canonical = Self.normalizedQuality(quality)
+        return qualityCapabilities[platform, default: []].first {
+            Self.normalizedQuality($0) == canonical
+        } ?? quality
+    }
+
     private func musicInfo(for track: Track, platform: String,
                            qualities requestedQualities: [String]? = nil) -> [String: Any] {
         // LX's User API receives the legacy MusicInfo object, not Kumone's
@@ -878,15 +893,23 @@ final class LXUserAPIService: ObservableObject {
             ?? track.sourceMetadata["songId"]
             ?? String(track.id)
         let albumID = track.sourceMetadata["albumId"] ?? String(track.album.id)
-        let qualities = requestedQualities?.isEmpty == false
+        let canonicalQualities = requestedQualities?.isEmpty == false
             ? requestedQualities!
             : (Self.qualityNames(for: track).isEmpty ? ["128k"] : Self.qualityNames(for: track))
-        let qualityInfo = qualities.map { quality in
-            ["type": quality,
-             "size": track.sourceMetadata["lx.quality.\(quality).size"] ?? ""] as [String: Any]
+        let qualities = canonicalQualities.map { protocolQualityToken($0, platform: platform) }
+        let qualityInfo = canonicalQualities.enumerated().map { index, canonical in
+            let protocolToken = qualities[index]
+            let size = track.sourceMetadata["lx.quality.\(canonical).size"]
+                ?? track.sourceMetadata["lx.quality.\(protocolToken).size"]
+                ?? ""
+            return ["type": protocolToken, "size": size] as [String: Any]
         }
-        let qualityMap = Dictionary(uniqueKeysWithValues: qualities.map {
-            ($0, ["size": track.sourceMetadata["lx.quality.\($0).size"] ?? ""] as [String: Any])
+        let qualityMap = Dictionary(uniqueKeysWithValues: canonicalQualities.enumerated().map { index, canonical in
+            let protocolToken = qualities[index]
+            let size = track.sourceMetadata["lx.quality.\(canonical).size"]
+                ?? track.sourceMetadata["lx.quality.\(protocolToken).size"]
+                ?? ""
+            return (protocolToken, ["size": size] as [String: Any])
         })
         var info: [String: Any] = [
             "name": track.name,
@@ -920,7 +943,7 @@ final class LXUserAPIService: ObservableObject {
     }
 
     private static func qualityNames(for track: Track) -> [String] {
-        let order = ["128k", "320k", "flac", "flac24bit"]
+        let order = Self.qualityOrder
         let concrete = order.filter { quality in
             guard let value = track.sourceMetadata["lx.quality.\(quality).size"] else { return false }
             return hasPositiveFileSize(value)
@@ -939,6 +962,10 @@ final class LXUserAPIService: ObservableObject {
     private static func lxQuality(for quality: String, supported: [String]) -> String {
         let requested: String
         switch quality {
+        case "master": requested = "jymaster"
+        case "atmos": requested = "atmos"
+        case "dolby": requested = "dolby"
+        case "surround": requested = "surround"
         case "standard": requested = "128k"
         case "higher", "exhigh": requested = "320k"
         case "lossless": requested = "flac"
@@ -946,23 +973,15 @@ final class LXUserAPIService: ObservableObject {
         default: requested = "320k"
         }
         guard !supported.isEmpty else { return "128k" }
-        let order = ["128k", "320k", "flac", "flac24bit"]
-        guard let requestedIndex = order.firstIndex(of: requested) else { return supported[0] }
+        let order = Self.qualityOrder
+        guard let requestedIndex = order.firstIndex(of: Self.normalizedQuality(requested)) else { return supported[0] }
         return order[...requestedIndex].reversed().first(where: supported.contains)
             ?? supported.first
             ?? "128k"
     }
-
     private static func qualityRank(_ value: String) -> Int {
-        switch normalizedQuality(value) {
-        case "128k": return 0
-        case "320k": return 1
-        case "flac": return 2
-        case "flac24bit": return 3
-        default: return -1
-        }
+        qualityOrder.firstIndex(of: normalizedQuality(value)) ?? -1
     }
-
     private static func normalizedQuality(_ value: String) -> String {
         let value = value.lowercased().replacingOccurrences(of: " ", with: "")
         switch value {
@@ -970,15 +989,18 @@ final class LXUserAPIService: ObservableObject {
         case "320", "320k": return "320k"
         case "flac", "lossless", "ape": return "flac"
         case "flac24", "flac24bit", "hires", "highres": return "flac24bit"
+        case "master", "jymaster", "master_quality", "master-quality": return "jymaster"
+        case "atmos", "immersive": return "atmos"
+        case "dolby", "dolby-atmos", "dolbyatmos": return "dolby"
+        case "surround", "spatial", "spatial-audio": return "surround"
         default: return value
         }
     }
-
     private static func resolvedQuality(returned: String?, requested: String,
                                         available: [String]) -> String {
         guard let returned else { return requested }
         let normalized = normalizedQuality(returned)
-        let order = ["128k", "320k", "flac", "flac24bit"]
+        let order = Self.qualityOrder
         guard let requestedIndex = order.firstIndex(of: normalizedQuality(requested)),
               let returnedIndex = order.firstIndex(of: normalized),
               returnedIndex <= requestedIndex,

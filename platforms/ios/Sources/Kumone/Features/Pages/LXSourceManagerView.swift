@@ -32,7 +32,7 @@ struct LXSourceManagerView: View {
             // LX sources are commonly exported as .js, .json, .txt, or a
             // filename without an extension. Validate contents after the
             // user chooses a generic item instead of hiding valid exports.
-            allowedContentTypes: [.item]
+            allowedContentTypes: [.data, .item]
         ) { result in
             do {
                 let url = try result.get()

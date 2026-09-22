@@ -1,62 +1,94 @@
 import SwiftUI
 
 enum AudioQuality: String, CaseIterable, Identifiable {
-    case standard
-    case higher
-    case exhigh
-    case lossless
+    // allCases is used by the player and download pickers. Keep the order
+    // highest-to-lowest so the best declared source tier appears first.
+    case master
+    case atmos
+    case dolby
+    case surround
     case hires
+    case lossless
+    case exhigh
+    case higher
+    case standard
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .standard: return String(localized: "标准")
-        case .higher: return String(localized: "较高")
-        case .exhigh: return String(localized: "极高")
-        case .lossless: return String(localized: "无损")
+        case .master: return "母带"
+        case .atmos: return "全景声"
+        case .dolby: return "杜比全景声"
+        case .surround: return "环绕声"
         case .hires: return "Hi-Res"
+        case .lossless: return "无损"
+        case .exhigh: return "极高"
+        case .higher: return "较高"
+        case .standard: return "标准"
         }
     }
 
     var badge: String {
         switch self {
-        case .standard: return String(localized: "标准")
-        case .higher: return String(localized: "较高")
-        case .exhigh: return String(localized: "极高")
-        case .lossless: return String(localized: "无损")
-        case .hires: return String(localized: "高解析")
+        case .master: return "母带"
+        case .atmos: return "全景声"
+        case .dolby: return "杜比全景声"
+        case .surround: return "环绕声"
+        case .hires: return "高解析"
+        case .lossless: return "无损"
+        case .exhigh: return "极高"
+        case .higher: return "较高"
+        case .standard: return "标准"
         }
     }
 
     var lxType: String {
         switch self {
-        case .standard: return "128k"
-        case .higher, .exhigh: return "320k"
-        case .lossless: return "flac"
+        case .master: return "jymaster"
+        case .atmos: return "atmos"
+        case .dolby: return "dolby"
+        case .surround: return "surround"
         case .hires: return "flac24bit"
+        case .lossless: return "flac"
+        case .exhigh, .higher: return "320k"
+        case .standard: return "128k"
         }
     }
 
-    /// The LX source protocol uses these concrete formats. Keeping the
-    /// technical value in the picker prevents two generic NetEase labels from
-    /// being mistaken for different source qualities.
+    /// Technical label shown in the picker. It never claims a tier that the
+    /// active source did not advertise.
     var sourceDisplayName: String {
         switch self {
-        case .standard: return "128 kbps"
-        case .higher, .exhigh: return "320 kbps"
-        case .lossless: return "无损 FLAC"
+        case .master: return "母带 / Master"
+        case .atmos: return "全景声 / Atmos"
+        case .dolby: return "杜比全景声 / Dolby"
+        case .surround: return "环绕声 / Surround"
         case .hires: return "Hi-Res / FLAC 24-bit"
+        case .lossless: return "无损 FLAC"
+        case .exhigh, .higher: return "320 kbps"
+        case .standard: return "128 kbps"
         }
     }
 
     init?(lxType: String) {
-        switch lxType.lowercased() {
-        case "128k", "m4a": self = .standard
-        case "320k": self = .exhigh
-        case "flac", "ape": self = .lossless
-        case "flac24bit", "flac24", "hires": self = .hires
+        switch lxType.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "master", "jymaster", "master_quality", "master-quality": self = .master
+        case "atmos", "immersive": self = .atmos
+        case "dolby", "dolby-atmos", "dolbyatmos": self = .dolby
+        case "surround", "spatial", "spatial-audio": self = .surround
+        case "128", "128k", "m4a", "mp3": self = .standard
+        case "320", "320k": self = .exhigh
+        case "flac", "lossless", "ape": self = .lossless
+        case "flac24bit", "flac24", "hires", "highres": self = .hires
         default: return nil
+        }
+    }
+
+    var isPlatformSpecific: Bool {
+        switch self {
+        case .master, .atmos, .dolby, .surround: return true
+        default: return false
         }
     }
 }

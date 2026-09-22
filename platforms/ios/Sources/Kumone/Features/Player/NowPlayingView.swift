@@ -1115,7 +1115,15 @@ private struct QualityPickerSheet: View {
                                 dismiss()
                             } label: {
                                 HStack {
-                                Text(quality.sourceDisplayName)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(quality.sourceDisplayName)
+                                            .font(.body.weight(.medium))
+                                        if quality.isPlatformSpecific {
+                                            Text("由当前 LX 音源声明，最终以返回地址为准")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                     Spacer()
                                     if player.currentQuality == quality {
                                         Image(systemName: "checkmark")
