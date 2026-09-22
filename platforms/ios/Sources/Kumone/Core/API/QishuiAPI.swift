@@ -130,8 +130,10 @@ actor QishuiAPI {
                     ))
                 }
 
-                if let track = Self.track(from: entity["track_wrapper"] as? [String: Any]
-                                            ?? entity["track"] as? [String: Any]),
+                let trackObject = (entity["track_wrapper"] as? [String: Any])
+                    ?? (entity["track"] as? [String: Any])
+                if let trackObject,
+                   let track = Self.track(from: trackObject),
                    seenTracks.insert(track.playbackKey).inserted {
                     tracks.append(track)
                 }
@@ -542,6 +544,12 @@ actor QishuiAPI {
         if let value = integer(object["status_code"]), value != 0 { return false }
         if let value = integer(object["code"]), value != 0 && value != 200 { return false }
         return object["playlist"] is [String: Any]
+    }
+
+    private static func integer(_ value: Any?) -> Int? {
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String, let number = Int(value) { return number }
+        return nil
     }
 
     private static func bool(in object: [String: Any], keys: [String]) -> Bool {

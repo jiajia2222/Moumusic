@@ -176,11 +176,4 @@ actor KugouAPI {
         return values.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
     }
 
-    private static func cookieFields(_ cookie: String) -> [String: String] {
-        cookie.split(separator: ";").reduce(into: [String: String]()) { result, item in
-            let pair = item.split(separator: "=", maxSplits: 1).map(String.init)
-            guard pair.count == 2 else { return }
-            result[pair[0].trimmingCharacters(in: .whitespaces)] = pair[1]
-        }
-    }
 }

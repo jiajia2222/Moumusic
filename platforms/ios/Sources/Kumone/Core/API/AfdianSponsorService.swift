@@ -86,7 +86,7 @@ actor AfdianSponsorService {
         guard let envelope = try? decoder.decode(Envelope<Value>.self, from: data), envelope.success else {
             throw ServiceError.invalidResponse
         }
-        return envelope.value(for: key)
+        return try envelope.value(for: key)
     }
 
     private struct Envelope<Value: Decodable>: Decodable {

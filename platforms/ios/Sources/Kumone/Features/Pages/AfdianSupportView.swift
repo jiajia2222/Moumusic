@@ -195,7 +195,10 @@ struct AfdianSupportView: View {
 
     private func money(_ value: Double?) -> String {
         guard let value else { return "—" }
-        return "¥\(value, format: .number.precision(.fractionLength(0...2)))"
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 2
+        return "¥" + (formatter.string(from: NSNumber(value: value)) ?? String(value))
     }
 
     private func relativeDate(_ timestamp: Int?) -> String {
