@@ -149,7 +149,7 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
   const events = {
     request: null,
   }
-  const allSources = ['kw', 'kg', 'tx', 'wy', 'mg', 'local']
+  const allSources = ['kw', 'kg', 'tx', 'wy', 'mg', 'sd', 'local']
   // Forward special tiers only when the imported source declares them.
   const extendedQualitys = ['128k', '320k', 'flac', 'flac24bit', 'master', 'jymaster', 'dolby', 'atmos', 'surround']
   const supportQualitys = {
@@ -158,6 +158,7 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
     tx: extendedQualitys,
     wy: extendedQualitys,
     mg: extendedQualitys,
+    sd: extendedQualitys,
     local: [],
   }
   const supportActions = {
@@ -166,6 +167,7 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
     tx: ['musicUrl'],
     wy: ['musicUrl'],
     mg: ['musicUrl'],
+    sd: ['musicUrl', 'lyric', 'pic'],
     xm: ['musicUrl'],
     local: ['musicUrl', 'lyric', 'pic'],
   }

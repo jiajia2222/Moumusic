@@ -13,6 +13,9 @@ final class HomeRecommendationCache {
         let loggedIn: Bool
         let mode: String
         let platform: String
+        /// A Qishui Cookie change must not reuse the public-feed snapshot.
+        /// Other platforms keep the default value of zero.
+        let qishuiSessionRevision: Int
     }
 
     struct Snapshot {

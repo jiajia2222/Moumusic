@@ -8,6 +8,9 @@ struct SettingsView: View {
 #if os(iOS)
     @EnvironmentObject private var player: PlayerService
     @StateObject private var lxStore = LXSourceStore.shared
+    @StateObject private var qishui = QishuiSessionStore.shared
+    @StateObject private var qqMusic = QQMusicSessionStore.shared
+    @StateObject private var kugou = KugouSessionStore.shared
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
 #endif
     @State private var cacheSize = "计算中…"
@@ -15,6 +18,9 @@ struct SettingsView: View {
 #if os(iOS)
     @State private var showSourceManager = false
     @State private var showDownloads = false
+    @State private var showQishuiLogin = false
+    @State private var showQQMusicLogin = false
+    @State private var showKugouLogin = false
 #endif
 
     var body: some View {
@@ -37,6 +43,82 @@ struct SettingsView: View {
                     Label("账号同步", systemImage: "person.crop.circle.badge.checkmark")
                 }
                 Text("登录只同步账号资料、每日推荐、播放记录和听歌时长，不会作为音源；歌曲仍由已导入的 LX 音源播放。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("汽水音乐推荐") {
+                Button {
+                    showQishuiLogin = true
+                } label: {
+                    HStack {
+                        Label("汽水音乐登录", systemImage: qishui.isLoggedIn
+                              ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
+                        Spacer()
+                        Text(qishui.isLoggedIn ? (qishui.profileName ?? "已登录") : "未登录")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(minHeight: 44)
+
+                if qishui.isLoggedIn {
+                    Button(role: .destructive) {
+                        qishui.signOut()
+                    } label: {
+                        Label("退出汽水登录", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                    .frame(minHeight: 44)
+                }
+
+                Text("登录只用于获取汽水首页推荐；Cookie 保存在本机钥匙串，播放仍通过你导入的 LX 音源。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("平台账号同步") {
+                Button { showQQMusicLogin = true } label: {
+                    HStack {
+                        Label("QQ 音乐登录", systemImage: qqMusic.isLoggedIn
+                              ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
+                        Spacer()
+                        Text(qqMusic.isLoggedIn ? (qqMusic.profileName ?? "已登录") : "未登录")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(minHeight: 44)
+
+                if qqMusic.isLoggedIn {
+                    Button(role: .destructive) { qqMusic.signOut() } label: {
+                        Label("退出 QQ 音乐登录", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                    .frame(minHeight: 44)
+                }
+
+                Button { showKugouLogin = true } label: {
+                    HStack {
+                        Label("酷狗音乐登录", systemImage: kugou.isLoggedIn
+                              ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
+                        Spacer()
+                        Text(kugou.isLoggedIn ? (kugou.profileName ?? "已登录") : "未登录")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(minHeight: 44)
+
+                if kugou.isLoggedIn {
+                    Button(role: .destructive) { kugou.signOut() } label: {
+                        Label("退出酷狗音乐登录", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                    .frame(minHeight: 44)
+                }
+
+                Text("QQ、酷狗、汽水登录只同步资料、推荐和歌单，不作为音源。Cookie 仅保存在本机钥匙串，应用每 12 小时静默校验一次。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -216,6 +298,30 @@ struct SettingsView: View {
             }
 
             Section("赞赏与支持") {
+#if os(iOS)
+                NavigationLink {
+                    AfdianSupportView()
+                } label: {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                .fill(Color.orange.opacity(0.16))
+                            Image(systemName: "heart.fill")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.orange)
+                        }
+                        .frame(width: 48, height: 48)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("赞助者名单与支持")
+                                .font(.headline.weight(.semibold))
+                            Text("查看真实支持者、金额并在应用内支持")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+#else
                 Link(destination: afdianURL) {
                     HStack(spacing: 12) {
                         CachedAsyncImage(
@@ -253,6 +359,7 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("在爱发电支持 Moumusic")
                 .accessibilityHint("打开爱发电支持页面")
+#endif
             }
         }
         .formStyle(.grouped)
@@ -269,6 +376,18 @@ struct SettingsView: View {
         .sheet(isPresented: $showDownloads) {
             DownloadsView()
                 .environmentObject(player)
+        }
+        .sheet(isPresented: $showQishuiLogin) {
+            QishuiLoginSheet()
+                .environmentObject(qishui)
+        }
+        .sheet(isPresented: $showQQMusicLogin) {
+            QQMusicLoginSheet()
+                .environmentObject(qqMusic)
+        }
+        .sheet(isPresented: $showKugouLogin) {
+            KugouLoginSheet()
+                .environmentObject(kugou)
         }
         .onChange(of: backgroundStore.photoSelection) { _ in
             Task { await backgroundStore.importSelection() }

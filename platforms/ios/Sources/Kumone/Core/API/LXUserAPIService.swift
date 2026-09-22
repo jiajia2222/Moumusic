@@ -131,10 +131,6 @@ final class LXUserAPIService: ObservableObject {
     }
 
     func resolveMusicURL(for track: Track, quality: String) async throws -> ResolvedURL {
-        if let shareURL = QishuiAPI.sharedURL(for: track) {
-            let resolved = try await QishuiAPI.shared.resolve(sharedURL: shareURL)
-            return ResolvedURL(url: resolved.audioURL, quality: resolved.quality)
-        }
         return try await resolveMusicURLAcrossSources(for: track, quality: quality)
 #if false
         ensureSelectedSourceLoaded()
@@ -391,19 +387,6 @@ final class LXUserAPIService: ObservableObject {
     }
 
     func resolveLyrics(for track: Track) async throws -> ResolvedLyrics {
-        if let shareURL = QishuiAPI.sharedURL(for: track) {
-            let resolved = try await QishuiAPI.shared.resolve(sharedURL: shareURL)
-            guard let lyric = resolved.lyric, !lyric.isEmpty else {
-                throw LXError.resolveFailed(["汽水音乐没有返回歌词"])
-            }
-            return ResolvedLyrics(
-                lyric: lyric,
-                tlyric: nil,
-                rlyric: nil,
-                lxlyric: nil,
-                yrc: resolved.verbatimLyric
-            )
-        }
         return try await resolveLyricsAcrossSources(for: track)
 #if false
         ensureSelectedSourceLoaded()
@@ -825,10 +808,6 @@ final class LXUserAPIService: ObservableObject {
     private static let qualityOrder = ["128k", "320k", "flac", "flac24bit", "surround", "dolby", "atmos", "jymaster"]
 
     func availableQualityNames(for track: Track) async -> [String] {
-        if let shareURL = QishuiAPI.sharedURL(for: track),
-           let resolved = try? await QishuiAPI.shared.resolve(sharedURL: shareURL) {
-            return [Self.normalizedQuality(resolved.quality)]
-        }
         let playbackSources = LXSourceStore.shared.playbackSources
         guard !playbackSources.isEmpty else { return [] }
         let primaryPlatform = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"

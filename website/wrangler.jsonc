@@ -24,7 +24,7 @@
     "AFDIAN_PLAN_URL": "https://ifdian.net/a/moumou2026/plan",
     "CHATWAY_SCRIPT_ID": "Ol4m4dkJ9UJP",
     "CHATWAY_WIDGET_ID": "qfybc7qkscn3ptkgxwrv",
-    "SHOW_SPONSOR_AMOUNT": "false",
+    "SHOW_SPONSOR_AMOUNT": "true",
     "IOS_DOWNLOAD_URL": "https://music.nadev.xyz/download/ios",
     "ANDROID_DOWNLOAD_URL": "https://music.nadev.xyz/download/android"
   }

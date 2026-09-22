@@ -41,6 +41,7 @@ final class HomeViewModel: ObservableObject {
         let loggedIn: Bool
         let mode: HomeRecommendationMode
         let platform: LXCatalogPlatform
+        let qishuiSessionRevision: Int
     }
 
     private var activeRequest: LoadRequest?
@@ -54,7 +55,8 @@ final class HomeViewModel: ObservableObject {
         HomeRecommendationCache.Key(
             loggedIn: request.loggedIn,
             mode: request.mode.rawValue,
-            platform: request.platform.rawValue
+            platform: request.platform.rawValue,
+            qishuiSessionRevision: request.qishuiSessionRevision
         )
     }
 
@@ -100,8 +102,10 @@ final class HomeViewModel: ObservableObject {
     }
 
     func load(loggedIn: Bool, mode: HomeRecommendationMode,
-              platform: LXCatalogPlatform) async {
-        let request = LoadRequest(loggedIn: loggedIn, mode: mode, platform: platform)
+              platform: LXCatalogPlatform,
+              qishuiSessionRevision: Int = 0) async {
+        let request = LoadRequest(loggedIn: loggedIn, mode: mode, platform: platform,
+                                  qishuiSessionRevision: qishuiSessionRevision)
         let requestKey = cacheKey(for: request)
 
         // Apply a source-specific snapshot before starting a request. This is
@@ -265,7 +269,8 @@ final class HomeViewModel: ObservableObject {
     }
 
     func reload(loggedIn: Bool, mode: HomeRecommendationMode,
-                platform: LXCatalogPlatform) async {
+                platform: LXCatalogPlatform,
+                qishuiSessionRevision: Int = 0) async {
         if let activeRequest {
             recommendationCache.invalidate(cacheKey(for: activeRequest))
         }
@@ -276,7 +281,8 @@ final class HomeViewModel: ObservableObject {
         resetContent()
         lastLoadedAt = nil
         state = .idle
-        await load(loggedIn: loggedIn, mode: mode, platform: platform)
+        await load(loggedIn: loggedIn, mode: mode, platform: platform,
+                   qishuiSessionRevision: qishuiSessionRevision)
     }
 
     private func loadRadarPlaylists() async {
@@ -320,6 +326,7 @@ struct HomeView: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
     @StateObject private var model = HomeViewModel.shared
+    @StateObject private var qishui = QishuiSessionStore.shared
 
     var body: some View {
         ScrollView {
@@ -334,7 +341,8 @@ struct HomeView: View {
                         Task {
                             await model.reload(loggedIn: account.isLoggedIn,
                                                mode: settings.homeRecommendationMode,
-                                               platform: settings.homeRecommendationPlatform)
+                                               platform: settings.homeRecommendationPlatform,
+                                               qishuiSessionRevision: qishui.sessionRevision)
                         }
                     }
                     .frame(minHeight: 400)
@@ -360,10 +368,11 @@ struct HomeView: View {
             }
         }
         #endif
-        .task(id: "\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)") {
+        .task(id: "\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)-\(qishui.sessionRevision)") {
             await model.load(loggedIn: account.isLoggedIn,
                              mode: settings.homeRecommendationMode,
-                             platform: settings.homeRecommendationPlatform)
+                             platform: settings.homeRecommendationPlatform,
+                             qishuiSessionRevision: qishui.sessionRevision)
         }
         .onAppear {
             // The shared model keeps scroll state between tabs, but the feed
@@ -371,13 +380,15 @@ struct HomeView: View {
             Task {
                 await model.load(loggedIn: account.isLoggedIn,
                                  mode: settings.homeRecommendationMode,
-                                 platform: settings.homeRecommendationPlatform)
+                                 platform: settings.homeRecommendationPlatform,
+                                 qishuiSessionRevision: qishui.sessionRevision)
             }
         }
         .refreshable {
             await model.reload(loggedIn: account.isLoggedIn,
                                mode: settings.homeRecommendationMode,
-                               platform: settings.homeRecommendationPlatform)
+                               platform: settings.homeRecommendationPlatform,
+                               qishuiSessionRevision: qishui.sessionRevision)
         }
     }
 
@@ -427,6 +438,18 @@ struct HomeView: View {
     private var lxLoadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 22) {
             homePlatformPicker
+
+            if model.activePlatform == .sd && !qishui.isLoggedIn {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "person.badge.key.fill")
+                        .foregroundStyle(Theme.accent)
+                    Text("当前为汽水公开推荐；登录后会显示你的个性化推荐。登录入口：设置 → 汽水音乐登录")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, Theme.Layout.contentInset)
+            }
 
             dailyRecommendationLink
                 .padding(.horizontal, Theme.Layout.contentInset)

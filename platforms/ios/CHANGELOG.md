@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.0.29 - 2026-09-22
+
+### Added / 新增
+
+**iOS**: added provider account pages for Qishui, QQ Music, and Kugou. Users can scan the provider's official QR login page inside the app; cookies stay in Keychain and are refreshed silently when the app returns to the foreground.
+
+**iOS**：新增汽水音乐、QQ 音乐和酷狗音乐账号页面。用户可在应用内打开对应平台的官方扫码登录页，Cookie 保存在钥匙串中，并在应用回到前台时静默刷新。
+
+**iOS**: added an in-app Afdian support page with sponsor statistics, recent supporters, privacy-aware amount display, selectable support amounts, and an embedded support page with Safari fallback.
+
+**iOS**：新增应用内爱发电支持页面，包含赞助统计、最近赞助者、可控制金额显示、支持金额选择，以及支持 Safari 回退的内置支持页面。
+
+### Fixed / 修复
+
+**iOS**: playlist recommendation and import metadata now keep the selected provider track identity instead of silently falling back to NetEase metadata or playback.
+
+**iOS**：修复推荐与歌单导入的歌曲元数据丢失问题，继续使用所选平台的歌曲标识，不再静默回退到网易云元数据或播放。
+
+**iOS**: comments now prefer the NetEase comment service for cross-platform tracks and fall back to the active LX source when the provider-specific lookup is unavailable.
+
+**iOS**：评论现在优先使用网易云评论服务，当前平台无法查询时再回退到已启用的 LX 音源。
+
+**iOS**: improved first-launch recommendation recovery, LX source metadata handling, local playlist imports, declared quality tiers, and background provider-session refresh scheduling.
+
+**iOS**：改进首次启动推荐恢复、LX 音源元数据处理、本地歌单导入、音质档位显示，以及后台平台会话刷新调度。
+
 ## 1.0.27 - 2026-09-22
 
 ### Fixed / 修复

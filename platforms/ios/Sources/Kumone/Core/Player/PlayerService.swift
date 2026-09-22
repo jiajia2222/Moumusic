@@ -866,8 +866,7 @@ final class PlayerService: ObservableObject {
             resolvedURL = local.fileURL
             servedByLXQuality = local.quality
         } else {
-            let usesBuiltInQishui = QishuiAPI.sharedURL(for: track) != nil
-            guard LXSourceStore.shared.selectedSource != nil || usesBuiltInQishui else {
+            guard LXSourceStore.shared.selectedSource != nil else {
                 guard generation == resolveGeneration else { return }
                 ToastCenter.shared.show("请先在设置 → LX 音源中选择播放音源")
                 isPlaying = false
@@ -1047,20 +1046,6 @@ final class PlayerService: ObservableObject {
            let response = try? await NeteaseAPI.lyric(id: track.id) {
             guard generation == resolveGeneration else { return }
             let parsed = LyricsParser.parse(response)
-            if !parsed.isEmpty {
-                publishLyrics(parsed, for: track, generation: generation)
-                return
-            }
-        }
-
-        // Qishui share links use the built-in resolver and do not require an
-        // imported LX source.
-        if QishuiAPI.sharedURL(for: track) != nil,
-           let lx = try? await LXUserAPIService.shared.resolveLyrics(for: track) {
-            guard generation == resolveGeneration else { return }
-            let parsed = LyricsParser.parseLX(lyric: lx.lyric, tlyric: lx.tlyric,
-                                               rlyric: lx.rlyric, lxlyric: lx.lxlyric,
-                                               yrc: lx.yrc)
             if !parsed.isEmpty {
                 publishLyrics(parsed, for: track, generation: generation)
                 return

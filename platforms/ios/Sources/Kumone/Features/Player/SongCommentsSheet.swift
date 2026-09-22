@@ -105,36 +105,54 @@ struct SongCommentsSheet: View {
         do {
             let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
             let sourceIsNetease = source.isEmpty || source == "wy" || source == "netease" || source == "163"
-            if !sourceIsNetease {
-                metadataNotice = "当前歌曲来自 \(LXCatalogPlatform.displayName(for: source))；优先显示该平台公开评论。"
-                if let response = try? await LXCommentsService.comments(for: track) {
-                    hotComments = uniqueComments(response.hot.map(DisplayComment.init))
-                    latestComments = uniqueComments(response.latest.map(DisplayComment.init))
-                    isLoading = false
-                    return
+            var neteaseError: Error?
+
+            // Comments are intentionally normalised through Netease first.
+            // This makes the same song show one stable comment source even
+            // when its playable URL came from QQ, KuGou, Kuwo, Migu or LX.
+            do {
+                let neteaseID: Int?
+                if let explicit = track.sourceMetadata["neteaseId"]
+                    ?? track.sourceMetadata["wyId"],
+                    let id = Int(explicit) {
+                    neteaseID = id
+                } else if sourceIsNetease {
+                    neteaseID = track.id
+                } else {
+                    neteaseID = try await NeteaseAPI.matchingSong(
+                        for: track, requireDuration: false
+                    )?.id
                 }
-                metadataNotice = "当前歌曲来自 \(LXCatalogPlatform.displayName(for: source))；该平台评论暂不可用，正在尝试公开元数据匹配。"
+
+                guard let neteaseID else { throw SongCommentsError.noMatchingSong }
+                let response = try await NeteaseAPI.comments(
+                    for: neteaseID, order: sort == .hot ? .hot : .latest
+                )
+                hotComments = uniqueComments((response.topComments + response.hotComments).map(DisplayComment.init))
+                latestComments = uniqueComments(response.comments.map(DisplayComment.init))
+                if !sourceIsNetease {
+                    metadataNotice = "当前歌曲来自 \(LXCatalogPlatform.displayName(for: source))；评论默认使用网易云公开数据。"
+                }
+                isLoading = false
+                return
+            } catch {
+                neteaseError = error
             }
 
-            let neteaseID: Int?
-            if let explicit = track.sourceMetadata["neteaseId"]
-                ?? track.sourceMetadata["wyId"],
-                let id = Int(explicit) {
-                neteaseID = id
-            } else if sourceIsNetease {
-                neteaseID = track.id
-            } else {
-                neteaseID = try await NeteaseAPI.matchingSong(
-                    for: track, requireDuration: false
-                )?.id
+            // Provider-specific public comments remain a best-effort fallback.
+            // Qishui (sd) deliberately has no comment client; it falls through
+            // to the clear matching error instead of pretending its comments
+            // belong to another song.
+            if !sourceIsNetease, let response = try? await LXCommentsService.comments(for: track) {
+                hotComments = uniqueComments(response.hot.map(DisplayComment.init))
+                latestComments = uniqueComments(response.latest.map(DisplayComment.init))
+                metadataNotice = "网易云公开评论暂不可用，已回退到 (LXCatalogPlatform.displayName(for: source))。"
+                isLoading = false
+                return
             }
 
-            guard let neteaseID else { throw SongCommentsError.noMatchingSong }
-            let response = try await NeteaseAPI.comments(
-                for: neteaseID, order: sort == .hot ? .hot : .latest
-            )
-            hotComments = uniqueComments((response.topComments + response.hotComments).map(DisplayComment.init))
-            latestComments = uniqueComments(response.comments.map(DisplayComment.init))
+            if let neteaseError { throw neteaseError }
+            throw SongCommentsError.noMatchingSong
         } catch is CancellationError {
             return
         } catch {

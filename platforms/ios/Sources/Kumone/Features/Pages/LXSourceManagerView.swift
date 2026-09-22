@@ -73,7 +73,6 @@ struct LXSourceManagerView: View {
             VStack(alignment: .leading, spacing: 16) {
                 managerHeader
                 sourceListSection
-                builtInQishuiSection
                 importSection
                 statusSection
             }
@@ -149,35 +148,6 @@ struct LXSourceManagerView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
-    }
-
-    private var builtInQishuiSection: some View {
-        glassCard {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    Image(systemName: "drop.fill")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.blue)
-                    Text("汽水音乐（内置 API）")
-                        .font(.headline.weight(.semibold))
-                    Spacer(minLength: 0)
-                    Text("无需导入")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.green)
-                }
-
-                Text("将汽水音乐单曲或公开歌单分享链接粘贴到“本地歌单 → 导入歌单”，Moumusic 会读取汽水公开歌单曲目，并逐首调用内置解析接口播放，读取接口返回的歌词和真实音质。")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Link(destination: URL(string: "https://api.bugpk.com/doc-qsmusic.html")!) {
-                    Label("查看汽水音乐接口说明", systemImage: "arrow.up.right.square")
-                        .font(.footnote.weight(.medium))
-                }
-                .frame(minHeight: 44)
-            }
-        }
     }
 
     private var importSection: some View {

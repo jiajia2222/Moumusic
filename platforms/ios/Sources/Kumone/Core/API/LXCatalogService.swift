@@ -13,6 +13,7 @@ enum LXCatalogPlatform: String, CaseIterable, Identifiable {
     case tx
     case wy
     case mg
+    case sd
 
     var id: String { rawValue }
     var displayName: String {
@@ -23,6 +24,7 @@ enum LXCatalogPlatform: String, CaseIterable, Identifiable {
         case .tx: return "QQ 音乐"
         case .wy: return "网易云"
         case .mg: return "咪咕"
+        case .sd: return "汽水音乐"
         }
     }
     var sourceID: String? {
@@ -33,6 +35,7 @@ enum LXCatalogPlatform: String, CaseIterable, Identifiable {
         case .tx: return "tx"
         case .wy: return "wy"
         case .mg: return "mg"
+        case .sd: return "sd"
         }
     }
 
@@ -136,6 +139,7 @@ enum LXCatalogService {
         case .tx: return try await searchQQ(keyword, page: page, limit: limit)
         case .wy: return try await searchNetease(keyword, page: page, limit: limit)
         case .mg: return try await searchMigu(keyword, page: page, limit: limit)
+        case .sd: throw LXCatalogError.unsupported
         case .aggregate: throw LXCatalogError.unsupported
         }
     }
@@ -214,7 +218,7 @@ enum LXCatalogService {
         case .kw, .kg, .mg:
             return firstText(track.sourceMetadata["albumId"],
                              track.album.id > 0 ? String(track.album.id) : nil)
-        case .wy, .aggregate:
+        case .wy, .aggregate, .sd:
             return track.album.id > 0 ? String(track.album.id) : nil
         }
     }
@@ -664,7 +668,7 @@ enum LXCatalogService {
                 default: break
                 }
             }
-        case .wy, .aggregate: break
+        case .wy, .aggregate, .sd: break
         }
     }
 
@@ -1088,6 +1092,8 @@ enum LXCatalogService {
             }
         case .mg:
             return (try? await recommendedMiguSonglists(limit: limit)) ?? []
+        case .sd:
+            return try await recommendedQishuiSonglists(limit: limit)
         case .aggregate:
             throw LXCatalogError.unsupported
         }
@@ -1130,9 +1136,16 @@ enum LXCatalogService {
             return result.isEmpty
                 ? try await searchSonglists(category, platform: platform, page: page, limit: limit)
                 : result
+        case .sd:
+            return try await recommendedQishuiSonglists(limit: limit)
         case .aggregate:
             throw LXCatalogError.unsupported
         }
+    }
+
+    private static func recommendedQishuiSonglists(limit: Int) async throws -> [LXPlaylistSummary] {
+        let cookie = await MainActor.run { QishuiSessionStore.shared.cookie }
+        return try await QishuiAPI.shared.recommendedContent(cookie: cookie, limit: limit).playlists
     }
 
     private static func recommendedKuwoSonglists(limit: Int, order: String = "hot",
@@ -1295,6 +1308,7 @@ enum LXCatalogService {
         case .tx: return try await searchQQSonglists(keyword, page: page, limit: limit)
         case .wy: return try await searchNeteaseSonglists(keyword, page: page, limit: limit)
         case .mg: return try await searchMiguSonglists(keyword, page: page, limit: limit)
+        case .sd: throw LXCatalogError.unsupported
         case .aggregate: throw LXCatalogError.unsupported
         }
     }
@@ -1460,6 +1474,8 @@ enum LXCatalogService {
             let groups = (((root?["data"] as? [String: Any])?["hotwords"] as? [[String: Any]]) ?? [])
             return groups.flatMap { ($0["hotwordList"] as? [[String: Any]]) ?? [] }
                 .filter { text($0["resourceType"]) == "song" }.compactMap { text($0["word"]) }
+        case .sd:
+            return []
         case .aggregate: throw LXCatalogError.unsupported
         }
     }
@@ -1598,6 +1614,21 @@ enum LXCatalogService {
             return LXPlaylistDetail(id: id, name: name, coverURL: cover, description: nil,
                                     author: nil, playCount: 0,
                                     tracks: tracks, source: .kg)
+        case .sd:
+            let resolution = try await QishuiAPI.shared.resolvePlaylist(id: id)
+            let tracks = resolution.tracks.map { item in
+                Track(id: Int(item.id) ?? stableNumericID(item.id),
+                      name: item.name,
+                      artists: [ArtistRef(id: 0, name: item.artistName)],
+                      album: AlbumRef(id: 0, name: item.albumName ?? "", picUrl: item.coverURL),
+                      durationMS: item.durationMS,
+                      source: "sd",
+                      sourceMetadata: ["songmid": item.id, "source": "sd"])
+            }
+            return LXPlaylistDetail(id: resolution.id, name: resolution.name,
+                                    coverURL: resolution.coverURL, description: nil,
+                                    author: "汽水音乐", playCount: 0,
+                                    tracks: tracks, source: .sd)
         case .aggregate: throw LXCatalogError.unsupported
         }
     }
@@ -1688,7 +1719,7 @@ enum LXCatalogService {
             }
             addQualityMetadata(&metadata, from: item, source: source)
             if let albumImageURL { metadata["coverURL"] = albumImageURL }
-        case .aggregate, .wy:
+        case .aggregate, .wy, .sd:
             return nil
         }
 

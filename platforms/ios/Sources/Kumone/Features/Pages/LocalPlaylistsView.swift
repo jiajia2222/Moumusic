@@ -146,7 +146,7 @@ struct ImportPlaylistSheet: View {
                 }
 
                 Section("汽水音乐") {
-                    Text("支持汽水音乐单曲和公开歌单分享链接。歌单会读取汽水公开页面中的真实曲目；播放时逐首使用汽水接口获取播放地址、歌词和真实音质，不需要另外导入 LX 音源。")
+                    Text("仅支持导入汽水音乐公开歌单。导入会读取完整曲目列表；播放、歌词和音质统一交给你已启用的 LX 音源，不再调用内置汽水播放接口。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
