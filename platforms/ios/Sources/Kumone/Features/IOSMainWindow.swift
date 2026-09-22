@@ -10,6 +10,7 @@ public struct IOSMainWindow: View {
     @StateObject private var kugou = KugouSessionStore.shared
     @StateObject private var toasts = ToastCenter.shared
     @StateObject private var updater = IOSUpdater.shared
+    @StateObject private var updateLog = IOSUpdateLogStore.shared
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
     @Namespace private var nowPlayingTransition
     @Environment(\.colorScheme) private var systemColorScheme
@@ -53,12 +54,17 @@ public struct IOSMainWindow: View {
             .task {
                 // Let the first scene commit before touching AVAudioSession,
                 // MPRemoteCommandCenter, persisted playback state, or a user
-                // supplied JavaScript source.  This is safer on iOS 27 and
-                // still keeps all runtime setup on the main actor.
+                // supplied JavaScript source. This keeps the main UI first;
+                // account refresh and update checks never gate first paint.
                 await Task.yield()
+                updateLog.presentIfNeeded()
                 player.startRuntime()
-                await account.bootstrap()
-                await MusicSessionRefreshCoordinator.shared.refreshIfNeeded()
+
+                Task { @MainActor in
+                    await account.bootstrap()
+                    await MusicSessionRefreshCoordinator.shared.refreshIfNeeded()
+                }
+
                 if settings.autoCheckUpdates {
                     IOSUpdater.shared.check(interactive: false)
                 }
@@ -72,6 +78,9 @@ public struct IOSMainWindow: View {
             }
             .sheet(isPresented: $updater.showSheet) {
                 IOSUpdaterSheet()
+            }
+            .sheet(isPresented: $updateLog.isPresented) {
+                IOSUpdateLogSheet()
             }
             .overlay(alignment: .top) {
                 if let toast = toasts.current {

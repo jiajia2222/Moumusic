@@ -339,6 +339,11 @@ button.sponsor-card { width: 100%; color: inherit; text-align: left; cursor: poi
 .support-dialog__surface h2,
 .chatway-dialog__surface h2 { margin: 8px 48px 7px 0; font-size: clamp(25px, 3vw, 34px); letter-spacing: -0.055em; }
 .support-dialog__intro { margin: 0 48px 18px 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.support-dialog__choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 8px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: rgba(128, 128, 128, 0.08); }
+.support-choice { min-height: 40px; padding: 0 14px; color: var(--muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; border: 0; border-radius: 999px; background: transparent; transition: color 180ms ease, background 180ms ease, transform 180ms ease; }
+.support-choice:hover { transform: translateY(-1px); color: var(--ink); }
+.support-choice.is-selected { color: var(--ink); background: var(--glass-strong); box-shadow: 0 4px 18px rgba(16, 18, 22, 0.1); }
+.support-dialog__mode { min-height: 20px; margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .support-dialog__frame-wrap,
 .chatway-dialog__frame-wrap { flex: 1; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 22px; background: var(--glass-strong); }
 .support-dialog__frame-wrap iframe,

@@ -197,6 +197,11 @@
         <p class="dialog-kicker" data-i18n="supportDialog.kicker">SUPPORT MOUMUSIC</p>
         <h2 id="afdian-payment-title" data-i18n="supportDialog.title">选择支持方案</h2>
         <p class="support-dialog__intro" data-i18n="supportDialog.body">付款由爱发电官方页面安全处理。</p>
+        <div class="support-dialog__choices" role="group" aria-label="支持金额" data-i18n-aria-label="supportDialog.choicesLabel">
+          <button class="support-choice is-selected" id="afdian-plan-choice" type="button" data-i18n="supportDialog.planChoice">固定方案</button>
+          <button class="support-choice" id="afdian-custom-choice" type="button" data-i18n="supportDialog.customChoice">自选金额</button>
+        </div>
+        <p class="support-dialog__mode" id="afdian-payment-mode" data-i18n="supportDialog.planHint">选择固定方案，或切换到官方页面填写自选金额。</p>
         <div class="support-dialog__frame-wrap">
           <iframe id="afdian-payment-frame" title="爱发电支持方案" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="payment *"></iframe>
         </div>

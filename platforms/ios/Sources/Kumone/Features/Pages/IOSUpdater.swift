@@ -32,6 +32,11 @@ final class IOSUpdater: NSObject, ObservableObject {
     private var progressContinuation: CheckedContinuation<URL, Error>?
 
     func check(interactive: Bool) {
+        guard ReleaseChecker.currentIdentity.isValid else {
+            phase = .failed(String(localized: "当前安装包版本信息无效"))
+            if interactive { showSheet = true }
+            return
+        }
         phase = .checking
         if interactive { showSheet = true }
         Task {
@@ -185,7 +190,7 @@ struct IOSUpdaterSheet: View {
                     .font(.system(size: 44)).foregroundStyle(Theme.accent)
                 VStack(spacing: 4) {
                     Text("发现新版本 \(release.version)").font(.headline)
-                    Text("当前版本 \(ReleaseChecker.currentVersion)")
+                    Text("当前版本 \(ReleaseChecker.currentDisplayVersion)")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Text("已装 TrollStore（巨魔）将自动安装；否则用「下载 IPA」手动侧载")

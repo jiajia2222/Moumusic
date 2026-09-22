@@ -170,10 +170,12 @@ async function getLatestReleaseAsset(platform) {
 }
 
 async function getLatestReleaseInfo() {
-  const [ios, android] = await Promise.all([
+  const results = await Promise.allSettled([
     getLatestReleaseAsset('ios'),
     getLatestReleaseAsset('android'),
   ])
+  const ios = results[0].status === 'fulfilled' ? results[0].value : { url: null, version: '' }
+  const android = results[1].status === 'fulfilled' ? results[1].value : { url: null, version: '' }
   const version = [ios.version, android.version].find(value => value && value !== 'latest') || 'latest'
   return { version, ios, android }
 }

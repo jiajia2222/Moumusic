@@ -277,6 +277,14 @@
 "iOS 无法自动更新：下载新版 IPA 后用侧载工具重新安装即可，登录状态和设置会保留" = "iOS can’t self-update: download the new IPA and reinstall it with your sideloading tool — sign-in and settings are kept";
 
 /* iOS updater (TrollStore) */
+"更新日志" = "What's New";
+"版本自检" = "Version check";
+"启动后先进入主界面，再在后台查询 GitHub 最新版本；检查失败不会挡住播放。" = "The main UI appears first; GitHub version checks run in the background and never block playback.";
+"播放与音质" = "Playback and quality";
+"优先使用已登录账号的可用音质，失败后按当前设置回退到已启用的 LX 音源。" = "Use available signed-in account quality first, then fall back to enabled LX sources when needed.";
+"歌词与体验" = "Lyrics and experience";
+"继续优化歌词、封面和播放切换，并保留设置中手动查看更新日志的入口。" = "Lyrics, artwork, and track switching keep improving; the changelog is also available from Settings.";
+"当前安装包版本信息无效" = "The installed package has invalid version metadata";
 "正在检查更新…" = "Checking for updates…";
 "当前版本 %@" = "Current version %@";
 "将下载并通过 TrollStore 自动安装" = "Will download and auto-install via TrollStore";

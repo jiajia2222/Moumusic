@@ -12,6 +12,7 @@ struct SettingsView: View {
     @StateObject private var qishui = QishuiSessionStore.shared
     @StateObject private var qqMusic = QQMusicSessionStore.shared
     @StateObject private var kugou = KugouSessionStore.shared
+    @StateObject private var updateLog = IOSUpdateLogStore.shared
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
 #endif
     @State private var cacheSize = "计算中…"
@@ -327,6 +328,11 @@ struct SettingsView: View {
                 } label: {
                     Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
                 }
+                Button {
+                    updateLog.present()
+                } label: {
+                    Label("查看更新日志", systemImage: "doc.text.magnifyingglass")
+                }
 #endif
             }
 
@@ -440,7 +446,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+        ReleaseChecker.currentDisplayVersion
     }
 
     private var cacheDirectory: URL {
