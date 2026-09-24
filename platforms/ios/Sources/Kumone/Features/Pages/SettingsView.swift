@@ -326,28 +326,7 @@ struct SettingsView: View {
 
             Section("赞赏与支持", isExpanded: sectionBinding("support")) {
 #if os(iOS)
-                NavigationLink {
-                    AfdianSupportView()
-                } label: {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .fill(Color.orange.opacity(0.16))
-                            Image(systemName: "heart.fill")
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(.orange)
-                        }
-                        .frame(width: 48, height: 48)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("赞助者名单与支持")
-                                .font(.headline.weight(.semibold))
-                            Text("查看真实支持者、金额并在应用内支持")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
+                supportLink
 #else
                 Link(destination: afdianURL) {
                     HStack(spacing: 12) {
@@ -444,6 +423,31 @@ struct SettingsView: View {
     }
 
 #if os(iOS)
+    private var supportLink: some View {
+        NavigationLink {
+            AfdianSupportView()
+        } label: {
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(Color.orange.opacity(0.16))
+                    .overlay {
+                        Image(systemName: "heart.fill")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+                    .frame(width: 48, height: 48)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("赞助者名单与支持")
+                        .font(.headline.weight(.semibold))
+                    Text("查看真实支持者、金额并在应用内支持")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
     private var sourceManagerRow: some View {
         Button {
             showSourceManager = true
