@@ -258,14 +258,7 @@ struct SettingsView: View {
 
                     Toggle("同步到播放页", isOn: $backgroundStore.syncToPlayer)
                     Toggle("同步到应用页面", isOn: $backgroundStore.syncToApp)
-                    HStack {
-                        Text("背景模糊")
-                        Slider(value: $backgroundStore.blurRadius, in: 0...24, step: 1)
-                        Text("\(Int(backgroundStore.blurRadius))")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 24, alignment: .trailing)
-                    }
+                    backgroundBlurControl
                     Text("图片会缩放并压缩保存到本机；开启应用同步时，首页和其他页面也会使用这张图。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -461,6 +454,19 @@ struct SettingsView: View {
     private var appVersion: String {
         ReleaseChecker.currentDisplayVersion
     }
+
+#if os(iOS)
+    private var backgroundBlurControl: some View {
+        HStack {
+            Text("背景模糊")
+            Slider(value: $backgroundStore.blurRadius, in: 0...24, step: 1)
+            Text(Int(backgroundStore.blurRadius), format: .number)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 24, alignment: .trailing)
+        }
+    }
+#endif
 
     private func sectionBinding(_ id: String) -> Binding<Bool> {
         Binding(
