@@ -9,9 +9,9 @@ struct SettingsView: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
     @StateObject private var lxStore = LXSourceStore.shared
-    @StateObject private var qishui = QishuiSessionStore.shared
     @StateObject private var qqMusic = QQMusicSessionStore.shared
     @StateObject private var kugou = KugouSessionStore.shared
+    @StateObject private var bilibili = BilibiliSessionStore.shared
     @StateObject private var updateLog = IOSUpdateLogStore.shared
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
 #endif
@@ -20,14 +20,18 @@ struct SettingsView: View {
 #if os(iOS)
     @State private var showSourceManager = false
     @State private var showDownloads = false
-    @State private var showQishuiLogin = false
     @State private var showQQMusicLogin = false
     @State private var showKugouLogin = false
+    @State private var showBilibiliLogin = false
 #endif
+    @State private var expandedSections = Set([
+        "audio", "accounts", "playback", "home", "sources", "appearance",
+        "player", "background", "lyrics", "storage", "updates", "about", "support"
+    ])
 
     var body: some View {
         Form {
-            Section("音源与音质") {
+            Section("音源与音质", isExpanded: sectionBinding("audio")) {
                 Picker("播放来源", selection: $settings.playbackSourceMode) {
                     ForEach(PlaybackSourceMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
@@ -64,37 +68,13 @@ struct SettingsView: View {
             }
 
 #if os(iOS)
-            Section("账号与同步") {
+            Section("账号与同步", isExpanded: sectionBinding("accounts")) {
                 NavigationLink(value: Destination.accountSync) {
                     Label("账号同步", systemImage: "person.crop.circle.badge.checkmark")
                 }
                 Text("登录只同步账号资料、每日推荐、播放记录和听歌时长，不会作为音源；歌曲仍由已导入的 LX 音源播放。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Button {
-                    showQishuiLogin = true
-                } label: {
-                    HStack {
-                        Label("汽水音乐扫码同步", systemImage: qishui.isLoggedIn
-                              ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
-                        Spacer()
-                        Text(qishui.isLoggedIn ? (qishui.profileName ?? "已登录") : "未登录")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .frame(minHeight: 44)
-
-                if qishui.isLoggedIn {
-                    Button(role: .destructive) {
-                        qishui.signOut()
-                    } label: {
-                        Label("退出汽水登录", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    .frame(minHeight: 44)
-                }
-
                 Button { showQQMusicLogin = true } label: {
                     HStack {
                         Label("QQ 音乐账号同步", systemImage: qqMusic.isLoggedIn
@@ -135,13 +115,33 @@ struct SettingsView: View {
                     .frame(minHeight: 44)
                 }
 
-                Text("网易云、汽水、QQ 和酷狗只用于账号同步、推荐和歌单，不作为音源。汽水使用扫码登录；凭据仅保存在本机钥匙串，应用每 12 小时静默校验一次。")
+                Button { showBilibiliLogin = true } label: {
+                    HStack {
+                        Label("哔哩哔哩账号同步", systemImage: bilibili.isLoggedIn
+                              ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
+                        Spacer()
+                        Text(bilibili.isLoggedIn ? (bilibili.profileName ?? "已登录") : "扫码登录")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(minHeight: 44)
+
+                if bilibili.isLoggedIn {
+                    Button(role: .destructive) { bilibili.signOut() } label: {
+                        Label("退出哔哩哔哩登录", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                    .frame(minHeight: 44)
+                }
+
+                Text("网易云、QQ、酷狗和哔哩哔哩只用于账号同步、推荐、歌单或播放记录，不会把账号当作第三方音源。汽水音乐已移除登录和播放，仅保留公开歌单导入；凭据仅保存在本机钥匙串。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 #endif
 
-            Section("播放设置") {
+            Section("播放设置", isExpanded: sectionBinding("playback")) {
 #if os(iOS)
                 Toggle("播放失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
                 Text(settings.enableSourcePlatformFallback
@@ -158,14 +158,14 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("首页推荐") {
+            Section("首页推荐", isExpanded: sectionBinding("home")) {
                 Picker("推荐内容", selection: $settings.homeRecommendationMode) {
                     ForEach(HomeRecommendationMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
                     }
                 }
                 Picker("推荐平台", selection: $settings.homeRecommendationPlatform) {
-                    ForEach(LXCatalogPlatform.allCases.filter { $0 != .aggregate }) { platform in
+                    ForEach(LXCatalogPlatform.catalogueCases.filter { $0 != .aggregate }) { platform in
                         Text(platform.displayName).tag(platform)
                     }
                 }
@@ -175,7 +175,7 @@ struct SettingsView: View {
             }
 
 #if os(iOS)
-            Section("LX 音源") {
+            Section("LX 音源", isExpanded: sectionBinding("sources")) {
                 Button {
                     showSourceManager = true
                 } label: {
@@ -195,12 +195,12 @@ struct SettingsView: View {
             }
 #endif
 
-            Section("主题模式") {
+            Section("主题模式", isExpanded: sectionBinding("appearance")) {
                 AppearancePicker(selection: $settings.appearance)
             }
 
 #if os(iOS)
-            Section("播放器模式") {
+            Section("播放器模式", isExpanded: sectionBinding("player")) {
                 Picker("播放器模式", selection: $settings.nowPlayingMode) {
                     ForEach(NowPlayingMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
@@ -211,7 +211,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("动态壁纸与背景") {
+            Section("动态壁纸与背景", isExpanded: sectionBinding("background")) {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 10) {
                         Label("背景图片", systemImage: "photo.on.rectangle.angled")
@@ -273,7 +273,7 @@ struct SettingsView: View {
             }
 #endif
 
-            Section("歌词显示") {
+            Section("歌词显示", isExpanded: sectionBinding("lyrics")) {
                 Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
                 Toggle("逐字歌词（卡拉 OK）", isOn: $settings.verbatimLyrics)
                 Picker("日文歌词注音", selection: $settings.lyricsAnnotation) {
@@ -308,7 +308,7 @@ struct SettingsView: View {
 #endif
             }
 
-            Section("存储与下载") {
+            Section("存储与下载", isExpanded: sectionBinding("storage")) {
                 LabeledContent("图片缓存", value: cacheSize)
                 Button("清除缓存") { clearCache() }
 #if os(iOS)
@@ -320,7 +320,7 @@ struct SettingsView: View {
 #endif
             }
 
-            Section("更新") {
+            Section("更新", isExpanded: sectionBinding("updates")) {
                 Toggle("启动时自动检查更新", isOn: $settings.autoCheckUpdates)
 #if os(iOS)
                 Button {
@@ -336,14 +336,14 @@ struct SettingsView: View {
 #endif
             }
 
-            Section("关于") {
+            Section("关于", isExpanded: sectionBinding("about")) {
                 LabeledContent("Moumusic", value: appVersion)
                 Text("播放、歌词和封面支持用户导入的 LX User API 音源。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Section("赞赏与支持") {
+            Section("赞赏与支持", isExpanded: sectionBinding("support")) {
 #if os(iOS)
                 NavigationLink {
                     AfdianSupportView()
@@ -411,7 +411,20 @@ struct SettingsView: View {
         .formStyle(.grouped)
 #if os(iOS)
         .scrollContentBackground(.hidden)
-        .background(Color.clear)
+        .background {
+            LinearGradient(
+                colors: [
+                    Color.primary.opacity(0.045),
+                    Theme.accent.opacity(0.035),
+                    Color.clear
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+        }
+        .listRowBackground(.thinMaterial)
+        .tint(Theme.accent)
 #endif
 #if os(macOS)
         .frame(width: 440, height: 520)
@@ -427,10 +440,6 @@ struct SettingsView: View {
             DownloadsView()
                 .environmentObject(player)
         }
-        .sheet(isPresented: $showQishuiLogin) {
-            QishuiLoginSheet()
-                .environmentObject(qishui)
-        }
         .sheet(isPresented: $showQQMusicLogin) {
             QQMusicLoginSheet()
                 .environmentObject(qqMusic)
@@ -438,6 +447,10 @@ struct SettingsView: View {
         .sheet(isPresented: $showKugouLogin) {
             KugouLoginSheet()
                 .environmentObject(kugou)
+        }
+        .sheet(isPresented: $showBilibiliLogin) {
+            BilibiliLoginSheet()
+                .environmentObject(bilibili)
         }
         .onChange(of: backgroundStore.photoSelection) { _ in
             Task { await backgroundStore.importSelection() }
@@ -447,6 +460,19 @@ struct SettingsView: View {
 
     private var appVersion: String {
         ReleaseChecker.currentDisplayVersion
+    }
+
+    private func sectionBinding(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { expandedSections.contains(id) },
+            set: { expanded in
+                if expanded {
+                    expandedSections.insert(id)
+                } else {
+                    expandedSections.remove(id)
+                }
+            }
+        )
     }
 
     private var cacheDirectory: URL {

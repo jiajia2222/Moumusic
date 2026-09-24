@@ -1302,7 +1302,9 @@ final class PlayerService: ObservableObject {
         case .artist:
             return (try await NeteaseAPI.artist(id: context.id).hotSongs, .artist(context.id))
         case .daily:
-            return (try await NeteaseAPI.dailyRecommendSongs(), .daily)
+            let tracks = try await NeteaseAPI.dailyRecommendSongs()
+                .map { $0.normalizedForLXPlayback() }
+            return (tracks, .daily)
         case .cloud:
             let songs = try await NeteaseAPI.cloudSongs().data?.compactMap(\.simpleSong) ?? []
             return (songs, .cloud)

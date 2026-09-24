@@ -15,6 +15,13 @@ enum LXCatalogPlatform: String, CaseIterable, Identifiable {
     case mg
     case sd
 
+    /// Catalogue adapters that are actually supported by the app UI.
+    /// Qishui remains a playlist importer, but is intentionally excluded from
+    /// search, home recommendations, hot keywords, and playback selection.
+    static var catalogueCases: [LXCatalogPlatform] {
+        allCases.filter { $0 != .sd }
+    }
+
     var id: String { rawValue }
     var displayName: String {
         switch self {
@@ -89,7 +96,7 @@ enum LXCatalogService {
 
         if platform == .aggregate {
             let results = await withTaskGroup(of: [Track].self, returning: [[Track]].self) { group in
-                for item in LXCatalogPlatform.allCases where item != .aggregate {
+                for item in LXCatalogPlatform.catalogueCases where item != .aggregate {
                     group.addTask {
                         (try? await search(keyword, platform: item, page: page, limit: limit)) ?? []
                     }
@@ -1093,7 +1100,7 @@ enum LXCatalogService {
         case .mg:
             return (try? await recommendedMiguSonglists(limit: limit)) ?? []
         case .sd:
-            return try await recommendedQishuiSonglists(limit: limit)
+            throw LXCatalogError.unsupported
         case .aggregate:
             throw LXCatalogError.unsupported
         }
@@ -1137,15 +1144,10 @@ enum LXCatalogService {
                 ? try await searchSonglists(category, platform: platform, page: page, limit: limit)
                 : result
         case .sd:
-            return try await recommendedQishuiSonglists(limit: limit)
+            throw LXCatalogError.unsupported
         case .aggregate:
             throw LXCatalogError.unsupported
         }
-    }
-
-    private static func recommendedQishuiSonglists(limit: Int) async throws -> [LXPlaylistSummary] {
-        let cookie = await MainActor.run { QishuiSessionStore.shared.cookie }
-        return try await QishuiAPI.shared.recommendedContent(cookie: cookie, limit: limit).playlists
     }
 
     private static func recommendedKuwoSonglists(limit: Int, order: String = "hot",
@@ -1286,7 +1288,7 @@ enum LXCatalogService {
         if platform == .aggregate {
             let results = await withTaskGroup(of: [LXPlaylistSummary].self,
                                               returning: [[LXPlaylistSummary]].self) { group in
-                for item in LXCatalogPlatform.allCases where item != .aggregate {
+                for item in LXCatalogPlatform.catalogueCases where item != .aggregate {
                     group.addTask {
                         (try? await searchSonglists(keyword, platform: item, page: page, limit: limit)) ?? []
                     }
@@ -1435,7 +1437,7 @@ enum LXCatalogService {
     static func hotKeywords(platform: LXCatalogPlatform) async throws -> [String] {
         if platform == .aggregate {
             let results = await withTaskGroup(of: [String].self, returning: [[String]].self) { group in
-                for item in LXCatalogPlatform.allCases where item != .aggregate {
+                for item in LXCatalogPlatform.catalogueCases where item != .aggregate {
                     group.addTask { (try? await hotKeywords(platform: item)) ?? [] }
                 }
                 var all: [[String]] = []

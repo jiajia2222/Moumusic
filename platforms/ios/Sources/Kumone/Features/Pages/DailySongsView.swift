@@ -131,7 +131,13 @@ struct DailySongsView: View {
         isLoading = true
         errorMessage = nil
         do {
+            // Daily recommendations come from NetEase's account API, but
+            // playback must still use the selected LX source. Mark every
+            // track with the same normalized source metadata as the home
+            // NetEase feed so the row, quality picker, lyrics fallback and
+            // player all see one consistent Track shape.
             tracks = try await NeteaseAPI.dailyRecommendSongs()
+                .map { $0.normalizedForLXPlayback() }
             isLoading = false
         } catch {
             isLoading = false

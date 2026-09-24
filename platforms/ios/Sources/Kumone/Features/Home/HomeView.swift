@@ -326,7 +326,6 @@ struct HomeView: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
     @StateObject private var model = HomeViewModel.shared
-    @StateObject private var qishui = QishuiSessionStore.shared
 
     var body: some View {
         ScrollView {
@@ -342,7 +341,7 @@ struct HomeView: View {
                             await model.reload(loggedIn: account.isLoggedIn,
                                                mode: settings.homeRecommendationMode,
                                                platform: settings.homeRecommendationPlatform,
-                                               qishuiSessionRevision: qishui.sessionRevision)
+                                               qishuiSessionRevision: 0)
                         }
                     }
                     .frame(minHeight: 400)
@@ -368,11 +367,11 @@ struct HomeView: View {
             }
         }
         #endif
-        .task(id: "\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)-\(qishui.sessionRevision)") {
+        .task(id: "\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)") {
             await model.load(loggedIn: account.isLoggedIn,
                              mode: settings.homeRecommendationMode,
                              platform: settings.homeRecommendationPlatform,
-                             qishuiSessionRevision: qishui.sessionRevision)
+                             qishuiSessionRevision: 0)
         }
         .onAppear {
             // The shared model keeps scroll state between tabs, but the feed
@@ -381,14 +380,14 @@ struct HomeView: View {
                 await model.load(loggedIn: account.isLoggedIn,
                                  mode: settings.homeRecommendationMode,
                                  platform: settings.homeRecommendationPlatform,
-                                 qishuiSessionRevision: qishui.sessionRevision)
+                                 qishuiSessionRevision: 0)
             }
         }
         .refreshable {
             await model.reload(loggedIn: account.isLoggedIn,
                                mode: settings.homeRecommendationMode,
                                platform: settings.homeRecommendationPlatform,
-                               qishuiSessionRevision: qishui.sessionRevision)
+                               qishuiSessionRevision: 0)
         }
     }
 
@@ -438,21 +437,6 @@ struct HomeView: View {
     private var lxLoadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 22) {
             homePlatformPicker
-
-            if model.activePlatform == .sd && !qishui.isLoggedIn {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "person.badge.key.fill")
-                        .foregroundStyle(Theme.accent)
-                    Text("当前为汽水公开推荐；登录后会显示你的个性化推荐。登录入口：设置 → 汽水音乐登录")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.horizontal, Theme.Layout.contentInset)
-            }
-
-            dailyRecommendationLink
-                .padding(.horizontal, Theme.Layout.contentInset)
 
             HStack(spacing: 10) {
                 Image(systemName: model.activePlatform == .wy ? "flame.fill" : "waveform")
@@ -514,7 +498,7 @@ struct HomeView: View {
     }
 
     private var homePlatforms: [LXCatalogPlatform] {
-        LXCatalogPlatform.allCases.filter { $0 != .aggregate }
+        LXCatalogPlatform.catalogueCases.filter { $0 != .aggregate }
     }
 
     private func isHomePlatform(_ platform: LXCatalogPlatform) -> Bool {
@@ -678,32 +662,6 @@ struct HomeView: View {
             .padding(.vertical, 6)
         }
         .compatScrollClipDisabled()
-    }
-
-    private var dailyRecommendationLink: some View {
-        NavigationLink(value: Destination.daily) {
-            HStack(spacing: 14) {
-                Image(systemName: "calendar.badge.plus")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("每日推荐")
-                        .font(.headline)
-                    Text(account.isLoggedIn ? "同步你的专属推荐" : "登录后同步你的每日歌单")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(14)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        }
-        .buttonStyle(.plain)
     }
 
     private func startHeartbeatMode() {

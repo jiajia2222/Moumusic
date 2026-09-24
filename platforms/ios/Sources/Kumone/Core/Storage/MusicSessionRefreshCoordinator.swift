@@ -22,9 +22,9 @@ public final class MusicSessionRefreshCoordinator {
 
         isRefreshing = true
         defer { isRefreshing = false }
-        await QishuiSessionStore.shared.refreshProfile()
         await QQMusicSessionStore.shared.refreshProfile()
         await KugouSessionStore.shared.refreshProfile()
+        await BilibiliSessionStore.shared.refreshProfile()
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastRefreshKey)
     }
 }

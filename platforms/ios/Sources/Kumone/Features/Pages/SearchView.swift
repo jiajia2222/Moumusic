@@ -444,7 +444,7 @@ struct SearchView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
-                    ForEach(LXCatalogPlatform.allCases) { platform in
+                    ForEach(LXCatalogPlatform.catalogueCases) { platform in
                         Button {
                             model.setPlatform(platform)
                             resignSearchInput()

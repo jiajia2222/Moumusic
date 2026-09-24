@@ -27,22 +27,18 @@ struct LXSourceManagerView: View {
                 Button("完成") { dismiss() }
             }
         }
-        .fileImporter(
-            isPresented: $isImportingFile,
-            // LX sources are commonly exported as .js, .json, .txt, or a
-            // filename without an extension. Validate contents after the
-            // user chooses a generic item instead of hiding valid exports.
-            allowedContentTypes: [.data, .item]
-        ) { result in
-            guard case .success(let url) = result else {
-                if case .failure(let error) = result { lxError = error.localizedDescription }
-                return
-            }
-            Task { @MainActor in
-                do {
-                    try await importSourceFile(at: url)
-                } catch {
-                    lxError = error.localizedDescription
+        // UIDocumentPicker is used instead of the higher-level fileImporter
+        // because some Files.app providers return a security-scoped URL that
+        // cannot be read after the importer sheet dismisses. `asCopy: true`
+        // gives the parser a stable local copy for every provider.
+        .sheet(isPresented: $isImportingFile) {
+            LXSourceDocumentPicker { url in
+                Task { @MainActor in
+                    do {
+                        try await importSourceFile(at: url)
+                    } catch {
+                        lxError = error.localizedDescription
+                    }
                 }
             }
         }
@@ -698,6 +694,39 @@ struct LXSourceManagerView: View {
                 lxStore.select(previousID)
             }
             testingSourceID = nil
+        }
+    }
+}
+
+private struct LXSourceDocumentPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(
+            forOpeningContentTypes: [.item, .data],
+            asCopy: true
+        )
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+
+        init(onPick: @escaping (URL) -> Void) {
+            self.onPick = onPick
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { return }
+            onPick(url)
         }
     }
 }
