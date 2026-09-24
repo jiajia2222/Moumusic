@@ -31,7 +31,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("音源与音质", isExpanded: sectionBinding("audio")) {
+            SettingsDisclosureSection("音源与音质", isExpanded: sectionBinding("audio")) {
                 Picker("播放来源", selection: $settings.playbackSourceMode) {
                     ForEach(PlaybackSourceMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
@@ -68,7 +68,7 @@ struct SettingsView: View {
             }
 
 #if os(iOS)
-            Section("账号与同步", isExpanded: sectionBinding("accounts")) {
+            SettingsDisclosureSection("账号与同步", isExpanded: sectionBinding("accounts")) {
                 NavigationLink(value: Destination.accountSync) {
                     Label("账号同步", systemImage: "person.crop.circle.badge.checkmark")
                 }
@@ -141,7 +141,7 @@ struct SettingsView: View {
             }
 #endif
 
-            Section("播放设置", isExpanded: sectionBinding("playback")) {
+            SettingsDisclosureSection("播放设置", isExpanded: sectionBinding("playback")) {
 #if os(iOS)
                 Toggle("播放失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
                 Text(settings.enableSourcePlatformFallback
@@ -158,7 +158,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("首页推荐", isExpanded: sectionBinding("home")) {
+            SettingsDisclosureSection("首页推荐", isExpanded: sectionBinding("home")) {
                 Picker("推荐内容", selection: $settings.homeRecommendationMode) {
                     ForEach(HomeRecommendationMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
@@ -175,7 +175,7 @@ struct SettingsView: View {
             }
 
 #if os(iOS)
-            Section("LX 音源", isExpanded: sectionBinding("sources")) {
+            SettingsDisclosureSection("LX 音源", isExpanded: sectionBinding("sources")) {
                 sourceManagerRow
                 Text("音源管理是独立页面：可导入文件或在线链接、切换当前音源，并测试 musicUrl 接口。")
                     .font(.caption)
@@ -183,12 +183,12 @@ struct SettingsView: View {
             }
 #endif
 
-            Section("主题模式", isExpanded: sectionBinding("appearance")) {
+            SettingsDisclosureSection("主题模式", isExpanded: sectionBinding("appearance")) {
                 AppearancePicker(selection: $settings.appearance)
             }
 
 #if os(iOS)
-            Section("播放器模式", isExpanded: sectionBinding("player")) {
+            SettingsDisclosureSection("播放器模式", isExpanded: sectionBinding("player")) {
                 Picker("播放器模式", selection: $settings.nowPlayingMode) {
                     ForEach(NowPlayingMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
@@ -199,7 +199,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("动态壁纸与背景", isExpanded: sectionBinding("background")) {
+            SettingsDisclosureSection("动态壁纸与背景", isExpanded: sectionBinding("background")) {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 10) {
                         Label("背景图片", systemImage: "photo.on.rectangle.angled")
@@ -254,7 +254,7 @@ struct SettingsView: View {
             }
 #endif
 
-            Section("歌词显示", isExpanded: sectionBinding("lyrics")) {
+            SettingsDisclosureSection("歌词显示", isExpanded: sectionBinding("lyrics")) {
                 Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
                 Toggle("逐字歌词（卡拉 OK）", isOn: $settings.verbatimLyrics)
                 Picker("日文歌词注音", selection: $settings.lyricsAnnotation) {
@@ -289,7 +289,7 @@ struct SettingsView: View {
 #endif
             }
 
-            Section("存储与下载", isExpanded: sectionBinding("storage")) {
+            SettingsDisclosureSection("存储与下载", isExpanded: sectionBinding("storage")) {
                 LabeledContent("图片缓存", value: cacheSize)
                 Button("清除缓存") { clearCache() }
 #if os(iOS)
@@ -301,7 +301,7 @@ struct SettingsView: View {
 #endif
             }
 
-            Section("更新", isExpanded: sectionBinding("updates")) {
+            SettingsDisclosureSection("更新", isExpanded: sectionBinding("updates")) {
                 Toggle("启动时自动检查更新", isOn: $settings.autoCheckUpdates)
 #if os(iOS)
                 Button {
@@ -317,14 +317,14 @@ struct SettingsView: View {
 #endif
             }
 
-            Section("关于", isExpanded: sectionBinding("about")) {
+            SettingsDisclosureSection("关于", isExpanded: sectionBinding("about")) {
                 LabeledContent("Moumusic", value: appVersion)
                 Text("播放、歌词和封面支持用户导入的 LX User API 音源。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Section("赞赏与支持", isExpanded: sectionBinding("support")) {
+            SettingsDisclosureSection("赞赏与支持", isExpanded: sectionBinding("support")) {
 #if os(iOS)
                 supportLink
 #else
@@ -519,6 +519,33 @@ struct SettingsView: View {
             DispatchQueue.main.async {
                 cacheSize = "0 字节"
                 ToastCenter.shared.show("缓存已清除")
+            }
+        }
+    }
+}
+
+private struct SettingsDisclosureSection<Content: View>: View {
+    private let title: String
+    @Binding private var isExpanded: Bool
+    private let content: () -> Content
+
+    init(
+        _ title: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self._isExpanded = isExpanded
+        self.content = content
+    }
+
+    var body: some View {
+        Section {
+            DisclosureGroup(isExpanded: $isExpanded) {
+                content()
+            } label: {
+                Text(title)
+                    .font(.headline.weight(.semibold))
             }
         }
     }
