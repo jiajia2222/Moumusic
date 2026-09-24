@@ -176,19 +176,7 @@ struct SettingsView: View {
 
 #if os(iOS)
             Section("LX 音源", isExpanded: sectionBinding("sources")) {
-                Button {
-                    showSourceManager = true
-                } label: {
-                    HStack {
-                        Label("管理 / 导入 LX 音源", systemImage: "waveform.badge.plus")
-                        Spacer()
-                        Text(lxStore.selectedSource?.name ?? "未启用")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .frame(minHeight: 44)
+                sourceManagerRow
                 Text("音源管理是独立页面：可导入文件或在线链接、切换当前音源，并测试 musicUrl 接口。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -456,6 +444,22 @@ struct SettingsView: View {
     }
 
 #if os(iOS)
+    private var sourceManagerRow: some View {
+        Button {
+            showSourceManager = true
+        } label: {
+            HStack {
+                Label("管理 / 导入 LX 音源", systemImage: "waveform.badge.plus")
+                Spacer()
+                Text(lxStore.selectedSource?.name ?? "未启用")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(minHeight: 44)
+    }
+
     private var backgroundBlurControl: some View {
         HStack {
             Text("背景模糊")
