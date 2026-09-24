@@ -283,7 +283,7 @@ actor BilibiliAPI {
         let rows = data?["replies"] as? [[String: Any]] ?? []
         let comments = rows.compactMap(Self.comment)
         let cursor = data?["cursor"] as? [String: Any]
-        let isEnd = Self.bool(cursor?["is_end"]) ?? comments.count < 20
+        let isEnd = Self.bool(cursor?["is_end"]) ?? (comments.count < 20)
         return CommentPage(
             comments: comments,
             total: Self.integer(data?["upper"]) ?? comments.count,
