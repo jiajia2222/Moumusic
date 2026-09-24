@@ -383,7 +383,7 @@ struct SettingsView: View {
             )
             .ignoresSafeArea()
         }
-        .listRowBackground(.thinMaterial)
+        .listRowBackground(Material.thin)
         .tint(Theme.accent)
 #endif
 #if os(macOS)
