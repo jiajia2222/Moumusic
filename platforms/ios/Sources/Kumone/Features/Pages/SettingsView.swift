@@ -383,7 +383,10 @@ struct SettingsView: View {
             )
             .ignoresSafeArea()
         }
-        .listRowBackground(Material.thin)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Material.thin)
+        )
         .tint(Theme.accent)
 #endif
 #if os(macOS)
