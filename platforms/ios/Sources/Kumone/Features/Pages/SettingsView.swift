@@ -24,10 +24,7 @@ struct SettingsView: View {
     @State private var showKugouLogin = false
     @State private var showBilibiliLogin = false
 #endif
-    @State private var expandedSections = Set([
-        "audio", "accounts", "playback", "home", "sources", "appearance",
-        "player", "background", "lyrics", "storage", "updates", "about", "support"
-    ])
+    @State private var expandedSections = Set<String>()
 
     var body: some View {
         Form {

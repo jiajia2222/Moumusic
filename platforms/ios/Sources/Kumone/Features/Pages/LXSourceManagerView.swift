@@ -172,6 +172,13 @@ struct LXSourceManagerView: View {
                         isShowingOnlineImport = true
                     }
                 }
+                Button {
+                    importClipboard()
+                } label: {
+                    Label("从剪贴板导入音源文本", systemImage: "doc.on.clipboard")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
                 Text("导入后会自动选中并加载该音源；播放时不会再次请求在线链接。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -299,7 +306,7 @@ struct LXSourceManagerView: View {
 
     private var activeCapabilitiesText: String {
         lxAPI.capabilities
-            .filter { !$0.value.isEmpty }
+            .filter { !$0.value.isEmpty && $0.key != "sd" }
             .map { "\(LXCatalogPlatform.displayName(for: $0.key))：\($0.value.joined(separator: ", "))" }
             .sorted()
             .joined(separator: "\n")
@@ -696,6 +703,30 @@ struct LXSourceManagerView: View {
             testingSourceID = nil
         }
     }
+
+    private func importClipboard() {
+        let pasteboard = UIPasteboard.general
+        if let text = pasteboard.string,
+           let data = text.data(using: .utf8) {
+            importClipboardData(data, suggestedName: "剪贴板音源")
+            return
+        }
+        if let data = pasteboard.data(forPasteboardType: UTType.data.identifier) {
+            importClipboardData(data, suggestedName: "剪贴板音源")
+            return
+        }
+        lxError = "剪贴板中没有可识别的音源文本或文件数据"
+    }
+
+    private func importClipboardData(_ data: Data, suggestedName: String) {
+        Task { @MainActor in
+            do {
+                try await lxStore.importSourceData(data, suggestedName: suggestedName)
+            } catch {
+                lxError = error.localizedDescription
+            }
+        }
+    }
 }
 
 private struct LXSourceDocumentPicker: UIViewControllerRepresentable {
@@ -729,5 +760,6 @@ private struct LXSourceDocumentPicker: UIViewControllerRepresentable {
             onPick(url)
         }
     }
+
 }
 #endif

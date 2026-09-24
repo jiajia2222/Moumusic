@@ -1,12 +1,34 @@
 # Changelog
 
+## 1.0.31 - 2026-09-24
+
+### Added / 新增
+
+**iOS**: reorganized Settings into independently collapsible Liquid Glass sections, with the account and sync providers grouped in one place. The default view is compact and each section expands on demand.
+
+**iOS**：设置页改为可独立折叠的 Liquid Glass 功能分区，账号与同步平台统一放在同一块；默认保持紧凑，点击后展开对应区域。
+
+**iOS**: added a native Bilibili QR-code account sync flow. It stores only the provider session in Keychain and does not use the Bilibili account as an audio source.
+
+**iOS**：新增哔哩哔哩原生扫码账号同步流程，仅将平台会话保存在钥匙串中，不把 B 站账号当作音源。
+
+**iOS**: added a clipboard import fallback for LX User API text/JSON when a Files provider returns an unreadable local URL.
+
+**iOS**：新增 LX User API 文本 / JSON 的剪贴板导入备用入口，用于处理“文件”提供商返回不可读取本地 URL 的情况。
+
+### Fixed / 修复
+
+**iOS**: Soda Music is now playlist-import only. Its account login, recommendations, catalogue search, playback, lyric, and quality routes are no longer exposed; imported Soda tracks are matched to the enabled LX catalogue platforms.
+
+**iOS**：汽水音乐现在仅用于公开歌单导入，不再暴露账号登录、推荐、搜索、播放、歌词和音质路线；导入后的汽水歌曲会匹配到已启用的 LX 平台音源。
+
 ## 1.0.29 - 2026-09-22
 
 ### Added / 新增
 
-**iOS**: added provider account pages for Qishui, QQ Music, and Kugou. Users can scan the provider's official QR login page inside the app; cookies stay in Keychain and are refreshed silently when the app returns to the foreground.
+**iOS**: added provider account pages for QQ Music and Kugou. Users can open the provider's official QR login page inside the app; cookies stay in Keychain and are refreshed silently when the app returns to the foreground.
 
-**iOS**：新增汽水音乐、QQ 音乐和酷狗音乐账号页面。用户可在应用内打开对应平台的官方扫码登录页，Cookie 保存在钥匙串中，并在应用回到前台时静默刷新。
+**iOS**：新增 QQ 音乐和酷狗音乐账号页面。用户可在应用内打开对应平台的官方扫码登录页，Cookie 保存在钥匙串中，并在应用回到前台时静默刷新。
 
 **iOS**: added an in-app Afdian support page with sponsor statistics, recent supporters, privacy-aware amount display, selectable support amounts, and an embedded support page with Safari fallback.
 
@@ -34,9 +56,9 @@
 
 **iOS**：修复汽水公开歌单被误送到单曲接口、提示返回格式不正确的问题。现在会解析汽水公开歌单页面中的真实歌曲、歌单名称、封面、歌手、专辑和时长信息。
 
-**iOS**: every imported Qishui playlist track keeps its Qishui track ID and share URL, so playback, lyrics, and actual bitrate still resolve through the Qishui endpoint instead of falling back to NetEase or an LX platform.
+**iOS**: every imported Qishui playlist track keeps its source metadata for matching, while playback, lyrics, and actual bitrate resolve through the enabled LX source instead of a built-in Qishui endpoint.
 
-**iOS**：汽水歌单中的每首歌曲都会保留汽水 track ID 和分享链接，播放、歌词和真实音质继续通过汽水接口解析，不会回退到网易云或其他 LX 平台。
+**iOS**：汽水歌单中的每首歌曲会保留必要的来源元数据用于匹配，播放、歌词和真实音质统一通过已启用的 LX 音源解析，不再调用内置汽水播放接口。
 
 ## 1.0.26 - 2026-09-21
 

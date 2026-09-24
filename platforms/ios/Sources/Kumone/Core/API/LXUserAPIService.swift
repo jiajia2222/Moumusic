@@ -360,7 +360,7 @@ final class LXUserAPIService: ObservableObject {
                                      detail: statusMessage)
         }
 
-        let platformOrder = ["wy", "kw", "kg", "tx", "mg", "sd"]
+        let platformOrder = ["wy", "kw", "kg", "tx", "mg"]
         let supportedPlatforms = platformOrder.filter {
             capabilities[$0]?.contains("musicUrl") == true
         }
@@ -799,9 +799,19 @@ final class LXUserAPIService: ObservableObject {
 
     private func sourceCandidates(for track: Track, action: String = "musicUrl") -> [String] {
         let primary = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
-        var values = [primary]
-        if SettingsManager.shared.enableSourcePlatformFallback {
-            values.append(contentsOf: ["wy", "kw", "kg", "tx", "mg", "sd"])
+        var values: [String] = []
+
+        // Soda Music is a playlist-import format only. Its IDs are not sent
+        // to an LX source as a playable platform; imported tracks are matched
+        // against the real catalogue platforms below instead.
+        if primary != "sd" {
+            values.append(primary)
+        }
+
+        if primary == "sd" {
+            values.append(contentsOf: ["wy", "kw", "kg", "tx", "mg"])
+        } else if SettingsManager.shared.enableSourcePlatformFallback {
+            values.append(contentsOf: ["wy", "kw", "kg", "tx", "mg"])
         }
         var seen = Set<String>()
         return values.filter { platform in
