@@ -22,6 +22,10 @@ final class BilibiliSessionStore: ObservableObject {
     @Published private(set) var avatarURL: String?
     @Published private(set) var sessionRevision = 0
 
+    /// The cookie is only exposed to the in-process Bilibili API actor. It is
+    /// never persisted outside Keychain or returned to the UI layer.
+    var cookie: String? { storedCookie }
+
     private let keychainService = "com.moumusic.bilibili.session"
     private var storedCookie: String?
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.32 - 2026-09-24
+
+### Added / 新增
+
+**iOS**: added a dedicated Bilibili content surface from the Discover page. It includes native category browsing for recommendations, music, games, animation, and knowledge, plus video, UP主, and 合集 search tabs.
+
+**iOS**：在发现页新增独立的哔哩哔哩内容页，支持推荐、音乐、游戏、动画、知识等分类浏览，并提供视频、UP 主和合集搜索标签。
+
+**iOS**: added video detail playback, a Bilibili fallback link, introduction metadata, and separate hot/latest comment sorting. Bilibili content stays separate from the LX music catalogue and does not replace the audio-source pipeline.
+
+**iOS**：新增视频详情播放、哔哩哔哩回退打开链接、简介信息，以及热门 / 最新评论切换。B 站内容与 LX 音乐目录保持独立，不会替换音源播放链路。
+
+**iOS**: Bilibili content requests use the public web endpoints with the existing account session when available; when a public endpoint or direct playback URL is unavailable, the app keeps a readable error state and offers opening the video in Bilibili.
+
+**iOS**：B 站内容通过公开网页接口请求，并在可用时复用已有账号会话；公开接口或直播放地址不可用时，应用会保留可读错误状态并提供在哔哩哔哩中打开视频的回退入口。
+
 ## 1.0.31 - 2026-09-24
 
 ### Added / 新增

@@ -125,6 +125,10 @@ final class ExploreViewModel: ObservableObject {
 struct ExploreView: View {
     @StateObject private var model = ExploreViewModel.shared
     @EnvironmentObject private var settings: SettingsManager
+#if os(iOS)
+    @EnvironmentObject private var bilibili: BilibiliSessionStore
+    @State private var showBilibili = false
+#endif
 
     var body: some View {
         ScrollView {
@@ -199,13 +203,35 @@ struct ExploreView: View {
             guard !model.playlists.isEmpty || !model.tracks.isEmpty else { return }
             model.refreshCurrent()
         }
+#if os(iOS)
+        .sheet(isPresented: $showBilibili) {
+            NavigationStack {
+                BilibiliContentView()
+                    .environmentObject(bilibili)
+            }
+        }
+#endif
     }
 
     private var platformPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("发现平台")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("发现平台")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+#if os(iOS)
+                Button {
+                    showBilibili = true
+                } label: {
+                    Label("哔哩哔哩", systemImage: "play.rectangle.fill")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.accent)
+                .frame(minHeight: 44)
+#endif
+            }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(LXCatalogPlatform.catalogueCases.filter { $0 != .aggregate }) { platform in
