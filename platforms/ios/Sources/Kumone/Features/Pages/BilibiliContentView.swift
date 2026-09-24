@@ -515,13 +515,7 @@ struct BilibiliVideoDetailView: View {
             let loaded = try await BilibiliAPI.shared.videoDetail(bvid: video.bvid, cookie: bilibili.cookie)
             detail = loaded
             if let url = try? await BilibiliAPI.shared.playableURL(for: loaded, cookie: bilibili.cookie) {
-                let asset = AVURLAsset(url: url, options: [
-                    AVURLAssetHTTPHeaderFieldsKey: [
-                        "Referer": "https://www.bilibili.com/",
-                        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
-                    ]
-                ])
-                player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+                player = AVPlayer(url: url)
                 player?.play()
             }
         } catch {
