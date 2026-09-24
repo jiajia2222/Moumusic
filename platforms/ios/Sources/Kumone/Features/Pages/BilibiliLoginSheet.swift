@@ -14,6 +14,7 @@ struct BilibiliLoginSheet: View {
     @State private var qrImage: UIImage?
     @State private var key: String?
     @State private var pollTask: Task<Void, Never>?
+    @State private var showWebLogin = false
 
     var body: some View {
         NavigationStack {
@@ -32,6 +33,15 @@ struct BilibiliLoginSheet: View {
 
                     qrCard
                     statusView
+
+                    Button {
+                        showWebLogin = true
+                    } label: {
+                        Label("手机号 / 官方网页登录", systemImage: "person.badge.key")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.horizontal, 20)
 
                     if phase == .expired || isFailed {
                         Button("重新获取二维码") { startLogin() }
@@ -54,6 +64,11 @@ struct BilibiliLoginSheet: View {
             .onChange(of: scenePhase) { newPhase in
                 guard newPhase == .active, key != nil else { return }
                 startLogin(reusingKey: true)
+            }
+            .sheet(isPresented: $showWebLogin) {
+                ProviderWebLoginSheet(provider: .bilibili) { value in
+                    try await bilibili.signIn(cookie: value)
+                }
             }
         }
     }

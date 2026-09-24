@@ -12,6 +12,10 @@
 
 **iOS**：新增哔哩哔哩原生扫码账号同步流程，仅将平台会话保存在钥匙串中，不把 B 站账号当作音源。
 
+**iOS**: added an official Bilibili phone/web login fallback beside QR login. QQ Music and Kugou keep their official in-app QR pages with manual Cookie verification only as a fallback.
+
+**iOS**：在哔哩哔哩扫码登录旁增加官方手机号 / 网页登录备用入口；QQ 音乐和酷狗保留应用内官方扫码页，手动 Cookie 仅作为备用验证方式。
+
 **iOS**: added a clipboard import fallback for LX User API text/JSON when a Files provider returns an unreadable local URL.
 
 **iOS**：新增 LX User API 文本 / JSON 的剪贴板导入备用入口，用于处理“文件”提供商返回不可读取本地 URL 的情况。

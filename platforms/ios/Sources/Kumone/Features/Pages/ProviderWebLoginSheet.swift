@@ -5,6 +5,7 @@ import WebKit
 enum ProviderWebLoginKind: String, Identifiable {
     case qqMusic
     case kugou
+    case bilibili
 
     var id: String { rawValue }
 
@@ -12,13 +13,15 @@ enum ProviderWebLoginKind: String, Identifiable {
         switch self {
         case .qqMusic: return "QQ 音乐"
         case .kugou: return "酷狗音乐"
+        case .bilibili: return "哔哩哔哩"
         }
     }
 
     var loginURL: URL {
         switch self {
         case .qqMusic: return URL(string: "https://y.qq.com/portal/login.html")!
-        case .kugou: return URL(string: "https://www.kugou.com/")!
+        case .kugou: return URL(string: "https://m.kugou.com/loginReg.php?act=login")!
+        case .bilibili: return URL(string: "https://passport.bilibili.com/h5-app/passport/login")!
         }
     }
 
@@ -27,6 +30,7 @@ enum ProviderWebLoginKind: String, Identifiable {
         switch self {
         case .qqMusic: return value.contains("qq.com")
         case .kugou: return value.contains("kugou.com")
+        case .bilibili: return value.contains("bilibili.com")
         }
     }
 
@@ -44,6 +48,9 @@ enum ProviderWebLoginKind: String, Identifiable {
         case .kugou:
             return !(values["token"] ?? "").isEmpty &&
                 !(values["userid"] ?? values["kugooid"] ?? "").isEmpty
+        case .bilibili:
+            return !(values["sessdata"] ?? "").isEmpty &&
+                !(values["dedeuserid"] ?? "").isEmpty
         }
     }
 }
