@@ -1126,7 +1126,7 @@ private struct AMLLyricText: View {
                 : (time >= word.start ? 1 : 0)
             let opacity = 0.34 + 0.66 * progress
             output = output + Text(verbatim: word.text)
-                .foregroundStyle(.white.opacity(opacity))
+                .foregroundColor(.white.opacity(opacity))
         }
         return output
     }

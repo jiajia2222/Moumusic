@@ -114,7 +114,7 @@ actor QQMusicAPI {
         request.setValue("https://xui.ptlogin2.qq.com/", forHTTPHeaderField: "Referer")
         let (data, response) = try await session.data(for: request)
         guard Self.isSuccess(response), let body = String(data: data, encoding: .utf8) else {
-            throw APIError.requestFailed
+            throw APIError.invalidResponse
         }
 
         let fields = Self.callbackFields(body)

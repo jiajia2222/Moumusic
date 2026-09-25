@@ -258,7 +258,7 @@ actor KugouAPI {
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             throw APIError.unavailable
         }
-        let returnedQuality = Self.text(in: payload, keys: [
+        let returnedQuality = Self.text(in: (payload as? [String: Any]) ?? [:], keys: [
             "quality", "type", "format", "ext", "extension", "bitrate"
         ])
         return ResolvedAudio(
