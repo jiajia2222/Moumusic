@@ -27,6 +27,7 @@ struct NowPlayingView: View {
     @State private var showComments = false
     #if os(iOS)
     @State private var showDownloadOptions = false
+    @ObservedObject private var playerLayout = PlayerLayoutStore.shared
     #endif
     #if os(iOS)
     @State private var showQueueOnMobile = false
@@ -714,6 +715,9 @@ struct NowPlayingView: View {
         .shadow(color: .black.opacity(0.45), radius: 36, y: 18)
         .scaleEffect(player.isPlaying ? 1 : 0.95)
         .animation(AppAnimation.bouncy, value: player.isPlaying)
+        #if os(iOS)
+        .moumusicPlayerLayout(playerLayout.entry(for: .artwork, mode: settings.nowPlayingMode))
+        #endif
     }
 
     private var trackMetaView: some View {
@@ -738,6 +742,9 @@ struct NowPlayingView: View {
             commentsButton
         }
         .frame(maxWidth: 400)
+        #if os(iOS)
+        .moumusicPlayerLayout(playerLayout.entry(for: .metadata, mode: settings.nowPlayingMode))
+        #endif
     }
 
     private var commentsButton: some View {
@@ -836,6 +843,9 @@ struct NowPlayingView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        #if os(iOS)
+        .moumusicPlayerLayout(playerLayout.entry(for: .controls, mode: settings.nowPlayingMode))
+        #endif
     }
 
     private var playPauseButton: some View {
@@ -991,6 +1001,17 @@ struct NowPlayingView: View {
     }
 }
 
+#if os(iOS)
+private extension View {
+    /// Applies the user-authored Beans-style component adjustment after the
+    /// native layout has calculated its safe-area spacing.
+    func moumusicPlayerLayout(_ entry: PlayerLayoutEntry) -> some View {
+        offset(x: entry.horizontalOffset, y: entry.verticalOffset)
+            .scaleEffect(entry.scale)
+            .animation(.spring(response: 0.28, dampingFraction: 0.84), value: entry)
+    }
+}
+#endif
 
 /// The main lyric line. Renders karaoke-style per-character highlighting from
 /// verbatim (`yrc`) timings, driven live by the player, when the line is active
@@ -1590,6 +1611,9 @@ private struct CompactTransportControls: View {
 
 private struct CompactVolumeControl: View {
 #if os(iOS)
+    @EnvironmentObject private var settings: SettingsManager
+    @ObservedObject private var playerLayout = PlayerLayoutStore.shared
+
     var body: some View {
         HStack(spacing: 11) {
             Image(systemName: "speaker.fill")
@@ -1602,6 +1626,7 @@ private struct CompactVolumeControl: View {
         .foregroundStyle(.white.opacity(0.7))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("系统音量")
+        .moumusicPlayerLayout(playerLayout.entry(for: .volume, mode: settings.nowPlayingMode))
     }
 #else
     @EnvironmentObject private var player: PlayerService
@@ -2609,6 +2634,10 @@ private struct MinimalQueueRow: View {
 struct NowPlayingScrubber: View {
     @EnvironmentObject private var player: PlayerService
     @ObservedObject private var clock = PlayerService.shared.clock
+    #if os(iOS)
+    @EnvironmentObject private var settings: SettingsManager
+    @ObservedObject private var playerLayout = PlayerLayoutStore.shared
+    #endif
     let onShowQuality: (() -> Void)?
 
     @State private var isHovering = false
@@ -2685,6 +2714,9 @@ struct NowPlayingScrubber: View {
             .font(.system(size: 10.5).monospacedDigit())
             .foregroundStyle(.white.opacity(0.55))
         }
+        #if os(iOS)
+        .moumusicPlayerLayout(playerLayout.entry(for: .progress, mode: settings.nowPlayingMode))
+        #endif
     }
 
     private var thumbDiameter: CGFloat {
@@ -2710,6 +2742,9 @@ struct MiniLyricsView: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
     @ObservedObject private var lyricsCursor = PlayerService.shared.lyricsCursor
+    #if os(iOS)
+    @ObservedObject private var playerLayout = PlayerLayoutStore.shared
+    #endif
 
     private var lines: (previous: LyricLine?, current: LyricLine?, next: LyricLine?) {
         guard let lyrics = player.lyrics, !lyrics.isEmpty else { return (nil, nil, nil) }
@@ -2747,6 +2782,9 @@ struct MiniLyricsView: View {
                 Color.clear
             }
         }
+        #if os(iOS)
+        .moumusicPlayerLayout(playerLayout.entry(for: .lyrics, mode: settings.nowPlayingMode))
+        #endif
     }
 
     @ViewBuilder

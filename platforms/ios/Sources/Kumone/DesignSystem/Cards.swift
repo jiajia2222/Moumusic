@@ -224,3 +224,26 @@ struct EmptyStateView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+#if os(iOS)
+/// Beans-style surface used by the migrated iOS profile/settings pages.
+/// It uses the system Liquid Glass on iOS 26 and the material fallback on
+/// older supported systems, so the page does not become a separate visual
+/// language on iOS 16–25.
+struct MouGlassCard<Content: View>: View {
+    var cornerRadius: CGFloat = 24
+    var padding: CGFloat = 16
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .padding(padding)
+            .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(.primary.opacity(0.08), lineWidth: 0.8)
+            }
+            .shadow(color: .black.opacity(0.10), radius: 12, y: 5)
+    }
+}
+#endif

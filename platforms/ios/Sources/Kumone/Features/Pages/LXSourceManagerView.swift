@@ -332,7 +332,7 @@ struct LXSourceManagerView: View {
                         .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("选择音源 (source.name)")
+                .accessibilityLabel("选择音源 \(source.name)")
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
@@ -371,7 +371,7 @@ struct LXSourceManagerView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(testingSourceID != nil)
-                .accessibilityLabel("测试 (source.name)")
+                .accessibilityLabel("测试 \(source.name)")
 
                 Button(role: .destructive) {
                     sourceToDelete = source
@@ -381,7 +381,7 @@ struct LXSourceManagerView: View {
                         .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("删除 (source.name)")
+                .accessibilityLabel("删除 \(source.name)")
             }
 
             if !source.description.isEmpty {
@@ -432,7 +432,7 @@ struct LXSourceManagerView: View {
                 )
                 .font(.caption)
                 .tint(Theme.accent)
-                .accessibilityLabel("启用音源 (source.name)")
+                .accessibilityLabel("启用音源 \(source.name)")
 
                 Spacer(minLength: 0)
 
@@ -559,7 +559,7 @@ struct LXSourceManagerView: View {
             }
             .buttonStyle(.borderless)
             .disabled(testingSourceID != nil)
-            .accessibilityLabel("测试 \\(source.name)")
+            .accessibilityLabel("测试 \(source.name)")
 
             Button(role: .destructive) {
                 sourceToDelete = source
@@ -639,6 +639,8 @@ struct LXSourceManagerView: View {
             data,
             suggestedName: suggestedName.isEmpty ? "LX 音源" : suggestedName
         )
+        let count = lxStore.lastImportCount
+        ToastCenter.shared.show(count > 1 ? "已导入 \(count) 个 LX 音源" : "LX 音源已导入并启用")
     }
 
     private var onlineImportSheet: some View {
@@ -728,6 +730,8 @@ struct LXSourceManagerView: View {
         Task { @MainActor in
             do {
                 try await lxStore.importSourceData(data, suggestedName: suggestedName)
+                let count = lxStore.lastImportCount
+                ToastCenter.shared.show(count > 1 ? "已导入 \(count) 个 LX 音源" : "LX 音源已导入并启用")
             } catch {
                 lxError = error.localizedDescription
             }

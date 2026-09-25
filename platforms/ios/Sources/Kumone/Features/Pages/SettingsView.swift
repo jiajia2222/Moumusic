@@ -25,11 +25,13 @@ struct SettingsView: View {
     @State private var showQQMusicLogin = false
     @State private var showKugouLogin = false
     @State private var showBilibiliLogin = false
+    @State private var showPlayerLayoutEditor = false
 #endif
 
     var body: some View {
-        Form {
-            Section("音源与音质") {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+            settingsGroup("音源与音质") {
                 Picker("播放来源", selection: $settings.playbackSourceMode) {
                     ForEach(PlaybackSourceMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
@@ -71,7 +73,7 @@ struct SettingsView: View {
             }
 
 #if os(iOS)
-            Section("账号与同步") {
+            settingsGroup("账号与同步") {
                 NavigationLink(value: Destination.accountSync) {
                     Label("账号同步", systemImage: "person.crop.circle.badge.checkmark")
                 }
@@ -156,7 +158,7 @@ struct SettingsView: View {
             }
 #endif
 
-            Section("播放设置") {
+            settingsGroup("播放设置") {
 #if os(iOS)
                 Toggle("播放失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
                 Text(settings.enableSourcePlatformFallback
@@ -185,7 +187,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("哔哩哔哩") {
+            settingsGroup("哔哩哔哩") {
                 Toggle("看哔哩哔哩", isOn: $settings.bilibiliVideoEnabled)
                 Toggle("听哔哩哔哩", isOn: $settings.bilibiliAudioEnabled)
                 Text("“看”控制视频入口；“听”控制视频页的仅听音频和字幕。首页推荐配置只在首页本身调整。")
@@ -194,7 +196,7 @@ struct SettingsView: View {
             }
 
 #if os(iOS)
-            Section("LX 音源") {
+            settingsGroup("LX 音源") {
                 sourceManagerRow
                 Text("音源管理是独立页面：可导入文件或在线链接、切换当前音源，并测试 musicUrl 接口。")
                     .font(.caption)
@@ -202,12 +204,12 @@ struct SettingsView: View {
             }
 #endif
 
-            Section("主题模式") {
+            settingsGroup("主题模式") {
                 AppearancePicker(selection: $settings.appearance)
             }
 
 #if os(iOS)
-            Section("播放器模式") {
+            settingsGroup("播放器模式") {
                 Picker("播放器模式", selection: $settings.nowPlayingMode) {
                     ForEach(NowPlayingMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
@@ -216,9 +218,18 @@ struct SettingsView: View {
                 Text("选择播放页的布局风格；沉浸、经典、简洁、歌词和唱片模式互不覆盖。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Button {
+                    showPlayerLayoutEditor = true
+                } label: {
+                    Label("自定义当前播放器布局", systemImage: "slider.horizontal.3")
+                }
+                .frame(minHeight: 44)
+                Text("来自 Beans 的组件布局机制：封面、歌曲信息、歌词、进度、音量和播放控制可分别调整，并按播放器模式单独保存。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            Section("动态壁纸与背景") {
+            settingsGroup("动态壁纸与背景") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 10) {
                         Label("背景图片", systemImage: "photo.on.rectangle.angled")
@@ -274,7 +285,7 @@ struct SettingsView: View {
             }
 #endif
 
-            Section("歌词显示") {
+            settingsGroup("歌词显示") {
                 Picker("歌词样式", selection: $settings.lyricsDisplayStyle) {
                     ForEach(LyricsDisplayStyle.allCases) { style in
                         Text(style.displayName).tag(style)
@@ -317,7 +328,7 @@ struct SettingsView: View {
 #endif
             }
 
-            Section("存储与下载") {
+            settingsGroup("存储与下载") {
                 LabeledContent("图片缓存", value: cacheSize)
                 Button("清除缓存") { clearCache() }
 #if os(iOS)
@@ -329,7 +340,7 @@ struct SettingsView: View {
 #endif
             }
 
-            Section("更新") {
+            settingsGroup("更新") {
                 Toggle("启动时自动检查更新", isOn: $settings.autoCheckUpdates)
 #if os(iOS)
                 Button {
@@ -345,14 +356,14 @@ struct SettingsView: View {
 #endif
             }
 
-            Section("关于") {
+            settingsGroup("关于") {
                 LabeledContent("Moumusic", value: appVersion)
                 Text("播放、歌词和封面支持用户导入的 LX User API 音源。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Section("赞赏与支持") {
+            settingsGroup("赞赏与支持") {
 #if os(iOS)
                 supportLink
 #else
@@ -395,15 +406,14 @@ struct SettingsView: View {
                 .accessibilityHint("打开爱发电支持页面")
 #endif
             }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 30)
         }
-        .formStyle(.grouped)
-#if os(iOS)
-        .scrollContentBackground(.hidden)
+        .scrollIndicators(.hidden)
         .background(Color.clear)
-        .listRowBackground(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Material.thin)
-        )
+#if os(iOS)
         .tint(Theme.accent)
 #endif
 #if os(macOS)
@@ -443,10 +453,36 @@ struct SettingsView: View {
             BilibiliLoginSheet()
                 .environmentObject(bilibili)
         }
+        .sheet(isPresented: $showPlayerLayoutEditor) {
+            PlayerLayoutEditorView()
+                .environmentObject(settings)
+        }
         .onChange(of: backgroundStore.photoSelection) { _ in
             Task { await backgroundStore.importSelection() }
         }
 #endif
+    }
+
+    private func settingsGroup<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title)
+                .font(.headline.weight(.semibold))
+                .padding(.horizontal, 5)
+
+            VStack(alignment: .leading, spacing: 10) {
+                content()
+            }
+            .padding(14)
+            .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(.primary.opacity(0.08), lineWidth: 0.8)
+            }
+            .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+        }
     }
 
     private var appVersion: String {

@@ -26,6 +26,7 @@ final class LXSourceStore: ObservableObject {
     @Published private(set) var sources: [Source] = []
     @Published private(set) var selectedID: String?
     @Published private(set) var enabledIDs: [String] = []
+    @Published private(set) var lastImportCount = 0
 
     var selectedSource: Source? {
         guard let selectedID else { return nil }
@@ -79,35 +80,67 @@ final class LXSourceStore: ObservableObject {
         guard isLXScript(source.script) else {
             throw ImportError.invalidScript
         }
-
-        let replacedIDs = Set(sources.filter { $0.id == source.id || $0.name == source.name }.map(\.id))
-        sources.removeAll { replacedIDs.contains($0.id) }
-        enabledIDs.removeAll { replacedIDs.contains($0) }
-        sources.append(source)
-        sources.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        if !enabledIDs.contains(source.id) {
-            enabledIDs.append(source.id)
-        }
-        // Importing is an explicit user action. Make the imported source the
-        // preferred source immediately, instead of leaving the user on an old
-        // source and making a successful import look like it did nothing.
-        selectedID = source.id
-        UserDefaults.standard.set(source.id, forKey: Self.selectedKey)
-        persist()
-        LXUserAPIService.shared.loadSelectedSource()
+        commitImportedSources([source])
     }
 
     /// Imports either an inline LX script/export or a local JSON descriptor
     /// that points to its script URL. The latter is common when a source was
     /// exported from a desktop client or saved from a source catalogue.
     func importSourceData(_ data: Data, suggestedName: String) async throws {
+        guard let raw = decodeText(data),
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ImportError.invalidEncoding
+        }
+
+        // Beans accepts a full JSON export containing `sources` / `items`.
+        // LX exports use the same shape, but the previous Moumusic importer
+        // only picked the first matching script.  Import every valid script
+        // from a local export and enable all of them in the preserved order.
+        let localSources = decodeExportSources(
+            raw,
+            suggestedName: suggestedName,
+            sourceURL: nil
+        )
+        if !localSources.isEmpty {
+            commitImportedSources(localSources)
+            return
+        }
+
         do {
-            try importScript(data, suggestedName: suggestedName)
+            try importScript(raw.data(using: .utf8) ?? data, suggestedName: suggestedName)
         } catch let error as ImportError {
             guard case .invalidScript = error,
                   let url = Self.remoteScriptURL(in: data) else { throw error }
             try await importOnlineScript(url.absoluteString)
         }
+    }
+
+    /// Adds imported sources in a single transaction so a multi-source file
+    /// cannot leave the store half-updated when two entries share a name.
+    private func commitImportedSources(_ imported: [Source]) {
+        var lastImportedID: String?
+        for source in imported {
+            let replacedIDs = Set(sources.filter {
+                $0.id == source.id || $0.name.caseInsensitiveCompare(source.name) == .orderedSame
+            }.map(\.id))
+            sources.removeAll { replacedIDs.contains($0.id) }
+            enabledIDs.removeAll { replacedIDs.contains($0) }
+            sources.append(source)
+            if !enabledIDs.contains(source.id) {
+                enabledIDs.append(source.id)
+            }
+            lastImportedID = source.id
+        }
+        sources.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        if let lastImportedID {
+            // Keep the last source as the immediately testable source while
+            // retaining the rest as enabled fallbacks.
+            selectedID = lastImportedID
+            UserDefaults.standard.set(lastImportedID, forKey: Self.selectedKey)
+        }
+        lastImportCount = imported.count
+        persist()
+        LXUserAPIService.shared.loadSelectedSource()
     }
 
     /// Downloads and imports an LX User API script. The script remains local
@@ -443,6 +476,65 @@ final class LXSourceStore: ObservableObject {
             suggestedName: suggestedName,
             sourceURL: sourceURL
         )
+    }
+
+    /// Collect all valid scripts from a local JSON export.  A number of LX
+    /// desktop/mobile backups contain an array in `sources`, `items`, `data`
+    /// or `result`; treating that file as a single source made local import
+    /// appear to fail whenever its first entry was not the desired script.
+    private func decodeExportSources(
+        _ text: String,
+        suggestedName: String,
+        sourceURL: String?
+    ) -> [Source] {
+        guard let data = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) else {
+            return []
+        }
+
+        var collected: [Source] = []
+        func append(_ source: Source) {
+            guard !collected.contains(where: {
+                $0.id == source.id || $0.script == source.script
+            }) else { return }
+            collected.append(source)
+        }
+
+        func visit(_ value: Any) {
+            if let values = value as? [Any] {
+                values.forEach(visit)
+                return
+            }
+            guard let dictionary = value as? [String: Any] else { return }
+
+            // `sourceFromJSONValue` understands metadata aliases and nested
+            // JSON strings, so use it for each dictionary before walking
+            // children.  A script source is terminal and has no need to walk
+            // its text value again.
+            if let source = sourceFromJSONValue(
+                dictionary,
+                suggestedName: suggestedName,
+                sourceURL: sourceURL
+            ), isLXScript(source.script) {
+                append(source)
+            }
+
+            for (key, nested) in dictionary {
+                let normalized = key.lowercased()
+                guard ["sources", "items", "data", "result", "value", "list", "source", "info", "metadata"]
+                    .contains(normalized) else { continue }
+                if nested is [Any] || nested is [String: Any] {
+                    visit(nested)
+                } else if let encoded = nested as? String,
+                          let nestedData = encoded.data(using: .utf8),
+                          let nestedObject = try? JSONSerialization.jsonObject(with: nestedData) {
+                    visit(nestedObject)
+                }
+            }
+        }
+
+        visit(object)
+        return collected
     }
 
     private func sourceFromJSONValue(

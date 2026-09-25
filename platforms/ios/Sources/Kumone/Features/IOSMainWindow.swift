@@ -29,6 +29,7 @@ public struct IOSMainWindow: View {
     @State private var explorePath = NavigationPath()
     @State private var searchPath = NavigationPath()
     @State private var playlistsPath = NavigationPath()
+    @State private var profilePath = NavigationPath()
     @State private var settingsPath = NavigationPath()
 
     public init() {}
@@ -48,9 +49,9 @@ public struct IOSMainWindow: View {
             // Login is exposed on a separate account page. It is metadata
             // synchronisation only; audio URLs still come exclusively from LX.
             .environment(\.openLogin, {
-                selectedTab = .settings
-                settingsPath = NavigationPath()
-                settingsPath.append(Destination.accountSync)
+                selectedTab = .profile
+                profilePath = NavigationPath()
+                profilePath.append(Destination.accountSync)
             })
             .task {
                 await startup.start(
@@ -256,8 +257,8 @@ public struct IOSMainWindow: View {
                 tabStack(.playlists) { LocalPlaylistsView() }
             }
 
-            Tab("设置", systemImage: "gearshape", value: .settings) {
-                tabStack(.settings) { SettingsView() }
+            Tab("我的", systemImage: "person.crop.circle", value: .profile) {
+                tabStack(.profile) { MyProfileView() }
             }
 
             // Keep a regular tab so iOS does not add the trailing search-tab
@@ -306,6 +307,8 @@ public struct IOSMainWindow: View {
             tabStack(.search) { SearchView(query: "") }
         case .playlists:
             tabStack(.playlists) { LocalPlaylistsView() }
+        case .profile:
+            tabStack(.profile) { MyProfileView() }
         case .settings:
             tabStack(.settings) { SettingsView() }
         }
@@ -317,6 +320,7 @@ public struct IOSMainWindow: View {
         case .explore: explorePath = NavigationPath()
         case .search: searchPath = NavigationPath()
         case .playlists: playlistsPath = NavigationPath()
+        case .profile: profilePath = NavigationPath()
         case .settings: settingsPath = NavigationPath()
         }
     }
@@ -350,22 +354,23 @@ public struct IOSMainWindow: View {
         case .explore: return $explorePath
         case .search: return $searchPath
         case .playlists: return $playlistsPath
+        case .profile: return $profilePath
         case .settings: return $settingsPath
         }
     }
 }
 
 enum IOSTab: Hashable {
-    case home, explore, search, playlists, settings
+    case home, explore, search, playlists, profile, settings
 }
 
 extension IOSMainWindow {
     static let tabItems: [GlassTabBar.Item] = [
         .init(tab: .home, title: "推荐", icon: "house"),
         .init(tab: .explore, title: "发现", icon: "square.grid.2x2"),
-        .init(tab: .search, title: "搜索", icon: "magnifyingglass"),
         .init(tab: .playlists, title: "歌单", icon: "music.note.list"),
-        .init(tab: .settings, title: "设置", icon: "gearshape"),
+        .init(tab: .profile, title: "我的", icon: "person.crop.circle"),
+        .init(tab: .search, title: "搜索", icon: "magnifyingglass"),
     ]
 }
 
