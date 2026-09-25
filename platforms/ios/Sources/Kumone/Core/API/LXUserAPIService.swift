@@ -848,7 +848,8 @@ final class LXUserAPIService: ObservableObject {
         task.resume()
     }
 
-    private func request(source: String, action: String, info: [String: Any]) async throws -> [String: Any] {
+    private func request(source: String, action: String, info: [String: Any],
+                         timeout: TimeInterval = 20) async throws -> [String: Any] {
         guard context != nil else { throw LXError.noSource }
         let requestKey = "request__\(UUID().uuidString)"
         return try await withCheckedThrowingContinuation { continuation in
@@ -856,7 +857,8 @@ final class LXUserAPIService: ObservableObject {
             callJS(action: "request", data: ["requestKey": requestKey,
                                                 "data": ["source": source, "action": action, "info": info]])
             Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(20))
+                let nanoseconds = UInt64(max(0.25, timeout) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: nanoseconds)
                 guard let self,
                        let pendingRequest = self.pending.removeValue(forKey: requestKey) else { return }
                 self.tasks.removeValue(forKey: requestKey)?.cancel()
@@ -870,9 +872,10 @@ final class LXUserAPIService: ObservableObject {
     /// the first playback request before that response has had a chance to
     /// arrive.  We still stop after a bounded interval and report the source
     /// state instead of inventing capabilities.
-    private func waitForSourceReady() async {
+    private func waitForSourceReady(maxWait: TimeInterval = 6) async {
         guard loadedID != nil else { return }
-        for _ in 0..<120 {
+        let attempts = max(1, Int(ceil(maxWait / 0.05)))
+        for _ in 0..<attempts {
             if !capabilities.isEmpty || context == nil || pendingInitializationID == nil { return }
             try? await Task.sleep(for: .milliseconds(50))
         }
@@ -926,11 +929,12 @@ final class LXUserAPIService: ObservableObject {
         }
     }
 
-    private func activate(_ source: LXSourceStore.Source) async -> Bool {
+    private func activate(_ source: LXSourceStore.Source,
+                          waitTime: TimeInterval = 6) async -> Bool {
         if loadedID != source.id || context == nil {
             load(source)
         }
-        await waitForSourceReady()
+        await waitForSourceReady(maxWait: waitTime)
         return loadedID == source.id && context != nil && !capabilities.isEmpty
     }
 
@@ -989,7 +993,10 @@ final class LXUserAPIService: ObservableObject {
             }
         }
         for source in playbackSources {
-            guard await activate(source) else { continue }
+            // The picker should not wait for the full playback/source startup
+            // budget. Playback keeps the longer default; quality discovery can
+            // retry when the source has finished initializing.
+            guard await activate(source, waitTime: 2.5) else { continue }
             let platforms = sourceCandidates(for: track, action: "musicUrl")
             // Quality probing is per-song and performs real network requests.
             // Probe the track's own catalogue first; only use one fallback
@@ -1072,52 +1079,79 @@ final class LXUserAPIService: ObservableObject {
         return result
     }
 
+    private func probeQualityName(
+        source: LXSourceStore.Source,
+        platform: String,
+        track: Track,
+        requested: String,
+        requestedQualities: [String]
+    ) async -> String? {
+        do {
+            let response = try await request(
+                source: platform,
+                action: "musicUrl",
+                info: [
+                    "type": protocolQualityToken(requested, platform: platform),
+                    "musicInfo": musicInfo(
+                        for: track,
+                        platform: platform,
+                        qualities: requestedQualities
+                    )
+                ],
+                timeout: 2.5
+            )
+            guard let data = response["data"] as? [String: Any],
+                  let rawURL = data["url"] as? String,
+                  let url = URL(string: rawURL),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else { return nil }
+
+            let returned = (data["type"] as? String)
+                ?? (data["quality"] as? String)
+                ?? (data["format"] as? String)
+            // Without a returned tier there is no evidence that the requested
+            // high-quality URL is real. Keep only the safe baseline instead of
+            // displaying a false lossless badge.
+            return returned.map {
+                Self.resolvedQuality(
+                    returned: $0,
+                    requested: requested,
+                    available: requestedQualities
+                )
+            } ?? "128k"
+        } catch {
+            return nil
+        }
+    }
+
     private func probeQualityNames(
         source: LXSourceStore.Source,
         platform: String,
         track: Track,
         declared: [String]
     ) async -> Set<String> {
-        guard await activate(source) else { return [] }
+        guard await activate(source, waitTime: 2.5) else { return [] }
         let requestedQualities = declared.isEmpty ? ["128k"] : declared
         var verified = Set<String>()
 
-        for requested in requestedQualities {
-            do {
-                let response = try await request(
-                    source: platform,
-                    action: "musicUrl",
-                    info: [
-                        "type": protocolQualityToken(requested, platform: platform),
-                        "musicInfo": musicInfo(
-                            for: track,
-                            platform: platform,
-                            qualities: requestedQualities
-                        )
-                    ]
+        // Probing each tier is independent. Start them together so a dead
+        // endpoint costs at most the short probe timeout instead of one full
+        // timeout per quality (which previously made the sheet appear stuck).
+        let probes = requestedQualities.map { requested in
+            Task { @MainActor [weak self] in
+                guard let self else { return nil }
+                return await self.probeQualityName(
+                    source: source,
+                    platform: platform,
+                    track: track,
+                    requested: requested,
+                    requestedQualities: requestedQualities
                 )
-                guard let data = response["data"] as? [String: Any],
-                      let rawURL = data["url"] as? String,
-                      let url = URL(string: rawURL),
-                      let scheme = url.scheme?.lowercased(),
-                      scheme == "http" || scheme == "https" else { continue }
-
-                let returned = (data["type"] as? String)
-                    ?? (data["quality"] as? String)
-                    ?? (data["format"] as? String)
-                // Without a returned tier there is no evidence that the
-                // requested high-quality URL is real. Keep only the safe
-                // baseline instead of displaying a false lossless badge.
-                let actual = returned.map {
-                    Self.resolvedQuality(
-                        returned: $0,
-                        requested: requested,
-                        available: requestedQualities
-                    )
-                } ?? "128k"
+            }
+        }
+        for probe in probes {
+            if let actual = await probe.value {
                 verified.insert(actual)
-            } catch {
-                continue
             }
         }
 

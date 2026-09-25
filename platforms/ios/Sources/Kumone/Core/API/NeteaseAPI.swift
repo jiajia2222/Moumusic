@@ -403,6 +403,24 @@ enum NeteaseAPI {
         return try await eapi(SongURLResponse.self, "/song/enhance/player/url/v1", payload).data
     }
 
+    /// Quality availability is advisory UI data. Keep a slow or unavailable
+    /// account endpoint from making the picker wait for the normal API timeout.
+    /// URLSession cancellation is propagated when the timeout task wins.
+    private static func qualityProbeURL(id: Int, level: String) async -> [SongURLData]? {
+        await withTaskGroup(of: [SongURLData]?.self) { group in
+            group.addTask {
+                try? await songURL(ids: [id], level: level)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                return nil
+            }
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
+        }
+    }
+
     /// Probes the authenticated account endpoint and returns only quality
     /// tiers for which this song actually has a non-preview URL. The player
     /// uses this instead of advertising every quality label in the UI.
@@ -411,8 +429,13 @@ enum NeteaseAPI {
         let probes: [AudioQuality] = [.master, .atmos, .dolby, .surround,
                                       .hires, .lossless, .exhigh, .standard]
         var available = Set<String>()
-        for requested in probes {
-            guard let response = try? await songURL(ids: [id], level: requested.neteaseLevel),
+        // These requests are independent. Launch them together so an expired
+        // session or a slow tier cannot multiply the wait by eight.
+        let probeTasks = probes.map { requested in
+            Task { await qualityProbeURL(id: id, level: requested.neteaseLevel) }
+        }
+        for (_, task) in zip(probes, probeTasks) {
+            guard let response = await task.value,
                   let data = response.first,
                   let rawURL = data.url,
                   let url = URL(string: rawURL),

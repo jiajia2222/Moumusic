@@ -324,7 +324,7 @@ struct LyricContributor: Decodable {
 
 // MARK: - Official account song URL
 
-struct SongURLData: Decodable, Hashable {
+struct SongURLData: Decodable, Hashable, Sendable {
     let id: Int
     let url: String?
     let br: Int
@@ -353,7 +353,7 @@ struct SongURLData: Decodable, Hashable {
     }
 }
 
-struct FreeTrialInfo: Codable, Hashable {
+struct FreeTrialInfo: Codable, Hashable, Sendable {
     let start: Int?
     let end: Int?
 }

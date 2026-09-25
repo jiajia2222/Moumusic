@@ -1234,8 +1234,12 @@ private struct QualityPickerSheet: View {
                 }
             }
         }
-        .task {
-            available = await player.availableQualitiesForCurrentTrack()
+        .task(id: player.currentTrack?.playbackKey) {
+            loading = true
+            available = []
+            let result = await player.availableQualitiesForCurrentTrack()
+            guard !Task.isCancelled else { return }
+            available = result
             loading = false
         }
     }

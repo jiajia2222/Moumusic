@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum AudioQuality: String, CaseIterable, Identifiable {
+enum AudioQuality: String, CaseIterable, Identifiable, Sendable {
     // allCases is used by the player and download pickers. Keep the order
     // highest-to-lowest so the best declared source tier appears first.
     case master
