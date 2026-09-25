@@ -279,12 +279,14 @@ struct NowPlayingView: View {
             .frame(maxHeight: .infinity)
 
             VStack(spacing: 4) {
-                NowPlayingScrubber()
+                NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
                     .padding(.horizontal, 24)
                 CompactTransportControls()
                     .frame(maxWidth: 360)
             }
-            .padding(.bottom, 6)
+            // Keep transport controls clear of the home indicator while
+            // avoiding the low, nearly clipped placement on short screens.
+            .padding(.bottom, 14)
         }
         .padding(.horizontal, 24)
         .padding(.top, 10)
@@ -318,6 +320,8 @@ struct NowPlayingView: View {
             minimalCompactLayout(size: size)
         case .lyrics:
             lyricsCompactLayout(size: size)
+        case .amll:
+            lyricsCompactLayout(size: size)
         case .vinyl:
             vinylCompactLayout(size: size)
         }
@@ -348,13 +352,13 @@ struct NowPlayingView: View {
                 .transition(.opacity)
             }
             VStack(spacing: 12) {
-                NowPlayingScrubber()
+                NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
                     .padding(.horizontal, 24)
                 CompactVolumeControl()
                     .padding(.horizontal, 24)
                 controls
             }
-            .padding(.bottom, 24)
+            .padding(.bottom, 38)
         }
         .padding(.horizontal, 16)
     }
@@ -365,12 +369,12 @@ struct NowPlayingView: View {
                 .padding(.top, 38)
             lyricsColumn
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            NowPlayingScrubber()
+            NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
                 .padding(.horizontal, 20)
             CompactVolumeControl()
                 .padding(.horizontal, 20)
             controls
-                .padding(.bottom, 20)
+                .padding(.bottom, 32)
         }
         .padding(.horizontal, 16)
     }
@@ -398,10 +402,10 @@ struct NowPlayingView: View {
                 showLyricsOnMobile = true
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            NowPlayingScrubber()
+            NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
                 .padding(.horizontal, 20)
             controls
-                .padding(.bottom, 20)
+                .padding(.bottom, 32)
         }
         .padding(.horizontal, 16)
     }
@@ -464,20 +468,19 @@ struct NowPlayingView: View {
 
     private var immersiveControls: some View {
         VStack(spacing: 17) {
-            NowPlayingScrubber()
+            NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
             CompactTransportControls()
             CompactVolumeControl()
             CompactSecondaryControls(
                 showsLyrics: showLyricsOnMobile,
                 showsQueue: showQueueOnMobile,
-                onShowQuality: { showQualityPicker = true },
                 onShowComments: { showComments = true },
                 onToggleLyrics: toggleImmersiveLyrics,
                 onToggleQueue: toggleImmersiveQueue
             )
         }
         .padding(.top, 14)
-        .padding(.bottom, 10)
+        .padding(.bottom, 24)
         .accessibilityIdentifier("immersiveControls")
     }
 
@@ -554,6 +557,9 @@ struct NowPlayingView: View {
         // The other modes render their own dedicated layout below.
         showLyricsOnMobile = settings.nowPlayingMode == .immersive
         showQueueOnMobile = false
+        if settings.nowPlayingMode == .amll {
+            settings.lyricsDisplayStyle = .amll
+        }
     }
 
     private func minimalCompactLayout(size: CGSize) -> some View {
@@ -597,13 +603,13 @@ struct NowPlayingView: View {
                 minimalDismissGesture,
                 including: showLyricsOnMobile ? .none : .all
             )
-            .padding(.bottom, 20)
+            .padding(.bottom, 34)
 
             minimalControls
         }
         .frame(width: contentWidth)
         .padding(.horizontal, 32)
-        .padding(.bottom, 32)
+        .padding(.bottom, 46)
         .animation(.easeInOut(duration: 0.22), value: showLyricsOnMobile)
     }
 
@@ -620,7 +626,7 @@ struct NowPlayingView: View {
                     .accessibilityHidden(!showLyricsOnMobile)
             }
             .frame(height: 44)
-            NowPlayingScrubber()
+            NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
                 .padding(.horizontal, 2)
                 .padding(.top, 16)
             CompactVolumeControl()
@@ -631,17 +637,6 @@ struct NowPlayingView: View {
             )
                 .padding(.horizontal, 2)
             HStack(spacing: 8) {
-                Button { showQualityPicker = true } label: {
-                    Label("音质：\(player.servedQuality.map { AudioQuality(lxType: $0)?.sourceDisplayName ?? $0 } ?? "检测中")", systemImage: "waveform")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.9))
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 44)
-                        .background(.white.opacity(0.12), in: Capsule())
-                }
-                .buttonStyle(.pressable)
-                .accessibilityLabel("选择播放音质")
-
                 Button { showComments = true } label: {
                     Label("评论", systemImage: "text.bubble")
                         .font(.system(size: 12, weight: .semibold))
@@ -740,27 +735,9 @@ struct NowPlayingView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.5))
 
-            HStack(spacing: 8) {
-                qualityButton
-                commentsButton
-            }
+            commentsButton
         }
         .frame(maxWidth: 400)
-    }
-
-    private var qualityButton: some View {
-        Button {
-            showQualityPicker = true
-        } label: {
-            Label("音质：\(player.servedQuality.map { AudioQuality(lxType: $0)?.sourceDisplayName ?? $0 } ?? "检测中")", systemImage: "waveform")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.9))
-                .padding(.horizontal, 12)
-                .frame(minHeight: 44)
-                .background(.white.opacity(0.12), in: Capsule())
-        }
-        .buttonStyle(.pressable)
-        .accessibilityLabel("选择播放音质")
     }
 
     private var commentsButton: some View {
@@ -784,7 +761,7 @@ struct NowPlayingView: View {
             trackMetaView
 
             VStack(spacing: 14) {
-                NowPlayingScrubber()
+                NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
                     .frame(maxWidth: 380)
                 controls
             }
@@ -947,6 +924,12 @@ struct NowPlayingView: View {
                         }
                     }
                 )
+                .onLongPressGesture(minimumDuration: 0.45) {
+                    withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
+                        settings.lyricsDisplayStyle.toggle()
+                    }
+                    ToastCenter.shared.show(settings.lyricsDisplayStyle.displayName)
+                }
             }
         } else if player.lyrics != nil, player.lyrics?.isInstrumental != true {
             VStack(spacing: 10) {
@@ -1024,7 +1007,15 @@ struct LyricMainText: View {
     @EnvironmentObject private var settings: SettingsManager
 
     var body: some View {
-        if settings.lyricsAnnotation == .furigana, let segments = line.furigana, !segments.isEmpty,
+        if settings.lyricsDisplayStyle == .amll {
+            AMLLyricText(
+                line: line,
+                isActive: isActive,
+                font: font,
+                verbatim: verbatim,
+                inactiveOpacity: inactiveOpacity
+            )
+        } else if settings.lyricsAnnotation == .furigana, let segments = line.furigana, !segments.isEmpty,
            isActive, verbatim, let words = line.words, !words.isEmpty {
             TimelineView(.animation(paused: !player.isPlaying)) { _ in
                 RubyText(
@@ -1088,6 +1079,57 @@ struct LyricMainText: View {
               return Array(repeating: alpha, count: word.text.count)
           }
       }
+}
+
+/// Apple Music-like lyric rendering without depending on a private or
+/// reverse-engineered implementation. It reuses the source-provided word
+/// timings, keeps the full line visible underneath, and fills the sung words
+/// over it in real time.
+private struct AMLLyricText: View {
+    let line: LyricLine
+    let isActive: Bool
+    let font: Font
+    let verbatim: Bool
+    let inactiveOpacity: Double
+
+    @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var settings: SettingsManager
+
+    var body: some View {
+        Group {
+            if isActive, verbatim, let words = line.words, !words.isEmpty {
+                TimelineView(.animation(paused: !player.isPlaying)) { _ in
+                    ZStack(alignment: .leading) {
+                        Text(line.text)
+                            .foregroundStyle(.white.opacity(0.28))
+                        timedText(words, at: player.livePlaybackTime + settings.lyricsOffset)
+                    }
+                }
+            } else {
+                Text(line.text.isEmpty ? " " : line.text)
+                    .foregroundStyle(.white.opacity(isActive ? 1 : inactiveOpacity))
+            }
+        }
+        .font(font.weight(isActive ? .bold : .semibold))
+        .minimumScaleFactor(0.64)
+        .fixedSize(horizontal: false, vertical: true)
+        .scaleEffect(isActive ? 1 : 0.94, anchor: .leading)
+        .blur(radius: isActive ? 0 : 0.35)
+        .animation(.spring(response: 0.36, dampingFraction: 0.86), value: isActive)
+    }
+
+    private func timedText(_ words: [LyricWord], at time: TimeInterval) -> Text {
+        var output = Text(verbatim: "")
+        for word in words {
+            let progress = word.duration > 0
+                ? min(max((time - word.start) / word.duration, 0), 1)
+                : (time >= word.start ? 1 : 0)
+            let opacity = 0.34 + 0.66 * progress
+            output = output + Text(verbatim: word.text)
+                .foregroundStyle(.white.opacity(opacity))
+        }
+        return output
+    }
 }
 
 private struct QualityPickerSheet: View {
@@ -1226,6 +1268,12 @@ private struct IOSImmersiveLyricsColumn: View {
                                 }
                             }
                     )
+                    .onLongPressGesture(minimumDuration: 0.45) {
+                        withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
+                            settings.lyricsDisplayStyle.toggle()
+                        }
+                        ToastCenter.shared.show(settings.lyricsDisplayStyle.displayName)
+                    }
                 }
             } else if player.lyrics != nil, player.lyrics?.isInstrumental != true {
                 VStack(spacing: 10) {
@@ -1358,6 +1406,7 @@ private struct ImmersiveArtworkFramePreferenceKey: PreferenceKey {
 private struct CompactTrackHeader: View {
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
+    @EnvironmentObject private var settings: SettingsManager
     @State private var showAddToPlaylist = false
     @State private var showComments = false
     #if os(iOS)
@@ -1475,6 +1524,14 @@ private struct CompactTrackHeader: View {
                 AddToPlaylistSheet(track: track)
             }
         }
+        .contentShape(Rectangle())
+        .onLongPressGesture(minimumDuration: 0.45) {
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
+                settings.lyricsDisplayStyle.toggle()
+            }
+            ToastCenter.shared.show(settings.lyricsDisplayStyle.displayName)
+        }
+        .accessibilityHint(String(localized: "长按歌曲信息切换歌词样式"))
         .sheet(isPresented: $showComments) {
             if let track = player.currentTrack {
                 SongCommentsSheet(track: track)
@@ -1622,22 +1679,14 @@ private struct MPSystemVolumeSlider: UIViewRepresentable {
 #endif
 
 private struct CompactSecondaryControls: View {
-    @EnvironmentObject private var player: PlayerService
     let showsLyrics: Bool
     let showsQueue: Bool
-    let onShowQuality: () -> Void
     let onShowComments: () -> Void
     let onToggleLyrics: () -> Void
     let onToggleQueue: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
-            secondaryButton(
-                icon: "waveform",
-                label: "选择播放音质",
-                action: onShowQuality
-            )
-
             secondaryButton(
                 icon: "text.bubble",
                 label: "查看评论",
@@ -1899,6 +1948,12 @@ private struct IOSMinimalLyricsColumn: View {
                         .mask(edgeMask)
                         .contentShape(Rectangle())
                         .onTapGesture(perform: closeLyrics)
+                        .onLongPressGesture(minimumDuration: 0.45) {
+                            withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
+                                settings.lyricsDisplayStyle.toggle()
+                            }
+                            ToastCenter.shared.show(settings.lyricsDisplayStyle.displayName)
+                        }
                         .accessibilityIdentifier("syncedLyricsScroll")
                         .onPreferenceChange(MinimalLyricCentersKey.self) { centers in
                             lineCenters = centers
@@ -2545,10 +2600,15 @@ private struct MinimalQueueRow: View {
 struct NowPlayingScrubber: View {
     @EnvironmentObject private var player: PlayerService
     @ObservedObject private var clock = PlayerService.shared.clock
+    let onShowQuality: (() -> Void)?
 
     @State private var isHovering = false
     @State private var isDragging = false
     @State private var dragProgress: Double = 0
+
+    init(onShowQuality: (() -> Void)? = nil) {
+        self.onShowQuality = onShowQuality
+    }
 
     private var fraction: Double {
         guard player.duration > 0 else { return 0 }
@@ -2596,8 +2656,20 @@ struct NowPlayingScrubber: View {
                 withAnimation(AppAnimation.quick) { isHovering = hovering }
             }
 
-            HStack {
+            HStack(alignment: .center, spacing: 8) {
                 Text(Formatters.duration(isDragging ? dragProgress : clock.progress))
+                Spacer()
+                if let onShowQuality {
+                    Button(action: onShowQuality) {
+                        Label(qualityDisplayName, systemImage: "waveform")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.78))
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("选择播放音质，当前为\(qualityDisplayName)")
+                }
                 Spacer()
                 Text(Formatters.duration(player.duration))
             }
@@ -2608,6 +2680,13 @@ struct NowPlayingScrubber: View {
 
     private var thumbDiameter: CGFloat {
         isDragging ? 13 : (isHovering ? 11 : 9)
+    }
+
+    private var qualityDisplayName: String {
+        if let served = player.servedQuality {
+            return AudioQuality(lxType: served)?.sourceDisplayName ?? served.uppercased()
+        }
+        return "检测中"
     }
 }
 
@@ -2620,6 +2699,7 @@ struct MiniLyricsView: View {
     let onOpen: () -> Void
 
     @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var settings: SettingsManager
     @ObservedObject private var lyricsCursor = PlayerService.shared.lyricsCursor
 
     private var lines: (previous: LyricLine?, current: LyricLine?, next: LyricLine?) {
@@ -2647,6 +2727,12 @@ struct MiniLyricsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onOpen)
+                .onLongPressGesture(minimumDuration: 0.45) {
+                    withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
+                        settings.lyricsDisplayStyle.toggle()
+                    }
+                    ToastCenter.shared.show(settings.lyricsDisplayStyle.displayName)
+                }
                 .animation(.spring(response: 0.4, dampingFraction: 0.85), value: current?.id)
             } else {
                 Color.clear

@@ -68,11 +68,13 @@ enum LXCatalogPlatform: String, CaseIterable, Identifiable {
 enum LXCatalogError: LocalizedError {
     case invalidResponse
     case unsupported
+    case unavailable
 
     var errorDescription: String? {
         switch self {
         case .invalidResponse: return "平台返回了无法识别的结果"
         case .unsupported: return "当前平台暂不支持此功能"
+        case .unavailable: return "搜索服务暂时不可用"
         }
     }
 }
@@ -95,21 +97,35 @@ enum LXCatalogService {
         guard !keyword.isEmpty else { return [] }
 
         if platform == .aggregate {
-            let results = await withTaskGroup(of: [Track].self, returning: [[Track]].self) { group in
+            let results = await withTaskGroup(of: [Track]?.self, returning: ([[Track]], Int).self) { group in
                 for item in LXCatalogPlatform.catalogueCases where item != .aggregate {
                     group.addTask {
-                        (try? await search(keyword, platform: item, page: page, limit: limit)) ?? []
+                        try? await search(keyword, platform: item, page: page, limit: limit)
                     }
                 }
                 var all: [[Track]] = []
-                for await result in group { all.append(result) }
-                return all
+                var failures = 0
+                for await result in group {
+                    if let result {
+                        all.append(result)
+                    } else {
+                        failures += 1
+                    }
+                }
+                return (all, failures)
             }
             var seen = Set<String>()
-            return results.flatMap { $0 }.filter {
+            let merged = results.0.flatMap { $0 }.filter {
                 let key = "\($0.name.lowercased())|\($0.artistNames.lowercased())"
                 return seen.insert(key).inserted
             }
+            // An empty aggregate result is only a real "no matches" result
+            // when every adapter completed successfully. Do not turn a
+            // transient NetEase/network failure into a misleading empty page.
+            if merged.isEmpty, results.1 > 0 {
+                throw LXCatalogError.unavailable
+            }
+            return merged
         }
 
         // QQ's mobile endpoint rejects large pages and KuGou intermittently

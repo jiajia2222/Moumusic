@@ -1,8 +1,10 @@
 import Foundation
 import Security
+import CryptoKit
 
-/// Minimal KuGou account client for validating a user-provided Web Cookie.
-/// Audio resolution remains entirely inside the configured LX source.
+/// KuGou account client for native QR login, session validation, and
+/// provider-authorized audio resolution. The account Cookie is only sent to
+/// KuGou's own endpoints; third-party LX sources never receive it.
 actor KugouAPI {
     static let shared = KugouAPI()
 
@@ -11,6 +13,24 @@ actor KugouAPI {
         let name: String
         let avatarURL: String?
         let refreshedCookie: String?
+    }
+
+    struct ResolvedAudio: Sendable {
+        let url: URL
+        let quality: String
+    }
+
+    struct QRCodePayload: Sendable {
+        let url: String
+        let key: String
+        let cookie: String
+    }
+
+    enum QRStatus: Sendable {
+        case waiting
+        case scanned
+        case success(cookie: String)
+        case expired
     }
 
     enum APIError: LocalizedError {
@@ -29,12 +49,88 @@ actor KugouAPI {
 
     private let endpoint = URL(string: "https://usercenter.kugou.com/v3/get_my_info")!
     private let session: URLSession
+    private let cookieStorage: HTTPCookieStorage
+    private let deviceMid = String(Int64(Date().timeIntervalSince1970 * 1000))
 
     private init() {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 45
+        let cookieStorage = HTTPCookieStorage()
+        configuration.httpCookieStorage = cookieStorage
+        configuration.httpShouldSetCookies = true
+        configuration.httpCookieAcceptPolicy = .always
+        self.cookieStorage = cookieStorage
         session = URLSession(configuration: configuration)
+    }
+
+    /// Native KuGou QR login. This is the same login-user flow used by the
+    /// open KuGouMusicApi adapter; it does not open `/loginReg.php` in a web
+    /// view and does not require a third-party API key.
+    func qrCode() async throws -> QRCodePayload {
+        let clientTime = Int(Date().timeIntervalSince1970)
+        var parameters = baseParameters(clientTime: clientTime)
+        parameters["appid"] = "1001"
+        parameters["type"] = "1"
+        parameters["plat"] = "4"
+        parameters["srcappid"] = "2919"
+        parameters["qrcode_txt"] = "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=1005&"
+        parameters["signature"] = Self.signature(parameters)
+
+        let endpoint = URL(string: "https://login-user.kugou.com/v2/qrcode")!
+        let request = try Self.request(endpoint: endpoint, parameters: parameters)
+        let (data, response) = try await session.data(for: request)
+        guard Self.isSuccess(response),
+              let root = Self.jsonObject(from: data),
+              let payload = root["data"] as? [String: Any],
+              let key = Self.text(payload["qrcode"] ?? payload["key"] ?? root["qrcode"]),
+              !key.isEmpty else {
+            throw APIError.invalidResponse
+        }
+
+        return QRCodePayload(
+            url: "https://h5.kugou.com/apps/loginQRCode/html/index.html?qrcode=\(key)",
+            key: key,
+            cookie: cookieHeader()
+        )
+    }
+
+    func poll(qrcode: String, cookie: String) async throws -> QRStatus {
+        let clientTime = Int(Date().timeIntervalSince1970)
+        var parameters = baseParameters(clientTime: clientTime)
+        parameters["plat"] = "4"
+        parameters["appid"] = "1005"
+        parameters["srcappid"] = "2919"
+        parameters["qrcode"] = qrcode
+        parameters["dev"] = Self.cookieFields(cookie)["kugou_api_dev"] ?? ""
+        parameters["signature"] = Self.signature(parameters)
+
+        let endpoint = URL(string: "https://login-user.kugou.com/v2/get_userinfo_qrcode")!
+        var request = try Self.request(endpoint: endpoint, parameters: parameters)
+        if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        let (data, response) = try await session.data(for: request)
+        guard Self.isSuccess(response), let root = Self.jsonObject(from: data) else {
+            throw APIError.invalidResponse
+        }
+
+        let payload = root["data"] as? [String: Any] ?? root
+        switch Self.integer(payload["status"] ?? root["status"]) {
+        case 0: return .expired
+        case 1: return .waiting
+        case 2, 3: return .scanned
+        case 4:
+            guard let token = Self.text(payload["token"] ?? root["token"]),
+                  let userID = Self.text(payload["userid"] ?? payload["user_id"] ?? root["userid"]),
+                  !token.isEmpty, !userID.isEmpty else {
+                throw APIError.unavailable
+            }
+            let sessionCookie = [cookie, "token=\(token)", "userid=\(userID)"]
+                .filter { !$0.isEmpty }
+                .joined(separator: "; ")
+            return .success(cookie: sessionCookie)
+        default:
+            throw APIError.unavailable
+        }
     }
 
     func profile(cookie: String) async throws -> Profile {
@@ -97,6 +193,232 @@ actor KugouAPI {
                 response: response as? HTTPURLResponse
             )
         )
+    }
+
+    /// Resolves a KuGou catalogue hash through the authenticated provider
+    /// route. The authorization step is deliberately kept here instead of in
+    /// LXUserAPIService so the account token never enters an LX source script.
+    func musicURL(hash: String, quality: String, cookie: String,
+                  albumID: String? = nil, albumAudioID: String? = nil) async throws -> ResolvedAudio {
+        let normalizedHash = hash.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedHash.isEmpty else { throw APIError.invalidResponse }
+
+        var fields = Self.cookieFields(cookie)
+        let dfid = fields["dfid"] ?? Self.randomDfid()
+        fields["dfid"] = dfid
+        let requestCookie = fields
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: "; ")
+
+        let authorization = try await resolveAuthorization(
+            hash: normalizedHash,
+            albumAudioID: albumAudioID,
+            cookie: requestCookie,
+            fields: fields
+        )
+
+        let requestedQuality = Self.qualityToken(for: quality)
+        let params: [String: String] = [
+            "album_id": albumID ?? "0",
+            "album_audio_id": albumAudioID ?? "0",
+            "area_code": "1",
+            "auth": authorization.auth,
+            "behavior": "play",
+            "cdnBackup": "1",
+            "clientver": "11561",
+            "dfid": dfid,
+            "hash": normalizedHash,
+            "module": "",
+            "module_id": "51",
+            "mtype": "0",
+            "need_m": "0",
+            "need_ogg": "1",
+            "open_time": authorization.openTime,
+            "page_id": "151369488",
+            "pid": "2",
+            "pidversion": "3001",
+            "ppage_id": "463467626,350369493,788954147",
+            "ptype": "0",
+            "quality": requestedQuality,
+            "ssa_flag": "is_fromtrack",
+            "version": "11430",
+        ]
+        let endpoint = URL(string: "https://trackercdngz.kugou.com/tracker/v5/url")!
+        var request = try Self.request(endpoint: endpoint, parameters: params)
+        request.setValue(requestCookie, forHTTPHeaderField: "Cookie")
+        let (data, response) = try await session.data(for: request)
+        guard Self.isSuccess(response), let root = Self.jsonObject(from: data) else {
+            throw APIError.invalidResponse
+        }
+
+        let payload = root["data"] ?? root
+        guard let rawURL = Self.firstURL(in: payload),
+              let url = URL(string: rawURL.replacingOccurrences(of: "http://", with: "https://")),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            throw APIError.unavailable
+        }
+        let returnedQuality = Self.text(in: payload, keys: [
+            "quality", "type", "format", "ext", "extension", "bitrate"
+        ])
+        return ResolvedAudio(
+            url: url,
+            quality: Self.canonicalQuality(returnedQuality ?? requestedQuality)
+        )
+    }
+
+    private func resolveAuthorization(hash: String, albumAudioID: String?, cookie: String,
+                                      fields: [String: String]) async throws -> (auth: String, openTime: String) {
+        let params = [
+            "authorization": fields["auth"] ?? "",
+            "module_id": "51",
+            "album_audio_id": albumAudioID ?? "0",
+            "clientver": "11561",
+            "hash": hash,
+        ]
+        let endpoint = URL(string: "https://trackercdngz.kugou.com/v1/authorization")!
+        var request = try Self.request(endpoint: endpoint, parameters: params)
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        let (data, response) = try await session.data(for: request)
+        guard Self.isSuccess(response), let root = Self.jsonObject(from: data) else {
+            throw APIError.invalidResponse
+        }
+        let payload = (root["data"] as? [String: Any]) ?? root
+        guard let auth = Self.text(in: payload, keys: ["auth", "authorization"]),
+              let openTime = Self.text(in: payload, keys: ["open_time", "openTime"]),
+              !auth.isEmpty, !openTime.isEmpty else {
+            throw APIError.unavailable
+        }
+        return (auth, openTime)
+    }
+
+    private func baseParameters(clientTime: Int) -> [String: String] {
+        [
+            "dfid": "-",
+            "mid": deviceMid,
+            "uuid": "-",
+            "appid": "1005",
+            "clientver": "20489",
+            "clienttime": String(clientTime),
+        ]
+    }
+
+    private static func request(endpoint: URL, parameters: [String: String]) throws -> URLRequest {
+        var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
+        components.queryItems = parameters
+            .sorted { $0.key < $1.key }
+            .map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = components.url else { throw APIError.invalidResponse }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue("https://www.kugou.com/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+                         forHTTPHeaderField: "User-Agent")
+        request.setValue("1", forHTTPHeaderField: "kg-rc")
+        request.setValue("5d816a0", forHTTPHeaderField: "kg-thash")
+        request.setValue("1", forHTTPHeaderField: "kg-rec")
+        request.setValue("B9EDA08A64250DEFFBCADDEE00F8F25F", forHTTPHeaderField: "kg-rf")
+        if let dfid = parameters["dfid"] { request.setValue(dfid, forHTTPHeaderField: "dfid") }
+        if let clientTime = parameters["clienttime"] { request.setValue(clientTime, forHTTPHeaderField: "clienttime") }
+        if let mid = parameters["mid"] { request.setValue(mid, forHTTPHeaderField: "mid") }
+        return request
+    }
+
+    private func cookieHeader() -> String {
+        (cookieStorage.cookies ?? [])
+            .sorted { $0.name < $1.name }
+            .map { "\($0.name)=\($0.value)" }
+            .joined(separator: "; ")
+    }
+
+    private static func signature(_ parameters: [String: String]) -> String {
+        let joined = parameters
+            .map { "\($0.key)=\($0.value)" }
+            .sorted()
+            .joined()
+        return md5("NVPh5oo715z5DIWAeQlhMDsWXXQV4hwt\(joined)NVPh5oo715z5DIWAeQlhMDsWXXQV4hwt")
+    }
+
+    private static func md5(_ value: String) -> String {
+        Insecure.MD5.hash(data: Data(value.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private static func isSuccess(_ response: URLResponse) -> Bool {
+        (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } == true
+    }
+
+    private static func jsonObject(from data: Data) -> [String: Any]? {
+        try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private static func text(_ value: Any?) -> String? {
+        if let value = value as? String, !value.isEmpty { return value }
+        if let value = value as? NSNumber { return value.stringValue }
+        return nil
+    }
+
+    private static func firstURL(in value: Any) -> String? {
+        if let string = value as? String,
+           let url = URL(string: string),
+           let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+            return string
+        }
+        if let object = value as? [String: Any] {
+            let preferredKeys = ["url", "play_url", "playUrl", "audio_url", "audioUrl",
+                                 "backup_url", "backupUrl", "file_url", "fileUrl"]
+            for key in preferredKeys where object[key] != nil {
+                if let result = firstURL(in: object[key]!) { return result }
+            }
+            for child in object.values {
+                if let result = firstURL(in: child) { return result }
+            }
+        }
+        if let array = value as? [Any] {
+            for child in array {
+                if let result = firstURL(in: child) { return result }
+            }
+        }
+        return nil
+    }
+
+    private static func randomDfid() -> String {
+        let characters = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        return String((0..<24).compactMap { _ in characters.randomElement() })
+    }
+
+    private static func qualityToken(for value: String) -> String {
+        switch value.lowercased().replacingOccurrences(of: " ", with: "") {
+        case "standard", "128", "128k": return "128"
+        case "higher", "exhigh", "320", "320k": return "320"
+        case "lossless", "flac": return "flac"
+        case "hires", "flac24bit", "highres": return "high"
+        case "atmos": return "viper_atmos"
+        case "master", "jymaster": return "viper_tape"
+        case "dolby", "surround": return "viper_clear"
+        default: return value
+        }
+    }
+
+    private static func canonicalQuality(_ value: String) -> String {
+        switch value.lowercased().replacingOccurrences(of: " ", with: "") {
+        case "128", "128k", "mp3": return "128k"
+        case "320", "320k": return "320k"
+        case "flac", "lossless": return "flac"
+        case "high", "hires", "flac24", "flac24bit": return "flac24bit"
+        case "viper_atmos", "atmos": return "atmos"
+        case "viper_tape", "master": return "jymaster"
+        case "viper_clear", "dolby": return "dolby"
+        default: return value
+        }
+    }
+
+    private static func integer(_ value: Any?) -> Int? {
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) }
+        return nil
     }
 
     private static func cookieFields(_ cookie: String) -> [String: String] {

@@ -19,8 +19,11 @@ enum ProviderWebLoginKind: String, Identifiable {
 
     var loginURL: URL {
         switch self {
-        case .qqMusic: return URL(string: "https://y.qq.com/portal/login.html")!
-        case .kugou: return URL(string: "https://m.kugou.com/loginReg.php?act=login")!
+        // The old /portal/login.html route now returns 404.  Keep the web
+        // fallback on the live QQ Music entry page; the primary iOS button
+        // uses QQMusicQRCodeLoginSheet and does not depend on this route.
+        case .qqMusic: return URL(string: "https://y.qq.com/")!
+        case .kugou: return URL(string: "https://m3ws.kugou.com/loginReg.php?act=login")!
         case .bilibili: return URL(string: "https://passport.bilibili.com/h5-app/passport/login")!
         }
     }
@@ -66,6 +69,7 @@ struct ProviderWebLoginSheet: View {
     @State private var webView: WKWebView?
     @State private var isReadingCookies = false
     @State private var errorMessage: String?
+    @State private var statusMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -73,6 +77,21 @@ struct ProviderWebLoginSheet: View {
                 if webView == nil { ProgressView("正在打开\(provider.title)…") }
                 ProviderWebView(webView: $webView, url: provider.loginURL)
                     .ignoresSafeArea(.container, edges: .bottom)
+
+                if let statusMessage {
+                    VStack {
+                        Spacer()
+                        Label(statusMessage, systemImage: "checkmark.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.green)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 11)
+                            .background(.regularMaterial, in: Capsule())
+                            .overlay(Capsule().strokeBorder(.green.opacity(0.28), lineWidth: 1))
+                            .padding(.bottom, 24)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
             .navigationTitle("扫码登录\(provider.title)")
             .navigationBarTitleDisplayMode(.inline)
@@ -101,6 +120,7 @@ struct ProviderWebLoginSheet: View {
     }
 
     private func readCookiesAndSignIn() {
+        guard !isReadingCookies else { return }
         guard let store = webView?.configuration.websiteDataStore.httpCookieStore else {
             errorMessage = "登录页面还没有准备好，请稍后重试"
             return
@@ -152,12 +172,13 @@ struct ProviderWebLoginSheet: View {
 
     @MainActor
     private func signIn(cookie: String) async {
-        guard !isReadingCookies else { return }
         isReadingCookies = true
         do {
             guard !cookie.isEmpty else { throw ProviderLoginError.emptyCookie }
             try await onSignIn(cookie)
             isReadingCookies = false
+            statusMessage = "\(provider.title)登录成功"
+            ToastCenter.shared.show("\(provider.title)登录成功")
             dismiss()
         } catch {
             isReadingCookies = false

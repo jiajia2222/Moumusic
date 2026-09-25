@@ -75,6 +75,7 @@ enum Destination: Hashable {
     case search(String)
     case localPlaylists
     case localPlaylist(UUID)
+    case likedSongs
 }
 
 /// Registers all shared navigation destinations on a stack.
@@ -114,6 +115,8 @@ struct DestinationsModifier: ViewModifier {
                     LocalPlaylistsView()
                 case .localPlaylist(let id):
                     LocalPlaylistDetailView(playlistID: id)
+                case .likedSongs:
+                    LikedSongsView()
                 }
             }
             .playerContentInset()

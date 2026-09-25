@@ -122,7 +122,9 @@ actor BilibiliAPI {
 
     func qrCode() async throws -> QRCodePayload {
         let endpoint = URL(string: "https://passport.bilibili.com/x/passport-login/web/qrcode/generate")!
-        var request = URLRequest(url: endpoint)
+        var request = URLRequest(url: endpoint.appending(queryItems: [
+            URLQueryItem(name: "source", value: "main_web")
+        ]))
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
         let (data, response) = try await session.data(for: request)
@@ -141,7 +143,10 @@ actor BilibiliAPI {
         var components = URLComponents(
             string: "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
         )!
-        components.queryItems = [URLQueryItem(name: "qrcode_key", value: key)]
+        components.queryItems = [
+            URLQueryItem(name: "qrcode_key", value: key),
+            URLQueryItem(name: "source", value: "main_web")
+        ]
         var request = URLRequest(url: components.url!)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
@@ -151,13 +156,21 @@ actor BilibiliAPI {
             throw APIError.requestFailed
         }
 
-        let code = Self.integer(payload["code"])
+        // Bilibili has returned the status code both inside `data` and at the
+        // response root over time.  Reading only data.code makes a successful
+        // scan look like an expired/invalid QR code on some app versions.
+        let code = Self.integer(payload["code"]) ?? Self.integer(root["code"])
         switch code {
         case 86101: return .waiting
         case 86090: return .scanned
         case 86038: return .expired
         case 0:
-            let cookies = cookieHeader()
+            var cookies = cookieHeader()
+            // Some successful QR responses carry the login session in the
+            // returned URL instead of Set-Cookie.  Extract only the provider's
+            // session fields; never persist unrelated query parameters.
+            let urlCookies = Self.cookieHeader(fromLoginURL: Self.text(payload["url"]) ?? Self.text(root["url"]))
+            cookies = Self.mergedCookieHeaders(cookies, urlCookies)
             guard !cookies.isEmpty else { throw APIError.unavailable }
             return .success(cookie: cookies)
         default:
@@ -408,6 +421,35 @@ actor BilibiliAPI {
         return cookies
             .sorted { $0.name < $1.name }
             .map { "\($0.name)=\($0.value)" }
+            .joined(separator: "; ")
+    }
+
+    private static func cookieHeader(fromLoginURL rawURL: String?) -> String {
+        guard let rawURL, let components = URLComponents(string: rawURL) else { return "" }
+        let allowed = ["DedeUserID", "DedeUserID__ckMd5", "SESSDATA", "bili_jct", "sid"]
+        var values: [String: String] = [:]
+        for item in components.queryItems ?? [] where allowed.contains(item.name) {
+            guard let value = item.value, !value.isEmpty else { continue }
+            values[item.name] = value
+        }
+        return values
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: "; ")
+    }
+
+    private static func mergedCookieHeaders(_ first: String, _ second: String) -> String {
+        var values: [String: String] = [:]
+        for header in [first, second] {
+            for item in header.split(separator: ";") {
+                let pair = item.split(separator: "=", maxSplits: 1).map(String.init)
+                guard pair.count == 2 else { continue }
+                values[pair[0].trimmingCharacters(in: .whitespaces)] = pair[1]
+            }
+        }
+        return values
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
             .joined(separator: "; ")
     }
 

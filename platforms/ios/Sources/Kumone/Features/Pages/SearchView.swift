@@ -78,6 +78,8 @@ final class SearchViewModel: ObservableObject {
     @Published var albums: [AlbumResult] = []
     @Published var playlists: [LXPlaylistSummary] = []
     @Published var isLoading = false
+    @Published private(set) var hasAttemptedSearch = false
+    @Published private(set) var errorMessage: String?
     @Published var loadedTabs: Set<Tab> = []
     @Published var platform: LXCatalogPlatform = .aggregate
     @Published private(set) var hotKeywords: [String] = []
@@ -137,6 +139,8 @@ final class SearchViewModel: ObservableObject {
         playlists = []
         hotKeywords = []
         isLoading = false
+        hasAttemptedSearch = false
+        errorMessage = nil
     }
 
     func load(tab: Tab, force: Bool = false) async {
@@ -144,6 +148,8 @@ final class SearchViewModel: ObservableObject {
         guard !trimmed.isEmpty, force || !loadedTabs.contains(tab) else { return }
 
         let generation = requestGeneration
+        hasAttemptedSearch = true
+        errorMessage = nil
         isLoading = true
         defer {
             if generation == requestGeneration { isLoading = false }
@@ -154,10 +160,15 @@ final class SearchViewModel: ObservableObject {
         }
 
         var didLoad = false
+        var didFail = false
         switch tab {
         case .all:
-            async let songsTask = try? LXCatalogService.search(trimmed, platform: platform, limit: 12)
-            async let playlistsTask = try? LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 12)
+            async let songsTask: [Track]? = try? await LXCatalogService.search(
+                trimmed, platform: platform, limit: 12
+            )
+            async let playlistsTask: [LXPlaylistSummary]? = try? await LXCatalogService.searchSonglists(
+                trimmed, platform: platform, limit: 12
+            )
             if let result = await songsTask {
                 guard isCurrentRequest() else { return }
                 songs = result
@@ -165,56 +176,96 @@ final class SearchViewModel: ObservableObject {
                 await enrichArtistAvatars(generation: generation)
                 guard isCurrentRequest() else { return }
                 didLoad = true
+            } else {
+                didFail = true
             }
             if let result = await playlistsTask {
                 guard isCurrentRequest() else { return }
                 playlists = result
                 didLoad = true
+            } else {
+                didFail = true
             }
         case .songs:
-            if let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100) {
+            do {
+                let result = try await LXCatalogService.search(trimmed, platform: platform, limit: 100)
                 guard isCurrentRequest() else { return }
                 songs = result
                 rebuildMetadata(from: result)
                 await enrichArtistAvatars(generation: generation)
                 guard isCurrentRequest() else { return }
                 didLoad = true
+            } catch {
+                didFail = true
             }
         case .artists:
             if platform == .wy {
-                guard let result = try? await NeteaseAPI.search(trimmed, type: .artists, limit: 100),
-                      isCurrentRequest() else { return }
-                artists = (result.artists ?? []).map {
-                    ArtistResult(id: "wy-\($0.id)", name: $0.name,
-                                 neteaseID: $0.id, source: .wy, avatarURL: $0.picUrl)
+                do {
+                    let result = try await NeteaseAPI.search(trimmed, type: .artists, limit: 100)
+                    guard isCurrentRequest() else { return }
+                    artists = (result.artists ?? []).map {
+                        ArtistResult(id: "wy-\($0.id)", name: $0.name,
+                                     neteaseID: $0.id, source: .wy, avatarURL: $0.picUrl)
+                    }
+                    didLoad = true
+                } catch {
+                    didFail = true
                 }
-                didLoad = true
             } else {
-                guard let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100),
-                      isCurrentRequest() else { return }
+                do {
+                    let result = try await LXCatalogService.search(trimmed, platform: platform, limit: 100)
+                    guard isCurrentRequest() else { return }
+                    songs = result
+                    rebuildMetadata(from: songs)
+                    await enrichArtistAvatars(generation: generation)
+                    guard isCurrentRequest() else { return }
+                    didLoad = true
+                } catch {
+                    didFail = true
+                }
+            }
+        case .albums:
+            do {
+                let result = try await LXCatalogService.search(trimmed, platform: platform, limit: 100)
+                guard isCurrentRequest() else { return }
                 songs = result
                 rebuildMetadata(from: songs)
                 await enrichArtistAvatars(generation: generation)
                 guard isCurrentRequest() else { return }
                 didLoad = true
+            } catch {
+                didFail = true
             }
-        case .albums:
-            guard let result = try? await LXCatalogService.search(trimmed, platform: platform, limit: 100),
-                  isCurrentRequest() else { return }
-            songs = result
-            rebuildMetadata(from: songs)
-            await enrichArtistAvatars(generation: generation)
-            guard isCurrentRequest() else { return }
-            didLoad = true
         case .playlists:
-            if let result = try? await LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 100) {
+            do {
+                let result = try await LXCatalogService.searchSonglists(trimmed, platform: platform, limit: 100)
                 guard isCurrentRequest() else { return }
                 playlists = result
                 didLoad = true
+            } catch {
+                didFail = true
             }
         }
 
         if didLoad, isCurrentRequest() { loadedTabs.insert(tab) }
+        if didFail, isCurrentRequest(), !hasResults(for: tab) {
+            errorMessage = String(localized: "搜索服务暂时不可用，请稍后重试")
+        }
+    }
+
+    private func hasResults(for tab: Tab) -> Bool {
+        switch tab {
+        case .all:
+            return !songs.isEmpty || !artists.isEmpty || !albums.isEmpty || !playlists.isEmpty
+        case .songs:
+            return !songs.isEmpty
+        case .artists:
+            return !artists.isEmpty
+        case .albums:
+            return !albums.isEmpty
+        case .playlists:
+            return !playlists.isEmpty
+        }
     }
 
     private func rebuildMetadata(from tracks: [Track]) {
@@ -348,9 +399,11 @@ struct SearchView: View {
                     platformPicker
                     tabPicker
 
-                    if model.isLoading && currentEmpty {
+                    if !model.hasAttemptedSearch || (model.isLoading && currentEmpty) {
                         ProgressView()
                             .frame(maxWidth: .infinity, minHeight: 300)
+                    } else if let errorMessage = model.errorMessage, currentEmpty {
+                        searchErrorState(errorMessage)
                     } else {
                         tabContent
                     }
@@ -474,6 +527,26 @@ struct SearchView: View {
                 .padding(.horizontal, Theme.Layout.contentInset)
             }
         }
+    }
+
+    private func searchErrorState(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 34, weight: .medium))
+                .foregroundStyle(Theme.accent)
+            Text("搜索暂时不可用")
+                .font(.headline)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button("重新搜索") {
+                Task { await model.load(tab: model.tab, force: true) }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, minHeight: 300)
+        .padding(.horizontal, Theme.Layout.contentInset)
     }
 
     private var emptySearchPrompt: some View {

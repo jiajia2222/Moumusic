@@ -24,7 +24,13 @@ struct SettingsView: View {
     @State private var showKugouLogin = false
     @State private var showBilibiliLogin = false
 #endif
-    @State private var expandedSections = Set<String>()
+    // Keep the main controls visible on first launch. Every section remains
+    // collapsible, but opening the settings page with every group closed makes
+    // the app look empty and hides the controls users came here to change.
+    @State private var expandedSections: Set<String> = [
+        "audio", "accounts", "playback", "home", "sources",
+        "appearance", "player", "background", "lyrics"
+    ]
 
     var body: some View {
         Form {
@@ -41,13 +47,18 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                Label("重要：网易云 VIP 歌曲在自动模式下优先使用三方音源；官方接口如果只返回试听片段，会被拒绝播放，避免歌曲播放 30 秒后停止。", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+
 #if os(iOS)
                 HStack(spacing: 8) {
                     Image(systemName: account.isLoggedIn ? "checkmark.circle.fill" : "person.crop.circle.badge.xmark")
                         .foregroundStyle(account.isLoggedIn ? .green : .secondary)
                     Text(account.isLoggedIn
-                         ? "网易云官方账号已登录，可优先尝试账号音质"
-                         : "未登录网易云官方账号，自动模式将直接使用 LX 音源")
+                         ? "网易云账号已登录；对应歌曲可使用官方账号音源"
+                         : "未登录网易云账号，对应歌曲将使用 LX 音源")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -59,7 +70,7 @@ struct SettingsView: View {
                             .tag(quality)
                     }
                 }
-                Text("自动模式会先请求账号可用的官方音质；账号未登录、歌曲受限或官方接口无播放地址时，才回退到 LX 音源。最终显示以实际返回的音质为准。")
+                Text("自动模式先尝试已启用的 LX 音源；失败后才使用对应平台已登录账号的官方音源。最终显示以实际返回的音质为准。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -69,12 +80,12 @@ struct SettingsView: View {
                 NavigationLink(value: Destination.accountSync) {
                     Label("账号同步", systemImage: "person.crop.circle.badge.checkmark")
                 }
-                Text("登录只同步账号资料、每日推荐、播放记录和听歌时长，不会作为音源；歌曲仍由已导入的 LX 音源播放。")
+                Text("网易云、QQ 音乐和酷狗登录后，可在对应平台歌曲上使用官方账号音源；自动模式仍优先使用已启用的 LX 音源。哔哩哔哩当前用于账号同步和视频内容。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button { showQQMusicLogin = true } label: {
                     HStack {
-                        Label("QQ 音乐账号同步", systemImage: qqMusic.isLoggedIn
+                        Label("QQ 音乐账号播放与同步", systemImage: qqMusic.isLoggedIn
                               ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
                         Spacer()
                         Text(qqMusic.isLoggedIn ? (qqMusic.profileName ?? "已登录") : "未登录")
@@ -94,7 +105,7 @@ struct SettingsView: View {
 
                 Button { showKugouLogin = true } label: {
                     HStack {
-                        Label("酷狗音乐账号同步", systemImage: kugou.isLoggedIn
+                        Label("酷狗音乐账号播放与同步", systemImage: kugou.isLoggedIn
                               ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
                         Spacer()
                         Text(kugou.isLoggedIn ? (kugou.profileName ?? "已登录") : "未登录")
@@ -114,7 +125,7 @@ struct SettingsView: View {
 
                 Button { showBilibiliLogin = true } label: {
                     HStack {
-                        Label("哔哩哔哩账号同步", systemImage: bilibili.isLoggedIn
+                        Label("哔哩哔哩账号同步（仅资料）", systemImage: bilibili.isLoggedIn
                               ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
                         Spacer()
                         Text(bilibili.isLoggedIn ? (bilibili.profileName ?? "已登录") : "扫码登录")
@@ -132,7 +143,7 @@ struct SettingsView: View {
                     .frame(minHeight: 44)
                 }
 
-                Text("网易云、QQ、酷狗和哔哩哔哩只用于账号同步、推荐、歌单或播放记录，不会把账号当作第三方音源。汽水音乐已移除登录和播放，仅保留公开歌单导入；凭据仅保存在本机钥匙串。")
+                Text("网易云、QQ 音乐和酷狗支持对应平台歌曲的官方账号音源；哔哩哔哩用于账号资料、视频推荐和同步。汽水音乐已移除登录和播放，仅保留公开歌单导入；凭据仅保存在本机钥匙串。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -230,6 +241,7 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .frame(minHeight: 44)
+                        .disabled(backgroundStore.isImporting)
 
                         if backgroundStore.image != nil {
                             Button(role: .destructive) {
@@ -252,6 +264,14 @@ struct SettingsView: View {
 #endif
 
             SettingsDisclosureSection("歌词显示", isExpanded: sectionBinding("lyrics")) {
+                Picker("歌词样式", selection: $settings.lyricsDisplayStyle) {
+                    ForEach(LyricsDisplayStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                Text(settings.lyricsDisplayStyle.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
                 Toggle("逐字歌词（卡拉 OK）", isOn: $settings.verbatimLyrics)
                 Picker("日文歌词注音", selection: $settings.lyricsAnnotation) {
@@ -368,18 +388,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
 #if os(iOS)
         .scrollContentBackground(.hidden)
-        .background {
-            LinearGradient(
-                colors: [
-                    Color.primary.opacity(0.045),
-                    Theme.accent.opacity(0.035),
-                    Color.clear
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-        }
+        .background(Color.clear)
         .listRowBackground(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Material.thin)

@@ -7,7 +7,7 @@ struct QQMusicLoginSheet: View {
     @State private var isSigningIn = false
     @State private var errorMessage: String?
 #if os(iOS)
-    @State private var showWebLogin = false
+    @State private var showQRCodeLogin = false
 #endif
 
     var body: some View {
@@ -17,13 +17,13 @@ struct QQMusicLoginSheet: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("使用 QQ 音乐 Cookie 登录", systemImage: "person.badge.key.fill")
                             .font(.headline)
-                        Text("登录只用于同步账号资料、推荐与歌单，不会替代 LX 音源。Cookie 仅保存在本机钥匙串。")
+                        Text("扫码登录后，QQ 音乐歌曲可在官方账号模式下请求账号音源；自动模式仍优先使用 LX 音源。Cookie 仅保存在本机钥匙串。")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
 #if os(iOS)
-                        Button { showWebLogin = true } label: {
-                            Label("打开 QQ 音乐扫码登录", systemImage: "qrcode.viewfinder")
+                        Button { showQRCodeLogin = true } label: {
+                            Label("QQ 音乐扫码登录", systemImage: "qrcode.viewfinder")
                         }
                         .buttonStyle(.borderedProminent)
 #endif
@@ -69,10 +69,9 @@ struct QQMusicLoginSheet: View {
                 Button("知道了", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "请稍后重试") }
 #if os(iOS)
-            .sheet(isPresented: $showWebLogin) {
-                ProviderWebLoginSheet(provider: .qqMusic) { value in
-                    try await qqMusic.signIn(cookie: value)
-                }
+            .sheet(isPresented: $showQRCodeLogin) {
+                QQMusicQRCodeLoginSheet()
+                    .environmentObject(qqMusic)
             }
 #endif
         }
@@ -85,6 +84,7 @@ struct QQMusicLoginSheet: View {
                 try await qqMusic.signIn(cookie: cookie)
                 cookie = ""
                 isSigningIn = false
+                ToastCenter.shared.show("QQ 音乐账号登录成功")
                 dismiss()
             } catch {
                 isSigningIn = false

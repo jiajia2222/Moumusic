@@ -1,30 +1,31 @@
 #if os(iOS)
 import CoreImage.CIFilterBuiltins
 import SwiftUI
+import UIKit
 
-struct BilibiliLoginSheet: View {
+struct KugouQRCodeLoginSheet: View {
     private enum Phase: Equatable {
         case loading, waiting, scanned, expired, failed(String)
     }
 
-    @EnvironmentObject private var bilibili: BilibiliSessionStore
+    @EnvironmentObject private var kugou: KugouSessionStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var phase: Phase = .loading
     @State private var qrImage: UIImage?
     @State private var key: String?
+    @State private var sessionCookie = ""
     @State private var pollTask: Task<Void, Never>?
-    @State private var showWebLogin = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
-                    Label("哔哩哔哩扫码同步", systemImage: "play.rectangle.fill")
+                    Label("酷狗音乐扫码登录", systemImage: "qrcode.viewfinder")
                         .font(.title3.weight(.semibold))
                         .padding(.top, 12)
 
-                    Text("使用哔哩哔哩 App 扫码。这里只同步账号资料和公开信息，不会读取密码，也不会把 B 站账号当作音源。")
+                    Text("使用酷狗音乐 App 扫码确认。登录凭据只保存在本机钥匙串，账号音源仍按播放设置决定。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -33,15 +34,6 @@ struct BilibiliLoginSheet: View {
 
                     qrCard
                     statusView
-
-                    Button {
-                        showWebLogin = true
-                    } label: {
-                        Label("手机号 / 官方网页登录", systemImage: "person.badge.key")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    .padding(.horizontal, 20)
 
                     if phase == .expired || isFailed {
                         Button("重新获取二维码") { startLogin() }
@@ -52,7 +44,7 @@ struct BilibiliLoginSheet: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
             }
-            .navigationTitle("哔哩哔哩登录")
+            .navigationTitle("酷狗音乐登录")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -64,11 +56,6 @@ struct BilibiliLoginSheet: View {
             .onChange(of: scenePhase) { newPhase in
                 guard newPhase == .active, key != nil else { return }
                 startLogin(reusingKey: true)
-            }
-            .sheet(isPresented: $showWebLogin) {
-                ProviderWebLoginSheet(provider: .bilibili) { value in
-                    try await bilibili.signIn(cookie: value)
-                }
             }
         }
     }
@@ -102,23 +89,23 @@ struct BilibiliLoginSheet: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("哔哩哔哩扫码登录二维码")
-    }
-
-    private var isFailed: Bool {
-        if case .failed = phase { return true }
-        return false
+        .accessibilityLabel("酷狗音乐扫码登录二维码")
     }
 
     @ViewBuilder
     private var statusView: some View {
         switch phase {
         case .loading: Label("正在获取二维码…", systemImage: "arrow.triangle.2.circlepath")
-        case .waiting: Label("打开哔哩哔哩 App 扫一扫", systemImage: "qrcode.viewfinder")
+        case .waiting: Label("打开酷狗音乐 App 扫一扫", systemImage: "qrcode.viewfinder")
         case .scanned: Label("已扫码，等待手机确认…", systemImage: "iphone")
         case .expired: Label("二维码已过期", systemImage: "clock.badge.exclamationmark").foregroundStyle(Theme.accent)
         case .failed(let message): Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.accent)
         }
+    }
+
+    private var isFailed: Bool {
+        if case .failed = phase { return true }
+        return false
     }
 
     private func startLogin(reusingKey: Bool = false) {
@@ -127,13 +114,17 @@ struct BilibiliLoginSheet: View {
         pollTask = Task { @MainActor in
             do {
                 let activeKey: String
-                if reusingKey, let key {
+                let activeCookie: String
+                if reusingKey, let key, !sessionCookie.isEmpty {
                     activeKey = key
+                    activeCookie = sessionCookie
                     phase = .waiting
                 } else {
-                    let payload = try await BilibiliAPI.shared.qrCode()
+                    let payload = try await KugouAPI.shared.qrCode()
                     activeKey = payload.key
+                    activeCookie = payload.cookie
                     key = payload.key
+                    sessionCookie = payload.cookie
                     qrImage = Self.makeQRImage(from: payload.url)
                     phase = .waiting
                 }
@@ -142,13 +133,18 @@ struct BilibiliLoginSheet: View {
                 while !Task.isCancelled {
                     try await Task.sleep(for: .seconds(2.5))
                     do {
-                        switch try await BilibiliAPI.shared.poll(key: activeKey) {
+                        switch try await KugouAPI.shared.poll(qrcode: activeKey, cookie: activeCookie) {
                         case .waiting: phase = .waiting
                         case .scanned: phase = .scanned
-                        case .expired: phase = .expired; key = nil; pollTask = nil; return
+                        case .expired:
+                            phase = .expired
+                            key = nil
+                            sessionCookie = ""
+                            pollTask = nil
+                            return
                         case .success(let cookie):
-                            try await bilibili.signIn(cookie: cookie)
-                            ToastCenter.shared.show("哔哩哔哩账号同步成功")
+                            try await kugou.signIn(cookie: cookie)
+                            ToastCenter.shared.show("酷狗音乐账号登录成功")
                             pollTask = nil
                             dismiss()
                             return
@@ -174,7 +170,8 @@ struct BilibiliLoginSheet: View {
         filter.correctionLevel = "M"
         guard let output = filter.outputImage else { return nil }
         let scaled = output.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
-        guard let cgImage = CIContext().createCGImage(scaled, from: scaled.extent) else { return nil }
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
         return UIImage(cgImage: cgImage)
     }
 }

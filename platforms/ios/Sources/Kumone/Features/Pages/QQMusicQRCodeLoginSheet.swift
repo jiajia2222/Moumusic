@@ -1,58 +1,50 @@
 #if os(iOS)
-import CoreImage.CIFilterBuiltins
 import SwiftUI
+import UIKit
 
-struct BilibiliLoginSheet: View {
+struct QQMusicQRCodeLoginSheet: View {
     private enum Phase: Equatable {
-        case loading, waiting, scanned, expired, failed(String)
+        case loading
+        case waiting
+        case scanned
+        case expired
+        case failed(String)
     }
 
-    @EnvironmentObject private var bilibili: BilibiliSessionStore
+    @EnvironmentObject private var qqMusic: QQMusicSessionStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var phase: Phase = .loading
     @State private var qrImage: UIImage?
-    @State private var key: String?
+    @State private var qrsig: String?
     @State private var pollTask: Task<Void, Never>?
-    @State private var showWebLogin = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    Label("哔哩哔哩扫码同步", systemImage: "play.rectangle.fill")
-                        .font(.title3.weight(.semibold))
-                        .padding(.top, 12)
+            VStack(spacing: 18) {
+                Text("使用 QQ 音乐 App 扫码登录")
+                    .font(.title3.weight(.semibold))
+                    .padding(.top, 16)
 
-                    Text("使用哔哩哔哩 App 扫码。这里只同步账号资料和公开信息，不会读取密码，也不会把 B 站账号当作音源。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 20)
+                Text("登录只用于同步 QQ 音乐账号资料与歌单。Cookie 仅保存在本机钥匙串，不会显示给网页或上传服务器。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 24)
 
-                    qrCard
-                    statusView
+                qrCard
+                statusView
 
-                    Button {
-                        showWebLogin = true
-                    } label: {
-                        Label("手机号 / 官方网页登录", systemImage: "person.badge.key")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    .padding(.horizontal, 20)
-
-                    if phase == .expired || isFailed {
-                        Button("重新获取二维码") { startLogin() }
-                            .buttonStyle(.borderedProminent)
-                            .tint(Theme.accent)
-                    }
+                if phase == .expired || isFailed {
+                    Button("重新获取二维码") { startLogin() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Theme.accent)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
             }
-            .navigationTitle("哔哩哔哩登录")
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.vertical, 12)
+            .navigationTitle("QQ 音乐扫码登录")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -62,13 +54,8 @@ struct BilibiliLoginSheet: View {
             .onAppear { startLogin() }
             .onDisappear { pollTask?.cancel() }
             .onChange(of: scenePhase) { newPhase in
-                guard newPhase == .active, key != nil else { return }
-                startLogin(reusingKey: true)
-            }
-            .sheet(isPresented: $showWebLogin) {
-                ProviderWebLoginSheet(provider: .bilibili) { value in
-                    try await bilibili.signIn(cookie: value)
-                }
+                guard newPhase == .active, qrsig != nil else { return }
+                startLogin(reusingCode: true)
             }
         }
     }
@@ -94,7 +81,7 @@ struct BilibiliLoginSheet: View {
                     Image(systemName: phase == .expired ? "arrow.clockwise.circle.fill" : "checkmark.circle.fill")
                         .font(.system(size: 34))
                         .foregroundStyle(phase == .expired ? Theme.accent : .green)
-                    Text(phase == .expired ? "二维码已失效" : "已扫码，请在手机确认")
+                    Text(phase == .expired ? "二维码已失效" : "已扫码，请在手机上确认")
                         .font(.subheadline.weight(.semibold))
                 }
                 .padding(16)
@@ -102,7 +89,7 @@ struct BilibiliLoginSheet: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("哔哩哔哩扫码登录二维码")
+        .accessibilityLabel("QQ 音乐扫码登录二维码")
     }
 
     private var isFailed: Bool {
@@ -114,27 +101,27 @@ struct BilibiliLoginSheet: View {
     private var statusView: some View {
         switch phase {
         case .loading: Label("正在获取二维码…", systemImage: "arrow.triangle.2.circlepath")
-        case .waiting: Label("打开哔哩哔哩 App 扫一扫", systemImage: "qrcode.viewfinder")
+        case .waiting: Label("打开 QQ 音乐 App 扫一扫", systemImage: "qrcode.viewfinder")
         case .scanned: Label("已扫码，等待手机确认…", systemImage: "iphone")
         case .expired: Label("二维码已过期", systemImage: "clock.badge.exclamationmark").foregroundStyle(Theme.accent)
         case .failed(let message): Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.accent)
         }
     }
 
-    private func startLogin(reusingKey: Bool = false) {
+    private func startLogin(reusingCode: Bool = false) {
         pollTask?.cancel()
         phase = .loading
         pollTask = Task { @MainActor in
             do {
-                let activeKey: String
-                if reusingKey, let key {
-                    activeKey = key
+                let activeQRSig: String
+                if reusingCode, let qrsig {
+                    activeQRSig = qrsig
                     phase = .waiting
                 } else {
-                    let payload = try await BilibiliAPI.shared.qrCode()
-                    activeKey = payload.key
-                    key = payload.key
-                    qrImage = Self.makeQRImage(from: payload.url)
+                    let payload = try await QQMusicAPI.shared.qrCode()
+                    activeQRSig = payload.qrsig
+                    qrsig = payload.qrsig
+                    qrImage = UIImage(data: payload.imageData)
                     phase = .waiting
                 }
 
@@ -142,13 +129,13 @@ struct BilibiliLoginSheet: View {
                 while !Task.isCancelled {
                     try await Task.sleep(for: .seconds(2.5))
                     do {
-                        switch try await BilibiliAPI.shared.poll(key: activeKey) {
+                        switch try await QQMusicAPI.shared.poll(qrsig: activeQRSig) {
                         case .waiting: phase = .waiting
                         case .scanned: phase = .scanned
-                        case .expired: phase = .expired; key = nil; pollTask = nil; return
+                        case .expired: phase = .expired; pollTask = nil; return
                         case .success(let cookie):
-                            try await bilibili.signIn(cookie: cookie)
-                            ToastCenter.shared.show("哔哩哔哩账号同步成功")
+                            try await qqMusic.signIn(cookie: cookie)
+                            ToastCenter.shared.show("QQ 音乐账号同步成功")
                             pollTask = nil
                             dismiss()
                             return
@@ -166,16 +153,6 @@ struct BilibiliLoginSheet: View {
                 }
             }
         }
-    }
-
-    private static func makeQRImage(from value: String) -> UIImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(value.utf8)
-        filter.correctionLevel = "M"
-        guard let output = filter.outputImage else { return nil }
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
-        guard let cgImage = CIContext().createCGImage(scaled, from: scaled.extent) else { return nil }
-        return UIImage(cgImage: cgImage)
     }
 }
 #endif

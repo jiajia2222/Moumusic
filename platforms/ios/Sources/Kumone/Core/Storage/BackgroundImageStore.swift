@@ -1,7 +1,9 @@
 #if os(iOS)
 import PhotosUI
+import CoreTransferable
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// Owns the user-selected wallpaper used by the iOS shell and now-playing
 /// page. The image is normalized before it is stored so a camera original
@@ -12,6 +14,7 @@ final class BackgroundImageStore: ObservableObject {
 
     @Published var photoSelection: PhotosPickerItem?
     @Published private(set) var image: UIImage?
+    @Published private(set) var isImporting = false
     @Published var blurRadius: Double {
         didSet { UserDefaults.standard.set(blurRadius, forKey: Keys.blurRadius) }
     }
@@ -42,10 +45,13 @@ final class BackgroundImageStore: ObservableObject {
 
     func importSelection() async {
         guard let selection = photoSelection else { return }
+        guard !isImporting else { return }
+        isImporting = true
         defer { photoSelection = nil }
+        defer { isImporting = false }
 
         do {
-            guard let data = try await selection.loadTransferable(type: Data.self),
+            guard let data = try await loadImageData(from: selection),
                   save(data: data) else {
                 ToastCenter.shared.show("无法读取图片，请重新选择")
                 return
@@ -59,6 +65,21 @@ final class BackgroundImageStore: ObservableObject {
         } catch {
             ToastCenter.shared.show("背景图片读取失败，请检查照片权限")
         }
+    }
+
+    private func loadImageData(from selection: PhotosPickerItem) async throws -> Data? {
+        // Some PhotosPicker providers do not expose the selected item as
+        // public.data. Requesting an image representation first also covers
+        // iCloud and HEIC items that previously made the picker appear idle.
+        do {
+            if let image = try await selection.loadTransferable(type: ImageTransfer.self) {
+                return image.data
+            }
+        } catch {
+            // Fall through to the generic representation below.
+        }
+        // Keep the generic Data path as a compatibility fallback.
+        return try await selection.loadTransferable(type: Data.self)
     }
 
     @discardableResult
@@ -135,6 +156,16 @@ final class BackgroundImageStore: ObservableObject {
     }
 }
 
+private struct ImageTransfer: Transferable {
+    let data: Data
+
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(importedContentType: .image) { data in
+            ImageTransfer(data: data)
+        }
+    }
+}
+
 /// Shared wallpaper renderer. It deliberately keeps the artwork dimmed so
 /// text, lyrics and the native iOS glass controls remain readable.
 struct MoumusicWallpaperView: View {
@@ -148,11 +179,13 @@ struct MoumusicWallpaperView: View {
                 .resizable()
                 .scaledToFill()
                 .frame(width: proxy.size.width, height: proxy.size.height)
-                .clipped()
                 .blur(radius: blurRadius)
                 .overlay(Color.black.opacity(dimAmount))
+                .clipped()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
+        .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 }

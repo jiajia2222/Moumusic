@@ -456,6 +456,16 @@ enum NeteaseAPI {
 
     struct CommentUser: Decodable {
         let nickname: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case nickname, name
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            nickname = (try? container.decode(String.self, forKey: .nickname))
+                ?? (try? container.decode(String.self, forKey: .name))
+        }
     }
 
     struct CommentItem: Decodable, Identifiable {
@@ -466,22 +476,47 @@ enum NeteaseAPI {
         let time: Int64?
 
         private enum CodingKeys: String, CodingKey {
-            case id, commentId, content, likedCount, user, time
+            case id, commentId, content, likedCount, user, time, timestamp, timeStr
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             // The public resource endpoint calls this field `commentId`,
             // while older encrypted responses used `id`.
-            if let commentID = try? container.decode(Int.self, forKey: .commentId) {
+            func decodeInt(_ key: CodingKeys) -> Int? {
+                if let value = try? container.decode(Int.self, forKey: key) {
+                    return value
+                }
+                if let value = try? container.decode(String.self, forKey: key) {
+                    return Int(value)
+                }
+                return nil
+            }
+
+            func decodeInt64(_ key: CodingKeys) -> Int64? {
+                if let value = try? container.decode(Int64.self, forKey: key) {
+                    return value
+                }
+                if let value = try? container.decode(String.self, forKey: key) {
+                    return Int64(value)
+                }
+                return nil
+            }
+
+            if let commentID = decodeInt(.commentId) {
+                id = commentID
+            } else if let commentID = decodeInt(.id) {
                 id = commentID
             } else {
-                id = try container.decode(Int.self, forKey: .id)
+                throw DecodingError.dataCorrupted(.init(
+                    codingPath: container.codingPath,
+                    debugDescription: "Comment response has no numeric id"
+                ))
             }
             content = (try? container.decode(String.self, forKey: .content)) ?? ""
-            likedCount = (try? container.decode(Int.self, forKey: .likedCount)) ?? 0
+            likedCount = decodeInt(.likedCount) ?? 0
             user = try? container.decode(CommentUser.self, forKey: .user)
-            time = try? container.decode(Int64.self, forKey: .time)
+            time = decodeInt64(.time) ?? decodeInt64(.timestamp) ?? decodeInt64(.timeStr)
         }
     }
 
@@ -494,7 +529,26 @@ enum NeteaseAPI {
         private struct CommentData: Decodable {
             let comments: [CommentItem]?
             let hotComments: [CommentItem]?
+            let topComments: [CommentItem]?
             let total: Int?
+
+            private enum CodingKeys: String, CodingKey {
+                case comments, hotComments, topComments, total
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                comments = try? container.decode([CommentItem].self, forKey: .comments)
+                hotComments = try? container.decode([CommentItem].self, forKey: .hotComments)
+                topComments = try? container.decode([CommentItem].self, forKey: .topComments)
+                if let value = try? container.decode(Int.self, forKey: .total) {
+                    total = value
+                } else if let value = try? container.decode(String.self, forKey: .total) {
+                    total = Int(value)
+                } else {
+                    total = nil
+                }
+            }
         }
 
         init(from decoder: Decoder) throws {
@@ -511,8 +565,14 @@ enum NeteaseAPI {
             }
             comments = unique(direct + (data?.comments ?? []))
             hotComments = unique(directHot + (data?.hotComments ?? []))
-            topComments = unique(directTop)
-            total = (try? container.decode(Int.self, forKey: .total)) ?? data?.total
+            topComments = unique(directTop + (data?.topComments ?? []))
+            if let value = try? container.decode(Int.self, forKey: .total) {
+                total = value
+            } else if let value = try? container.decode(String.self, forKey: .total) {
+                total = Int(value) ?? data?.total
+            } else {
+                total = data?.total
+            }
         }
 
         private enum CodingKeys: String, CodingKey {

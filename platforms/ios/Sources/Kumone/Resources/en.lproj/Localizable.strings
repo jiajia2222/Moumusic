@@ -300,6 +300,19 @@
 "未检测到 TrollStore：检查更新会打开发布页，需用侧载工具重新安装（登录状态与设置保留）" = "No TrollStore: Check for Updates opens the release page; reinstall with your sideloading tool (sign-in and settings are kept)";
 "可能被网易云风控拦截而不可用，推荐使用扫码登录" = "May be blocked by NetEase risk control and unavailable — QR sign-in is recommended";
 
+"标准歌词" = "Standard Lyrics";
+"Apple Music / AMLL" = "Apple Music / AMLL";
+"保持当前歌词布局与逐字高亮" = "Keep the current lyric layout and word highlighting";
+"Apple Music 风格聚焦歌词；长按歌词区域可快速切换" = "Apple Music-style focused lyrics; long-press the lyric area to switch";
+"长按歌曲信息切换歌词样式" = "Long-press the track header to switch lyric styles";
+"正在连接在线服务" = "Connecting to online services";
+"正在预加载在线内容" = "Preloading online content";
+"在线服务暂时不可用，稍后可重试" = "Online services are unavailable for now; you can retry later";
+"在线内容已开始加载" = "Online content has started loading";
+"已进入应用，在线内容稍后重试" = "The app is ready; online content will retry shortly";
+"正在加载在线内容" = "Loading online content";
+"Moumusic 正在启动并预加载在线内容" = "Moumusic is starting and preloading online content";
+
 /* Dock menu */
 "不循环" = "Off";
 "列表循环" = "Repeat All";

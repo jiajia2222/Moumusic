@@ -124,8 +124,8 @@ enum AudioQuality: String, CaseIterable, Identifiable {
 }
 
 /// Selects which authorized playback route is attempted first on iOS.
-/// `automatic` is the user-friendly mode: use the logged-in official account
-/// when it can return a playable URL, then fall back to enabled LX sources.
+/// `automatic` is the safe default: prefer enabled LX sources, then use the
+/// logged-in NetEase account only when no full third-party URL is available.
 enum PlaybackSourceMode: String, CaseIterable, Identifiable {
     case automatic
     case official
@@ -135,8 +135,8 @@ enum PlaybackSourceMode: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .automatic: return String(localized: "自动")
-        case .official: return String(localized: "官方账号")
+        case .automatic: return String(localized: "自动（三方优先）")
+        case .official: return String(localized: "账号音源（官方）")
         case .thirdParty: return String(localized: "第三方音源")
         }
     }
@@ -144,9 +144,9 @@ enum PlaybackSourceMode: String, CaseIterable, Identifiable {
     var explanation: String {
         switch self {
         case .automatic:
-            return String(localized: "优先使用已登录的官方账号音质，失败后回退到已启用的 LX 音源")
+            return String(localized: "优先使用已启用的 LX 音源；失败后才尝试已登录账号，避免 VIP 试听片段截断")
         case .official:
-            return String(localized: "只使用已登录账号的官方授权播放；未登录或不可用时不会偷偷换源")
+            return String(localized: "网易云、QQ 音乐、酷狗按对应平台使用已登录账号的官方播放；未登录或不可用时不会偷偷换源")
         case .thirdParty:
             return String(localized: "只使用已导入并启用的 LX 音源")
         }
@@ -193,12 +193,41 @@ enum LyricsAnnotation: String, CaseIterable, Identifiable {
     }
 }
 
+/// Controls how synced lyric lines are rendered. The AMLL option follows the
+/// Apple Music-style presentation: larger focused lines, softer surrounding
+/// lines, and a live word-timed fill when the source provides word timings.
+enum LyricsDisplayStyle: String, CaseIterable, Identifiable {
+    case standard
+    case amll
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .standard: return String(localized: "标准歌词")
+        case .amll: return String(localized: "Apple Music / AMLL")
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .standard: return String(localized: "保持当前歌词布局与逐字高亮")
+        case .amll: return String(localized: "Apple Music 风格聚焦歌词；长按歌词区域可快速切换")
+        }
+    }
+
+    mutating func toggle() {
+        self = self == .standard ? .amll : .standard
+    }
+}
+
 #if os(iOS)
 enum NowPlayingMode: String, CaseIterable, Identifiable {
     case classic
     case immersive
     case minimal
     case lyrics
+    case amll
     case vinyl
 
     var id: String { rawValue }
@@ -209,6 +238,7 @@ enum NowPlayingMode: String, CaseIterable, Identifiable {
         case .immersive: return String(localized: "沉浸模式")
         case .minimal: return String(localized: "简洁模式")
         case .lyrics: return String(localized: "歌词模式")
+        case .amll: return String(localized: "Apple Music / AMLL")
         case .vinyl: return String(localized: "唱片模式")
         }
     }
@@ -246,6 +276,7 @@ final class SettingsManager: ObservableObject {
         static let showTranslation = "settings.showLyricsTranslation"
         static let showRomaji = "settings.showLyricsRomaji"
         static let lyricsAnnotation = "settings.lyricsAnnotation"
+        static let lyricsDisplayStyle = "settings.lyricsDisplayStyle"
         static let verbatimLyrics = "settings.verbatimLyrics"
         static let lyricsOffset = "settings.lyricsOffset"
         static let volume = "settings.volume"
@@ -299,6 +330,10 @@ final class SettingsManager: ObservableObject {
 
     @Published var lyricsAnnotation: LyricsAnnotation {
         didSet { UserDefaults.standard.set(lyricsAnnotation.rawValue, forKey: Keys.lyricsAnnotation) }
+    }
+
+    @Published var lyricsDisplayStyle: LyricsDisplayStyle {
+        didSet { UserDefaults.standard.set(lyricsDisplayStyle.rawValue, forKey: Keys.lyricsDisplayStyle) }
     }
 
     /// Karaoke-style word-by-word highlighting when the song has verbatim
@@ -359,6 +394,8 @@ final class SettingsManager: ObservableObject {
         let legacyRomaji = defaults.object(forKey: Keys.showRomaji) as? Bool ?? false
         lyricsAnnotation = defaults.string(forKey: Keys.lyricsAnnotation)
             .flatMap(LyricsAnnotation.init) ?? (legacyRomaji ? .romaji : .off)
+        lyricsDisplayStyle = defaults.string(forKey: Keys.lyricsDisplayStyle)
+            .flatMap(LyricsDisplayStyle.init) ?? .standard
         verbatimLyrics = defaults.object(forKey: Keys.verbatimLyrics) as? Bool ?? true
         lyricsOffset = defaults.object(forKey: Keys.lyricsOffset) as? Double ?? 0
         enableUnblock = defaults.object(forKey: Keys.unblock) as? Bool ?? false

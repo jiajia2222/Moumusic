@@ -7,7 +7,7 @@ struct KugouLoginSheet: View {
     @State private var isSigningIn = false
     @State private var errorMessage: String?
 #if os(iOS)
-    @State private var showWebLogin = false
+    @State private var showQRCodeLogin = false
 #endif
 
     var body: some View {
@@ -17,13 +17,13 @@ struct KugouLoginSheet: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("使用酷狗音乐 Cookie 登录", systemImage: "person.badge.key.fill")
                             .font(.headline)
-                        Text("登录只用于同步账号资料、推荐与歌单，不会替代 LX 音源。Cookie 仅保存在本机钥匙串。")
+                        Text("登录后，酷狗歌曲可在官方账号模式下使用账号音源；自动模式仍优先使用已启用的 LX 音源，失败后才回退到酷狗官方账号接口。Cookie 仅保存在本机钥匙串。")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
 #if os(iOS)
-                        Button { showWebLogin = true } label: {
-                            Label("打开酷狗音乐扫码登录", systemImage: "qrcode.viewfinder")
+                        Button { showQRCodeLogin = true } label: {
+                            Label("酷狗音乐扫码登录", systemImage: "qrcode.viewfinder")
                         }
                         .buttonStyle(.borderedProminent)
 #endif
@@ -69,10 +69,9 @@ struct KugouLoginSheet: View {
                 Button("知道了", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "请稍后重试") }
 #if os(iOS)
-            .sheet(isPresented: $showWebLogin) {
-                ProviderWebLoginSheet(provider: .kugou) { value in
-                    try await kugou.signIn(cookie: value)
-                }
+            .sheet(isPresented: $showQRCodeLogin) {
+                KugouQRCodeLoginSheet()
+                    .environmentObject(kugou)
             }
 #endif
         }
@@ -85,6 +84,7 @@ struct KugouLoginSheet: View {
                 try await kugou.signIn(cookie: cookie)
                 cookie = ""
                 isSigningIn = false
+                ToastCenter.shared.show("酷狗音乐账号登录成功")
                 dismiss()
             } catch {
                 isSigningIn = false

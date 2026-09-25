@@ -23,7 +23,8 @@ struct SongCommentsSheet: View {
 
     private var visibleComments: [DisplayComment] {
         let selected = sort == .hot ? hotComments : latestComments
-        return selected.isEmpty ? latestComments : selected
+        if !selected.isEmpty { return selected }
+        return sort == .hot ? latestComments : hotComments
     }
 
     var body: some View {
@@ -146,7 +147,7 @@ struct SongCommentsSheet: View {
             if !sourceIsNetease, let response = try? await LXCommentsService.comments(for: track) {
                 hotComments = uniqueComments(response.hot.map(DisplayComment.init))
                 latestComments = uniqueComments(response.latest.map(DisplayComment.init))
-                metadataNotice = "网易云公开评论暂不可用，已回退到 (LXCatalogPlatform.displayName(for: source))。"
+                metadataNotice = "网易云公开评论暂不可用，已回退到 \(LXCatalogPlatform.displayName(for: source))。"
                 isLoading = false
                 return
             }
