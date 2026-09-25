@@ -15,6 +15,7 @@ struct BilibiliLoginSheet: View {
     @State private var key: String?
     @State private var pollTask: Task<Void, Never>?
     @State private var showWebLogin = false
+    @State private var didStartLogin = false
 
     var body: some View {
         NavigationStack {
@@ -24,7 +25,7 @@ struct BilibiliLoginSheet: View {
                         .font(.title3.weight(.semibold))
                         .padding(.top, 12)
 
-                    Text("使用哔哩哔哩 App 扫码。这里只同步账号资料和公开信息，不会读取密码，也不会把 B 站账号当作音源。")
+                    Text("使用哔哩哔哩 App 扫码。登录成功后会验证并保存本机钥匙串会话；不会读取密码，也不会重复要求你登录。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -59,15 +60,34 @@ struct BilibiliLoginSheet: View {
                     Button("取消") { dismiss() }
                 }
             }
-            .onAppear { startLogin() }
+            .onAppear {
+                if bilibili.isLoggedIn {
+                    dismiss()
+                } else if !didStartLogin {
+                    didStartLogin = true
+                    startLogin()
+                }
+            }
             .onDisappear { pollTask?.cancel() }
             .onChange(of: scenePhase) { newPhase in
-                guard newPhase == .active, key != nil else { return }
+                guard !bilibili.isLoggedIn, newPhase == .active, key != nil else { return }
                 startLogin(reusingKey: true)
+            }
+            .onChange(of: bilibili.isLoggedIn) { loggedIn in
+                guard loggedIn else { return }
+                pollTask?.cancel()
+                pollTask = nil
+                dismiss()
             }
             .sheet(isPresented: $showWebLogin) {
                 ProviderWebLoginSheet(provider: .bilibili) { value in
                     try await bilibili.signIn(cookie: value)
+                    await MainActor.run {
+                        pollTask?.cancel()
+                        pollTask = nil
+                        showWebLogin = false
+                        ToastCenter.shared.show("哔哩哔哩账号同步成功")
+                    }
                 }
             }
         }
@@ -122,6 +142,10 @@ struct BilibiliLoginSheet: View {
     }
 
     private func startLogin(reusingKey: Bool = false) {
+        guard !bilibili.isLoggedIn else {
+            dismiss()
+            return
+        }
         pollTask?.cancel()
         phase = .loading
         if !reusingKey {

@@ -383,9 +383,19 @@ final class SearchViewModel: ObservableObject {
 }
 
 struct SearchView: View {
+    private enum SearchScope: Hashable {
+        case music
+        case bilibili
+    }
+
     @StateObject private var model: SearchViewModel
     @StateObject private var history = SearchHistoryStore.shared
     @State private var searchText: String = ""
+    @State private var scope: SearchScope = .music
+    @EnvironmentObject private var settings: SettingsManager
+#if os(iOS)
+    @EnvironmentObject private var bilibili: BilibiliSessionStore
+#endif
 
     init(query: String) {
         _model = StateObject(wrappedValue: SearchViewModel(query: query))
@@ -397,16 +407,25 @@ struct SearchView: View {
             VStack(alignment: .leading, spacing: 20) {
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     platformPicker
-                    tabPicker
-
-                    if !model.hasAttemptedSearch || (model.isLoading && currentEmpty) {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, minHeight: 300)
-                    } else if let errorMessage = model.errorMessage, currentEmpty {
-                        searchErrorState(errorMessage)
+#if os(iOS)
+                    if scope == .bilibili {
+                        BilibiliSearchResults(query: searchText)
+                            .environmentObject(bilibili)
                     } else {
-                        tabContent
+#endif
+                        tabPicker
+
+                        if !model.hasAttemptedSearch || (model.isLoading && currentEmpty) {
+                            ProgressView()
+                                .frame(maxWidth: .infinity, minHeight: 300)
+                        } else if let errorMessage = model.errorMessage, currentEmpty {
+                            searchErrorState(errorMessage)
+                        } else {
+                            tabContent
+                        }
+#if os(iOS)
                     }
+#endif
                 } else {
                     emptySearchPrompt
                 }
@@ -425,12 +444,13 @@ struct SearchView: View {
         #endif
         .onChange(of: searchText) { newValue in
             model.setQuery(newValue)
-            #if os(iOS)
+#if os(iOS)
             // Keep search responsive while allowing Chinese/third-party IMEs
             // to finish composing before the request is sent.
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(400))
                 guard searchText == newValue else { return }
+                guard scope == .music else { return }
                 if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     await model.loadHotKeywords()
                 } else {
@@ -440,7 +460,8 @@ struct SearchView: View {
             #endif
         }
         .navigationTitle(searchText.isEmpty ? "搜索" : searchText)
-        .task(id: "\(model.tab.rawValue)-\(model.platform.rawValue)-\(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)") {
+        .task(id: "\(scope == .music)-\(model.tab.rawValue)-\(model.platform.rawValue)-\(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)") {
+            guard scope == .music else { return }
             if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 await model.loadHotKeywords()
             } else {
@@ -458,6 +479,7 @@ struct SearchView: View {
         searchText = query
         resignSearchInput()
         history.add(query)
+        guard scope == .music else { return }
         model.setQuery(query)
         Task { await model.load(tab: model.tab, force: true) }
     }
@@ -489,7 +511,7 @@ struct SearchView: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(model.platform.displayName)
+                Text(scope == .bilibili ? "哔哩哔哩视频" : model.platform.displayName)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Theme.accent)
             }
@@ -497,8 +519,32 @@ struct SearchView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
+#if os(iOS)
+                    if settings.bilibiliVideoEnabled {
+                        Button {
+                            scope = .bilibili
+                            resignSearchInput()
+                        } label: {
+                            HStack(spacing: 5) {
+                                if scope == .bilibili {
+                                    Image(systemName: "checkmark")
+                                        .font(.caption2.weight(.bold))
+                                }
+                                Text("哔哩哔哩视频")
+                            }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(scope == .bilibili ? .white : .primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(scope == .bilibili ? Theme.accent : Color.secondary.opacity(0.12), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .frame(minHeight: 44)
+                    }
+#endif
                     ForEach(LXCatalogPlatform.catalogueCases) { platform in
                         Button {
+                            scope = .music
                             model.setPlatform(platform)
                             resignSearchInput()
                         } label: {
@@ -817,6 +863,82 @@ struct SearchView: View {
         }
     }
 }
+
+#if os(iOS)
+private struct BilibiliSearchResults: View {
+    let query: String
+    @EnvironmentObject private var bilibili: BilibiliSessionStore
+    @EnvironmentObject private var settings: SettingsManager
+    @State private var videos: [BilibiliAPI.Video] = []
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+    @State private var selectedVideo: BilibiliAPI.Video?
+
+    private var normalizedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("正在搜索哔哩哔哩视频")
+                    .frame(maxWidth: .infinity, minHeight: 300)
+            } else if let errorMessage, videos.isEmpty {
+                VStack(spacing: 12) {
+                    EmptyStateView(icon: "play.rectangle.badge.exclamationmark", title: "B 站搜索暂时不可用")
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("重新搜索") { Task { await load() } }
+                        .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: .infinity, minHeight: 300)
+                .padding(.horizontal, Theme.Layout.contentInset)
+            } else if videos.isEmpty {
+                EmptyStateView(icon: "play.rectangle", title: "没有找到相关视频")
+                    .frame(maxWidth: .infinity, minHeight: 300)
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 18) {
+                    ForEach(videos) { video in
+                        Button { selectedVideo = video } label: {
+                            BilibiliVideoCard(video: video)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(minHeight: 44)
+                    }
+                }
+                .padding(.horizontal, Theme.Layout.contentInset)
+            }
+        }
+        .task(id: normalizedQuery) { await load() }
+        .sheet(item: $selectedVideo) { video in
+            NavigationStack {
+                BilibiliVideoDetailView(video: video)
+                    .environmentObject(bilibili)
+                    .environmentObject(settings)
+            }
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        guard !normalizedQuery.isEmpty else { return }
+        isLoading = true
+        errorMessage = nil
+        do {
+            videos = try await BilibiliAPI.shared.searchVideos(
+                keyword: normalizedQuery,
+                cookie: bilibili.cookie
+            ).videos
+        } catch {
+            videos = []
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+}
+#endif
 
 private struct SearchSkeletonRow: View {
     var body: some View {

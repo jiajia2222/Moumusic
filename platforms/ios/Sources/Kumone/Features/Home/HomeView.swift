@@ -337,7 +337,7 @@ struct HomeView: View {
                 communityAnnouncement
 
 #if os(iOS)
-                if settings.bilibiliContentEnabled {
+                if settings.bilibiliVideoEnabled {
                     bilibiliEntryCard
                 }
 #endif
@@ -466,38 +466,31 @@ struct HomeView: View {
         Button {
             showBilibiliCenter = true
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Image(systemName: "play.rectangle.fill")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
-                    .background(Color(red: 0.08, green: 0.62, blue: 0.86), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("哔哩哔哩视频中心")
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text("推荐 · 分区 · 排行榜 · 听视频 / 看视频")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(Color(red: 0.08, green: 0.62, blue: 0.86), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                Text("哔哩哔哩")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.thinMaterial, in: Capsule())
             .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                Capsule()
                     .strokeBorder(Color(red: 0.08, green: 0.62, blue: 0.86).opacity(0.28), lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
         .frame(minHeight: 44)
         .padding(.horizontal, Theme.Layout.contentInset)
+        .accessibilityLabel("打开哔哩哔哩视频中心")
     }
 #endif
 

@@ -126,18 +126,30 @@ struct SettingsView: View {
                     .frame(minHeight: 44)
                 }
 
-                Button { showBilibiliLogin = true } label: {
+                if bilibili.isLoggedIn {
                     HStack {
-                        Label("哔哩哔哩账号同步（仅资料）", systemImage: bilibili.isLoggedIn
-                              ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
+                        Label("哔哩哔哩账号已同步", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
                         Spacer()
-                        Text(bilibili.isLoggedIn ? (bilibili.profileName ?? "已登录") : "扫码登录")
+                        Text(bilibili.profileName ?? "已登录")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
+                    .frame(minHeight: 44)
+                } else {
+                    Button { showBilibiliLogin = true } label: {
+                        HStack {
+                            Label("哔哩哔哩账号同步", systemImage: "person.crop.circle.badge.plus")
+                            Spacer()
+                            Text("扫码或网页登录")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .frame(minHeight: 44)
                 }
-                .frame(minHeight: 44)
 
                 if bilibili.isLoggedIn {
                     Button(role: .destructive) { bilibili.signOut() } label: {
@@ -146,7 +158,7 @@ struct SettingsView: View {
                     .frame(minHeight: 44)
                 }
 
-                Text("网易云、QQ 音乐和酷狗支持对应平台歌曲的官方账号音源；哔哩哔哩用于账号资料、视频推荐和同步。汽水音乐已移除登录和播放，仅保留公开歌单导入；凭据仅保存在本机钥匙串。")
+                Text("网易云、QQ 音乐和酷狗支持对应平台歌曲的官方账号音源；哔哩哔哩登录仅用于资料同步和视频服务。登录成功后会保留本机钥匙串会话，不会重复要求登录。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -182,8 +194,9 @@ struct SettingsView: View {
             }
 
             SettingsDisclosureSection("首页推荐", isExpanded: sectionBinding("home")) {
-                Toggle("哔哩哔哩内容中心", isOn: $settings.bilibiliContentEnabled)
-                Text("开启后，首页和发现页显示独立的哔哩哔哩入口，可浏览推荐、分区、排行榜并播放视频或仅听音频。关闭后不会请求哔哩哔哩内容接口。")
+                Toggle("看哔哩哔哩", isOn: $settings.bilibiliVideoEnabled)
+                Toggle("听哔哩哔哩", isOn: $settings.bilibiliAudioEnabled)
+                Text("“看”控制首页、发现和搜索页的 B 站视频入口；“听”控制视频详情页的仅听音频模式和字幕选择。两个开关相互独立。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -418,7 +431,15 @@ struct SettingsView: View {
 #if os(macOS)
         .frame(width: 440, height: 520)
 #endif
-        .task { updateCacheSize() }
+        .task {
+            updateCacheSize()
+#if os(iOS)
+            // A stale Keychain cookie must not make the login row look
+            // permanently authenticated and prevent the user from scanning a
+            // fresh QR code.
+            await bilibili.refreshProfile()
+#endif
+        }
         .sheet(isPresented: $showEqualizer) {
             EqualizerView()
         }

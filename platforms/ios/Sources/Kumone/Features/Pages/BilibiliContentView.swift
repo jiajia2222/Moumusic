@@ -174,6 +174,8 @@ private final class BilibiliContentViewModel: ObservableObject {
 
 struct BilibiliContentView: View {
     @EnvironmentObject private var bilibili: BilibiliSessionStore
+    @EnvironmentObject private var settings: SettingsManager
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var model = BilibiliContentViewModel()
     @State private var selectedVideo: BilibiliAPI.Video?
 
@@ -219,6 +221,16 @@ struct BilibiliContentView: View {
         }
         .navigationTitle("哔哩哔哩")
         .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel("退出哔哩哔哩")
+            }
+        }
         .task {
             if model.videos.isEmpty { await model.loadPopular(cookie: bilibili.cookie) }
         }
@@ -226,6 +238,7 @@ struct BilibiliContentView: View {
             NavigationStack {
                 BilibiliVideoDetailView(video: video)
                     .environmentObject(bilibili)
+                    .environmentObject(settings)
             }
         }
     }
@@ -394,7 +407,7 @@ struct BilibiliContentView: View {
     }
 }
 
-private struct BilibiliVideoCard: View {
+struct BilibiliVideoCard: View {
     let video: BilibiliAPI.Video
 
     var body: some View {
@@ -479,6 +492,7 @@ private struct BilibiliCollectionRow: View {
 
 struct BilibiliVideoDetailView: View {
     @EnvironmentObject private var bilibili: BilibiliSessionStore
+    @EnvironmentObject private var settings: SettingsManager
     @Environment(\.dismiss) private var dismiss
     let video: BilibiliAPI.Video
 
@@ -492,6 +506,12 @@ struct BilibiliVideoDetailView: View {
     @State private var commentsLoading = false
     @State private var listenOnly = false
     @State private var isPlaying = false
+    @State private var qualities: [BilibiliAPI.VideoQuality] = []
+    @State private var selectedQuality: Int?
+    @State private var selectedSubtitle: BilibiliAPI.Subtitle?
+    @State private var subtitleCues: [BilibiliAPI.SubtitleCue] = []
+    @State private var isSubtitleLoading = false
+    @State private var showFullScreen = false
 
     private var activeVideo: BilibiliAPI.Video { detail ?? video }
 
@@ -524,6 +544,14 @@ struct BilibiliVideoDetailView: View {
         }
         .task { await load() }
         .onDisappear { player?.pause() }
+        .onChange(of: settings.bilibiliVideoEnabled) { isVideoEnabled in
+            if !isVideoEnabled { listenOnly = true }
+        }
+        .fullScreenCover(isPresented: $showFullScreen) {
+            if let player {
+                BilibiliFullScreenPlayer(player: player)
+            }
+        }
     }
 
     @ViewBuilder
@@ -549,9 +577,14 @@ struct BilibiliVideoDetailView: View {
             .frame(maxWidth: .infinity, minHeight: 235)
             .background(.black)
         } else if let player {
-            VideoPlayer(player: player)
-                .frame(height: 235)
-                .background(.black)
+            ZStack(alignment: .bottom) {
+                VideoPlayer(player: player)
+                subtitleOverlay
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 14)
+            }
+            .frame(height: 235)
+            .background(.black)
         } else {
             ZStack {
                 CachedAsyncImage(url: activeVideo.coverURL?.resizedImageURL(960))
@@ -577,17 +610,80 @@ struct BilibiliVideoDetailView: View {
     }
 
     private var infoBar: some View {
-        HStack {
-            Button {
-                listenOnly.toggle()
-            } label: {
-                Label(listenOnly ? "听视频" : "看视频", systemImage: listenOnly ? "headphones" : "play.rectangle")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                if settings.bilibiliAudioEnabled {
+                    Button {
+                        listenOnly.toggle()
+                    } label: {
+                        Label(listenOnly ? "仅听音频" : "观看视频", systemImage: listenOnly ? "headphones" : "play.rectangle")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel(listenOnly ? "当前为仅听音频模式" : "当前为观看视频模式")
+                }
+
+                if !listenOnly, player != nil {
+                    Button {
+                        showFullScreen = true
+                    } label: {
+                        Label("全屏", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("全屏播放")
+                }
+
+                Spacer(minLength: 0)
+                Link(destination: URL(string: "https://www.bilibili.com/video/\(activeVideo.bvid)")!) {
+                    Image(systemName: "safari")
+                }
+                .accessibilityLabel("在哔哩哔哩打开")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(listenOnly ? "当前为听视频模式" : "当前为看视频模式")
-            Spacer()
-            Link(destination: URL(string: "https://www.bilibili.com/video/\(activeVideo.bvid)")!) {
-                Label("在哔哩哔哩打开", systemImage: "safari")
+
+            HStack(spacing: 10) {
+                if !qualities.isEmpty {
+                    Menu {
+                        ForEach(qualities) { quality in
+                            Button {
+                                Task { await loadPlayback(quality: quality.code) }
+                            } label: {
+                                if selectedQuality == quality.code {
+                                    Label(quality.title, systemImage: "checkmark")
+                                } else {
+                                    Text(quality.title)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label(currentQualityTitle, systemImage: "rectangle.inset.filled")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("切换视频清晰度")
+                }
+
+                if settings.bilibiliAudioEnabled, !activeVideo.subtitles.isEmpty {
+                    Menu {
+                        Button("关闭字幕") {
+                            selectedSubtitle = nil
+                            subtitleCues = []
+                        }
+                        Divider()
+                        ForEach(activeVideo.subtitles) { subtitle in
+                            Button {
+                                Task { await loadSubtitle(subtitle) }
+                            } label: {
+                                if selectedSubtitle?.id == subtitle.id {
+                                    Label(subtitle.title, systemImage: "checkmark")
+                                } else {
+                                    Text(subtitle.title)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label(isSubtitleLoading ? "加载字幕" : (selectedSubtitle?.title ?? "字幕"), systemImage: "captions.bubble")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isSubtitleLoading)
+                }
             }
         }
         .font(.subheadline.weight(.medium))
@@ -610,6 +706,33 @@ struct BilibiliVideoDetailView: View {
             }
         }
         .padding(.horizontal, 18)
+    }
+
+    private var currentQualityTitle: String {
+        guard let selectedQuality else { return "清晰度" }
+        return qualities.first(where: { $0.code == selectedQuality })?.title ?? "清晰度"
+    }
+
+    @ViewBuilder
+    private var subtitleOverlay: some View {
+        if !subtitleCues.isEmpty, let player {
+            TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+                if let cue = subtitleCues.first(where: {
+                    let position = player.currentTime().seconds
+                    return position >= $0.start && position <= $0.end
+                }) {
+                    Text(cue.text)
+                        .font(.body.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
     }
 
     private var commentList: some View {
@@ -647,17 +770,8 @@ struct BilibiliVideoDetailView: View {
         do {
             let loaded = try await BilibiliAPI.shared.videoDetail(bvid: video.bvid, cookie: bilibili.cookie)
             detail = loaded
-            if let url = try? await BilibiliAPI.shared.playableURL(for: loaded, cookie: bilibili.cookie) {
-                let asset = AVURLAsset(url: url, options: [
-                    "AVURLAssetHTTPHeaderFieldsKey": [
-                        "Referer": "https://www.bilibili.com/",
-                        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
-                    ]
-                ])
-                player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
-                player?.play()
-                isPlaying = true
-            }
+            if !settings.bilibiliVideoEnabled { listenOnly = true }
+            await loadPlayback(quality: selectedQuality, video: loaded)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -675,6 +789,46 @@ struct BilibiliVideoDetailView: View {
     }
 
     @MainActor
+    private func loadPlayback(quality: Int?, video: BilibiliAPI.Video? = nil) async {
+        let target = video ?? activeVideo
+        do {
+            let playback = try await BilibiliAPI.shared.playback(
+                for: target,
+                quality: quality,
+                cookie: bilibili.cookie
+            )
+            let asset = AVURLAsset(url: playback.url, options: [
+                "AVURLAssetHTTPHeaderFieldsKey": [
+                    "Referer": "https://www.bilibili.com/video/\(target.bvid)",
+                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
+                ]
+            ])
+            player?.pause()
+            player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+            qualities = playback.qualities
+            selectedQuality = playback.quality
+            player?.play()
+            isPlaying = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func loadSubtitle(_ subtitle: BilibiliAPI.Subtitle) async {
+        isSubtitleLoading = true
+        defer { isSubtitleLoading = false }
+        do {
+            subtitleCues = try await BilibiliAPI.shared.subtitleCues(for: subtitle)
+            selectedSubtitle = subtitle
+        } catch {
+            subtitleCues = []
+            selectedSubtitle = nil
+            ToastCenter.shared.show("字幕加载失败，请稍后重试")
+        }
+    }
+
+    @MainActor
     private func loadComments() async {
         guard activeVideo.aid > 0 else { return }
         commentsLoading = true
@@ -682,6 +836,28 @@ struct BilibiliVideoDetailView: View {
             aid: activeVideo.aid, sort: commentSort, cookie: bilibili.cookie
         ).comments) ?? []
         commentsLoading = false
+    }
+}
+
+private struct BilibiliFullScreenPlayer: View {
+    @Environment(\.dismiss) private var dismiss
+    let player: AVPlayer
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            VideoPlayer(player: player)
+                .ignoresSafeArea()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+                    .padding(16)
+            }
+            .accessibilityLabel("退出全屏")
+        }
     }
 }
 

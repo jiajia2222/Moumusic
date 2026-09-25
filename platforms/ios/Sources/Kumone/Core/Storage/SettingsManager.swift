@@ -289,7 +289,11 @@ final class SettingsManager: ObservableObject {
         static let homeRecommendationMode = "settings.homeRecommendationMode"
         static let homeRecommendationPlatform = "settings.homeRecommendationPlatform"
         static let sourcePlatformFallback = "settings.sourcePlatformFallback"
+        /// Legacy all-in-one Bilibili switch.  Kept only to migrate existing
+        /// installations to the two independent controls below.
         static let bilibiliContentEnabled = "settings.bilibiliContentEnabled"
+        static let bilibiliVideoEnabled = "settings.bilibiliVideoEnabled"
+        static let bilibiliAudioEnabled = "settings.bilibiliAudioEnabled"
     }
 
     @Published var audioQuality: AudioQuality {
@@ -382,9 +386,16 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(enableSourcePlatformFallback, forKey: Keys.sourcePlatformFallback) }
     }
 
-    /// Controls the independent Bilibili video/audio content center.
-    @Published var bilibiliContentEnabled: Bool {
-        didSet { UserDefaults.standard.set(bilibiliContentEnabled, forKey: Keys.bilibiliContentEnabled) }
+    /// Lets the user browse and watch Bilibili content.  This is deliberately
+    /// independent from the audio-only capability so the Bilibili centre can
+    /// be hidden without disabling an already-open audio session.
+    @Published var bilibiliVideoEnabled: Bool {
+        didSet { UserDefaults.standard.set(bilibiliVideoEnabled, forKey: Keys.bilibiliVideoEnabled) }
+    }
+
+    /// Makes the "听视频" mode available in the native Bilibili player.
+    @Published var bilibiliAudioEnabled: Bool {
+        didSet { UserDefaults.standard.set(bilibiliAudioEnabled, forKey: Keys.bilibiliAudioEnabled) }
     }
 
     private init() {
@@ -417,6 +428,8 @@ final class SettingsManager: ObservableObject {
             ($0 == .aggregate || $0 == .sd) ? nil : $0
         } ?? .wy
         enableSourcePlatformFallback = defaults.object(forKey: Keys.sourcePlatformFallback) as? Bool ?? true
-        bilibiliContentEnabled = defaults.object(forKey: Keys.bilibiliContentEnabled) as? Bool ?? true
+        let legacyBilibiliEnabled = defaults.object(forKey: Keys.bilibiliContentEnabled) as? Bool ?? true
+        bilibiliVideoEnabled = defaults.object(forKey: Keys.bilibiliVideoEnabled) as? Bool ?? legacyBilibiliEnabled
+        bilibiliAudioEnabled = defaults.object(forKey: Keys.bilibiliAudioEnabled) as? Bool ?? legacyBilibiliEnabled
     }
 }

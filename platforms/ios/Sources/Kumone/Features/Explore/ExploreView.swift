@@ -221,7 +221,7 @@ struct ExploreView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
 #if os(iOS)
-                if settings.bilibiliContentEnabled {
+                if settings.bilibiliVideoEnabled {
                     Button {
                         showBilibili = true
                     } label: {
