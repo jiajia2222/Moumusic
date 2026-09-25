@@ -26,18 +26,10 @@ struct SettingsView: View {
     @State private var showKugouLogin = false
     @State private var showBilibiliLogin = false
 #endif
-    // Keep the main controls visible on first launch. Every section remains
-    // collapsible, but opening the settings page with every group closed makes
-    // the app look empty and hides the controls users came here to change.
-    @State private var expandedSections: Set<String> = [
-        "audio", "accounts", "playback", "home", "sources",
-        "appearance", "player", "background", "lyrics",
-        "storage", "updates", "about", "support"
-    ]
 
     var body: some View {
         Form {
-            SettingsDisclosureSection("音源与音质", isExpanded: sectionBinding("audio")) {
+            Section("音源与音质") {
                 Picker("播放来源", selection: $settings.playbackSourceMode) {
                     ForEach(PlaybackSourceMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
@@ -79,7 +71,7 @@ struct SettingsView: View {
             }
 
 #if os(iOS)
-            SettingsDisclosureSection("账号与同步", isExpanded: sectionBinding("accounts")) {
+            Section("账号与同步") {
                 NavigationLink(value: Destination.accountSync) {
                     Label("账号同步", systemImage: "person.crop.circle.badge.checkmark")
                 }
@@ -164,7 +156,7 @@ struct SettingsView: View {
             }
 #endif
 
-            SettingsDisclosureSection("播放设置", isExpanded: sectionBinding("playback")) {
+            Section("播放设置") {
 #if os(iOS)
                 Toggle("播放失败时切换平台", isOn: $settings.enableSourcePlatformFallback)
                 Text(settings.enableSourcePlatformFallback
@@ -193,30 +185,16 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            SettingsDisclosureSection("首页推荐", isExpanded: sectionBinding("home")) {
+            Section("哔哩哔哩") {
                 Toggle("看哔哩哔哩", isOn: $settings.bilibiliVideoEnabled)
                 Toggle("听哔哩哔哩", isOn: $settings.bilibiliAudioEnabled)
-                Text("“看”控制首页、发现和搜索页的 B 站视频入口；“听”控制视频详情页的仅听音频模式和字幕选择。两个开关相互独立。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Picker("推荐内容", selection: $settings.homeRecommendationMode) {
-                    ForEach(HomeRecommendationMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                Picker("推荐平台", selection: $settings.homeRecommendationPlatform) {
-                    ForEach(LXCatalogPlatform.catalogueCases.filter { $0 != .aggregate }) { platform in
-                        Text(platform.displayName).tag(platform)
-                    }
-                }
-                Text("聚合搜索只属于搜索页；首页始终使用你选定的一个推荐平台，并在每次刷新时重新读取内容。")
+                Text("“看”控制视频入口；“听”控制视频页的仅听音频和字幕。首页推荐配置只在首页本身调整。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
 #if os(iOS)
-            SettingsDisclosureSection("LX 音源", isExpanded: sectionBinding("sources")) {
+            Section("LX 音源") {
                 sourceManagerRow
                 Text("音源管理是独立页面：可导入文件或在线链接、切换当前音源，并测试 musicUrl 接口。")
                     .font(.caption)
@@ -224,12 +202,12 @@ struct SettingsView: View {
             }
 #endif
 
-            SettingsDisclosureSection("主题模式", isExpanded: sectionBinding("appearance")) {
+            Section("主题模式") {
                 AppearancePicker(selection: $settings.appearance)
             }
 
 #if os(iOS)
-            SettingsDisclosureSection("播放器模式", isExpanded: sectionBinding("player")) {
+            Section("播放器模式") {
                 Picker("播放器模式", selection: $settings.nowPlayingMode) {
                     ForEach(NowPlayingMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
@@ -240,7 +218,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            SettingsDisclosureSection("动态壁纸与背景", isExpanded: sectionBinding("background")) {
+            Section("动态壁纸与背景") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 10) {
                         Label("背景图片", systemImage: "photo.on.rectangle.angled")
@@ -296,7 +274,7 @@ struct SettingsView: View {
             }
 #endif
 
-            SettingsDisclosureSection("歌词显示", isExpanded: sectionBinding("lyrics")) {
+            Section("歌词显示") {
                 Picker("歌词样式", selection: $settings.lyricsDisplayStyle) {
                     ForEach(LyricsDisplayStyle.allCases) { style in
                         Text(style.displayName).tag(style)
@@ -339,7 +317,7 @@ struct SettingsView: View {
 #endif
             }
 
-            SettingsDisclosureSection("存储与下载", isExpanded: sectionBinding("storage")) {
+            Section("存储与下载") {
                 LabeledContent("图片缓存", value: cacheSize)
                 Button("清除缓存") { clearCache() }
 #if os(iOS)
@@ -351,7 +329,7 @@ struct SettingsView: View {
 #endif
             }
 
-            SettingsDisclosureSection("更新", isExpanded: sectionBinding("updates")) {
+            Section("更新") {
                 Toggle("启动时自动检查更新", isOn: $settings.autoCheckUpdates)
 #if os(iOS)
                 Button {
@@ -367,14 +345,14 @@ struct SettingsView: View {
 #endif
             }
 
-            SettingsDisclosureSection("关于", isExpanded: sectionBinding("about")) {
+            Section("关于") {
                 LabeledContent("Moumusic", value: appVersion)
                 Text("播放、歌词和封面支持用户导入的 LX User API 音源。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            SettingsDisclosureSection("赞赏与支持", isExpanded: sectionBinding("support")) {
+            Section("赞赏与支持") {
 #if os(iOS)
                 supportLink
 #else
@@ -529,19 +507,6 @@ struct SettingsView: View {
     }
 #endif
 
-    private func sectionBinding(_ id: String) -> Binding<Bool> {
-        Binding(
-            get: { expandedSections.contains(id) },
-            set: { expanded in
-                if expanded {
-                    expandedSections.insert(id)
-                } else {
-                    expandedSections.remove(id)
-                }
-            }
-        )
-    }
-
     private var cacheDirectory: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("im.missuo.Kumone/images", isDirectory: true)
@@ -569,33 +534,6 @@ struct SettingsView: View {
             DispatchQueue.main.async {
                 cacheSize = "0 字节"
                 ToastCenter.shared.show("缓存已清除")
-            }
-        }
-    }
-}
-
-private struct SettingsDisclosureSection<Content: View>: View {
-    private let title: String
-    @Binding private var isExpanded: Bool
-    private let content: () -> Content
-
-    init(
-        _ title: String,
-        isExpanded: Binding<Bool>,
-        @ViewBuilder content: @escaping () -> Content
-    ) {
-        self.title = title
-        self._isExpanded = isExpanded
-        self.content = content
-    }
-
-    var body: some View {
-        Section {
-            DisclosureGroup(isExpanded: $isExpanded) {
-                content()
-            } label: {
-                Text(title)
-                    .font(.headline.weight(.semibold))
             }
         }
     }
