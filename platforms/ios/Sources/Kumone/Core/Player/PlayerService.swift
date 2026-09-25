@@ -168,6 +168,10 @@ final class PlayerService: ObservableObject {
     @Published private(set) var isBuffering = false
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var servedQuality: String?
+    /// A selection made from the now-playing quality picker applies only to
+    /// this playing track. The Settings value remains the default for the
+    /// next track and is never overwritten by an in-player tap.
+    @Published private(set) var trackQualityOverride: AudioQuality?
     @Published private(set) var unblockSource: String?
     @Published private(set) var isTrial = false
     let clock = PlaybackClock()
@@ -246,7 +250,9 @@ final class PlayerService: ObservableObject {
 
     var hasCurrentTrack: Bool { currentTrack != nil }
 
-    var currentQuality: AudioQuality { SettingsManager.shared.audioQuality }
+    var currentQuality: AudioQuality {
+        trackQualityOverride ?? SettingsManager.shared.audioQuality
+    }
 
     func availableQualitiesForCurrentTrack() async -> [AudioQuality] {
         guard let track = currentTrack else { return [] }
@@ -293,8 +299,13 @@ final class PlayerService: ObservableObject {
     func selectQuality(_ quality: AudioQuality) {
         guard let track = currentTrack else { return }
         let resumeAt = progress
-        SettingsManager.shared.audioQuality = quality
-        startPlaying(track, indexUnchanged: true, resumeAt: resumeAt)
+        trackQualityOverride = quality
+        startPlaying(
+            track,
+            indexUnchanged: true,
+            resumeAt: resumeAt,
+            preserveTrackQualityOverride: true
+        )
     }
 
     // MARK: - Engine
@@ -540,7 +551,7 @@ final class PlayerService: ObservableObject {
             AudioSpectrum.shared.reset()
         } else if engine.currentItem == nil {
             // Restored session: re-resolve the source.
-            startPlaying(track, indexUnchanged: true)
+            startPlaying(track, indexUnchanged: true, preserveTrackQualityOverride: true)
             return
         } else {
             engine.play()
@@ -869,8 +880,12 @@ final class PlayerService: ObservableObject {
     // MARK: - Source resolution
 
     private func startPlaying(_ track: Track, indexUnchanged: Bool = false,
-                              resumeAt: TimeInterval? = nil) {
+                              resumeAt: TimeInterval? = nil,
+                              preserveTrackQualityOverride: Bool = false) {
         let track = track.normalizedForLXPlayback()
+        if !preserveTrackQualityOverride {
+            trackQualityOverride = nil
+        }
         // Stop and detach the previous item before starting an asynchronous
         // URL/lyric resolution. Otherwise a fast next/previous tap leaves the
         // old AVPlayerItem audible until the new source responds.
@@ -915,7 +930,7 @@ final class PlayerService: ObservableObject {
     }
 
     private func resolveAndLoad(_ track: Track, generation: Int) async {
-        let quality = SettingsManager.shared.audioQuality.rawValue
+        let quality = currentQuality.rawValue
 #if os(macOS)
         let isLXCatalogTrack = track.source != nil
 #endif
