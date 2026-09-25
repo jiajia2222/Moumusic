@@ -73,6 +73,23 @@ actor BilibiliAPI {
         var id: Int { code }
     }
 
+    /// A DASH audio representation returned by Bilibili.  The title is
+    /// derived from the response bitrate; it is never upgraded to a label
+    /// such as lossless unless the service actually exposes that data.
+    struct BilibiliAudioQuality: Identifiable, Hashable, Sendable {
+        let code: Int
+        let title: String
+        let bitrate: Int?
+
+        var id: Int { code }
+    }
+
+    struct AudioPlayback: Sendable {
+        let url: URL
+        let quality: BilibiliAudioQuality
+        let qualities: [BilibiliAudioQuality]
+    }
+
     struct Subtitle: Identifiable, Hashable, Sendable {
         let id: String
         let language: String
@@ -715,6 +732,88 @@ actor BilibiliAPI {
 
     func playableURL(for video: Video, cookie: String? = nil) async throws -> URL {
         try await playback(for: video, cookie: cookie).url
+    }
+
+    /// Returns the audio representations advertised by Bilibili's DASH
+    /// response.  This is kept separate from the video playback request so
+    /// the download UI can offer only qualities that really exist for the
+    /// selected video.
+    func audioQualities(for video: Video, cookie: String? = nil) async throws -> [BilibiliAudioQuality] {
+        let candidates = try await audioCandidates(for: video, quality: nil, cookie: cookie)
+        return candidates.map(\.quality)
+    }
+
+    /// Resolves a fresh, signed DASH audio URL immediately before a download.
+    /// Bilibili media URLs expire, so callers should not cache this URL.
+    func audioPlayback(for video: Video, quality: Int? = nil,
+                       cookie: String? = nil) async throws -> AudioPlayback {
+        let candidates = try await audioCandidates(for: video, quality: quality, cookie: cookie)
+        let selected = quality.flatMap { requested in
+            candidates.first(where: { $0.quality.code == requested })
+        } ?? candidates.first
+        guard let selected else {
+            throw APIError.unavailable
+        }
+        return AudioPlayback(
+            url: selected.url,
+            quality: selected.quality,
+            qualities: candidates.map(\.quality)
+        )
+    }
+
+    private struct AudioCandidate: Sendable {
+        let url: URL
+        let quality: BilibiliAudioQuality
+    }
+
+    private func audioCandidates(for video: Video, quality: Int?, cookie: String?) async throws -> [AudioCandidate] {
+        guard let cid = video.cid else { throw APIError.invalidResponse }
+        var components = URLComponents(string: "https://api.bilibili.com/x/player/playurl")!
+        components.queryItems = [
+            URLQueryItem(name: "bvid", value: video.bvid),
+            URLQueryItem(name: "cid", value: "\(cid)"),
+            URLQueryItem(name: "qn", value: "\(quality ?? 80)"),
+            URLQueryItem(name: "fnval", value: "16"),
+            URLQueryItem(name: "fnver", value: "0"),
+            URLQueryItem(name: "fourk", value: "1")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://www.bilibili.com/video/\(video.bvid)")
+        guard let data = root["data"] as? [String: Any],
+              let dash = data["dash"] as? [String: Any],
+              let rows = dash["audio"] as? [[String: Any]],
+              !rows.isEmpty else {
+            throw APIError.unavailable
+        }
+
+        var candidates: [AudioCandidate] = []
+        var seen = Set<Int>()
+        for (index, row) in rows.enumerated() {
+            let bitrate = Self.integer(row["bandwidth"] ?? row["bandwidth_kbps"])
+            let fallbackCode = bitrate.map { max(1, $0) } ?? (index + 1)
+            let code = Self.integer(row["id"] ?? row["quality"] ?? row["code"]) ?? fallbackCode
+            guard seen.insert(code).inserted else { continue }
+
+            let rawURL = Self.text(row["baseUrl"] ?? row["base_url"] ?? row["url"])
+                ?? (row["backupUrl"] as? [Any])?.compactMap { Self.text($0) }.first
+            guard let rawURL, let url = URL(string: rawURL) else { continue }
+
+            let title: String
+            if let bitrate, bitrate > 0 {
+                title = "\(max(1, Int((Double(bitrate) / 1000.0).rounded()))) kbps"
+            } else {
+                title = "音频 \(code)"
+            }
+            candidates.append(AudioCandidate(
+                url: url,
+                quality: BilibiliAudioQuality(code: code, title: title, bitrate: bitrate)
+            ))
+        }
+
+        guard !candidates.isEmpty else { throw APIError.unavailable }
+        return candidates.sorted {
+            ($0.quality.bitrate ?? 0, $0.quality.code) > ($1.quality.bitrate ?? 0, $1.quality.code)
+        }
     }
 
     /// Reads all subtitle tracks from x/player/v2.  This includes normal,

@@ -435,6 +435,7 @@ struct BilibiliVideoDetailView: View {
     @State private var subtitleCues: [BilibiliAPI.SubtitleCue] = []
     @State private var subtitleLoading = false
     @State private var showFullScreen = false
+    @State private var showDownloadSheet = false
 
     private var activeVideo: BilibiliAPI.Video { detail ?? video }
 
@@ -477,6 +478,10 @@ struct BilibiliVideoDetailView: View {
         .fullScreenCover(isPresented: $showFullScreen) {
             PiliPlusFullScreenPlayer(url: playbackURL, cues: subtitleCues, posterURL: activeVideo.coverURL, audioOnly: listenOnly)
         }
+        .sheet(isPresented: $showDownloadSheet) {
+            BilibiliDownloadSheet(video: activeVideo, videoQualities: qualities)
+                .environmentObject(bilibili)
+        }
     }
 
     private var playerOptions: some View {
@@ -492,6 +497,10 @@ struct BilibiliVideoDetailView: View {
                         Label("全屏", systemImage: "arrow.up.left.and.arrow.down.right")
                     }.buttonStyle(.bordered)
                 }
+                Button { showDownloadSheet = true } label: {
+                    Label("下载", systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(.bordered)
                 Spacer(minLength: 0)
                 Link(destination: URL(string: "https://www.bilibili.com/video/\(activeVideo.bvid)")!) {
                     Image(systemName: "safari")
