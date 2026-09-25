@@ -228,7 +228,7 @@ struct AccountSyncView: View {
         // Resolve its value from the server result instead of displaying a
         // permanent “enabled” state after a failed weblog request.
         let shownValue = title.count <= 4 ? syncStore.statusText : value
-        VStack(alignment: .leading, spacing: 5) {
+        return VStack(alignment: .leading, spacing: 5) {
             Text(shownValue)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)

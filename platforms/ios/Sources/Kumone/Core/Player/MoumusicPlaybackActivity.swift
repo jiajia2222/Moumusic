@@ -44,7 +44,7 @@ public struct MoumusicPlaybackActivityAttributes: ActivityAttributes {
 /// Keeps one now-playing Live Activity in sync with the audio player.
 /// Dynamic Island expansion/compaction is controlled by iOS; the app only
 /// supplies the playback state and does not need to fake an animation.
-@available(iOS 16.1, *)
+@available(iOS 16.2, *)
 @MainActor
 final class MoumusicPlaybackActivityManager {
     static let shared = MoumusicPlaybackActivityManager()

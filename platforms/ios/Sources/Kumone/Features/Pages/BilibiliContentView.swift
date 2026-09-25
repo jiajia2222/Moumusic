@@ -206,7 +206,7 @@ struct BilibiliContentView: View {
                     } else if model.isSearching {
                         resultContent
                     } else {
-                        SectionHeader(title: contentTitle)
+                        SectionHeader(title: LocalizedStringKey(contentTitle))
                             .padding(.horizontal, Theme.Layout.contentInset)
                         videoGrid(model.videos)
                     }

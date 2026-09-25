@@ -437,7 +437,7 @@ final class PlayerService: ObservableObject {
     /// actual expanded-to-compact Dynamic Island transition when the user
     /// leaves the app or it moves to the background.
     private func syncLiveActivity(newTrack: Bool = false) {
-        guard #available(iOS 16.1, *), let track = currentTrack else { return }
+        guard #available(iOS 16.2, *), let track = currentTrack else { return }
         MoumusicPlaybackActivityManager.shared.synchronize(
             title: track.name,
             artist: track.artistNames,

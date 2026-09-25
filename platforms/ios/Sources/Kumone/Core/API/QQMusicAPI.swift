@@ -567,7 +567,7 @@ actor QQMusicAPI {
         var pairs = cookieStorage.cookies?.filter {
             allowed.contains($0.name)
         }.map { "\($0.name)=\($0.value)" } ?? []
-        if includeQRSig, !qrsig.isEmpty {
+        if includeQRSig, let qrsig = cookieValue("qrsig"), !qrsig.isEmpty {
             pairs.insert("qrsig=\(qrsig)", at: 0)
         }
         return pairs
