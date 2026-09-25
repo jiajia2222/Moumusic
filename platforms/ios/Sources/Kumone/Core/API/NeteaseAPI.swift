@@ -630,6 +630,30 @@ enum NeteaseAPI {
         return try client.decoded(CommentResponse.self, from: publicData)
     }
 
+    /// Publishes a top-level comment to a NetEase song thread.
+    /// Reading comments is public, but posting requires the user's NetEase
+    /// account cookie. The ID must already be a NetEase song ID.
+    static func addComment(songID: Int, content: String) async throws {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard client.isLoggedIn else { throw NeteaseAPIError.needLogin }
+
+        let response = try await weapi(
+            CodeOnly.self,
+            "/v1/resource/comments/add",
+            [
+                "threadId": "R_SO_4_\(songID)",
+                "content": trimmed,
+            ]
+        )
+        guard response.code == 200 else {
+            throw NeteaseAPIError.business(
+                code: response.code,
+                message: String(localized: "发表评论失败，请稍后重试")
+            )
+        }
+    }
+
     struct FMResponse: Decodable {
         let data: [Track]?
     }

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Public song comments. This is deliberately read-only: no provider login
-/// or account action is required to browse comments.
+/// Song comments are always read from NetEase. A non-NetEase track is matched
+/// to its NetEase metadata record before comments are loaded or posted.
 struct SongCommentsSheet: View {
     private enum Sort: String, CaseIterable, Identifiable {
         case hot
@@ -13,6 +13,7 @@ struct SongCommentsSheet: View {
 
     let track: Track
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openLogin) private var openLogin
     @State private var hotComments: [DisplayComment] = []
     @State private var latestComments: [DisplayComment] = []
     @State private var sort: Sort = .hot
@@ -20,6 +21,12 @@ struct SongCommentsSheet: View {
     @State private var error: String?
     @State private var retryToken = 0
     @State private var metadataNotice: String?
+    @State private var neteaseSongID: Int?
+    @State private var draft = ""
+    @State private var canPost = false
+    @State private var isPosting = false
+    @State private var postStatus: String?
+    @State private var postStatusIsError = false
 
     private var visibleComments: [DisplayComment] {
         let selected = sort == .hot ? hotComments : latestComments
@@ -94,7 +101,56 @@ struct SongCommentsSheet: View {
         }
         .task(id: "\(track.playbackKey)-\(retryToken)-\(sort.rawValue)") { await loadComments() }
         .refreshable { await loadComments() }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            commentComposer
+        }
         .presentationDetents([.medium, .large])
+    }
+
+    private var commentComposer: some View {
+        VStack(spacing: 6) {
+            if let postStatus {
+                Text(postStatus)
+                    .font(.caption)
+                    .foregroundStyle(postStatusIsError ? .red : .secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if canPost {
+                HStack(alignment: .bottom, spacing: 8) {
+                    TextField("发表评论（网易云）", text: $draft, axis: .vertical)
+                        .lineLimit(1...4)
+                        .textFieldStyle(.roundedBorder)
+
+                    Button {
+                        Task { await postComment() }
+                    } label: {
+                        if isPosting {
+                            ProgressView()
+                                .frame(width: 44, height: 44)
+                        } else {
+                            Image(systemName: "paperplane.fill")
+                                .frame(width: 44, height: 44)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isPosting || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityLabel("发表评论")
+                }
+            } else {
+                Button {
+                    openLogin()
+                } label: {
+                    Label("登录网易云后发表评论", systemImage: "person.crop.circle.badge.plus")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.regularMaterial)
+        .overlay(alignment: .top) { Divider() }
     }
 
     private func loadComments() async {
@@ -103,63 +159,70 @@ struct SongCommentsSheet: View {
         hotComments = []
         latestComments = []
         metadataNotice = nil
+        postStatus = nil
+        canPost = NeteaseClient.shared.isLoggedIn
+
         do {
             let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
             let sourceIsNetease = source.isEmpty || source == "wy" || source == "netease" || source == "163"
-            var neteaseError: Error?
+            let neteaseID = try await resolveNeteaseSongID(sourceIsNetease: sourceIsNetease)
+            neteaseSongID = neteaseID
 
-            // Comments are intentionally normalised through Netease first.
-            // This makes the same song show one stable comment source even
-            // when its playable URL came from QQ, KuGou, Kuwo, Migu or LX.
-            do {
-                let neteaseID: Int?
-                if let explicit = track.sourceMetadata["neteaseId"]
-                    ?? track.sourceMetadata["wyId"],
-                    let id = Int(explicit) {
-                    neteaseID = id
-                } else if sourceIsNetease {
-                    neteaseID = track.id
-                } else {
-                    neteaseID = try await NeteaseAPI.matchingSong(
-                        for: track, requireDuration: false
-                    )?.id
-                }
-
-                guard let neteaseID else { throw SongCommentsError.noMatchingSong }
-                let response = try await NeteaseAPI.comments(
-                    for: neteaseID, order: sort == .hot ? .hot : .latest
-                )
-                hotComments = uniqueComments((response.topComments + response.hotComments).map(DisplayComment.init))
-                latestComments = uniqueComments(response.comments.map(DisplayComment.init))
-                if !sourceIsNetease {
-                    metadataNotice = "当前歌曲来自 \(LXCatalogPlatform.displayName(for: source))；评论默认使用网易云公开数据。"
-                }
-                isLoading = false
-                return
-            } catch {
-                neteaseError = error
+            let response = try await NeteaseAPI.comments(
+                for: neteaseID,
+                order: sort == .hot ? .hot : .latest
+            )
+            hotComments = uniqueComments((response.topComments + response.hotComments).map(DisplayComment.init))
+            latestComments = uniqueComments(response.comments.map(DisplayComment.init))
+            if !sourceIsNetease {
+                metadataNotice = "当前歌曲来自 \(LXCatalogPlatform.displayName(for: source))；评论和发表评论均使用网易云。"
             }
-
-            // Provider-specific public comments remain a best-effort fallback.
-            // Qishui (sd) deliberately has no comment client; it falls through
-            // to the clear matching error instead of pretending its comments
-            // belong to another song.
-            if !sourceIsNetease, let response = try? await LXCommentsService.comments(for: track) {
-                hotComments = uniqueComments(response.hot.map(DisplayComment.init))
-                latestComments = uniqueComments(response.latest.map(DisplayComment.init))
-                metadataNotice = "网易云公开评论暂不可用，已回退到 \(LXCatalogPlatform.displayName(for: source))。"
-                isLoading = false
-                return
-            }
-
-            if let neteaseError { throw neteaseError }
-            throw SongCommentsError.noMatchingSong
         } catch is CancellationError {
             return
         } catch {
             self.error = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func resolveNeteaseSongID(sourceIsNetease: Bool) async throws -> Int {
+        if let explicit = track.sourceMetadata["neteaseId"] ?? track.sourceMetadata["wyId"],
+           let id = Int(explicit) {
+            return id
+        }
+        if sourceIsNetease { return track.id }
+        guard let match = try await NeteaseAPI.matchingSong(for: track, requireDuration: false) else {
+            throw SongCommentsError.noMatchingSong
+        }
+        return match.id
+    }
+
+    private func postComment() async {
+        let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+        guard let neteaseSongID else {
+            postStatus = "当前歌曲未匹配到网易云，暂时无法发表评论。"
+            postStatusIsError = true
+            return
+        }
+
+        isPosting = true
+        postStatus = nil
+        defer { isPosting = false }
+
+        do {
+            try await NeteaseAPI.addComment(songID: neteaseSongID, content: content)
+            draft = ""
+            await loadComments()
+            postStatus = "评论已发送到网易云。"
+            postStatusIsError = false
+        } catch is CancellationError {
+            return
+        } catch {
+            postStatus = error.localizedDescription
+            postStatusIsError = true
+            canPost = NeteaseClient.shared.isLoggedIn
+        }
     }
 
     private func uniqueComments(_ comments: [DisplayComment]) -> [DisplayComment] {
@@ -181,7 +244,9 @@ struct SongCommentsSheet: View {
 
     private func emptyState(title: String, detail: String?, icon: String) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: icon).font(.system(size: 32)).foregroundStyle(.secondary)
+            Image(systemName: icon)
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
             Text(title).font(.headline)
             if let detail {
                 Text(detail)
@@ -227,6 +292,6 @@ private enum SongCommentsError: LocalizedError {
     case noMatchingSong
 
     var errorDescription: String? {
-        "暂未找到公开评论对应的歌曲，请稍后重试"
+        "暂未找到对应的网易云歌曲，无法读取或发表评论。"
     }
 }
