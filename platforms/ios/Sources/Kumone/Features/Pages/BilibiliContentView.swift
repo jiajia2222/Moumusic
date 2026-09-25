@@ -146,12 +146,14 @@ struct BilibiliContentView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = BilibiliContentViewModel()
     @State private var selectedVideo: BilibiliAPI.Video?
+    @State private var showLive = false
 
     var body: some View {
         ZStack {
             Color(uiColor: .systemBackground).ignoresSafeArea()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
+                    liveEntry
                     searchField
                     feedPicker
                     model.feed == .ranking ? AnyView(rankingTabs) : AnyView(categoryTabs)
@@ -196,6 +198,41 @@ struct BilibiliContentView: View {
                     .environmentObject(settings)
             }
         }
+        .sheet(isPresented: $showLive) {
+            NavigationStack {
+                BilibiliLiveView()
+                    .environmentObject(bilibili)
+            }
+        }
+    }
+
+    private var liveEntry: some View {
+        Button { showLive = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 44, height: 44)
+                    .background(Theme.accent.opacity(0.12), in: Circle())
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("B 站直播").font(.headline)
+                    Text("热门直播、分区浏览与直播间搜索")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.14), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: 44)
+        .padding(.horizontal, Theme.Layout.contentInset)
     }
 
     private var searchField: some View {
@@ -590,7 +627,7 @@ struct BilibiliVideoDetailView: View {
 /// embedding a second Flutter engine.  This is the native Moumusic port of
 /// its player behaviour: custom controls, inline/full-screen playback, and
 /// selectable normal/translated/AI subtitle tracks.
-private struct PiliPlusVideoPlayerView: UIViewRepresentable {
+struct PiliPlusVideoPlayerView: UIViewRepresentable {
     let url: URL?
     let cues: [BilibiliAPI.SubtitleCue]
     let posterURL: String?
@@ -713,7 +750,7 @@ private struct PiliPlusVideoPlayerView: UIViewRepresentable {
     }
 }
 
-private struct PiliPlusFullScreenPlayer: View {
+struct PiliPlusFullScreenPlayer: View {
     @Environment(\.dismiss) private var dismiss
     let url: URL?
     let cues: [BilibiliAPI.SubtitleCue]

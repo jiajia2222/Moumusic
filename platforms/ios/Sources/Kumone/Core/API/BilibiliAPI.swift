@@ -109,6 +109,48 @@ actor BilibiliAPI {
         let qualities: [VideoQuality]
     }
 
+    struct LiveArea: Identifiable, Hashable, Sendable {
+        let id: Int
+        let parentID: Int
+        let name: String
+        let parentName: String
+
+        var title: String {
+            guard !parentName.isEmpty, parentName != name else { return name }
+            return "\(parentName) · \(name)"
+        }
+    }
+
+    struct LiveRoom: Identifiable, Hashable, Sendable {
+        let roomID: Int
+        let uid: Int
+        let title: String
+        let coverURL: String?
+        let userName: String
+        let userAvatarURL: String?
+        let areaName: String
+        let parentAreaName: String
+        let online: Int
+        let liveStatus: Int
+        let isPortrait: Bool
+
+        var id: Int { roomID }
+        var isLive: Bool { liveStatus == 1 || liveStatus == 2 }
+    }
+
+    struct LiveQuality: Identifiable, Hashable, Sendable {
+        let code: Int
+        let title: String
+
+        var id: Int { code }
+    }
+
+    struct LivePlayback: Sendable {
+        let url: URL
+        let quality: Int
+        let qualities: [LiveQuality]
+    }
+
     struct User: Identifiable, Hashable, Sendable {
         let mid: Int
         let name: String
@@ -159,6 +201,7 @@ actor BilibiliAPI {
         case requestFailed
         case invalidResponse
         case unavailable
+        case offline
 
         var errorDescription: String? {
             switch self {
@@ -168,6 +211,8 @@ actor BilibiliAPI {
                 return "B 站返回的数据格式无法识别"
             case .unavailable:
                 return "B 站服务暂时不可用，请稍后重试"
+            case .offline:
+                return "这个直播间当前未开播"
             }
         }
     }
@@ -274,6 +319,244 @@ actor BilibiliAPI {
         let data = root["data"] as? [String: Any]
         let rows = data?["list"] as? [[String: Any]] ?? []
         return rows.compactMap(Self.video)
+    }
+
+    // MARK: - Live
+
+    /// Returns the currently popular live rooms.  The response mapping is an
+    /// independent Swift implementation of Bilibili's public live endpoints;
+    /// no PiliPlus source or Flutter runtime is embedded in Moumusic.
+    func popularLiveRooms(page: Int = 1, pageSize: Int = 30,
+                          cookie: String? = nil) async throws -> [LiveRoom] {
+        try await liveRooms(parentAreaID: 0, areaID: 0, page: page,
+                            pageSize: pageSize, cookie: cookie)
+    }
+
+    func liveRooms(parentAreaID: Int, areaID: Int, page: Int = 1,
+                   pageSize: Int = 30, cookie: String? = nil) async throws -> [LiveRoom] {
+        var components = URLComponents(string: "https://api.live.bilibili.com/room/v1/area/getRoomList")!
+        components.queryItems = [
+            URLQueryItem(name: "area_id", value: "\(max(0, areaID))"),
+            URLQueryItem(name: "sort_type", value: "online"),
+            URLQueryItem(name: "page_size", value: "\(min(max(1, pageSize), 50))"),
+            URLQueryItem(name: "page_no", value: "\(max(1, page))")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://live.bilibili.com/")
+        let rows = Self.liveRoomRows(root["data"])
+        let rooms = Self.uniqueLiveRooms(rows.compactMap(Self.liveRoom))
+        guard !rooms.isEmpty else { throw APIError.invalidResponse }
+        return rooms
+    }
+
+    func liveAreas(cookie: String? = nil) async throws -> [LiveArea] {
+        let endpoint = URL(string: "https://api.live.bilibili.com/room/v1/Area/getList")!
+        let root = try await requestObject(endpoint, cookie: cookie,
+                                           referer: "https://live.bilibili.com/")
+        let data = root["data"]
+        let parents: [[String: Any]]
+        if let rows = data as? [[String: Any]] {
+            parents = rows
+        } else if let payload = data as? [String: Any] {
+            parents = (payload["data"] as? [[String: Any]])
+                ?? (payload["list"] as? [[String: Any]])
+                ?? []
+        } else {
+            parents = []
+        }
+
+        var areas: [LiveArea] = []
+        for parent in parents {
+            let parentID = Self.integer(parent["id"] ?? parent["parent_id"]) ?? 0
+            let parentName = Self.stripHTML(Self.text(parent["name"] ?? parent["parent_name"]) ?? "")
+            let children = (parent["list"] as? [[String: Any]])
+                ?? (parent["children"] as? [[String: Any]])
+                ?? []
+            if children.isEmpty, parentID > 0, !parentName.isEmpty {
+                areas.append(LiveArea(id: parentID, parentID: parentID,
+                                      name: parentName, parentName: parentName))
+            } else {
+                for child in children {
+                    let id = Self.integer(child["id"] ?? child["area_id"]) ?? 0
+                    let name = Self.stripHTML(Self.text(child["name"] ?? child["area_name"]) ?? "")
+                    guard id > 0, !name.isEmpty else { continue }
+                    areas.append(LiveArea(id: id, parentID: parentID,
+                                         name: name, parentName: parentName))
+                }
+            }
+        }
+        var seen = Set<Int>()
+        return areas.filter { seen.insert($0.id).inserted }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    func searchLiveRooms(keyword: String, page: Int = 1,
+                         cookie: String? = nil) async throws -> [LiveRoom] {
+        let cleaned = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return try await popularLiveRooms(cookie: cookie) }
+        var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/wbi/search/type")!
+        components.queryItems = [
+            URLQueryItem(name: "keyword", value: cleaned),
+            URLQueryItem(name: "search_type", value: "live_room"),
+            URLQueryItem(name: "page", value: "\(max(1, page))"),
+            URLQueryItem(name: "order", value: "online"),
+            URLQueryItem(name: "highlight", value: "0")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://search.bilibili.com/")
+        let rooms = Self.uniqueLiveRooms(Self.liveRoomRows(root["data"])
+            .compactMap(Self.liveRoom))
+        return rooms
+    }
+
+    /// Resolves a room to an HLS-compatible URL for WKWebView.  The v2
+    /// endpoint is preferred, with the public legacy playUrl endpoint as a
+    /// fallback for older room responses.
+    func livePlayback(for roomID: Int, quality: Int? = nil,
+                      cookie: String? = nil) async throws -> LivePlayback {
+        guard roomID > 0 else { throw APIError.invalidResponse }
+        let resolved = try await resolveLiveRoom(roomID: roomID, cookie: cookie)
+        guard resolved.liveStatus == nil || resolved.liveStatus == 1 || resolved.liveStatus == 2 else {
+            throw APIError.offline
+        }
+
+        do {
+            return try await livePlaybackV2(roomID: resolved.roomID,
+                                            quality: quality, cookie: cookie)
+        } catch {
+            return try await livePlaybackLegacy(roomID: resolved.roomID,
+                                                quality: quality, cookie: cookie)
+        }
+    }
+
+    private func resolveLiveRoom(roomID: Int, cookie: String?) async throws -> (roomID: Int, liveStatus: Int?) {
+        var components = URLComponents(string: "https://api.live.bilibili.com/room/v1/Room/room_init")!
+        components.queryItems = [URLQueryItem(name: "id", value: "\(roomID)")]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://live.bilibili.com/\(roomID)")
+        guard let data = root["data"] as? [String: Any],
+              let resolvedID = Self.integer(data["room_id"] ?? data["roomid"]),
+              resolvedID > 0 else {
+            throw APIError.invalidResponse
+        }
+        return (resolvedID, Self.integer(data["live_status"]))
+    }
+
+    private func livePlaybackV2(roomID: Int, quality: Int?, cookie: String?) async throws -> LivePlayback {
+        var components = URLComponents(string: "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo")!
+        components.queryItems = [
+            URLQueryItem(name: "room_id", value: "\(roomID)"),
+            URLQueryItem(name: "protocol", value: "0,1"),
+            URLQueryItem(name: "format", value: "0,1,2"),
+            URLQueryItem(name: "codec", value: "0,1"),
+            URLQueryItem(name: "qn", value: "\(quality ?? 0)"),
+            URLQueryItem(name: "platform", value: "web"),
+            URLQueryItem(name: "ptype", value: "8"),
+            URLQueryItem(name: "dolby", value: "5"),
+            URLQueryItem(name: "panorama", value: "1"),
+            URLQueryItem(name: "no_playurl", value: "0")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://live.bilibili.com/\(roomID)")
+        guard let data = root["data"] as? [String: Any],
+              let playurlInfo = data["playurl_info"] as? [String: Any],
+              let playurl = playurlInfo["playurl"] as? [String: Any],
+              let streams = playurl["stream"] as? [[String: Any]] else {
+            throw APIError.invalidResponse
+        }
+
+        var qualityNames: [Int: String] = [:]
+        var qualityCodes = Set<Int>()
+        var candidates: [(url: URL, quality: Int, score: Int)] = []
+        let qualityDescriptions = playurl["g_qn_desc"] as? [[String: Any]] ?? []
+        for description in qualityDescriptions {
+            guard let code = Self.integer(description["qn"]), code > 0 else { continue }
+            qualityNames[code] = Self.text(description["desc"] ?? description["description"])
+                ?? Self.liveQualityTitle(code)
+        }
+        for stream in streams {
+            let protocolName = Self.text(stream["protocol_name"]) ?? ""
+            let formats = stream["format"] as? [[String: Any]] ?? []
+            for format in formats {
+                let formatName = Self.text(format["format_name"]) ?? ""
+                let codecs = format["codec"] as? [[String: Any]] ?? []
+                for codec in codecs {
+                    let accepted = Self.integers(codec["accept_qn"] ?? codec["accept_quality"])
+                    let currentQuality = Self.integer(codec["current_qn"] ?? codec["qn"])
+                        ?? quality ?? accepted.max() ?? 80
+                    for code in accepted where code > 0 { qualityCodes.insert(code) }
+                    let descriptions = codec["accept_description"] as? [Any] ?? []
+                    for (index, code) in accepted.enumerated() where index < descriptions.count {
+                        if let description = Self.text(descriptions[index]), !description.isEmpty {
+                            qualityNames[code] = description
+                        }
+                    }
+
+                    let baseURL = Self.text(codec["base_url"] ?? codec["baseUrl"]) ?? ""
+                    guard !baseURL.isEmpty else { continue }
+                    let urlInfos = codec["url_info"] as? [[String: Any]] ?? []
+                    for info in urlInfos {
+                        let host = Self.text(info["host"]) ?? ""
+                        let extra = Self.text(info["extra"]) ?? ""
+                        guard let url = URL(string: host + baseURL + extra) else { continue }
+                        let lower = url.absoluteString.lowercased()
+                        let hlsScore = lower.contains("m3u8") || protocolName.localizedCaseInsensitiveContains("hls") ? 100 : 0
+                        let formatScore = formatName.localizedCaseInsensitiveContains("fmp4") ? 20 : 0
+                        candidates.append((url: url, quality: currentQuality,
+                                           score: hlsScore + formatScore))
+                    }
+                }
+            }
+        }
+
+        guard let candidate = candidates.sorted(by: { $0.score > $1.score }).first else {
+            throw APIError.unavailable
+        }
+        if qualityCodes.isEmpty { qualityCodes.insert(candidate.quality) }
+        let qualities = qualityCodes.sorted(by: >).map { code in
+            LiveQuality(code: code, title: qualityNames[code] ?? Self.liveQualityTitle(code))
+        }
+        return LivePlayback(url: candidate.url,
+                            quality: candidate.quality,
+                            qualities: qualities)
+    }
+
+    private func livePlaybackLegacy(roomID: Int, quality: Int?, cookie: String?) async throws -> LivePlayback {
+        var components = URLComponents(string: "https://api.live.bilibili.com/room/v1/Room/playUrl")!
+        components.queryItems = [
+            URLQueryItem(name: "cid", value: "\(roomID)"),
+            URLQueryItem(name: "platform", value: "h5"),
+            URLQueryItem(name: "qn", value: "\(quality ?? 0)"),
+            URLQueryItem(name: "quality", value: "4"),
+            URLQueryItem(name: "https_url_req", value: "1")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://live.bilibili.com/\(roomID)")
+        guard let data = root["data"] as? [String: Any],
+              let rows = data["durl"] as? [[String: Any]] else {
+            throw APIError.invalidResponse
+        }
+        let qualityRows = data["quality_description"] as? [[String: Any]] ?? []
+        let qualities = qualityRows.compactMap { row -> LiveQuality? in
+            guard let code = Self.integer(row["qn"] ?? row["quality"]), code > 0 else { return nil }
+            return LiveQuality(code: code,
+                               title: Self.text(row["desc"] ?? row["description"]) ?? Self.liveQualityTitle(code))
+        }.sorted { $0.code > $1.code }
+        for row in rows {
+            for key in ["url", "base_url", "baseUrl"] {
+                if let value = Self.text(row[key]), let url = URL(string: value) {
+                    let actual = Self.integer(data["current_qn"])
+                        ?? Self.queryInteger(url, name: "qn")
+                        ?? Self.integer(data["quality"])
+                        ?? quality ?? qualities.first?.code ?? 80
+                    let available = qualities.isEmpty
+                        ? [LiveQuality(code: actual, title: Self.liveQualityTitle(actual))]
+                        : qualities
+                    return LivePlayback(url: url, quality: actual, qualities: available)
+                }
+            }
+        }
+        throw APIError.unavailable
     }
 
     func rankedVideos(categoryID: Int, cookie: String? = nil) async throws -> [Video] {
@@ -494,9 +777,79 @@ actor BilibiliAPI {
     private func applyHeaders(to request: inout URLRequest, referer: String) {
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(referer, forHTTPHeaderField: "Referer")
-        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Origin")
+        let origin = referer.contains("live.bilibili.com")
+            ? "https://live.bilibili.com"
+            : "https://www.bilibili.com"
+        request.setValue(origin, forHTTPHeaderField: "Origin")
         request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
         request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+    }
+
+    private static func liveRoomRows(_ value: Any?) -> [[String: Any]] {
+        if let rows = value as? [[String: Any]] { return rows }
+        guard let payload = value as? [String: Any] else { return [] }
+        if let rows = payload["list"] as? [[String: Any]] { return rows }
+        if let rows = payload["result"] as? [[String: Any]] { return rows }
+        if let rows = payload["rooms"] as? [[String: Any]] { return rows }
+        if let room = payload["live_room"] as? [String: Any] { return [room] }
+        return []
+    }
+
+    private static func liveRoom(_ raw: [String: Any]) -> LiveRoom? {
+        let roomID = integer(raw["roomid"] ?? raw["room_id"] ?? raw["roomId"]) ?? 0
+        guard roomID > 0 else { return nil }
+        let anchor = raw["anchor_info"] as? [String: Any]
+        let baseInfo = anchor?["base_info"] as? [String: Any]
+        let watchedShow = raw["watched_show"] as? [String: Any]
+        let title = stripHTML(text(raw["title"]) ?? "B 站直播间")
+        let userName = stripHTML(text(raw["uname"] ?? raw["user_name"]
+                                      ?? baseInfo?["uname"]) ?? "B 站主播")
+        let cover = imageURL(text(raw["user_cover"] ?? raw["cover_from_user"]
+                                  ?? raw["keyframe"] ?? raw["cover"]))
+        let avatar = imageURL(text(raw["face"] ?? raw["uface"] ?? baseInfo?["face"]))
+        return LiveRoom(
+            roomID: roomID,
+            uid: integer(raw["uid"] ?? raw["mid"] ?? baseInfo?["uid"]) ?? 0,
+            title: title.isEmpty ? "B 站直播间" : title,
+            coverURL: cover,
+            userName: userName,
+            userAvatarURL: avatar,
+            areaName: stripHTML(text(raw["area_name"] ?? raw["areaName"] ?? raw["cate_name"]) ?? ""),
+            parentAreaName: stripHTML(text(raw["parent_area_name"] ?? raw["parentAreaName"]) ?? ""),
+            online: integer(raw["online"] ?? raw["online_num"] ?? watchedShow?["num"]) ?? 0,
+            liveStatus: integer(raw["live_status"] ?? raw["liveStatus"]) ?? 1,
+            isPortrait: bool(raw["is_portrait"] ?? raw["isPortrait"]) ?? false
+        )
+    }
+
+    private static func uniqueLiveRooms(_ rooms: [LiveRoom]) -> [LiveRoom] {
+        var seen = Set<Int>()
+        return rooms.filter { seen.insert($0.roomID).inserted }
+    }
+
+    private static func integers(_ value: Any?) -> [Int] {
+        if let values = value as? [Any] {
+            return values.compactMap(integer)
+        }
+        if let value = value as? String {
+            return value.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        }
+        return []
+    }
+
+    private static func liveQualityTitle(_ code: Int) -> String {
+        switch code {
+        case 80: return "流畅"
+        case 150: return "高清"
+        case 250: return "超清"
+        case 400: return "蓝光"
+        case 800: return "超高清"
+        case 10000: return "原画"
+        case 20000: return "4K"
+        case 25000: return "杜比"
+        case 30000: return "真 4K"
+        default: return "(code)"
+        }
     }
 
     private static func video(_ raw: [String: Any]) -> Video? {
@@ -762,6 +1115,11 @@ actor BilibiliAPI {
         return nil
     }
 
+    private static func queryInteger(_ url: URL, name: String) -> Int? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .first(where: { $0.name == name })?.value.flatMap { Int($0) }
+    }
+
     private static func bool(_ value: Any?) -> Bool? {
         if let value = value as? Bool { return value }
         if let value = value as? NSNumber { return value.boolValue }
@@ -776,6 +1134,7 @@ actor BilibiliAPI {
 
     private static func imageURL(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
+        if value.hasPrefix("//") { return "https:" + value }
         return value.hasPrefix("http://") ? "https://" + value.dropFirst(7) : value
     }
 
