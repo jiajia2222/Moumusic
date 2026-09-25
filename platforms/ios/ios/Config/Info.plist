@@ -10,6 +10,17 @@
     <array>
         <string>audio</string>
     </array>
+    <key>NSSupportsLiveActivities</key>
+    <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>moumusic</string>
+            </array>
+        </dict>
+    </array>
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
         <string>com.jiajia2222.moumusic.provider-refresh</string>

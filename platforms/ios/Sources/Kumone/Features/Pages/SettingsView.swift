@@ -17,6 +17,8 @@ struct SettingsView: View {
 #endif
     @State private var cacheSize = "计算中…"
     private let afdianURL = URL(string: "https://afdian.com/a/moumou2026")!
+    @State private var showEqualizer = false
+    @ObservedObject private var equalizer = MoumusicEqualizer.shared
 #if os(iOS)
     @State private var showSourceManager = false
     @State private var showDownloads = false
@@ -29,7 +31,8 @@ struct SettingsView: View {
     // the app look empty and hides the controls users came here to change.
     @State private var expandedSections: Set<String> = [
         "audio", "accounts", "playback", "home", "sources",
-        "appearance", "player", "background", "lyrics"
+        "appearance", "player", "background", "lyrics",
+        "storage", "updates", "about", "support"
     ]
 
     var body: some View {
@@ -47,7 +50,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Label("重要：网易云 VIP 歌曲在自动模式下优先使用三方音源；官方接口如果只返回试听片段，会被拒绝播放，避免歌曲播放 30 秒后停止。", systemImage: "exclamationmark.triangle.fill")
+                Label("重要：自动模式先请求已登录账号能提供的完整音频；如果官方接口只返回试听片段或目标音质不可用，再回退到已启用的三方音源，避免歌曲播放 30 秒后停止。", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -70,7 +73,7 @@ struct SettingsView: View {
                             .tag(quality)
                     }
                 }
-                Text("自动模式先尝试已启用的 LX 音源；失败后才使用对应平台已登录账号的官方音源。最终显示以实际返回的音质为准。")
+                Text("自动模式先尝试对应平台已登录账号的官方音源；账号不可用时再按顺序回退到 LX。最终显示以接口实际返回的音质为准，不会把请求档位当成真实音质。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -80,7 +83,7 @@ struct SettingsView: View {
                 NavigationLink(value: Destination.accountSync) {
                     Label("账号同步", systemImage: "person.crop.circle.badge.checkmark")
                 }
-                Text("网易云、QQ 音乐和酷狗登录后，可在对应平台歌曲上使用官方账号音源；自动模式仍优先使用已启用的 LX 音源。哔哩哔哩当前用于账号同步和视频内容。")
+                Text("网易云、QQ 音乐和酷狗登录后，可在对应平台歌曲上使用官方账号音源；自动模式优先尝试账号音源，失败后才按顺序回退到已启用的 LX 音源。哔哩哔哩当前用于账号同步和视频内容。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button { showQQMusicLogin = true } label: {
@@ -158,15 +161,32 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 #endif
-                Text("音频通过已导入的 LX 音源解析；歌词和封面按歌曲平台获取。")
+                Button {
+                    showEqualizer = true
+                } label: {
+                    HStack {
+                        Label("均衡器", systemImage: "waveform.path.ecg")
+                        Spacer()
+                        Text(equalizer.isEnabled ? "已开启" : "已关闭")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(minHeight: 44)
+                Text("音频会按播放来源设置选择账号音源或已导入的 LX 音源；歌词、封面和评论仍按歌曲平台获取。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("音质在歌曲播放页调整；可用档位由当前 LX 音源声明。")
+                Text("音质在歌曲播放页调整；可用档位由账号接口或当前 LX 音源实际返回的数据共同决定。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             SettingsDisclosureSection("首页推荐", isExpanded: sectionBinding("home")) {
+                Toggle("哔哩哔哩内容中心", isOn: $settings.bilibiliContentEnabled)
+                Text("开启后，首页和发现页显示独立的哔哩哔哩入口，可浏览推荐、分区、排行榜并播放视频或仅听音频。关闭后不会请求哔哩哔哩内容接口。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Picker("推荐内容", selection: $settings.homeRecommendationMode) {
                     ForEach(HomeRecommendationMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
@@ -399,6 +419,9 @@ struct SettingsView: View {
         .frame(width: 440, height: 520)
 #endif
         .task { updateCacheSize() }
+        .sheet(isPresented: $showEqualizer) {
+            EqualizerView()
+        }
 #if os(iOS)
         .sheet(isPresented: $showSourceManager) {
             NavigationStack {

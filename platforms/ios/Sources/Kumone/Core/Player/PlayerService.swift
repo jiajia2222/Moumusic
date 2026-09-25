@@ -251,28 +251,34 @@ final class PlayerService: ObservableObject {
     func availableQualitiesForCurrentTrack() async -> [AudioQuality] {
         guard let track = currentTrack else { return [] }
 #if os(iOS)
-        var names = Set(await LXUserAPIService.shared.availableQualityNames(for: track))
+        let playbackMode = SettingsManager.shared.playbackSourceMode
+        var names: Set<String> = []
+        if playbackMode != .official {
+            names.formUnion(await LXUserAPIService.shared.availableQualityNames(for: track))
+        }
         let source = (track.source ?? track.sourceMetadata["source"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         let isNativeNetease = source.isEmpty || ["wy", "163", "netease",
                                                   "neteasecloudmusic", "cloudmusic"].contains(source)
-        if SettingsManager.shared.playbackSourceMode != .thirdParty,
-           AccountStore.shared.isLoggedIn,
+        if playbackMode != .thirdParty,
+           NeteaseClient.shared.isLoggedIn,
            isNativeNetease {
-            names.formUnion(await NeteaseAPI.officialQualityNames(for: track.id))
+            names.formUnion(await NeteaseAPI.officialQualityNames(
+                for: track.id, duration: track.duration
+            ))
         }
         let isQQMusic = ["tx", "qq", "qqmusic", "qq-music"].contains(source)
-        if SettingsManager.shared.playbackSourceMode != .thirdParty,
+        if playbackMode != .thirdParty,
            QQMusicSessionStore.shared.isLoggedIn,
            isQQMusic {
-            names.formUnion(["flac", "320k", "128k"])
+            names.formUnion(await officialQualityNames(for: track))
         }
         let isKugou = ["kg", "kugou"].contains(source)
-        if SettingsManager.shared.playbackSourceMode != .thirdParty,
+        if playbackMode != .thirdParty,
            KugouSessionStore.shared.isLoggedIn,
            isKugou {
-            names.formUnion(["jymaster", "atmos", "dolby", "flac", "320k", "128k"])
+            names.formUnion(await officialQualityNames(for: track))
         }
         var seenTypes = Set<String>()
         let available = AudioQuality.allCases.filter {
@@ -310,9 +316,15 @@ final class PlayerService: ObservableObject {
     private var scrobbled = false
     private var startScrobbled = false
 #if os(iOS)
-    /// NetEase IDs are metadata matches only. LX remains the only audio URL
-    /// resolver on iOS.
+    /// Account URLs are tried for the matching catalogue before the enabled
+    /// LX sources. A provider downgrade is reported using the actual tier.
     private var pendingNeteaseTrackIDs: [String: Int] = [:]
+
+    private struct OfficialAudio {
+        let url: URL
+        let quality: String
+    }
+    private var lastLiveActivityProgress = -10.0
 #endif
     private var runtimeStarted = false
 
@@ -401,6 +413,11 @@ final class PlayerService: ObservableObject {
                         seconds,
                         rate: self.isPlaying ? Double(self.playbackRate) : 0
                     )
+                    if self.isPlaying,
+                       seconds - self.lastLiveActivityProgress >= 5 {
+                        self.lastLiveActivityProgress = seconds
+                        self.syncLiveActivity()
+                    }
                 }
             }
         }
@@ -414,6 +431,26 @@ final class PlayerService: ObservableObject {
         NowPlayingManager.shared.attach(to: self)
         restoreState()
     }
+
+#if os(iOS)
+    /// Starts or refreshes the system Live Activity. The system performs the
+    /// actual expanded-to-compact Dynamic Island transition when the user
+    /// leaves the app or it moves to the background.
+    private func syncLiveActivity(newTrack: Bool = false) {
+        guard #available(iOS 16.1, *), let track = currentTrack else { return }
+        MoumusicPlaybackActivityManager.shared.synchronize(
+            title: track.name,
+            artist: track.artistNames,
+            artworkURL: track.album.picUrl,
+            elapsed: progress,
+            duration: duration,
+            isPlaying: isPlaying,
+            newTrack: newTrack
+        )
+    }
+#else
+    private func syncLiveActivity(newTrack: Bool = false) {}
+#endif
 
     /// Set while the user drags the seek bar so the time observer doesn't fight the thumb.
     var isScrubbing = false
@@ -431,6 +468,7 @@ final class PlayerService: ObservableObject {
                 // The system already silenced us; sync our state and UI.
                 isPlaying = false
                 NowPlayingManager.shared.updateElapsed(progress, rate: 0)
+                syncLiveActivity()
             }
         case .ended:
             let optionsValue = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
@@ -442,6 +480,7 @@ final class PlayerService: ObservableObject {
             engine.rate = playbackRate
             isPlaying = true
             NowPlayingManager.shared.updateElapsed(progress, rate: Double(playbackRate))
+            syncLiveActivity()
         @unknown default:
             break
         }
@@ -509,6 +548,7 @@ final class PlayerService: ObservableObject {
             isPlaying = true
         }
         NowPlayingManager.shared.updateElapsed(progress, rate: isPlaying ? Double(playbackRate) : 0)
+        syncLiveActivity()
     }
 
     func pause() {
@@ -516,6 +556,7 @@ final class PlayerService: ObservableObject {
         isPlaying = false
         AudioSpectrum.shared.reset()
         NowPlayingManager.shared.updateElapsed(progress, rate: 0)
+        syncLiveActivity()
     }
 
     func next() {
@@ -618,6 +659,7 @@ final class PlayerService: ObservableObject {
             seconds,
             rate: isPlaying ? Double(playbackRate) : 0
         )
+        syncLiveActivity()
     }
 
     func toggleShuffle() {
@@ -794,6 +836,7 @@ final class PlayerService: ObservableObject {
                 } else {
                     isPlaying = false
                     NowPlayingManager.shared.updateElapsed(progress, rate: 0)
+                    syncLiveActivity()
                 }
                 return
             }
@@ -817,6 +860,7 @@ final class PlayerService: ObservableObject {
             seek(to: 0)
             engine.play()
             isPlaying = true
+            syncLiveActivity()
             return
         }
         advanceToNext(userInitiated: false)
@@ -840,6 +884,7 @@ final class PlayerService: ObservableObject {
         currentTrack = track
         WidgetSnapshotStore.update(track: track, lyric: nil)
         progress = resumeAt ?? 0
+        lastLiveActivityProgress = progress - 5
         pendingSeek = resumeAt
         duration = track.duration
         servedQuality = nil
@@ -849,6 +894,7 @@ final class PlayerService: ObservableObject {
         scrobbled = false
         startScrobbled = false
         isPlaying = true
+        syncLiveActivity(newTrack: true)
         lyricsCursor.activeIndex = nil
         // Before the URL is even resolved: holds the bars still rather than
         // letting them fall back to the decorative animation for the moment it
@@ -880,8 +926,8 @@ final class PlayerService: ObservableObject {
 #endif
 
 #if os(iOS)
-        // Automatic mode tries LX first. The resolver only uses an authorized
-        // account after all enabled LX sources fail.
+        // Prefer a matching account source in automatic mode. If it fails,
+        // automatic mode falls back to the enabled LX sources.
         if let local = DownloadManager.shared.record(for: track),
            FileManager.default.fileExists(atPath: local.fileURL.path) {
             resolvedURL = local.fileURL
@@ -892,15 +938,28 @@ final class PlayerService: ObservableObject {
             let isNativeNetease = sourceValue.isEmpty || ["wy", "163", "netease",
                                                            "neteasecloudmusic", "cloudmusic"].contains(sourceValue)
             let isQQMusic = ["tx", "qq", "qqmusic", "qq-music"].contains(sourceValue)
-            let canUseOfficial = SettingsManager.shared.playbackSourceMode != .thirdParty
-                && ((AccountStore.shared.isLoggedIn && isNativeNetease)
-                    || (QQMusicSessionStore.shared.isLoggedIn && isQQMusic))
-            guard LXSourceStore.shared.selectedSource != nil || canUseOfficial else {
+            let isKugou = ["kg", "kugou"].contains(sourceValue)
+            let playbackMode = SettingsManager.shared.playbackSourceMode
+            let hasOfficialAccount = (isNativeNetease && NeteaseClient.shared.isLoggedIn)
+                || (isQQMusic && QQMusicSessionStore.shared.isLoggedIn)
+                || (isKugou && KugouSessionStore.shared.isLoggedIn)
+            let hasLXSource = !LXSourceStore.shared.playbackSources.isEmpty
+            guard hasLXSource || (playbackMode != .thirdParty && hasOfficialAccount) else {
                 guard generation == resolveGeneration else { return }
                 ToastCenter.shared.show("请先登录账号或在设置 → LX 音源中选择播放音源")
                 isPlaying = false
+                syncLiveActivity()
                 return
             }
+            if playbackMode != .thirdParty, hasOfficialAccount,
+               let official = await resolveOfficialAudio(
+                for: track, quality: SettingsManager.shared.audioQuality
+               ) {
+                resolvedURL = official.url
+                servedByLXQuality = official.quality
+            }
+
+            if resolvedURL == nil, playbackMode != .official, hasLXSource {
             do {
                 var resolved: LXUserAPIService.ResolvedURL?
                 var lastError: Error?
@@ -933,7 +992,9 @@ final class PlayerService: ObservableObject {
                 // more queue entries. Keep the current song visible so the user
                 // can adjust the source or retry after reading the real error.
                 isPlaying = false
+                syncLiveActivity()
                 return
+            }
             }
         }
 #else
@@ -960,6 +1021,7 @@ final class PlayerService: ObservableObject {
             }
         }
 #endif
+
         guard generation == resolveGeneration else { return }
 
         guard let url = resolvedURL else {
@@ -972,6 +1034,7 @@ final class PlayerService: ObservableObject {
                 advanceToNext(userInitiated: false)
             } else {
                 isPlaying = false
+                syncLiveActivity()
             }
             return
         }
@@ -1050,6 +1113,144 @@ final class PlayerService: ObservableObject {
         }
 #endif
     }
+
+#if os(iOS)
+    /// Resolve a full-length provider URL using the account belonging to the
+    /// track's catalogue. The returned quality is the provider's response.
+    private func resolveOfficialAudio(for track: Track, quality: AudioQuality) async -> OfficialAudio? {
+        let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
+        let candidates = qualityCandidates(startingAt: quality)
+
+        if source.isEmpty || ["wy", "163", "netease", "neteasecloudmusic", "cloudmusic"].contains(source),
+           NeteaseClient.shared.isLoggedIn {
+            for candidate in candidates {
+                guard let data = (try? await NeteaseAPI.songURL(
+                    ids: [track.id], level: candidate.neteaseLevel
+                ))?.first,
+                data.freeTrialInfo == nil,
+                data.time <= 0 || track.duration <= 0
+                    || TimeInterval(data.time) / 1000 >= max(45, track.duration * 0.65),
+                let rawURL = data.url,
+                let url = validAudioURL(rawURL) else { continue }
+                return OfficialAudio(url: url, quality: NeteaseAPI.officialQuality(for: data).lxType)
+            }
+        }
+
+        if ["tx", "qq", "qqmusic", "qq-music"].contains(source),
+           QQMusicSessionStore.shared.isLoggedIn,
+           let cookie = QQMusicSessionStore.shared.cookie {
+            let songMid = track.sourceMetadata["songmid"] ?? String(track.id)
+            let mediaMid = track.sourceMetadata["strMediaMid"]?.isEmpty == false
+                ? track.sourceMetadata["strMediaMid"]
+                : track.sourceMetadata["media_mid"]
+            var attempted = Set<String>()
+            for candidate in candidates {
+                let token = qqQualityToken(for: candidate)
+                guard attempted.insert(token).inserted,
+                      let resolved = try? await QQMusicAPI.shared.musicURL(
+                        songMid: songMid, mediaMid: mediaMid, quality: token, cookie: cookie
+                      ),
+                      let actual = AudioQuality(lxType: resolved.quality) else { continue }
+                return OfficialAudio(url: resolved.url, quality: actual.lxType)
+            }
+        }
+
+        if ["kg", "kugou"].contains(source),
+           KugouSessionStore.shared.isLoggedIn,
+           let cookie = KugouSessionStore.shared.cookie,
+           let hash = track.sourceMetadata["hash"] ?? track.sourceMetadata["Hash"], !hash.isEmpty {
+            let albumID = track.sourceMetadata["albumId"]
+            let albumAudioID = track.sourceMetadata["albumAudioId"]
+                ?? track.sourceMetadata["albumAudioID"]
+                ?? track.sourceMetadata["mixsongid"]
+            var attempted = Set<String>()
+            for candidate in candidates {
+                let token = candidate.lxType
+                guard attempted.insert(token).inserted,
+                      let resolved = try? await KugouAPI.shared.musicURL(
+                        hash: hash, quality: token, cookie: cookie,
+                        albumID: albumID, albumAudioID: albumAudioID
+                      ),
+                      let actual = AudioQuality(lxType: resolved.quality) else { continue }
+                return OfficialAudio(url: resolved.url, quality: actual.lxType)
+            }
+        }
+
+        return nil
+    }
+
+    /// Probe the authenticated provider instead of advertising a fixed list
+    /// of labels. This keeps the quality picker honest: VIP-only tiers and
+    /// unavailable Hi-Res variants are omitted, and a provider downgrade is
+    /// represented by the quality returned by its API.
+    private func officialQualityNames(for track: Track) async -> [String] {
+        let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
+        var available: [String] = []
+
+        func append(_ quality: AudioQuality) {
+            if !available.contains(quality.lxType) {
+                available.append(quality.lxType)
+            }
+        }
+
+        if ["tx", "qq", "qqmusic", "qq-music"].contains(source),
+           let cookie = QQMusicSessionStore.shared.cookie {
+            let songMid = track.sourceMetadata["songmid"] ?? String(track.id)
+            let mediaMid = track.sourceMetadata["strMediaMid"]?.isEmpty == false
+                ? track.sourceMetadata["strMediaMid"]
+                : track.sourceMetadata["media_mid"]
+            for requested in ["flac", "320k", "128k"] {
+                if let resolved = try? await QQMusicAPI.shared.musicURL(
+                    songMid: songMid, mediaMid: mediaMid, quality: requested, cookie: cookie
+                ), let quality = AudioQuality(lxType: resolved.quality),
+                   validAudioURL(resolved.url.absoluteString) != nil {
+                    append(quality)
+                }
+            }
+        }
+
+        if ["kg", "kugou"].contains(source),
+           let cookie = KugouSessionStore.shared.cookie,
+           let hash = track.sourceMetadata["hash"], !hash.isEmpty {
+            let albumID = track.sourceMetadata["albumId"]
+            let albumAudioID = track.sourceMetadata["albumAudioID"]
+            for requested in ["jymaster", "atmos", "dolby", "flac24bit", "flac", "320k", "128k"] {
+                if let resolved = try? await KugouAPI.shared.musicURL(
+                    hash: hash, quality: requested, cookie: cookie,
+                    albumID: albumID, albumAudioID: albumAudioID
+                ), let quality = AudioQuality(lxType: resolved.quality),
+                   validAudioURL(resolved.url.absoluteString) != nil {
+                    append(quality)
+                }
+            }
+        }
+
+        return available
+    }
+
+    private func qualityCandidates(startingAt quality: AudioQuality) -> [AudioQuality] {
+        guard let index = AudioQuality.allCases.firstIndex(of: quality) else {
+            return AudioQuality.allCases
+        }
+        return Array(AudioQuality.allCases[index...])
+    }
+
+    private func qqQualityToken(for quality: AudioQuality) -> String {
+        switch quality {
+        case .master, .atmos, .dolby, .surround, .hires, .lossless: return "flac"
+        case .exhigh, .higher: return "320k"
+        case .standard: return "128k"
+        }
+    }
+
+    private func validAudioURL(_ rawURL: String) -> URL? {
+        guard let url = URL(string: rawURL.replacingOccurrences(of: "http://", with: "https://")),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return nil
+        }
+        return url
+    }
+#endif
 
     /// Resolves the asset's audio track, giving up after `timeout` so a slow or
     /// uncooperative source delays playback no longer than it would today.
@@ -1224,20 +1425,35 @@ final class PlayerService: ObservableObject {
     }
 
     private func syncListeningStart(track: Track, sourceID: Int) {
-        guard AccountStore.shared.isLoggedIn else { return }
+        // Listening history only needs the NetEase auth cookie. Requiring the
+        // profile here made a temporary account/profile request failure look
+        // like a logged-out account and silently skipped the sync.
+        guard NeteaseClient.shared.isLoggedIn else { return }
         let key = track.playbackKey
         Task { [weak self] in
             guard let trackID = await self?.neteaseTrackID(for: track) else { return }
+            // Keep the match available immediately. A very short track or a
+            // fast user skip can finish before the startplay request returns.
+            self?.pendingNeteaseTrackIDs[key] = trackID
             // This is an account history event only. The actual audio URL was
             // already resolved through the selected LX User API source.
-            await NeteaseAPI.scrobbleStart(trackID: trackID, sourceID: sourceID)
-            guard !Task.isCancelled else { return }
-            self?.pendingNeteaseTrackIDs[key] = trackID
+            for attempt in 0..<3 {
+                if await NeteaseAPI.scrobbleStart(trackID: trackID, sourceID: sourceID) {
+                    guard !Task.isCancelled else { return }
+                    return
+                }
+                guard attempt < 2, !Task.isCancelled else { return }
+                try? await Task.sleep(for: .seconds(Double(attempt + 1)))
+            }
         }
     }
 
     private func syncListeningFinish(track: Track, sourceID: Int, seconds: Int) {
-        guard AccountStore.shared.isLoggedIn, seconds > 0 else { return }
+        guard seconds > 0 else { return }
+        guard NeteaseClient.shared.isLoggedIn else {
+            ListeningSyncStore.shared.recordFailure()
+            return
+        }
         let key = track.playbackKey
         let knownID = pendingNeteaseTrackIDs[key]
         Task { [weak self] in
@@ -1247,11 +1463,33 @@ final class PlayerService: ObservableObject {
             } else {
                 trackID = await self?.neteaseTrackID(for: track)
             }
-            guard let trackID else { return }
-            await NeteaseAPI.scrobbleFinish(trackID: trackID, sourceID: sourceID, seconds: seconds)
+            guard let trackID else {
+                ListeningSyncStore.shared.recordFailure()
+                return
+            }
+
+            // A failed request must not be presented as a successful local
+            // sync. Retry transient cookie/network/API failures before giving
+            // up; the next track can still use its own independent event.
+            for attempt in 0..<3 {
+                if await NeteaseAPI.scrobbleFinish(trackID: trackID,
+                                                   sourceID: sourceID,
+                                                   seconds: seconds) {
+                    guard !Task.isCancelled else { return }
+                    ListeningSyncStore.shared.record(seconds: seconds)
+                    self?.pendingNeteaseTrackIDs.removeValue(forKey: key)
+                    return
+                }
+                if attempt == 0 {
+                    await NeteaseAPI.refreshLogin()
+                }
+                guard attempt < 2, !Task.isCancelled else { return }
+                try? await Task.sleep(for: .seconds(Double(attempt + 1)))
+            }
+
             guard !Task.isCancelled else { return }
-            ListeningSyncStore.shared.record(seconds: seconds)
-            self?.pendingNeteaseTrackIDs.removeValue(forKey: key)
+            ListeningSyncStore.shared.recordFailure()
+            ToastCenter.shared.show("网易云听歌时长同步失败，本次未计入同步时长")
         }
     }
 #endif
@@ -1259,7 +1497,10 @@ final class PlayerService: ObservableObject {
     private func scrobbleIfNeeded(completed: Bool) {
         guard let track = currentTrack, !scrobbled, progress > 1 else { return }
         scrobbled = true
-        let seconds = completed ? Int(duration) : Int(progress)
+        // Some LX results omit duration metadata. On completion the AVPlayer
+        // progress is still authoritative, so never turn a real listening
+        // interval into a zero-second weblog event.
+        let seconds = completed ? max(Int(duration), Int(progress)) : Int(progress)
         let sourceID = source.sourceID
 #if os(iOS)
         syncListeningFinish(track: track, sourceID: sourceID, seconds: seconds)

@@ -32,12 +32,18 @@ struct LXSourceManagerView: View {
         // cannot be read after the importer sheet dismisses. `asCopy: true`
         // gives the parser a stable local copy for every provider.
         .sheet(isPresented: $isImportingFile) {
-            LXSourceDocumentPicker { url in
+            LXSourceDocumentPicker { urls in
                 Task { @MainActor in
-                    do {
-                        try await importSourceFile(at: url)
-                    } catch {
-                        lxError = error.localizedDescription
+                    var firstError: Error?
+                    for url in urls {
+                        do {
+                            try await importSourceFile(at: url)
+                        } catch {
+                            firstError = firstError ?? error
+                        }
+                    }
+                    if let firstError {
+                        lxError = firstError.localizedDescription
                     }
                 }
             }
@@ -730,18 +736,22 @@ struct LXSourceManagerView: View {
 }
 
 private struct LXSourceDocumentPicker: UIViewControllerRepresentable {
-    let onPick: (URL) -> Void
+    let onPick: ([URL]) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onPick: onPick)
     }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        var contentTypes: [UTType] = [.item, .data, .json, .plainText]
+        if let javascript = UTType(filenameExtension: "js") {
+            contentTypes.append(javascript)
+        }
         let picker = UIDocumentPickerViewController(
-            forOpeningContentTypes: [.item, .data],
+            forOpeningContentTypes: contentTypes,
             asCopy: true
         )
-        picker.allowsMultipleSelection = false
+        picker.allowsMultipleSelection = true
         picker.delegate = context.coordinator
         return picker
     }
@@ -749,15 +759,15 @@ private struct LXSourceDocumentPicker: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onPick: (URL) -> Void
+        let onPick: ([URL]) -> Void
 
-        init(onPick: @escaping (URL) -> Void) {
+        init(onPick: @escaping ([URL]) -> Void) {
             self.onPick = onPick
         }
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else { return }
-            onPick(url)
+            guard !urls.isEmpty else { return }
+            onPick(urls)
         }
     }
 

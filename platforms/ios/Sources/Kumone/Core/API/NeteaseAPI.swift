@@ -180,7 +180,8 @@ enum NeteaseAPI {
     /// `startplay` weblog — writes the song into the 最近播放 (recent-plays)
     /// list. NetEase needs this *and* the `play` weblog; sending only `play`
     /// (as before) bumped the listening ranking but never wrote 最近播放 (#33).
-    static func scrobbleStart(trackID: Int, sourceID: Int) async {
+    @discardableResult
+    static func scrobbleStart(trackID: Int, sourceID: Int) async -> Bool {
         await sendWeblog([[
             "action": "startplay",
             "json": [
@@ -192,8 +193,10 @@ enum NeteaseAPI {
     }
 
     /// `play` weblog — increments the listening-ranking play count and time.
-    static func scrobbleFinish(trackID: Int, sourceID: Int, seconds: Int) async {
-        await sendWeblog([[
+    @discardableResult
+    static func scrobbleFinish(trackID: Int, sourceID: Int, seconds: Int) async -> Bool {
+        guard seconds > 0 else { return false }
+        return await sendWeblog([[
             "action": "play",
             "json": [
                 "download": 0, "end": "playend", "id": trackID,
@@ -207,11 +210,21 @@ enum NeteaseAPI {
 
     /// Routed via eapi with the desktop-client cookie (`os=osx`) to match the
     /// reference scrobble implementation.
-    private static func sendWeblog(_ log: [[String: Any]]) async {
+    private static func sendWeblog(_ log: [[String: Any]]) async -> Bool {
         guard let data = try? JSONSerialization.data(withJSONObject: log),
-              let logs = String(data: data, encoding: .utf8) else { return }
-        _ = try? await client.eapi("/feedback/weblog", ["logs": logs],
-                                   cookieOverrides: ["os": "osx"])
+              let logs = String(data: data, encoding: .utf8) else { return false }
+
+        do {
+            let response = try await client.eapi("/feedback/weblog", ["logs": logs],
+                                                 cookieOverrides: ["os": "osx"])
+            // The transport only validates HTTP status. The weblog endpoint
+            // can still return a business error in a 2xx response, so do not
+            // report a local sync until its JSON code explicitly succeeds.
+            let result = try client.decoded(CodeOnly.self, from: response)
+            return result.code == 200
+        } catch {
+            return false
+        }
     }
 
     // MARK: - Playlists
@@ -393,7 +406,7 @@ enum NeteaseAPI {
     /// Probes the authenticated account endpoint and returns only quality
     /// tiers for which this song actually has a non-preview URL. The player
     /// uses this instead of advertising every quality label in the UI.
-    static func officialQualityNames(for id: Int) async -> [String] {
+    static func officialQualityNames(for id: Int, duration: TimeInterval? = nil) async -> [String] {
         guard id > 0 else { return [] }
         let probes: [AudioQuality] = [.master, .atmos, .dolby, .surround,
                                       .hires, .lossless, .exhigh, .standard]
@@ -404,8 +417,12 @@ enum NeteaseAPI {
                   let rawURL = data.url,
                   let url = URL(string: rawURL),
                   let scheme = url.scheme?.lowercased(),
-                  ["http", "https"].contains(scheme),
-                  data.freeTrialInfo == nil else { continue }
+                   ["http", "https"].contains(scheme),
+                   data.freeTrialInfo == nil else { continue }
+            if let duration, duration > 0, data.time > 0,
+               TimeInterval(data.time) / 1000 < max(45, duration * 0.65) {
+                continue
+            }
             available.insert(officialQuality(for: data).lxType)
         }
         return AudioQuality.allCases

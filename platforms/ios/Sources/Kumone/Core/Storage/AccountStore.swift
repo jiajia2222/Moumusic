@@ -271,12 +271,14 @@ final class ListeningSyncStore: ObservableObject {
     @Published private(set) var syncedSeconds: Int
     @Published private(set) var syncedTrackCount: Int
     @Published private(set) var lastSyncedAt: Date?
+    @Published private(set) var lastSyncSucceeded: Bool?
 
     private init() {
         let defaults = UserDefaults.standard
         syncedSeconds = defaults.integer(forKey: "account.sync.syncedSeconds")
         syncedTrackCount = defaults.integer(forKey: "account.sync.syncedTrackCount")
         lastSyncedAt = defaults.object(forKey: "account.sync.lastSyncedAt") as? Date
+        lastSyncSucceeded = defaults.object(forKey: "account.sync.lastSyncSucceeded") as? Bool
     }
 
     func record(seconds: Int) {
@@ -284,10 +286,29 @@ final class ListeningSyncStore: ObservableObject {
         syncedSeconds += seconds
         syncedTrackCount += 1
         lastSyncedAt = .now
+        lastSyncSucceeded = true
         let defaults = UserDefaults.standard
         defaults.set(syncedSeconds, forKey: "account.sync.syncedSeconds")
         defaults.set(syncedTrackCount, forKey: "account.sync.syncedTrackCount")
         defaults.set(lastSyncedAt, forKey: "account.sync.lastSyncedAt")
+        defaults.set(true, forKey: "account.sync.lastSyncSucceeded")
+    }
+
+    /// Keeps a failed server submission out of the local aggregate. This is
+    /// intentionally separate from `record`: the UI must not claim that a
+    /// listening interval was synced when NetEase rejected or never received
+    /// the weblog request.
+    func recordFailure() {
+        lastSyncSucceeded = false
+        UserDefaults.standard.set(false, forKey: "account.sync.lastSyncSucceeded")
+    }
+
+    var statusText: String {
+        switch lastSyncSucceeded {
+        case true: return "已同步"
+        case false: return "同步失败"
+        case nil: return "待同步"
+        }
     }
 
     var formattedDuration: String {

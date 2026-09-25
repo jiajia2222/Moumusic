@@ -1147,6 +1147,15 @@ private struct QualityPickerSheet: View {
                     Text("可用音质会随当前平台和音源变化")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    if let servedQuality = player.servedQuality, !servedQuality.isEmpty {
+                        Label {
+                            Text("实际返回音质：\(AudioQuality(lxType: servedQuality)?.sourceDisplayName ?? servedQuality)。如果音源不支持所选音质，已自动降级。")
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                    }
                 }
 
                 if !available.isEmpty {
@@ -2742,13 +2751,35 @@ struct MiniLyricsView: View {
 
     @ViewBuilder
     private func line(_ line: LyricLine?, emphasized: Bool) -> some View {
-        Text(line?.text.isEmpty == false ? line!.text : " ")
-            .font(.system(size: emphasized ? 17 : 14, weight: emphasized ? .bold : .medium))
-            .foregroundStyle(.white.opacity(emphasized ? 1 : 0.45))
-            .lineLimit(1)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 28)
-            .id(line?.id)
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        Group {
+            if let line, !line.text.isEmpty {
+                // The compact player used to render plain Text here, so long
+                // pressing to switch Apple Music/AMLL style only changed the
+                // full lyrics page. Reuse the same renderer in every player
+                // surface.
+                LyricMainText(
+                    line: line,
+                    isActive: emphasized,
+                    font: .system(size: emphasized ? 17 : 14,
+                                   weight: emphasized ? .bold : .medium),
+                    verbatim: settings.verbatimLyrics,
+                    inactiveOpacity: 0.45,
+                    rubySize: 13
+                )
+            } else {
+                Text(" ")
+                    .font(.system(size: emphasized ? 17 : 14,
+                                  weight: emphasized ? .bold : .medium))
+                    .foregroundStyle(.white.opacity(emphasized ? 1 : 0.45))
+            }
+        }
+        .font(.system(size: emphasized ? 17 : 14,
+                      weight: emphasized ? .bold : .medium))
+        .foregroundStyle(.white.opacity(emphasized ? 1 : 0.45))
+        .lineLimit(1)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 28)
+        .id(line?.id)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 }

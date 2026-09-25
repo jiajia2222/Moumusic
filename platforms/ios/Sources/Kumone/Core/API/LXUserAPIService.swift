@@ -139,20 +139,14 @@ final class LXUserAPIService: ObservableObject {
             return try await resolveOfficialMusicURL(for: track, quality: quality)
         }
 
-        // Automatic mode is intentionally third-party-first.  A logged-in
-        // An account endpoint can return a restricted preview for a VIP song;
-        // treating that URL as the primary route makes playback stop after the
-        // preview. Only use the matching official account as a fallback when
-        // every enabled LX source failed to provide a playable URL.
-        do {
-            return try await resolveMusicURLAcrossSources(for: track, quality: quality)
-        } catch {
-            guard sourceMode == .automatic,
-                  hasAuthenticatedAccount(for: track) else {
-                throw error
-            }
-            return try await resolveOfficialMusicURL(for: track, quality: quality)
+        // Automatic mode follows the same rule as the player and download
+        // manager: try the matching account source first, reject preview-only
+        // URLs, then fall back to the enabled LX sources.
+        if sourceMode == .automatic, hasAuthenticatedAccount(for: track),
+           let official = try? await resolveOfficialMusicURL(for: track, quality: quality) {
+            return official
         }
+        return try await resolveMusicURLAcrossSources(for: track, quality: quality)
 #if false
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
@@ -232,7 +226,9 @@ final class LXUserAPIService: ObservableObject {
                 do {
                     let audio = try await QQMusicAPI.shared.musicURL(
                         songMid: songMid,
-                        mediaMid: track.sourceMetadata["strMediaMid"],
+                        mediaMid: track.sourceMetadata["strMediaMid"]?.isEmpty == false
+                            ? track.sourceMetadata["strMediaMid"]
+                            : track.sourceMetadata["media_mid"],
                         quality: requestedQuality,
                         cookie: cookie
                     )
@@ -264,6 +260,7 @@ final class LXUserAPIService: ObservableObject {
                         cookie: cookie,
                         albumID: track.sourceMetadata["albumId"],
                         albumAudioID: track.sourceMetadata["albumAudioId"]
+                            ?? track.sourceMetadata["albumAudioID"]
                             ?? track.sourceMetadata["mixsongid"]
                     )
                     return ResolvedURL(url: audio.url, quality: audio.quality)
@@ -304,7 +301,7 @@ final class LXUserAPIService: ObservableObject {
         case "tx":
             return QQMusicSessionStore.shared.isLoggedIn && QQMusicSessionStore.shared.cookie != nil
         case "wy":
-            return AccountStore.shared.isLoggedIn
+            return NeteaseClient.shared.isLoggedIn
         case "kg":
             return KugouSessionStore.shared.isLoggedIn && KugouSessionStore.shared.cookie != nil
         default:
@@ -955,20 +952,28 @@ final class LXUserAPIService: ObservableObject {
         let primaryPlatform = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
         var available = Set<String>()
         if SettingsManager.shared.playbackSourceMode != .thirdParty {
-            if primaryPlatform == "wy", AccountStore.shared.isLoggedIn {
-                available.formUnion(await NeteaseAPI.officialQualityNames(for: track.id))
+            if primaryPlatform == "wy", NeteaseClient.shared.isLoggedIn {
+                available.formUnion(await NeteaseAPI.officialQualityNames(
+                    for: track.id, duration: track.duration
+                ))
             } else if primaryPlatform == "tx", QQMusicSessionStore.shared.isLoggedIn {
-                available.formUnion(["flac", "320k", "128k"])
+                available.formUnion(await officialQualityNames(for: track, platform: "tx"))
             } else if primaryPlatform == "kg", KugouSessionStore.shared.isLoggedIn {
-                // These are the account endpoint's documented tiers. The
-                // resolver still reports the actual returned tier and falls
-                // back when the account is not entitled to a selected tier.
-                available.formUnion(["jymaster", "atmos", "dolby", "flac", "320k", "128k"])
+                available.formUnion(await officialQualityNames(for: track, platform: "kg"))
             }
         }
         for source in playbackSources {
             guard await activate(source) else { continue }
-            for platform in sourceCandidates(for: track, action: "musicUrl") {
+            let platforms = sourceCandidates(for: track, action: "musicUrl")
+            // Quality probing is per-song and performs real network requests.
+            // Probe the track's own catalogue first; only use one fallback
+            // catalogue when that source cannot serve the primary platform.
+            // This keeps the picker accurate without turning it into dozens of
+            // cross-platform requests every time the sheet opens.
+            let platformsToProbe = platforms.contains(primaryPlatform)
+                ? [primaryPlatform]
+                : Array(platforms.prefix(1))
+            for platform in platformsToProbe {
                 let qualityTrack: Track
                 if platform == primaryPlatform {
                     qualityTrack = track
@@ -976,7 +981,18 @@ final class LXUserAPIService: ObservableObject {
                     guard let matched = await LXCatalogService.matchingTrack(track, on: platform) else { continue }
                     qualityTrack = matched
                 }
-                available.formUnion(supportedQualityNames(for: qualityTrack, platform: platform))
+                let declaredQualities = supportedQualityNames(for: qualityTrack, platform: platform)
+                // `qualitys` describes what the adapter claims to support,
+                // not what this particular song actually has.  Probe the
+                // song's musicUrl response before exposing a quality picker;
+                // otherwise a source that declares lossless/master globally
+                // makes a 128K-only track advertise unavailable tiers.
+                available.formUnion(await probeQualityNames(
+                    source: source,
+                    platform: platform,
+                    track: qualityTrack,
+                    declared: declaredQualities
+                ))
             }
         }
         let order = Self.qualityOrder
@@ -984,13 +1000,116 @@ final class LXUserAPIService: ObservableObject {
         return order.reversed().filter(available.contains)
     }
 
+    /// Probe account endpoints instead of presenting a hard-coded capability
+    /// list. A returned URL and returned provider quality are both required,
+    /// so a VIP-only or unavailable tier never appears in the picker.
+    private func officialQualityNames(for track: Track, platform: String) async -> [String] {
+        var result: [String] = []
+
+        func append(_ resolvedQuality: String) {
+            guard let quality = AudioQuality(lxType: resolvedQuality),
+                  !result.contains(quality.lxType) else { return }
+            result.append(quality.lxType)
+        }
+
+        if platform == "tx", let cookie = QQMusicSessionStore.shared.cookie {
+            let songMid = track.sourceMetadata["songmid"] ?? String(track.id)
+            let mediaMid = track.sourceMetadata["strMediaMid"]?.isEmpty == false
+                ? track.sourceMetadata["strMediaMid"]
+                : track.sourceMetadata["media_mid"]
+            for requested in ["flac", "320k", "128k"] {
+                if let audio = try? await QQMusicAPI.shared.musicURL(
+                    songMid: songMid, mediaMid: mediaMid, quality: requested, cookie: cookie
+                ), isValidAudioURL(audio.url) {
+                    append(audio.quality)
+                }
+            }
+        }
+
+        if platform == "kg", let cookie = KugouSessionStore.shared.cookie,
+           let hash = track.sourceMetadata["hash"] ?? track.sourceMetadata["Hash"],
+           !hash.isEmpty {
+            let albumID = track.sourceMetadata["albumId"]
+            let albumAudioID = track.sourceMetadata["albumAudioId"]
+                ?? track.sourceMetadata["albumAudioID"]
+                ?? track.sourceMetadata["mixsongid"]
+            for requested in ["jymaster", "atmos", "dolby", "flac24bit", "flac", "320k", "128k"] {
+                if let audio = try? await KugouAPI.shared.musicURL(
+                    hash: hash, quality: requested, cookie: cookie,
+                    albumID: albumID, albumAudioID: albumAudioID
+                ), isValidAudioURL(audio.url) {
+                    append(audio.quality)
+                }
+            }
+        }
+
+        return result
+    }
+
+    private func probeQualityNames(
+        source: LXSourceStore.Source,
+        platform: String,
+        track: Track,
+        declared: [String]
+    ) async -> Set<String> {
+        guard await activate(source) else { return [] }
+        let requestedQualities = declared.isEmpty ? ["128k"] : declared
+        var verified = Set<String>()
+
+        for requested in requestedQualities {
+            do {
+                let response = try await request(
+                    source: platform,
+                    action: "musicUrl",
+                    info: [
+                        "type": protocolQualityToken(requested, platform: platform),
+                        "musicInfo": musicInfo(
+                            for: track,
+                            platform: platform,
+                            qualities: requestedQualities
+                        )
+                    ]
+                )
+                guard let data = response["data"] as? [String: Any],
+                      let rawURL = data["url"] as? String,
+                      let url = URL(string: rawURL),
+                      let scheme = url.scheme?.lowercased(),
+                      scheme == "http" || scheme == "https" else { continue }
+
+                let returned = (data["type"] as? String)
+                    ?? (data["quality"] as? String)
+                    ?? (data["format"] as? String)
+                // Without a returned tier there is no evidence that the
+                // requested high-quality URL is real. Keep only the safe
+                // baseline instead of displaying a false lossless badge.
+                let actual = returned.map {
+                    Self.resolvedQuality(
+                        returned: $0,
+                        requested: requested,
+                        available: requestedQualities
+                    )
+                } ?? "128k"
+                verified.insert(actual)
+            } catch {
+                continue
+            }
+        }
+
+        return verified
+    }
+
+    private func isValidAudioURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+
     /// Return the qualities that can safely be requested for this track.
     ///
     /// LX source `qualitys` describes the source adapter's capabilities, while
     /// catalogue file sizes describe the individual song.  Use both when the
-    /// catalogue knows the song.  When it does not, use the source declaration
-    /// for normal/lossless requests, but keep Hi-Res hidden because a source
-    /// declaration alone cannot prove a 24-bit file exists.
+    /// catalogue knows the song.  When it does not, the declaration is only a
+    /// probe candidate; `probeQualityNames` must receive a matching URL and
+    /// returned quality before the tier reaches the UI.
     private func supportedQualityNames(for track: Track, platform: String) -> [String] {
         let order = Self.qualityOrder
         let declared = qualityCapabilities[platform, default: []]
@@ -1003,9 +1122,7 @@ final class LXUserAPIService: ObservableObject {
             return order.filter { sourceNames.contains($0) && concrete.contains($0) }
         }
 
-        // The LX protocol does not return a song's bit depth in `musicUrl`.
-        // Do not advertise Hi-Res merely because a source script lists it.
-        return sourceNames.filter { $0 != "flac24bit" }
+        return sourceNames
     }
 
     /// Preserve the token expected by the selected LX script. The UI treats
@@ -1060,9 +1177,15 @@ final class LXUserAPIService: ObservableObject {
         switch platform {
         case "kg":
             info["hash"] = track.sourceMetadata["hash"] ?? ""
+            info["albumId"] = track.sourceMetadata["albumId"] ?? albumID
+            info["albumAudioId"] = track.sourceMetadata["albumAudioId"]
+                ?? track.sourceMetadata["albumAudioID"]
+                ?? track.sourceMetadata["mixsongid"]
         case "tx":
             info["songId"] = Int(track.sourceMetadata["id"] ?? "") ?? track.id
-            info["strMediaMid"] = track.sourceMetadata["strMediaMid"] ?? ""
+            info["strMediaMid"] = track.sourceMetadata["strMediaMid"]?.isEmpty == false
+                ? track.sourceMetadata["strMediaMid"]!
+                : (track.sourceMetadata["media_mid"] ?? "")
             info["albumMid"] = track.sourceMetadata["albumMid"] ?? ""
         case "mg":
             info["copyrightId"] = track.sourceMetadata["copyrightId"] ?? songmid

@@ -204,7 +204,7 @@ struct ExploreView: View {
             model.refreshCurrent()
         }
 #if os(iOS)
-        .sheet(isPresented: $showBilibili) {
+        .fullScreenCover(isPresented: $showBilibili) {
             NavigationStack {
                 BilibiliContentView()
                     .environmentObject(bilibili)
@@ -221,15 +221,17 @@ struct ExploreView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
 #if os(iOS)
-                Button {
-                    showBilibili = true
-                } label: {
-                    Label("哔哩哔哩", systemImage: "play.rectangle.fill")
-                        .font(.subheadline.weight(.semibold))
+                if settings.bilibiliContentEnabled {
+                    Button {
+                        showBilibili = true
+                    } label: {
+                        Label("哔哩哔哩", systemImage: "play.rectangle.fill")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.accent)
+                    .frame(minHeight: 44)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.accent)
-                .frame(minHeight: 44)
 #endif
             }
             ScrollView(.horizontal, showsIndicators: false) {

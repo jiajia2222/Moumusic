@@ -226,6 +226,7 @@ private final class SpectrumStore: @unchecked Sendable {
                 let store = Unmanaged<SpectrumStore>
                     .fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
                 store.adopt(format: format.pointee)
+                MoumusicEqualizer.shared.prepare(with: format.pointee)
             },
             // Deliberately no unprepare: on a track change the outgoing tap tears
             // down after the incoming one is already feeding us, so clearing here
@@ -236,6 +237,14 @@ private final class SpectrumStore: @unchecked Sendable {
                 let status = MTAudioProcessingTapGetSourceAudio(
                     tap, numberFrames, bufferListInOut, flagsOut, nil, numberFramesOut)
                 guard status == noErr else { return }
+                // Beans-Music's ten-band equalizer is inserted into the same
+                // processing tap as the spectrum meter. AVPlayer supports one
+                // tap per track, so chaining it here keeps both features active
+                // without replacing Moumusic's existing analyzer.
+                MoumusicEqualizer.shared.process(
+                    bufferList: bufferListInOut,
+                    frameCount: Int(numberFramesOut.pointee)
+                )
                 let store = Unmanaged<SpectrumStore>
                     .fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
                 store.process(bufferListInOut, frames: Int(numberFramesOut.pointee))

@@ -39,7 +39,22 @@ final class BilibiliSessionStore: ObservableObject {
               ProviderSessionSupport.looksLikeCookie(cookie) else {
             throw SessionError.validationFailed
         }
-        let profile = try await BilibiliAPI.shared.profile(cookie: cookie)
+        var profile: BilibiliAPI.Profile?
+        var lastError: Error?
+        for attempt in 0..<3 {
+            do {
+                profile = try await BilibiliAPI.shared.profile(cookie: cookie)
+                break
+            } catch {
+                lastError = error
+                if attempt < 2 {
+                    try? await Task.sleep(for: .milliseconds(700))
+                }
+            }
+        }
+        guard let profile else {
+            throw lastError ?? SessionError.validationFailed
+        }
         try ProviderSessionSupport.writeCookie(cookie, service: keychainService)
         storedCookie = cookie
         profileName = profile.name

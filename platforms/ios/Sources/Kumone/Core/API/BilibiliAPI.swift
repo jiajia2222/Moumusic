@@ -212,6 +212,9 @@ actor BilibiliAPI {
     }
 
     func rankedVideos(categoryID: Int, cookie: String? = nil) async throws -> [Video] {
+        if categoryID == 0 {
+            return try await popularVideos(cookie: cookie)
+        }
         var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/ranking/v2")!
         components.queryItems = [
             URLQueryItem(name: "rid", value: "\(categoryID)"),
@@ -425,12 +428,30 @@ actor BilibiliAPI {
     }
 
     private static func cookieHeader(fromLoginURL rawURL: String?) -> String {
-        guard let rawURL, let components = URLComponents(string: rawURL) else { return "" }
         let allowed = ["DedeUserID", "DedeUserID__ckMd5", "SESSDATA", "bili_jct", "sid"]
         var values: [String: String] = [:]
-        for item in components.queryItems ?? [] where allowed.contains(item.name) {
-            guard let value = item.value, !value.isEmpty else { continue }
-            values[item.name] = value
+
+        guard let rawURL, !rawURL.isEmpty else { return "" }
+        if let components = URLComponents(string: rawURL) {
+            for item in components.queryItems ?? [] where allowed.contains(item.name) {
+                guard let value = item.value, !value.isEmpty else { continue }
+                values[item.name] = value
+            }
+        }
+
+        // Recent Bilibili responses occasionally escape the whole login URL
+        // (including '&') before putting it in JSON. URLComponents then sees
+        // one query item, so fall back to decoding the raw query ourselves.
+        if values.isEmpty {
+            let decodedURL = rawURL.removingPercentEncoding ?? rawURL
+            let query = decodedURL.split(separator: "?", maxSplits: 1).dropFirst().first ?? ""
+            for item in query.split(separator: "&") {
+                let pair = item.split(separator: "=", maxSplits: 1).map(String.init)
+                guard pair.count == 2 else { continue }
+                let name = pair[0].removingPercentEncoding ?? pair[0]
+                let value = pair[1].removingPercentEncoding ?? pair[1]
+                if allowed.contains(name), !value.isEmpty { values[name] = value }
+            }
         }
         return values
             .sorted { $0.key < $1.key }

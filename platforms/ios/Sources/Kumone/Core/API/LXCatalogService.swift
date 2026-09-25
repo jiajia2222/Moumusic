@@ -367,6 +367,11 @@ enum LXCatalogService {
                 let image = kugouImageURL(item)
                 let albumID = firstText(item["AlbumID"], item["album_id"], item["albumid"]) ?? ""
                 var metadata = ["songmid": String(id), "hash": hash, "albumId": albumID]
+                if let albumAudioID = firstText(item["album_audio_id"], item["albumAudioID"],
+                                                item["Audioid"], item["audio_id"]),
+                   !albumAudioID.isEmpty {
+                    metadata["albumAudioID"] = albumAudioID
+                }
                 addQualityMetadata(&metadata, from: item, source: .kg)
                 if let image { metadata["coverURL"] = image }
                 output.append(Track(id: id,
@@ -502,6 +507,7 @@ enum LXCatalogService {
             var metadata = ["songmid": firstText(item["mid"], item["songmid"], mediaMid) ?? String(id),
                             "id": String(id),
                             "strMediaMid": mediaMid,
+                            "media_mid": mediaMid,
                             "albumMid": albumMid,
                             "albumId": albumMid]
             addQualityMetadata(&metadata, from: item, source: .tx)
@@ -1696,6 +1702,17 @@ enum LXCatalogService {
             if !hash.isEmpty { metadata["hash"] = hash }
             if let rawID { metadata["songmid"] = rawID }
             metadata["albumId"] = String(albumID)
+            // KuGou's authenticated tracker accepts the provider's audio id
+            // when it is available.  Older search responses only exposed
+            // `audio_id`, while newer playlist responses may call it
+            // `album_audio_id`; keep both so account playback does not have to
+            // guess from the unified numeric Track.id.
+            if let albumAudioID = firstText(
+                item["album_audio_id"], item["albumAudioID"], item["audio_id"],
+                nestedAudio?["album_audio_id"], nestedAudio?["audio_id"]
+            ), !albumAudioID.isEmpty {
+                metadata["albumAudioID"] = albumAudioID
+            }
             if let hash320 = firstText(item["hash_320"], nestedAudio?["hash_320"]), !hash320.isEmpty {
                 metadata["hash320"] = hash320
             }
@@ -1717,6 +1734,9 @@ enum LXCatalogService {
             if let rawID { metadata["songmid"] = rawID }
             if let id = text(item["id"]) { metadata["id"] = id }
             metadata["strMediaMid"] = text(nestedFile?["media_mid"]) ?? ""
+            if metadata["strMediaMid"]?.isEmpty == true {
+                metadata["strMediaMid"] = text(item["media_mid"]) ?? ""
+            }
             metadata["albumMid"] = albumMid
             metadata["albumId"] = albumMid
             addQualityMetadata(&metadata, from: item, source: source)

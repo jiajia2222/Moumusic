@@ -45,6 +45,9 @@ targets:
     platform: iOS
     sources:
       - MoumusicWidget
+    dependencies:
+      - package: KumoneIOSPackage
+        product: KumoneIOSFeature
     configFiles:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig

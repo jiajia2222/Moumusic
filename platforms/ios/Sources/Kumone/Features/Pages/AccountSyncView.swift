@@ -68,10 +68,10 @@ struct AccountSyncView: View {
 
     private var sourceOnlyNotice: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("登录只用于同步，不是音源", systemImage: "lock.shield.fill")
+            Label("账号音源与同步", systemImage: "lock.shield.fill")
                 .font(.headline)
                 .foregroundStyle(Theme.accent)
-            Text("登录后可同步账号资料、每日推荐、播放记录和听歌时长。歌曲播放仍然只使用你在 LX 音源页面导入并启用的 User API，不会使用账号接口提供音频。")
+            Text("登录后可以同步账号资料、每日推荐、播放记录和听歌时长。播放设置为“自动”或“账号音源”时，会优先尝试对应平台账号能提供的完整音频；失败后才按设置回退到 LX 音源。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -92,7 +92,7 @@ struct AccountSyncView: View {
                 .foregroundStyle(Theme.accent)
             Text("登录以开启同步")
                 .font(.title3.weight(.semibold))
-            Text("不会改变音源，也不会替代 LX 播放。")
+            Text("不会强制改变音源；是否优先使用账号音源由设置中的播放来源控制。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Button {
@@ -151,7 +151,7 @@ struct AccountSyncView: View {
                 syncMetric(title: "歌曲数", value: "\(syncStore.syncedTrackCount)")
                 syncMetric(title: "状态", value: "已开启")
             }
-            Text("播放歌曲达到有效时长后，Moumusic 会把匹配到的歌曲播放记录和时长同步到账号。LX 音源只负责提供音频地址。")
+            Text("播放歌曲达到有效时长后，Moumusic 会把匹配到的歌曲播放记录和时长同步到账号。没有可用账号音频时，LX 音源负责提供回退音频地址。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -224,8 +224,12 @@ struct AccountSyncView: View {
     }
 
     private func syncMetric(title: String, value: String) -> some View {
+        // The status metric is the short third label in this compact card.
+        // Resolve its value from the server result instead of displaying a
+        // permanent “enabled” state after a failed weblog request.
+        let shownValue = title.count <= 4 ? syncStore.statusText : value
         VStack(alignment: .leading, spacing: 5) {
-            Text(value)
+            Text(shownValue)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)

@@ -327,11 +327,7 @@ struct HomeView: View {
     @EnvironmentObject private var settings: SettingsManager
 #if os(iOS)
     @EnvironmentObject private var bilibili: BilibiliSessionStore
-    @AppStorage("moumusic.home.bilibiliRecommendations") private var isBilibiliHome = false
-    @State private var bilibiliVideos: [BilibiliAPI.Video] = []
-    @State private var isBilibiliHomeLoading = false
-    @State private var bilibiliHomeError: String?
-    @State private var selectedBilibiliVideo: BilibiliAPI.Video?
+    @State private var showBilibiliCenter = false
 #endif
     @StateObject private var model = HomeViewModel.shared
 
@@ -341,14 +337,11 @@ struct HomeView: View {
                 communityAnnouncement
 
 #if os(iOS)
-                if isBilibiliHome {
-                    bilibiliHomeBody
-                } else {
-                    standardHomeBody
+                if settings.bilibiliContentEnabled {
+                    bilibiliEntryCard
                 }
-#else
-                standardHomeBody
 #endif
+                standardHomeBody
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -378,9 +371,9 @@ struct HomeView: View {
             await loadCurrentHome(force: true)
         }
 #if os(iOS)
-        .sheet(item: $selectedBilibiliVideo) { video in
+        .fullScreenCover(isPresented: $showBilibiliCenter) {
             NavigationStack {
-                BilibiliVideoDetailView(video: video)
+                BilibiliContentView()
                     .environmentObject(bilibili)
             }
         }
@@ -388,11 +381,6 @@ struct HomeView: View {
     }
 
     private var homeTaskID: String {
-#if os(iOS)
-        if isBilibiliHome {
-            return "bilibili-\(bilibili.sessionRevision)"
-        }
-#endif
         return "music-\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)"
     }
 
@@ -417,12 +405,6 @@ struct HomeView: View {
 
     @MainActor
     private func loadCurrentHome(force: Bool = false) async {
-#if os(iOS)
-        if isBilibiliHome {
-            await loadBilibiliRecommendations(force: force)
-            return
-        }
-#endif
         if force {
             await model.reload(loggedIn: account.isLoggedIn,
                                mode: settings.homeRecommendationMode,
@@ -478,6 +460,46 @@ struct HomeView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("公告：Moumusic QQ 群 945130957，欢迎加入交流群，反馈问题和获取更新通知")
     }
+
+#if os(iOS)
+    private var bilibiliEntryCard: some View {
+        Button {
+            showBilibiliCenter = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "play.rectangle.fill")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 42, height: 42)
+                    .background(Color(red: 0.08, green: 0.62, blue: 0.86), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("哔哩哔哩视频中心")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("推荐 · 分区 · 排行榜 · 听视频 / 看视频")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(Color(red: 0.08, green: 0.62, blue: 0.86).opacity(0.28), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: 44)
+        .padding(.horizontal, Theme.Layout.contentInset)
+    }
+#endif
 
     private var lxLoadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 22) {
@@ -535,21 +557,6 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                         .frame(minHeight: 44)
                     }
-#if os(iOS)
-                    Button {
-                        selectBilibiliHome()
-                    } label: {
-                        Text("哔哩哔哩")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(isBilibiliHome ? .white : .primary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(isBilibiliHome ? Theme.accent : Color.secondary.opacity(0.12))
-                            .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .frame(minHeight: 44)
-#endif
                 }
                 .padding(.horizontal, Theme.Layout.contentInset)
             }
@@ -562,91 +569,15 @@ struct HomeView: View {
     }
 
     private func isHomePlatform(_ platform: LXCatalogPlatform) -> Bool {
-#if os(iOS)
-        if isBilibiliHome { return false }
-#endif
         if platform == .wy { return settings.homeRecommendationMode == .netease }
         return settings.homeRecommendationMode == .lx
             && settings.homeRecommendationPlatform == platform
     }
 
     private func selectHomePlatform(_ platform: LXCatalogPlatform) {
-#if os(iOS)
-        isBilibiliHome = false
-#endif
         settings.homeRecommendationPlatform = platform
         settings.homeRecommendationMode = platform == .wy ? .netease : .lx
     }
-
-#if os(iOS)
-    private func selectBilibiliHome() {
-        isBilibiliHome = true
-        bilibiliVideos = []
-        bilibiliHomeError = nil
-    }
-
-    @MainActor
-    private func loadBilibiliRecommendations(force: Bool = false) async {
-        guard force || (!isBilibiliHomeLoading && bilibiliVideos.isEmpty) else { return }
-        isBilibiliHomeLoading = true
-        bilibiliHomeError = nil
-        do {
-            let videos = try await BilibiliAPI.shared.popularVideos(cookie: bilibili.cookie)
-            bilibiliVideos = videos
-            if videos.isEmpty { bilibiliHomeError = "暂时没有获取到哔哩哔哩热门推荐" }
-        } catch {
-            if !Task.isCancelled {
-                bilibiliHomeError = error.localizedDescription
-            }
-        }
-        isBilibiliHomeLoading = false
-    }
-
-    private var bilibiliHomeBody: some View {
-        LazyVStack(alignment: .leading, spacing: 22) {
-            homePlatformPicker
-
-            HStack(spacing: 10) {
-                Image(systemName: "play.rectangle.fill")
-                    .foregroundStyle(Theme.accent)
-                Text("哔哩哔哩热门推荐")
-                    .font(.title3.weight(.semibold))
-                Spacer()
-            }
-            .padding(.horizontal, Theme.Layout.contentInset)
-
-            if isBilibiliHomeLoading && bilibiliVideos.isEmpty {
-                ProgressView("正在加载热门推荐…")
-                    .frame(maxWidth: .infinity, minHeight: 260)
-            } else if let bilibiliHomeError, bilibiliVideos.isEmpty {
-                ErrorStateView(message: bilibiliHomeError) {
-                    Task { await loadBilibiliRecommendations(force: true) }
-                }
-                .frame(maxWidth: .infinity, minHeight: 260)
-            } else if bilibiliVideos.isEmpty {
-                EmptyStateView(icon: "play.rectangle", title: "暂无热门推荐")
-                    .frame(maxWidth: .infinity, minHeight: 260)
-            } else {
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12)
-                ], spacing: 18) {
-                    ForEach(bilibiliVideos) { video in
-                        Button { selectedBilibiliVideo = video } label: {
-                            HomeBilibiliVideoCard(video: video)
-                        }
-                        .buttonStyle(.plain)
-                        .frame(minHeight: 44)
-                    }
-                }
-                .padding(.horizontal, Theme.Layout.contentInset)
-            }
-            PlayerClearanceSpacer()
-        }
-        .padding(.vertical, Theme.Layout.contentInset - 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-#endif
 
     private func lxPlaylistCard(_ playlist: LXPlaylistSummary) -> some View {
         NavigationLink(value: Destination.lxPlaylist(source: playlist.source, id: playlist.id)) {
@@ -909,44 +840,6 @@ struct HomeView: View {
         }
     }
 }
-
-#if os(iOS)
-private struct HomeBilibiliVideoCard: View {
-    let video: BilibiliAPI.Video
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .bottom) {
-                CachedAsyncImage(url: video.coverURL?.resizedImageURL(640))
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(16 / 9, contentMode: .fill)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-                HStack {
-                    Label(Formatters.playCount(video.playCount), systemImage: "play.fill")
-                    Spacer()
-                    Text(video.durationText)
-                }
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(8)
-                .frame(maxWidth: .infinity)
-                .background(.black.opacity(0.42))
-            }
-
-            Text(video.title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-            Text(video.author)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-    }
-}
-#endif
 
 // MARK: - Feature card
 

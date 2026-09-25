@@ -575,6 +575,14 @@ final class LXSourceStore: ObservableObject {
             || value.contains("getlyric")
             || value.contains("event_names")
             || value.contains("send(event_names")
+            // Beans/LX exports also include scripts whose provider actions are
+            // assembled through a generic request helper instead of exposing a
+            // literal `musicUrl` key. They are still valid local sources.
+            || value.contains("request(")
+            || value.contains("module.exports")
+            || value.contains("globalthis[")
+            || value.contains("function ")
+            || value.contains("=>")
     }
 
     private static func remoteScriptURL(in data: Data) -> URL? {

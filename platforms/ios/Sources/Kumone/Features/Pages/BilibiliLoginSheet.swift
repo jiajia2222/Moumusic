@@ -124,6 +124,10 @@ struct BilibiliLoginSheet: View {
     private func startLogin(reusingKey: Bool = false) {
         pollTask?.cancel()
         phase = .loading
+        if !reusingKey {
+            qrImage = nil
+            key = nil
+        }
         pollTask = Task { @MainActor in
             do {
                 let activeKey: String
@@ -147,11 +151,21 @@ struct BilibiliLoginSheet: View {
                         case .scanned: phase = .scanned
                         case .expired: phase = .expired; key = nil; pollTask = nil; return
                         case .success(let cookie):
-                            try await bilibili.signIn(cookie: cookie)
-                            ToastCenter.shared.show("哔哩哔哩账号同步成功")
-                            pollTask = nil
-                            dismiss()
-                            return
+                            // Bilibili has accepted the QR code at this
+                            // point. Do not keep polling: a later 86038
+                            // would hide a local session-validation error as
+                            // a misleading "QR code expired" message.
+                            do {
+                                try await bilibili.signIn(cookie: cookie)
+                                ToastCenter.shared.show("哔哩哔哩账号同步成功")
+                                pollTask = nil
+                                dismiss()
+                                return
+                            } catch {
+                                pollTask = nil
+                                phase = .failed("已扫码，但哔哩哔哩会话验证失败，请重新获取二维码")
+                                return
+                            }
                         }
                         errors = 0
                     } catch {

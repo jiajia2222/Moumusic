@@ -125,15 +125,7 @@ final class DownloadManager: NSObject, ObservableObject {
 
     func availableQualities(for track: Track) async -> [AudioQuality] {
         let normalized = track.normalizedForLXPlayback()
-        var names = Set(await LXUserAPIService.shared.availableQualityNames(for: normalized))
-        let source = (normalized.source ?? normalized.sourceMetadata["source"] ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if SettingsManager.shared.playbackSourceMode != .thirdParty,
-           AccountStore.shared.isLoggedIn,
-           source == "wy" || source == "163" || source == "netease" {
-            names.formUnion(await NeteaseAPI.officialQualityNames(for: normalized.id))
-        }
+        let names = Set(await LXUserAPIService.shared.availableQualityNames(for: normalized))
         var seenTypes = Set<String>()
         let result = AudioQuality.allCases.filter {
             names.contains($0.lxType) && seenTypes.insert($0.lxType).inserted

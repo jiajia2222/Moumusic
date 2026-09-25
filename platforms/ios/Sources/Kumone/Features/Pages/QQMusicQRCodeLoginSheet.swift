@@ -73,6 +73,15 @@ struct QQMusicQRCodeLoginSheet: View {
                     .scaledToFit()
                     .frame(width: 232, height: 232)
                     .opacity(phase == .expired ? 0.25 : 1)
+            } else if isFailed {
+                VStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(Theme.accent)
+                    Text("二维码暂时不可用")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 ProgressView()
             }
@@ -111,6 +120,10 @@ struct QQMusicQRCodeLoginSheet: View {
     private func startLogin(reusingCode: Bool = false) {
         pollTask?.cancel()
         phase = .loading
+        if !reusingCode {
+            qrImage = nil
+            qrsig = nil
+        }
         pollTask = Task { @MainActor in
             do {
                 let activeQRSig: String
@@ -118,10 +131,13 @@ struct QQMusicQRCodeLoginSheet: View {
                     activeQRSig = qrsig
                     phase = .waiting
                 } else {
-                    let payload = try await QQMusicAPI.shared.qrCode()
+                    let payload = try await requestQRCodeWithRetry()
                     activeQRSig = payload.qrsig
                     qrsig = payload.qrsig
-                    qrImage = UIImage(data: payload.imageData)
+                    guard let image = UIImage(data: payload.imageData) else {
+                        throw QQMusicAPI.APIError.qrCodeUnavailable
+                    }
+                    qrImage = image
                     phase = .waiting
                 }
 
@@ -153,6 +169,21 @@ struct QQMusicQRCodeLoginSheet: View {
                 }
             }
         }
+    }
+
+    private func requestQRCodeWithRetry() async throws -> QQMusicAPI.QRCodePayload {
+        var lastError: Error?
+        for attempt in 0..<3 {
+            do {
+                return try await QQMusicAPI.shared.qrCode()
+            } catch {
+                lastError = error
+                if attempt < 2 {
+                    try await Task.sleep(for: .milliseconds(700))
+                }
+            }
+        }
+        throw lastError ?? QQMusicAPI.APIError.qrCodeUnavailable
     }
 }
 #endif

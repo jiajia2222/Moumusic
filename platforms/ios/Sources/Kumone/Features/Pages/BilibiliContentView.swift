@@ -4,6 +4,14 @@ import SwiftUI
 
 @MainActor
 private final class BilibiliContentViewModel: ObservableObject {
+    enum Feed: String, CaseIterable, Identifiable {
+        case recommend = "推荐"
+        case ranking = "排行榜"
+        case partition = "分区"
+
+        var id: String { rawValue }
+    }
+
     enum Tab: String, CaseIterable, Identifiable {
         case videos = "视频"
         case users = "UP主"
@@ -21,6 +29,8 @@ private final class BilibiliContentViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isSearching = false
     @Published var category = "推荐"
+    @Published var feed: Feed = .recommend
+    @Published var rankingCategory = "全站"
 
     private var requestTask: Task<Void, Never>?
 
@@ -40,6 +50,7 @@ private final class BilibiliContentViewModel: ObservableObject {
 
     func selectCategory(_ category: String, cookie: String?) {
         self.category = category
+        feed = category == "推荐" ? .recommend : .partition
         query = ""
         isSearching = false
         requestTask?.cancel()
@@ -64,10 +75,36 @@ private final class BilibiliContentViewModel: ObservableObject {
         Task { await requestTask?.value }
     }
 
+    func selectRanking(_ category: String, cookie: String?) {
+        rankingCategory = category
+        feed = .ranking
+        query = ""
+        isSearching = false
+        requestTask?.cancel()
+        requestTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            isLoading = true
+            errorMessage = nil
+            do {
+                videos = try await BilibiliAPI.shared.rankedVideos(
+                    categoryID: Self.rankingIDs[category] ?? 0,
+                    cookie: cookie
+                )
+                if videos.isEmpty { errorMessage = "暂时没有相关排行榜内容" }
+            } catch {
+                if !Task.isCancelled { errorMessage = error.localizedDescription }
+            }
+            isLoading = false
+        }
+        Task { await requestTask?.value }
+    }
+
     func search(cookie: String?) async {
         let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !keyword.isEmpty else {
             isSearching = false
+            feed = .recommend
+            category = "推荐"
             await loadPopular(cookie: cookie)
             return
         }
@@ -114,6 +151,23 @@ private final class BilibiliContentViewModel: ObservableObject {
         "音乐": 3,
         "游戏": 4,
         "动画": 1,
+        "番剧": 13,
+        "国创": 167,
+        "舞蹈": 129,
+        "娱乐": 5,
+        "知识": 36,
+        "电影": 23,
+        "电视剧": 11,
+        "纪录片": 177,
+        "资讯": 202
+    ]
+
+    private static let rankingIDs = [
+        "全站": 0,
+        "动画": 1,
+        "番剧": 13,
+        "音乐": 3,
+        "游戏": 4,
         "知识": 36
     ]
 }
@@ -130,7 +184,12 @@ struct BilibiliContentView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
                     searchField
-                    categoryTabs
+                    feedPicker
+                    if model.feed == .ranking {
+                        rankingTabs
+                    } else {
+                        categoryTabs
+                    }
 
                     if !model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         searchTypePicker
@@ -147,7 +206,7 @@ struct BilibiliContentView: View {
                     } else if model.isSearching {
                         resultContent
                     } else {
-                        SectionHeader(title: "热门推荐")
+                        SectionHeader(title: contentTitle)
                             .padding(.horizontal, Theme.Layout.contentInset)
                         videoGrid(model.videos)
                     }
@@ -184,7 +243,7 @@ struct BilibiliContentView: View {
             if !model.query.isEmpty {
                 Button {
                     model.query = ""
-                    Task { await model.loadPopular(cookie: bilibili.cookie) }
+                    Task { await model.search(cookie: bilibili.cookie) }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -203,7 +262,7 @@ struct BilibiliContentView: View {
     private var categoryTabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 24) {
-                ForEach(["推荐", "直播", "音乐", "游戏", "动画", "知识"], id: \.self) { title in
+                ForEach(["推荐", "音乐", "游戏", "动画", "番剧", "国创", "舞蹈", "娱乐", "知识", "电影", "纪录片", "资讯"], id: \.self) { title in
                     Button {
                         model.selectCategory(title, cookie: bilibili.cookie)
                     } label: {
@@ -222,6 +281,52 @@ struct BilibiliContentView: View {
                 }
             }
             .padding(.horizontal, Theme.Layout.contentInset)
+        }
+    }
+
+    private var feedPicker: some View {
+        Picker("内容类型", selection: Binding(
+            get: { model.feed },
+            set: { value in
+                switch value {
+                case .recommend:
+                    model.selectCategory("推荐", cookie: bilibili.cookie)
+                case .ranking:
+                    model.selectRanking("全站", cookie: bilibili.cookie)
+                case .partition:
+                    model.selectCategory("音乐", cookie: bilibili.cookie)
+                }
+            }
+        )) {
+            ForEach(BilibiliContentViewModel.Feed.allCases) { feed in
+                Text(feed.rawValue).tag(feed)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, Theme.Layout.contentInset)
+    }
+
+    private var rankingTabs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(["全站", "动画", "番剧", "音乐", "游戏", "知识"], id: \.self) { title in
+                    Button {
+                        model.selectRanking(title, cookie: bilibili.cookie)
+                    } label: {
+                        Text(title)
+                    }
+                    .buttonStyle(.chip(isSelected: model.rankingCategory == title))
+                }
+            }
+            .padding(.horizontal, Theme.Layout.contentInset)
+        }
+    }
+
+    private var contentTitle: String {
+        switch model.feed {
+        case .recommend: return "热门推荐"
+        case .ranking: return "\(model.rankingCategory)排行榜"
+        case .partition: return "\(model.category)分区"
         }
     }
 
@@ -340,7 +445,7 @@ private struct BilibiliUserRow: View {
             }
             Spacer()
             if user.followerCount > 0 {
-                Text("粉丝 (Formatters.playCount(user.followerCount))")
+                Text("粉丝 \(Formatters.playCount(user.followerCount))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -385,6 +490,8 @@ struct BilibiliVideoDetailView: View {
     @State private var comments: [BilibiliAPI.Comment] = []
     @State private var commentSort: BilibiliAPI.CommentSort = .hot
     @State private var commentsLoading = false
+    @State private var listenOnly = false
+    @State private var isPlaying = false
 
     private var activeVideo: BilibiliAPI.Video { detail ?? video }
 
@@ -421,7 +528,27 @@ struct BilibiliVideoDetailView: View {
 
     @ViewBuilder
     private var videoPlayer: some View {
-        if let player {
+        if listenOnly, player != nil {
+            VStack(spacing: 14) {
+                CachedAsyncImage(url: activeVideo.coverURL?.resizedImageURL(960))
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(16 / 9, contentMode: .fill)
+                    .clipped()
+                Button {
+                    togglePlayback()
+                } label: {
+                    Label(isPlaying ? "暂停音频" : "播放音频", systemImage: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.headline.weight(.semibold))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(.ultraThinMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+            }
+            .frame(maxWidth: .infinity, minHeight: 235)
+            .background(.black)
+        } else if let player {
             VideoPlayer(player: player)
                 .frame(height: 235)
                 .background(.black)
@@ -451,7 +578,13 @@ struct BilibiliVideoDetailView: View {
 
     private var infoBar: some View {
         HStack {
-            Label("高清", systemImage: "gearshape")
+            Button {
+                listenOnly.toggle()
+            } label: {
+                Label(listenOnly ? "听视频" : "看视频", systemImage: listenOnly ? "headphones" : "play.rectangle")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(listenOnly ? "当前为听视频模式" : "当前为看视频模式")
             Spacer()
             Link(destination: URL(string: "https://www.bilibili.com/video/\(activeVideo.bvid)")!) {
                 Label("在哔哩哔哩打开", systemImage: "safari")
@@ -515,13 +648,30 @@ struct BilibiliVideoDetailView: View {
             let loaded = try await BilibiliAPI.shared.videoDetail(bvid: video.bvid, cookie: bilibili.cookie)
             detail = loaded
             if let url = try? await BilibiliAPI.shared.playableURL(for: loaded, cookie: bilibili.cookie) {
-                player = AVPlayer(url: url)
+                let asset = AVURLAsset(url: url, options: [
+                    "AVURLAssetHTTPHeaderFieldsKey": [
+                        "Referer": "https://www.bilibili.com/",
+                        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
+                    ]
+                ])
+                player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
                 player?.play()
+                isPlaying = true
             }
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func togglePlayback() {
+        guard let player else { return }
+        if isPlaying {
+            player.pause()
+        } else {
+            player.play()
+        }
+        isPlaying.toggle()
     }
 
     @MainActor

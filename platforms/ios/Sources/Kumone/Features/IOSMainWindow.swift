@@ -71,6 +71,10 @@ public struct IOSMainWindow: View {
                     await MusicSessionRefreshCoordinator.shared.refreshIfNeeded()
                 }
             }
+            .onOpenURL { url in
+                guard url.scheme?.lowercased() == "moumusic" else { return }
+                player.showNowPlaying = true
+            }
             .sheet(isPresented: $updater.showSheet) {
                 IOSUpdaterSheet()
             }
@@ -185,6 +189,7 @@ public struct IOSMainWindow: View {
             }
             tabInterface
                 .background(Color.clear)
+            MidAutumnFestivalEffect()
         }
         .animation(AppAnimation.smooth, value: backgroundStore.image != nil)
     }
@@ -648,7 +653,7 @@ struct IOSLibraryView: View {
             } header: {
                 Text(verbatim: "音源设置")
             } footer: {
-                Text(verbatim: "歌曲搜索与播放优先使用这里启用的 LX User API 音源；网易云账号仅用于网易云歌单等账户功能。")
+                        Text(verbatim: "账号音源会优先提供完整音频；没有可用账号音频时，歌曲才会按这里启用的 LX User API 顺序回退。")
             }
 
             // Profile / Login header
