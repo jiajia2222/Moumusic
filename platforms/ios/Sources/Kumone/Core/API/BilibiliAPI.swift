@@ -1,10 +1,10 @@
 import Foundation
 
-/// Small Bilibili account and public-content client.
+/// Bilibili public-content and account client.
 ///
-/// Account synchronisation validates the QR session and reads the public
-/// account profile. Video content is kept separate from the LX music source;
-/// this actor never turns Bilibili content into an LX `Track`.
+/// The player consumes the same public playurl/subtitle data used by
+/// PiliPlus.  Account cookies are only passed in-process and are never
+/// returned by this API to a web page.
 actor BilibiliAPI {
     static let shared = BilibiliAPI()
 
@@ -44,6 +44,26 @@ actor BilibiliAPI {
         let subtitles: [Subtitle]
 
         var id: String { bvid }
+
+        func replacingSubtitles(_ subtitles: [Subtitle]) -> Video {
+            Video(
+                bvid: bvid,
+                aid: aid,
+                cid: cid,
+                title: title,
+                coverURL: coverURL,
+                author: author,
+                authorID: authorID,
+                authorAvatarURL: authorAvatarURL,
+                description: description,
+                duration: duration,
+                durationText: durationText,
+                playCount: playCount,
+                commentCount: commentCount,
+                publishedAt: publishedAt,
+                subtitles: subtitles
+            )
+        }
     }
 
     struct VideoQuality: Identifiable, Hashable, Sendable {
@@ -58,6 +78,22 @@ actor BilibiliAPI {
         let language: String
         let title: String
         let url: URL
+        let isAIGenerated: Bool
+        let isTranslated: Bool
+        let format: String
+
+        var displayTitle: String {
+            if isAIGenerated && isTranslated {
+                return "AI 翻译字幕 · \(title)"
+            }
+            if isAIGenerated {
+                return "AI 字幕 · \(title)"
+            }
+            if isTranslated {
+                return "翻译字幕 · \(title)"
+            }
+            return title
+        }
     }
 
     struct SubtitleCue: Identifiable, Hashable, Sendable {
@@ -126,9 +162,12 @@ actor BilibiliAPI {
 
         var errorDescription: String? {
             switch self {
-            case .requestFailed: return "哔哩哔哩登录请求失败，请检查网络后重试"
-            case .invalidResponse: return "哔哩哔哩登录返回格式无法识别"
-            case .unavailable: return "哔哩哔哩登录已失效，请重新扫码"
+            case .requestFailed:
+                return "B 站请求失败，请检查网络后重试"
+            case .invalidResponse:
+                return "B 站返回的数据格式无法识别"
+            case .unavailable:
+                return "B 站服务暂时不可用，请稍后重试"
             }
         }
     }
@@ -158,8 +197,7 @@ actor BilibiliAPI {
         var request = URLRequest(url: endpoint.appending(queryItems: [
             URLQueryItem(name: "source", value: "main_web")
         ]))
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
+        applyHeaders(to: &request, referer: "https://www.bilibili.com/")
         let (data, response) = try await session.data(for: request)
         guard Self.isSuccess(response),
               let root = Self.object(data),
@@ -173,37 +211,32 @@ actor BilibiliAPI {
     }
 
     func poll(key: String) async throws -> QRStatus {
-        var components = URLComponents(
-            string: "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
-        )!
+        var components = URLComponents(string: "https://passport.bilibili.com/x/passport-login/web/qrcode/poll")!
         components.queryItems = [
             URLQueryItem(name: "qrcode_key", value: key),
             URLQueryItem(name: "source", value: "main_web")
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
+        applyHeaders(to: &request, referer: "https://www.bilibili.com/")
         let (data, response) = try await session.data(for: request)
-        guard Self.isSuccess(response), let root = Self.object(data),
+        guard Self.isSuccess(response),
+              let root = Self.object(data),
               let payload = root["data"] as? [String: Any] else {
             throw APIError.requestFailed
         }
 
-        // Bilibili has returned the status code both inside `data` and at the
-        // response root over time.  Reading only data.code makes a successful
-        // scan look like an expired/invalid QR code on some app versions.
         let code = Self.integer(payload["code"]) ?? Self.integer(root["code"])
         switch code {
-        case 86101: return .waiting
-        case 86090: return .scanned
-        case 86038: return .expired
+        case 86101:
+            return .waiting
+        case 86090:
+            return .scanned
+        case 86038:
+            return .expired
         case 0:
-            var cookies = cookieHeader()
-            // Some successful QR responses carry the login session in the
-            // returned URL instead of Set-Cookie.  Extract only the provider's
-            // session fields; never persist unrelated query parameters.
-            let urlCookies = Self.cookieHeader(fromLoginURL: Self.text(payload["url"]) ?? Self.text(root["url"]))
-            cookies = Self.mergedCookieHeaders(cookies, urlCookies)
+            let stored = cookieHeader()
+            let fromURL = Self.cookieHeader(fromLoginURL: Self.text(payload["url"]) ?? Self.text(root["url"]))
+            let cookies = Self.mergedCookieHeaders(stored, fromURL)
             guard !cookies.isEmpty else { throw APIError.unavailable }
             return .success(cookie: cookies)
         default:
@@ -215,46 +248,36 @@ actor BilibiliAPI {
         await ensureVisitorCookies()
         let endpoint = URL(string: "https://api.bilibili.com/x/web-interface/nav")!
         var request = URLRequest(url: endpoint)
+        applyHeaders(to: &request, referer: "https://www.bilibili.com/")
         request.setValue(mergedRequestCookieHeader(cookie), forHTTPHeaderField: "Cookie")
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
-        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Origin")
-        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)
-        guard Self.isSuccess(response), let root = Self.object(data),
+        guard Self.isSuccess(response),
+              let root = Self.object(data),
               Self.integer(root["code"]) == 0,
               let payload = root["data"] as? [String: Any],
               Self.bool(payload["isLogin"]) == true,
               let id = Self.text(payload["mid"]),
-              let name = Self.text(payload["uname"]), !name.isEmpty else {
+              let name = Self.text(payload["uname"]),
+              !name.isEmpty else {
             throw APIError.unavailable
         }
-        return Profile(id: id, name: name, avatarURL: Self.text(payload["face"]))
+        return Profile(id: id, name: name, avatarURL: Self.imageURL(Self.text(payload["face"])))
     }
 
-    /// Public Bilibili content endpoints used by the native content page.
-    /// These requests are deliberately kept separate from the LX music
-    /// catalogue and never create a playable `Track`.
     func popularVideos(page: Int = 1, cookie: String? = nil) async throws -> [Video] {
         var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/popular")!
         components.queryItems = [
             URLQueryItem(name: "ps", value: "20"),
             URLQueryItem(name: "pn", value: "\(max(1, page))")
         ]
-        let root = try await requestObject(
-            components.url!,
-            cookie: cookie,
-            referer: "https://www.bilibili.com/video/\(video.bvid)"
-        )
+        let root = try await requestObject(components.url!, cookie: cookie)
         let data = root["data"] as? [String: Any]
         let rows = data?["list"] as? [[String: Any]] ?? []
         return rows.compactMap(Self.video)
     }
 
     func rankedVideos(categoryID: Int, cookie: String? = nil) async throws -> [Video] {
-        if categoryID == 0 {
-            return try await popularVideos(cookie: cookie)
-        }
+        if categoryID == 0 { return try await popularVideos(cookie: cookie) }
         var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/ranking/v2")!
         components.queryItems = [
             URLQueryItem(name: "rid", value: "\(categoryID)"),
@@ -314,14 +337,25 @@ actor BilibiliAPI {
         return rows.compactMap(Self.collection)
     }
 
+    /// Loads the video detail and then asks x/player/v2 for subtitle tracks.
+    /// The latter is important: AI-generated and translated tracks are
+    /// exposed there even when x/web-interface/view has no subtitle list.
     func videoDetail(bvid: String, cookie: String? = nil) async throws -> Video {
         var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/view")!
         components.queryItems = [URLQueryItem(name: "bvid", value: bvid)]
         let root = try await requestObject(components.url!, cookie: cookie)
-        guard let data = root["data"] as? [String: Any], let video = Self.video(data) else {
+        guard let data = root["data"] as? [String: Any],
+              let base = Self.video(data) else {
             throw APIError.invalidResponse
         }
-        return video
+        guard let cid = base.cid else { return base }
+        let tracks = (try? await subtitleTracks(
+            bvid: base.bvid,
+            aid: base.aid,
+            cid: cid,
+            cookie: cookie
+        )) ?? base.subtitles
+        return base.replacingSubtitles(Self.uniqueSubtitles(tracks))
     }
 
     func comments(aid: Int, page: Int = 1, sort: CommentSort = .hot,
@@ -347,9 +381,9 @@ actor BilibiliAPI {
         )
     }
 
-    /// Resolves a single, AVPlayer-compatible progressive stream. The response
-    /// also returns the qualities that Bilibili actually made available for
-    /// this account/video, so the UI never advertises unavailable resolutions.
+    /// Returns one progressive stream plus the qualities actually accepted
+    /// by the current account/video.  The UI never invents an unavailable
+    /// resolution.
     func playback(for video: Video, quality: Int? = nil, cookie: String? = nil) async throws -> Playback {
         guard let cid = video.cid else { throw APIError.invalidResponse }
         let requestedQuality = quality ?? 80
@@ -362,66 +396,90 @@ actor BilibiliAPI {
             URLQueryItem(name: "fnver", value: "0"),
             URLQueryItem(name: "fourk", value: "1")
         ]
-        let root = try await requestObject(components.url!, cookie: cookie)
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://www.bilibili.com/video/\(video.bvid)")
         guard let data = root["data"] as? [String: Any] else { throw APIError.invalidResponse }
-        let qualities = Self.qualities(data)
         let actualQuality = Self.integer(data["quality"]) ?? requestedQuality
-        if let rows = data["durl"] as? [[String: Any]],
-           let value = rows.first.flatMap({ Self.text($0["url"]) }),
-           let url = URL(string: value) {
-            return Playback(url: url, quality: actualQuality, qualities: qualities)
+        var available = Self.qualities(data)
+        if available.isEmpty {
+            available = [VideoQuality(code: actualQuality, title: "\(actualQuality)p")]
+        } else if !available.contains(where: { $0.code == actualQuality }) {
+            available.append(VideoQuality(code: actualQuality, title: "\(actualQuality)p"))
+            available.sort { $0.code > $1.code }
+        }
+
+        if let rows = data["durl"] as? [[String: Any]] {
+            for row in rows {
+                for key in ["url", "baseUrl", "base_url"] {
+                    if let value = Self.text(row[key]), let url = URL(string: value) {
+                        return Playback(url: url, quality: actualQuality, qualities: available)
+                    }
+                }
+            }
         }
         if let dash = data["dash"] as? [String: Any],
-           let rows = dash["video"] as? [[String: Any]],
-           let value = rows.first.flatMap({ Self.text($0["baseUrl"] ?? $0["base_url"]) }),
-           let url = URL(string: value) {
-            return Playback(url: url, quality: actualQuality, qualities: qualities)
+           let rows = dash["video"] as? [[String: Any]] {
+            for row in rows {
+                for key in ["baseUrl", "base_url", "url"] {
+                    if let value = Self.text(row[key]), let url = URL(string: value) {
+                        return Playback(url: url, quality: actualQuality, qualities: available)
+                    }
+                }
+            }
         }
         throw APIError.unavailable
     }
 
-    /// Compatibility convenience for existing callers.
     func playableURL(for video: Video, cookie: String? = nil) async throws -> URL {
         try await playback(for: video, cookie: cookie).url
     }
 
-    func subtitleCues(for subtitle: Subtitle) async throws -> [SubtitleCue] {
+    /// Reads all subtitle tracks from x/player/v2.  This includes normal,
+    /// translated, and AI-generated captions when Bilibili exposes them.
+    func subtitleTracks(bvid: String, aid: Int, cid: Int,
+                        cookie: String? = nil) async throws -> [Subtitle] {
+        var components = URLComponents(string: "https://api.bilibili.com/x/player/v2")!
+        components.queryItems = [
+            URLQueryItem(name: "bvid", value: bvid),
+            URLQueryItem(name: "aid", value: "\(aid)"),
+            URLQueryItem(name: "cid", value: "\(cid)")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://www.bilibili.com/video/\(bvid)")
+        let data = root["data"] as? [String: Any]
+        let subtitleData = data?["subtitle"] as? [String: Any]
+        let rows = (subtitleData?["list"] as? [[String: Any]])
+            ?? (data?["subtitle"] as? [[String: Any]])
+            ?? []
+        return rows.compactMap(Self.subtitle)
+    }
+
+    func subtitleCues(for subtitle: Subtitle, cookie: String? = nil) async throws -> [SubtitleCue] {
         await ensureVisitorCookies()
         var request = URLRequest(url: subtitle.url)
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
-        let cookies = mergedRequestCookieHeader(nil)
-        if !cookies.isEmpty {
-            request.setValue(cookies, forHTTPHeaderField: "Cookie")
-        }
+        applyHeaders(to: &request, referer: "https://www.bilibili.com/")
+        let cookies = mergedRequestCookieHeader(cookie)
+        if !cookies.isEmpty { request.setValue(cookies, forHTTPHeaderField: "Cookie") }
         let (data, response) = try await session.data(for: request)
-        guard Self.isSuccess(response),
-              let root = Self.object(data),
-              let rows = root["body"] as? [[String: Any]] else {
-            throw APIError.invalidResponse
+        guard Self.isSuccess(response) else { throw APIError.requestFailed }
+        let object = try JSONSerialization.jsonObject(with: data)
+        let rows: [[String: Any]]
+        if let root = object as? [String: Any] {
+            rows = (root["body"] as? [[String: Any]]) ?? []
+        } else {
+            rows = object as? [[String: Any]] ?? []
         }
-        return rows.compactMap { row in
-            guard let start = Self.double(row["from"]),
-                  let end = Self.double(row["to"]),
-                  let text = Self.text(row["content"]), !text.isEmpty else { return nil }
-            return SubtitleCue(
-                id: "\(start)-\(end)-\(text.hashValue)",
-                start: start,
-                end: end,
-                text: text
-            )
-        }
+        let cues = rows.compactMap(Self.subtitleCue)
+            .sorted { $0.start < $1.start }
+        guard !cues.isEmpty else { throw APIError.invalidResponse }
+        return cues
     }
 
     private func requestObject(_ url: URL, cookie: String? = nil,
                                referer: String = "https://www.bilibili.com/") async throws -> [String: Any] {
         await ensureVisitorCookies()
         var request = URLRequest(url: url)
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue(referer, forHTTPHeaderField: "Referer")
-        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Origin")
-        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
-        request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+        applyHeaders(to: &request, referer: referer)
         if let cookies = mergedRequestCookieHeader(cookie), !cookies.isEmpty {
             request.setValue(cookies, forHTTPHeaderField: "Cookie")
         }
@@ -429,10 +487,16 @@ actor BilibiliAPI {
         guard Self.isSuccess(response), let root = Self.object(data) else {
             throw APIError.requestFailed
         }
-        guard let code = Self.integer(root["code"]), code == 0 else {
-            throw APIError.unavailable
-        }
+        guard Self.integer(root["code"]) == 0 else { throw APIError.unavailable }
         return root
+    }
+
+    private func applyHeaders(to request: inout URLRequest, referer: String) {
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
+        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Origin")
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
     }
 
     private static func video(_ raw: [String: Any]) -> Video? {
@@ -469,16 +533,52 @@ actor BilibiliAPI {
             normalizedURL = "https:" + rawURL
         } else if rawURL.hasPrefix("http://") {
             normalizedURL = "https://" + rawURL.dropFirst(7)
+        } else if rawURL.hasPrefix("/") {
+            normalizedURL = "https://www.bilibili.com" + rawURL
         } else {
             normalizedURL = rawURL
         }
         guard let url = URL(string: normalizedURL) else { return nil }
+
         let language = text(raw["lan"]) ?? ""
+        let rawTitle = text(raw["lan_doc"] ?? raw["lan_doc_short"])
+            ?? (language.isEmpty ? "字幕" : language)
+        let type = integer(raw["type"]) ?? 0
+        let aiStatus = integer(raw["ai_status"]) ?? 0
+        let aiType = integer(raw["ai_type"]) ?? 0
+        let aiGenerated = aiStatus > 0 || aiType > 0 || type == 1
+        let translated = type == 2 || rawTitle.localizedCaseInsensitiveContains("translate")
+            || rawTitle.contains("翻译") || rawTitle.contains("译")
+        let format = normalizedURL.localizedCaseInsensitiveContains(".bcc") ? "bcc" : "json"
         return Subtitle(
             id: text(raw["id"]) ?? normalizedURL,
             language: language,
-            title: text(raw["lan_doc"]) ?? language,
-            url: url
+            title: rawTitle,
+            url: url,
+            isAIGenerated: aiGenerated,
+            isTranslated: translated,
+            format: format
+        )
+    }
+
+    private static func subtitleCue(_ row: [String: Any]) -> SubtitleCue? {
+        guard let start = double(row["from"] ?? row["start"]),
+              let end = double(row["to"] ?? row["end"]) else { return nil }
+        let textValue: String
+        if let value = text(row["content"]) {
+            textValue = value
+        } else if let values = row["content"] as? [String] {
+            textValue = values.joined()
+        } else {
+            return nil
+        }
+        let clean = textValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, end >= start else { return nil }
+        return SubtitleCue(
+            id: "\(start)-\(end)-\(clean)",
+            start: start,
+            end: end,
+            text: clean
         )
     }
 
@@ -504,11 +604,16 @@ actor BilibiliAPI {
         .sorted { $0.code > $1.code }
     }
 
+    private static func uniqueSubtitles(_ subtitles: [Subtitle]) -> [Subtitle] {
+        var seen = Set<String>()
+        return subtitles.filter { seen.insert($0.id).inserted }
+    }
+
     private static func user(_ raw: [String: Any]) -> User? {
         guard let mid = integer(raw["mid"]), mid > 0 else { return nil }
         return User(
             mid: mid,
-            name: stripHTML(text(raw["uname"]) ?? text(raw["author"]) ?? ""),
+            name: stripHTML(text(raw["uname"] ?? raw["author"]) ?? "B 站用户"),
             avatarURL: imageURL(text(raw["upic"] ?? raw["face"])),
             signature: stripHTML(text(raw["usign"] ?? raw["sign"]) ?? ""),
             followerCount: integer(raw["fans"] ?? raw["fans_num"]) ?? 0
@@ -517,7 +622,7 @@ actor BilibiliAPI {
 
     private static func collection(_ raw: [String: Any]) -> Collection? {
         let id = text(raw["season_id"] ?? raw["media_id"] ?? raw["id"]) ?? ""
-        let title = stripHTML(text(raw["title"]) ?? text(raw["season_title"]) ?? "")
+        let title = stripHTML(text(raw["title"] ?? raw["season_title"]) ?? "")
         guard !id.isEmpty, !title.isEmpty else { return nil }
         return Collection(
             id: id,
@@ -536,7 +641,7 @@ actor BilibiliAPI {
         guard !message.isEmpty else { return nil }
         return Comment(
             id: id,
-            author: text(member?["uname"]) ?? "哔哩哔哩用户",
+            author: text(member?["uname"]) ?? "B 站用户",
             avatarURL: imageURL(text(member?["avatar"])),
             message: message,
             likeCount: integer(raw["like"]) ?? 0,
@@ -546,11 +651,8 @@ actor BilibiliAPI {
     }
 
     private func cookieHeader() -> String {
-        let cookies = cookieStorage.cookies?.filter {
-            sessionCookieNames.contains($0.name)
-        } ?? []
-        return cookies
-            .sorted { $0.name < $1.name }
+        let cookies = cookieStorage.cookies?.filter { sessionCookieNames.contains($0.name) } ?? []
+        return cookies.sorted { $0.name < $1.name }
             .map { "\($0.name)=\($0.value)" }
             .joined(separator: "; ")
     }
@@ -558,23 +660,17 @@ actor BilibiliAPI {
     private static func cookieHeader(fromLoginURL rawURL: String?) -> String {
         let allowed = ["DedeUserID", "DedeUserID__ckMd5", "SESSDATA", "bili_jct", "sid"]
         var values: [String: String] = [:]
-
         guard let rawURL, !rawURL.isEmpty else { return "" }
+
         if let components = URLComponents(string: rawURL) {
             for item in components.queryItems ?? [] where allowed.contains(item.name) {
-                guard let value = item.value, !value.isEmpty else { continue }
-                values[item.name] = value
+                if let value = item.value, !value.isEmpty { values[item.name] = value }
             }
         }
 
-        // Recent Bilibili responses can escape the complete URL more than
-        // once. Always merge a manually-decoded query so a valid QR login is
-        // not later reported as expired just because one session field was
-        // hidden inside an encoded redirect URL.
         var decodedURL = rawURL
         for _ in 0..<2 {
-            guard let decoded = decodedURL.removingPercentEncoding,
-                  decoded != decodedURL else { break }
+            guard let decoded = decodedURL.removingPercentEncoding, decoded != decodedURL else { break }
             decodedURL = decoded
         }
         let query = decodedURL.split(separator: "?", maxSplits: 1).dropFirst().first ?? ""
@@ -585,8 +681,7 @@ actor BilibiliAPI {
             let value = pair[1].removingPercentEncoding ?? pair[1]
             if allowed.contains(name), !value.isEmpty { values[name] = value }
         }
-        return values
-            .sorted { $0.key < $1.key }
+        return values.sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: "; ")
     }
@@ -600,27 +695,18 @@ actor BilibiliAPI {
                 values[pair[0].trimmingCharacters(in: .whitespaces)] = pair[1]
             }
         }
-        return values
-            .sorted { $0.key < $1.key }
+        return values.sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: "; ")
     }
 
-    /// Bilibili's playback edge can return HTTP 412 when a fresh client lacks
-    /// its normal visitor fingerprint. Bootstrap only public visitor cookies;
-    /// account cookies remain in the Keychain-backed session store.
     private func ensureVisitorCookies() async {
         guard !visitorBootstrapAttempted else { return }
         visitorBootstrapAttempted = true
         guard !hasVisitorCookies else { return }
-
         guard let endpoint = URL(string: "https://api.bilibili.com/x/frontend/finger/spi") else { return }
         var request = URLRequest(url: endpoint)
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
-        request.setValue("https://www.bilibili.com", forHTTPHeaderField: "Origin")
-        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
-
+        applyHeaders(to: &request, referer: "https://www.bilibili.com/")
         guard let (data, response) = try? await session.data(for: request),
               Self.isSuccess(response),
               let root = Self.object(data),
@@ -703,9 +789,6 @@ actor BilibiliAPI {
 
     private static func stripHTML(_ value: String) -> String {
         var output = value
-        ["<em class=\"keyword\">", "</em>", "<em>", "</em>"].forEach {
-            output = output.replacingOccurrences(of: $0, with: "")
-        }
         if let expression = try? NSRegularExpression(pattern: "<[^>]+>") {
             let range = NSRange(output.startIndex..<output.endIndex, in: output)
             output = expression.stringByReplacingMatches(in: output, range: range, withTemplate: "")
