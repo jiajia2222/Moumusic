@@ -31,7 +31,14 @@ final class QQMusicSessionStore: ObservableObject {
 
     private init() {
         storedCookie = ProviderSessionSupport.readCookie(service: keychainService)
-        isLoggedIn = storedCookie != nil
+        // A Keychain value is only a persisted candidate.  Do not expose it
+        // as a valid account until QQ Music accepts the credential.
+        isLoggedIn = false
+        if storedCookie != nil {
+            Task { @MainActor [weak self] in
+                await self?.refreshProfile()
+            }
+        }
     }
 
     func signIn(cookie rawCookie: String) async throws {
@@ -64,6 +71,7 @@ final class QQMusicSessionStore: ObservableObject {
         }
         profileName = profile.name
         isLoggedIn = true
+        sessionRevision &+= 1
         if let refreshedCookie = profile.refreshedCookie {
             try? ProviderSessionSupport.writeCookie(refreshedCookie, service: keychainService)
             self.storedCookie = refreshedCookie

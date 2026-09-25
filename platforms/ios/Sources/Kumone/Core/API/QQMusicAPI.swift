@@ -256,16 +256,22 @@ actor QQMusicAPI {
         collectCookies(from: loginResponse)
 
         guard Self.isSuccess(loginResponse) else { throw APIError.oauthFailed }
-        if let root = try? JSONSerialization.jsonObject(with: loginData) as? [String: Any],
-           let req = root["req"] as? [String: Any],
-           let codeValue = Self.integer(in: req, keys: ["code", "ret"]),
+        guard let root = try? JSONSerialization.jsonObject(with: loginData) as? [String: Any] else {
+            throw APIError.oauthFailed
+        }
+
+        let responseContainers: [[String: Any]] = [
+            (root["req"] as? [String: Any])?["data"] as? [String: Any],
+            (root["req_0"] as? [String: Any])?["data"] as? [String: Any],
+            root["data"] as? [String: Any]
+        ].compactMap { $0 }
+
+        if let codeValue = Self.firstInteger(in: root, containers: ["req", "req_0"], keys: ["code", "ret"]),
            codeValue != 0 {
             throw APIError.oauthFailed
         }
 
-        if let root = try? JSONSerialization.jsonObject(with: loginData) as? [String: Any],
-           let req = root["req"] as? [String: Any],
-           let data = req["data"] as? [String: Any] {
+        for data in responseContainers {
             if let musicKey = Self.text(data["musickey"]), !musicKey.isEmpty {
                 setCookieValue(musicKey, for: "musickey")
                 setCookieValue(musicKey, for: "qm_keyst")
@@ -274,6 +280,10 @@ actor QQMusicAPI {
             if let musicID = Self.text(data["musicid"]), !musicID.isEmpty {
                 setCookieValue(musicID, for: "uin")
             }
+        }
+
+        guard Self.hasMusicCredential(Self.cookieFields(cookieHeader())) else {
+            throw APIError.oauthFailed
         }
     }
 
@@ -352,14 +362,33 @@ actor QQMusicAPI {
     }
 
     func profile(cookie: String) async throws -> Profile {
+        let cookieFields = Self.cookieFields(cookie)
+        guard Self.hasMusicCredential(cookieFields) else {
+            throw APIError.unavailable
+        }
+
+        let accountID = Self.accountID(from: cookieFields)
+        guard !accountID.isEmpty else {
+            throw APIError.unavailable
+        }
+
+        // The old endpoint accepts the request only with the same identity
+        // parameters used by QQ Music's web client.  A bare request often
+        // returns {code: 1000, data: {}} even for a valid session.
         var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
         components.queryItems = [
+            URLQueryItem(name: "cid", value: "205360838"),
+            URLQueryItem(name: "userid", value: accountID),
+            URLQueryItem(name: "reqfrom", value: "1"),
+            URLQueryItem(name: "g_tk", value: String(Self.hash5381(Self.credentialKey(in: cookieFields)))),
+            URLQueryItem(name: "loginUin", value: accountID),
+            URLQueryItem(name: "hostUin", value: "0"),
             URLQueryItem(name: "format", value: "json"),
             URLQueryItem(name: "inCharset", value: "utf8"),
             URLQueryItem(name: "outCharset", value: "utf-8"),
             URLQueryItem(name: "notice", value: "0"),
-            URLQueryItem(name: "platform", value: "yqq"),
-            URLQueryItem(name: "needNewCode", value: "0"),
+            URLQueryItem(name: "platform", value: "yqq.json"),
+            URLQueryItem(name: "needNewCode", value: "0")
         ]
 
         var request = URLRequest(url: components.url!)
@@ -369,26 +398,28 @@ actor QQMusicAPI {
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
+        collectCookies(from: response)
         guard (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) == true,
-              let object = Self.jsonObject(from: data) else {
+               let object = Self.jsonObject(from: data) else {
             throw APIError.invalidResponse
         }
 
-        if let code = Self.integer(in: object, keys: ["code", "subcode"]), code != 0 {
+        // code 1000 is returned when this legacy profile endpoint is
+        // unavailable.  It does not invalidate a cookie that already has a
+        // QQ Music credential; Beans uses the same fallback behaviour.
+        if let code = Self.integer(in: object, keys: ["code"]), code != 0 && code != 1000 {
             throw APIError.unavailable
         }
 
         let dataObject = object["data"] as? [String: Any] ?? object
-        let info = dataObject["info"] as? [String: Any]
+        let info = ((dataObject["mymusic"] as? [String: Any])?["info"] as? [String: Any])
+            ?? (dataObject["info"] as? [String: Any])
             ?? dataObject["user"] as? [String: Any]
             ?? dataObject["profile"] as? [String: Any]
             ?? dataObject
-        guard let id = Self.text(in: info, keys: ["uin", "uid", "user_id", "loginUin"]),
-              !id.isEmpty else {
-            throw APIError.unavailable
-        }
+        let id = Self.text(in: info, keys: ["uin", "uid", "user_id", "loginUin"]) ?? accountID
         let name = Self.text(in: info, keys: ["nick", "nickname", "name", "nickName"])
-            ?? "QQ 音乐用户"
+            ?? "QQ 音乐用户 \(Self.normalizedAccountID(accountID))"
         let avatar = Self.text(in: info, keys: ["logo", "avatar", "avatarUrl", "avatar_url"])
         return Profile(id: id, name: name, avatarURL: avatar,
                        refreshedCookie: Self.mergedCookie(
@@ -446,6 +477,47 @@ actor QQMusicAPI {
             }
         }
         return nil
+    }
+
+    private static func firstInteger(
+        in object: [String: Any],
+        containers: [String],
+        keys: [String]
+    ) -> Int? {
+        for container in containers {
+            if let nested = object[container] as? [String: Any],
+               let value = integer(in: nested, keys: keys) {
+                return value
+            }
+        }
+        return integer(in: object, keys: keys)
+    }
+
+    private static func accountID(from fields: [String: String]) -> String {
+        for key in ["uin", "p_uin", "pt2gguin", "qqmusic_uin", "loginUin"] {
+            guard let value = fields[key], !value.isEmpty, value != "0", value != "o0" else { continue }
+            return normalizedAccountID(value)
+        }
+        return ""
+    }
+
+    private static func normalizedAccountID(_ value: String) -> String {
+        value.hasPrefix("o") ? String(value.dropFirst()) : value
+    }
+
+    private static func credentialKey(in fields: [String: String]) -> String {
+        for key in ["qqmusic_key", "qm_keyst", "musickey", "music_key", "p_skey", "skey"] {
+            if let value = fields[key], !value.isEmpty { return value }
+        }
+        return ""
+    }
+
+    private static func hasMusicCredential(_ fields: [String: String]) -> Bool {
+        ["qqmusic_key", "qm_keyst", "musickey", "music_key", "p_skey", "skey", "wxskey", "wx_skey"]
+            .contains { key in
+                guard let value = fields[key] else { return false }
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
     }
 
     private static func text(_ value: Any?) -> String? {
@@ -560,9 +632,9 @@ actor QQMusicAPI {
 
     private func cookieHeader(includeQRSig: Bool = false) -> String {
         let allowed = Set([
-            "uin", "skey", "p_uin", "p_skey", "pt4_token", "qqmusic_uin",
+            "uin", "skey", "p_uin", "p_skey", "pt2gguin", "pt4_token", "qqmusic_uin",
             "qqmusic_key", "qm_keyst", "music_key", "musickey", "musicid",
-            "loginUin", "pskey", "wxskey", "wx_skey"
+            "loginUin", "pskey", "wxskey", "wx_skey", "pt_login_sig", "pt4_aid"
         ])
         var pairs = cookieStorage.cookies?.filter {
             allowed.contains($0.name)
