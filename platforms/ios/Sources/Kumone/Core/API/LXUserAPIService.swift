@@ -130,7 +130,8 @@ final class LXUserAPIService: ObservableObject {
         }
     }
 
-    func resolveMusicURL(for track: Track, quality: String) async throws -> ResolvedURL {
+    func resolveMusicURL(for track: Track, quality: String,
+                         excludingURLs: Set<String> = []) async throws -> ResolvedURL {
         let sourceMode = SettingsManager.shared.playbackSourceMode
         if sourceMode == .official {
             guard hasAuthenticatedAccount(for: track) else {
@@ -146,7 +147,11 @@ final class LXUserAPIService: ObservableObject {
            let official = try? await resolveOfficialMusicURL(for: track, quality: quality) {
             return official
         }
-        return try await resolveMusicURLAcrossSources(for: track, quality: quality)
+        return try await resolveMusicURLAcrossSources(
+            for: track,
+            quality: quality,
+            excludingURLs: excludingURLs
+        )
 #if false
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
@@ -321,7 +326,8 @@ final class LXUserAPIService: ObservableObject {
         return source.isEmpty || ["wy", "163", "netease", "neteasecloudmusic", "cloudmusic"].contains(source)
     }
 
-    private func resolveMusicURLAcrossSources(for track: Track, quality: String) async throws -> ResolvedURL {
+    private func resolveMusicURLAcrossSources(for track: Track, quality: String,
+                                              excludingURLs: Set<String>) async throws -> ResolvedURL {
         let playbackSources = LXSourceStore.shared.playbackSources
         guard !playbackSources.isEmpty else { throw LXError.noSource }
 
@@ -378,6 +384,7 @@ final class LXUserAPIService: ObservableObject {
             return $0.sourcePriority < $1.sourcePriority
         }
 
+        var downgradedFallback: ResolvedURL?
         for candidate in candidates {
             guard await activate(candidate.source) else {
                 failures.append("\(candidate.source.name)/\(candidate.platform): unavailable")
@@ -404,6 +411,14 @@ final class LXUserAPIService: ObservableObject {
                     failures.append("\(candidate.source.name)/\(candidate.platform): invalid URL")
                     continue
                 }
+                guard !excludingURLs.contains(url.absoluteString) else {
+                    failures.append("\(candidate.source.name)/\(candidate.platform): preview URL rejected")
+                    continue
+                }
+                guard !Self.isPreviewResponse(data, expectedDuration: candidate.track.duration) else {
+                    failures.append("\(candidate.source.name)/\(candidate.platform): preview response rejected")
+                    continue
+                }
 
                 let actualQuality = Self.resolvedQuality(
                     returned: (data["type"] as? String)
@@ -412,12 +427,23 @@ final class LXUserAPIService: ObservableObject {
                     requested: candidate.requestedQuality,
                     available: candidate.supportedQualities.isEmpty ? ["128k"] : candidate.supportedQualities
                 )
-                return ResolvedURL(url: url, quality: actualQuality)
+                let resolved = ResolvedURL(url: url, quality: actualQuality)
+                // A source can claim Atmos/Master capability globally while
+                // returning a 128K URL for this particular track. Keep that
+                // URL only as a last resort and continue checking the next
+                // enabled source for the requested real tier.
+                if Self.qualityRank(actualQuality) < Self.qualityRank(candidate.requestedQuality) {
+                    if downgradedFallback == nil { downgradedFallback = resolved }
+                    failures.append("\(candidate.source.name)/\(candidate.platform): returned \(actualQuality), not \(candidate.requestedQuality)")
+                    continue
+                }
+                return resolved
             } catch {
                 failures.append("\(candidate.source.name)/\(candidate.platform): \(error.localizedDescription)")
             }
         }
 
+        if let downgradedFallback { return downgradedFallback }
         if candidates.isEmpty && failures.isEmpty {
             throw LXError.sourceUnavailable("No enabled LX source exposes musicUrl")
         }
@@ -1254,7 +1280,10 @@ final class LXUserAPIService: ObservableObject {
     }
     private static func resolvedQuality(returned: String?, requested: String,
                                         available: [String]) -> String {
-        guard let returned else { return requested }
+        // If a User API omits the returned tier we cannot truthfully label a
+        // URL as Atmos/Hi-Res. Treat it as the safe baseline; a later source
+        // with a verified response gets priority instead.
+        guard let returned else { return "128k" }
         let normalized = normalizedQuality(returned)
         let order = Self.qualityOrder
         guard let requestedIndex = order.firstIndex(of: normalizedQuality(requested)),
@@ -1262,6 +1291,20 @@ final class LXUserAPIService: ObservableObject {
               returnedIndex <= requestedIndex,
               available.contains(normalized) else { return requested }
         return normalized
+    }
+
+    private static func isPreviewResponse(_ data: [String: Any],
+                                          expectedDuration: TimeInterval) -> Bool {
+        guard expectedDuration >= 60 else { return false }
+        let keys = ["duration", "durationMs", "duration_ms", "time", "playTime", "play_time"]
+        let milliseconds: Double? = keys.lazy.compactMap { key in
+            if let value = data[key] as? NSNumber { return value.doubleValue }
+            if let value = data[key] as? String { return Double(value) }
+            return nil
+        }.first
+        guard let milliseconds, milliseconds > 0 else { return false }
+        let seconds = milliseconds > 1_000 ? milliseconds / 1_000 : milliseconds
+        return seconds <= 35 || seconds < expectedDuration * 0.6
     }
 }
 

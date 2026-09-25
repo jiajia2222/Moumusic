@@ -963,18 +963,34 @@ final class PlayerService: ObservableObject {
             do {
                 var resolved: LXUserAPIService.ResolvedURL?
                 var lastError: Error?
+                var rejectedPreviewURLs = Set<String>()
                 // A signed source URL can expire or fail once while the
                 // provider is waking up. Retry the same track once before
                 // reporting a playback failure; advancing the queue here
                 // would make an intermittent QQ result look like a wrong song.
-                for attempt in 0..<2 {
+                // A few third-party endpoints return a 30-second audition
+                // URL even when asked for Atmos/Master. Probe the resulting
+                // asset before handing it to AVPlayer, then ask the remaining
+                // enabled source candidates for a full-length stream.
+                for attempt in 0..<4 {
                     do {
-                        resolved = try await LXUserAPIService.shared.resolveMusicURL(
-                            for: track, quality: quality)
+                        let candidate = try await LXUserAPIService.shared.resolveMusicURL(
+                            for: track,
+                            quality: quality,
+                            excludingURLs: rejectedPreviewURLs
+                        )
+                        if await isLikelyPreviewURL(candidate.url, expectedDuration: track.duration) {
+                            rejectedPreviewURLs.insert(candidate.url.absoluteString)
+                            lastError = LXUserAPIService.LXError.sourceUnavailable(
+                                "闊虫簮杩斿洖 30 绉掕瘯鍚墖娈碉紝宸插垏鎹㈠鐢ㄩ煶婧?"
+                            )
+                            continue
+                        }
+                        resolved = candidate
                         break
                     } catch {
                         lastError = error
-                        if attempt == 0 {
+                        if attempt < 3 {
                             try? await Task.sleep(for: .milliseconds(350))
                         }
                     }
@@ -1422,6 +1438,31 @@ final class PlayerService: ObservableObject {
             for: track, limit: 12, requireDuration: false
         )
         return matched?.id
+    }
+
+    /// Reject obvious provider audition files before they become the active
+    /// player item. A normal song's catalogue duration is available locally;
+    /// a finite 30-second asset for a multi-minute track is never a valid
+    /// high-quality fallback.
+    private func isLikelyPreviewURL(_ url: URL, expectedDuration: TimeInterval) async -> Bool {
+        guard expectedDuration >= 60 else { return false }
+        let asset = AVURLAsset(url: url)
+        let loadedDuration: TimeInterval? = await withTaskGroup(of: TimeInterval?.self) { group in
+            group.addTask {
+                guard let value = try? await asset.load(.duration) else { return nil }
+                let seconds = value.seconds
+                return seconds.isFinite && seconds > 0 ? seconds : nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(3))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        guard let loadedDuration else { return false }
+        return loadedDuration <= 35 || loadedDuration < expectedDuration * 0.6
     }
 
     private func syncListeningStart(track: Track, sourceID: Int) {
