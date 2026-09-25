@@ -263,6 +263,33 @@ enum HomeRecommendationMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Selects which Bilibili client feed supplies the recommendation page.
+///
+/// The app option follows the public mobile feed used by PiliPlus. It does
+/// not embed PiliPlus or send account credentials to another service.
+enum BilibiliRecommendationSource: String, CaseIterable, Identifiable, Sendable {
+    case web
+    case app
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .web: return String(localized: "网页版推荐")
+        case .app: return String(localized: "App 端推荐（PiliPlus）")
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .web:
+            return String(localized: "使用 B 站网页版推荐流；登录后会结合账号 Cookie")
+        case .app:
+            return String(localized: "使用 PiliPlus 采用的 B 站移动端推荐流；登录后可获得更贴近客户端的内容")
+        }
+    }
+}
+
 @MainActor
 final class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
@@ -294,6 +321,7 @@ final class SettingsManager: ObservableObject {
         static let bilibiliContentEnabled = "settings.bilibiliContentEnabled"
         static let bilibiliVideoEnabled = "settings.bilibiliVideoEnabled"
         static let bilibiliAudioEnabled = "settings.bilibiliAudioEnabled"
+        static let bilibiliRecommendationSource = "settings.bilibiliRecommendationSource"
     }
 
     @Published var audioQuality: AudioQuality {
@@ -398,6 +426,14 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(bilibiliAudioEnabled, forKey: Keys.bilibiliAudioEnabled) }
     }
 
+    /// Which Bilibili client feed is used by the Bilibili recommendation page.
+    @Published var bilibiliRecommendationSource: BilibiliRecommendationSource {
+        didSet {
+            UserDefaults.standard.set(bilibiliRecommendationSource.rawValue,
+                                      forKey: Keys.bilibiliRecommendationSource)
+        }
+    }
+
     private init() {
         let defaults = UserDefaults.standard
         audioQuality = defaults.string(forKey: Keys.quality).flatMap(AudioQuality.init(rawValue:)) ?? .exhigh
@@ -431,5 +467,7 @@ final class SettingsManager: ObservableObject {
         let legacyBilibiliEnabled = defaults.object(forKey: Keys.bilibiliContentEnabled) as? Bool ?? true
         bilibiliVideoEnabled = defaults.object(forKey: Keys.bilibiliVideoEnabled) as? Bool ?? legacyBilibiliEnabled
         bilibiliAudioEnabled = defaults.object(forKey: Keys.bilibiliAudioEnabled) as? Bool ?? legacyBilibiliEnabled
+        bilibiliRecommendationSource = defaults.string(forKey: Keys.bilibiliRecommendationSource)
+            .flatMap(BilibiliRecommendationSource.init(rawValue:)) ?? .app
     }
 }

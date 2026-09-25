@@ -30,8 +30,19 @@ private final class BilibiliContentViewModel: ObservableObject {
     @Published var feed: Feed = .recommend
     @Published var category = "推荐"
     @Published var rankingCategory = "全站"
+    @Published var recommendationSource: BilibiliRecommendationSource = .app
 
-    func loadPopular(cookie: String?) async { await loadCategory("推荐", cookie: cookie) }
+    func loadPopular(cookie: String?, source: BilibiliRecommendationSource) async {
+        recommendationSource = source
+        await loadCategory("推荐", cookie: cookie)
+    }
+
+    func selectRecommendationSource(_ source: BilibiliRecommendationSource, cookie: String?) {
+        recommendationSource = source
+        Task { @MainActor [weak self] in
+            await self?.loadCategory("推荐", cookie: cookie)
+        }
+    }
 
     func selectCategory(_ value: String, cookie: String?) {
         Task { @MainActor [weak self] in await self?.loadCategory(value, cookie: cookie) }
@@ -66,7 +77,7 @@ private final class BilibiliContentViewModel: ObservableObject {
         guard !keyword.isEmpty else {
             isSearching = false
             feed = .recommend
-            await loadPopular(cookie: cookie)
+            await loadPopular(cookie: cookie, source: recommendationSource)
             return
         }
 
@@ -106,7 +117,10 @@ private final class BilibiliContentViewModel: ObservableObject {
         errorMessage = nil
         do {
             if value == "推荐" {
-                videos = try await BilibiliAPI.shared.popularVideos(cookie: cookie)
+                videos = try await BilibiliAPI.shared.recommendedVideos(
+                    source: recommendationSource,
+                    cookie: cookie
+                )
             } else if let categoryID = Self.categoryIDs[value] {
                 videos = try await BilibiliAPI.shared.rankedVideos(categoryID: categoryID, cookie: cookie)
             } else {
@@ -156,6 +170,7 @@ struct BilibiliContentView: View {
                     liveEntry
                     searchField
                     feedPicker
+                    if model.feed == .recommend { recommendationSourcePicker }
                     model.feed == .ranking ? AnyView(rankingTabs) : AnyView(categoryTabs)
                     if !model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { searchTypePicker }
 
@@ -189,7 +204,11 @@ struct BilibiliContentView: View {
             }
         }
         .task {
-            if model.videos.isEmpty { await model.loadPopular(cookie: bilibili.cookie) }
+            model.recommendationSource = settings.bilibiliRecommendationSource
+            if model.videos.isEmpty {
+                await model.loadPopular(cookie: bilibili.cookie,
+                                       source: settings.bilibiliRecommendationSource)
+            }
         }
         .sheet(item: $selectedVideo) { video in
             NavigationStack {
@@ -276,6 +295,50 @@ struct BilibiliContentView: View {
         .padding(.horizontal, Theme.Layout.contentInset)
     }
 
+    private var recommendationSourcePicker: some View {
+        HStack(spacing: 12) {
+            Label("推荐客户端", systemImage: "sparkles.tv")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+            Spacer(minLength: 8)
+            Menu {
+                ForEach(BilibiliRecommendationSource.allCases) { source in
+                    Button {
+                        settings.bilibiliRecommendationSource = source
+                        model.selectRecommendationSource(source, cookie: bilibili.cookie)
+                    } label: {
+                        Label {
+                            Text(source.displayName)
+                        } icon: {
+                            Image(systemName: source == model.recommendationSource
+                                  ? "checkmark.circle.fill" : "circle")
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(model.recommendationSource.displayName)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.bold))
+                }
+                .font(.subheadline)
+                .foregroundStyle(Theme.accent)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(Theme.accent.opacity(0.12), in: Capsule())
+            }
+            .accessibilityLabel("选择 B 站推荐客户端")
+        }
+        .padding(.horizontal, Theme.Layout.contentInset)
+        .padding(.vertical, 2)
+        Text(model.recommendationSource.explanation)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, Theme.Layout.contentInset)
+    }
+
     private var categoryTabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 24) {
@@ -322,7 +385,7 @@ struct BilibiliContentView: View {
 
     private var contentTitle: String {
         switch model.feed {
-        case .recommend: return "热门推荐"
+        case .recommend: return model.recommendationSource == .app ? "App 推荐" : "网页版推荐"
         case .ranking: return "\(model.rankingCategory)排行榜"
         case .partition: return "\(model.category)分区"
         }

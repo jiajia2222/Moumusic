@@ -190,7 +190,19 @@ struct SettingsView: View {
             settingsGroup("哔哩哔哩") {
                 Toggle("看哔哩哔哩", isOn: $settings.bilibiliVideoEnabled)
                 Toggle("听哔哩哔哩", isOn: $settings.bilibiliAudioEnabled)
-                Text("“看”控制视频入口；“听”控制视频页的仅听音频和字幕。首页推荐配置只在首页本身调整。")
+                Picker("首页推荐客户端", selection: $settings.bilibiliRecommendationSource) {
+                    ForEach(BilibiliRecommendationSource.allCases) { source in
+                        Text(source.displayName).tag(source)
+                    }
+                }
+                #if os(iOS)
+                .pickerStyle(.menu)
+                #endif
+                Text(settings.bilibiliRecommendationSource.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("“看”控制视频入口；“听”控制视频页的仅听音频和字幕。首页推荐客户端可在这里或哔哩哔哩页面顶部切换。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

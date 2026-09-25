@@ -338,6 +338,97 @@ actor BilibiliAPI {
         return rows.compactMap(Self.video)
     }
 
+    /// Loads Bilibili's two public recommendation feeds. The app feed mirrors
+    /// the endpoint used by PiliPlus; it is still requested directly from
+    /// Bilibili and uses the same optional in-process Cookie as the web feed.
+    func recommendedVideos(source: BilibiliRecommendationSource,
+                           page: Int = 1,
+                           cookie: String? = nil) async throws -> [Video] {
+        switch source {
+        case .web:
+            return try await webRecommendedVideos(page: page, cookie: cookie)
+        case .app:
+            return try await appRecommendedVideos(page: page, cookie: cookie)
+        }
+    }
+
+    private func webRecommendedVideos(page: Int,
+                                      cookie: String?) async throws -> [Video] {
+        var components = URLComponents(
+            string: "https://api.bilibili.com/x/web-interface/wbi/index/top/feed/rcmd"
+        )!
+        let page = max(1, page)
+        components.queryItems = [
+            URLQueryItem(name: "fresh_type", value: "4"),
+            URLQueryItem(name: "ps", value: "20"),
+            URLQueryItem(name: "fresh_idx", value: "\(page)"),
+            URLQueryItem(name: "fresh_idx_1h", value: "\(page)"),
+            URLQueryItem(name: "brush", value: "\(page)"),
+            URLQueryItem(name: "fetch_row", value: "\(max(1, (page - 1) * 20 + 1))"),
+            URLQueryItem(name: "web_location", value: "1430654"),
+            URLQueryItem(name: "feed_version", value: "V8"),
+            URLQueryItem(name: "homepage_ver", value: "1"),
+            URLQueryItem(name: "version", value: "1")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://www.bilibili.com/")
+        let data = root["data"] as? [String: Any]
+        let rows = (data?["item"] as? [[String: Any]]) ?? []
+        return rows.filter { text($0["goto"]) == "av" }.compactMap(Self.video)
+    }
+
+    private func appRecommendedVideos(page: Int,
+                                      cookie: String?) async throws -> [Video] {
+        let index = max(0, page - 1)
+        var components = URLComponents(string: "https://app.bilibili.com/x/v2/feed/index")!
+        components.queryItems = [
+            URLQueryItem(name: "build", value: "8430300"),
+            URLQueryItem(name: "c_locale", value: "zh_CN"),
+            URLQueryItem(name: "channel", value: "master"),
+            URLQueryItem(name: "column", value: "2"),
+            URLQueryItem(name: "device", value: "phone"),
+            URLQueryItem(name: "device_name", value: "android"),
+            URLQueryItem(name: "device_type", value: "0"),
+            URLQueryItem(name: "disable_rcmd", value: "0"),
+            URLQueryItem(name: "flush", value: "8"),
+            URLQueryItem(name: "fnval", value: "976"),
+            URLQueryItem(name: "fnver", value: "0"),
+            URLQueryItem(name: "force_host", value: "2"),
+            URLQueryItem(name: "fourk", value: "1"),
+            URLQueryItem(name: "guidance", value: "1"),
+            URLQueryItem(name: "https_url_req", value: "1"),
+            URLQueryItem(name: "idx", value: "\(index)"),
+            URLQueryItem(name: "mobi_app", value: "android_i"),
+            URLQueryItem(name: "network", value: "wifi"),
+            URLQueryItem(name: "platform", value: "android"),
+            URLQueryItem(name: "player_net", value: "1"),
+            URLQueryItem(name: "pull", value: index == 0 ? "true" : "false"),
+            URLQueryItem(name: "qn", value: "32"),
+            URLQueryItem(name: "recsys_mode", value: "0"),
+            URLQueryItem(name: "s_locale", value: "zh_CN"),
+            URLQueryItem(name: "splash_id", value: ""),
+            URLQueryItem(name: "voice_balance", value: "0")
+        ]
+        let headers = [
+            "app-key": "android_hd",
+            "env": "prod",
+            "session_id": "11111111",
+            "fp_local": String(repeating: "1", count: 64),
+            "fp_remote": String(repeating: "1", count: 64),
+            "bili-http-engine": "cronet",
+            "x-bili-trace-id": "Moumusic-\(UUID().uuidString)"
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://www.bilibili.com/",
+                                           headers: headers)
+        let data = root["data"] as? [String: Any]
+        let rows = data?["items"] as? [[String: Any]] ?? []
+        return rows.filter {
+            let card = text($0["card_goto"] ?? $0["goto"])
+            return card == "av" && text($0["ad_info"]) == nil
+        }.compactMap(Self.appVideo)
+    }
+
     // MARK: - Live
 
     /// Returns the currently popular live rooms.  The response mapping is an
@@ -858,10 +949,14 @@ actor BilibiliAPI {
     }
 
     private func requestObject(_ url: URL, cookie: String? = nil,
-                               referer: String = "https://www.bilibili.com/") async throws -> [String: Any] {
+                               referer: String = "https://www.bilibili.com/",
+                               headers: [String: String] = [:]) async throws -> [String: Any] {
         await ensureVisitorCookies()
         var request = URLRequest(url: url)
         applyHeaders(to: &request, referer: referer)
+        for (field, value) in headers {
+            request.setValue(value, forHTTPHeaderField: field)
+        }
         if let cookies = mergedRequestCookieHeader(cookie), !cookies.isEmpty {
             request.setValue(cookies, forHTTPHeaderField: "Cookie")
         }
@@ -971,11 +1066,36 @@ actor BilibiliAPI {
             description: stripHTML(text(raw["description"]) ?? text(raw["desc"]) ?? ""),
             duration: parseDuration(durationText),
             durationText: durationText,
-            playCount: integer(raw["play"] ?? stat?["view"]) ?? 0,
-            commentCount: integer(raw["review"] ?? stat?["reply"]) ?? 0,
+            playCount: count(raw["play"] ?? stat?["view"] ?? raw["cover_left_text_1"]) ?? 0,
+            commentCount: count(raw["review"] ?? stat?["reply"] ?? raw["cover_left_text_2"]) ?? 0,
             publishedAt: integer(raw["pubdate"]).map { Date(timeIntervalSince1970: TimeInterval($0)) },
             subtitles: subtitleRows.compactMap(Self.subtitle)
         )
+    }
+
+    /// The mobile feed returns an `aid` in `param` and puts the rest of the
+    /// metadata in `args`/`player_args`, unlike the web feed. Normalize it to
+    /// the same Video model so the existing detail, subtitle and player flows
+    /// work for both recommendation clients.
+    private static func appVideo(_ raw: [String: Any]) -> Video? {
+        guard let aid = integer(raw["aid"] ?? raw["param"]), aid > 0 else { return nil }
+        let args = raw["args"] as? [String: Any]
+        let playerArgs = raw["player_args"] as? [String: Any]
+        var normalized = raw
+        normalized["bvid"] = bvid(for: aid)
+        normalized["aid"] = aid
+        normalized["cid"] = playerArgs?["cid"]
+        normalized["pic"] = raw["cover"]
+        normalized["author"] = args?["up_name"]
+        normalized["mid"] = args?["up_id"]
+        normalized["face"] = args?["up_face"] ?? raw["face"]
+        normalized["description"] = raw["desc"] ?? ""
+        let duration = integer(playerArgs?["duration"])
+            ?? Int(parseDuration(text(raw["cover_right_text"]) ?? ""))
+        normalized["duration"] = formatDuration(duration)
+        normalized["play"] = raw["cover_left_text_1"]
+        normalized["review"] = raw["cover_left_text_2"]
+        return video(normalized)
     }
 
     private static func subtitle(_ raw: [String: Any]) -> Subtitle? {
@@ -1214,6 +1334,34 @@ actor BilibiliAPI {
         return nil
     }
 
+    private static func count(_ value: Any?) -> Int? {
+        if let value = integer(value) { return value }
+        guard let raw = text(value)?.replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        let multiplier: Double
+        let number: Substring
+        if raw.hasSuffix("亿") {
+            multiplier = 100_000_000
+            number = raw.dropLast()
+        } else if raw.hasSuffix("万") {
+            multiplier = 10_000
+            number = raw.dropLast()
+        } else if raw.lowercased().hasSuffix("m") {
+            multiplier = 1_000_000
+            number = raw.dropLast()
+        } else if raw.lowercased().hasSuffix("k") {
+            multiplier = 1_000
+            number = raw.dropLast()
+        } else {
+            multiplier = 1
+            number = Substring(raw)
+        }
+        guard let value = Double(String(number)) else { return nil }
+        return Int(value * multiplier)
+    }
+
     private static func queryInteger(_ url: URL, name: String) -> Int? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
             .first(where: { $0.name == name })?.value.flatMap { Int($0) }
@@ -1243,6 +1391,38 @@ actor BilibiliAPI {
         return parts.reversed().enumerated().reduce(0) { result, item in
             result + item.element * pow(60, Double(item.offset))
         }
+    }
+
+    private static func formatDuration(_ seconds: Int) -> String {
+        guard seconds > 0 else { return "" }
+        let hours = seconds / 3_600
+        let minutes = (seconds % 3_600) / 60
+        let remainder = seconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, remainder)
+        }
+        return String(format: "%d:%02d", minutes, remainder)
+    }
+
+    private static let bvidAlphabet = Array(
+        "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf"
+    )
+
+    /// Converts the mobile feed's numeric aid into the BV id expected by the
+    /// existing detail endpoint. This is the public reversible Bilibili id
+    /// transform also used by PiliPlus; it does not contact another service.
+    private static func bvid(for aid: Int) -> String {
+        var characters = Array("BV1000000000")
+        var value = ((Int64(1) << 51) | Int64(aid)) ^ 23_442_827_791_579
+        var index = characters.count - 1
+        while value > 0, index >= 0 {
+            characters[index] = bvidAlphabet[Int(value % 58)]
+            value /= 58
+            index -= 1
+        }
+        characters.swapAt(3, 9)
+        characters.swapAt(4, 7)
+        return String(characters)
     }
 
     private static func stripHTML(_ value: String) -> String {
