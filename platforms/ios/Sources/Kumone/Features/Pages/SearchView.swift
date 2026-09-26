@@ -437,10 +437,16 @@ struct SearchView: View {
         // A second safe-area field here was being composited over the tab bar
         // until the first scroll gesture caused a layout pass.
         #if os(iOS)
+        .searchable(text: $searchText, prompt: "Search songs, artists, albums, or playlists")
+        .onSubmit(of: .search) {
+            submitSearchAfterInputMethodCommits()
+        }
+        #if false
         .searchable(text: $searchText, prompt: "搜索歌曲、歌手、专辑、歌单")
         .onSubmit(of: .search) {
             submitSearchAfterInputMethodCommits()
         }
+        #endif
         #endif
         .onChange(of: searchText) { newValue in
             model.setQuery(newValue)
