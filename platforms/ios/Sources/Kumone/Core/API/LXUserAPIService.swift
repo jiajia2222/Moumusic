@@ -1138,7 +1138,7 @@ final class LXUserAPIService: ObservableObject {
         // endpoint costs at most the short probe timeout instead of one full
         // timeout per quality (which previously made the sheet appear stuck).
         let probes: [Task<String?, Never>] = requestedQualities.map { requested in
-            Task { @MainActor [weak self] -> String? in
+            Task { @MainActor [weak self] in
                 guard let self else { return Optional<String>.none }
                 return await self.probeQualityName(
                     source: source,
