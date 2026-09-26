@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import WidgetKit
 import ActivityKit
+import UIKit
 import KumoneIOSFeature
 
 private let widgetSuite = "group.com.jiajia2222.moumusic"
@@ -288,7 +289,11 @@ private struct PlaybackArtwork: View {
 
     var body: some View {
         Group {
-            if let urlString, let url = URL(string: urlString) {
+            if let image = sharedImage {
+                image
+                    .resizable()
+                    .scaledToFill()
+            } else if let urlString, let url = URL(string: urlString), !url.isFileURL {
                 AsyncImage(url: url) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFill()
@@ -304,12 +309,38 @@ private struct PlaybackArtwork: View {
         .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
     }
 
+    /// The app writes artwork into the App Group before or immediately after
+    /// starting the activity. Reading that file synchronously is reliable in
+    /// the widget extension even when the device is locked or offline.
+    private var sharedImage: Image? {
+        guard let cachedURL = MoumusicSharedArtworkStore.cachedURL(for: urlString),
+              let data = try? Data(contentsOf: cachedURL),
+              let image = UIImage(data: data) else { return nil }
+        return Image(uiImage: image)
+    }
+
     private var placeholder: some View {
         ZStack {
             Color.white.opacity(0.14)
             Image(systemName: "music.note")
                 .font(.system(size: size * 0.42, weight: .semibold))
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+@available(iOS 16.1, *)
+private struct PlaybackLyricText: View {
+    let lyric: String?
+
+    var body: some View {
+        if let lyric,
+           !lyric.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text(lyric)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
     }
 }
@@ -354,6 +385,7 @@ private struct PlaybackActivityLockScreenView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                PlaybackLyricText(lyric: state.currentLyric)
                 PlaybackProgressView(state: state)
             }
             Spacer(minLength: 0)
@@ -393,6 +425,7 @@ struct MoumusicPlaybackLiveActivity: Widget {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                        PlaybackLyricText(lyric: context.state.currentLyric)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {

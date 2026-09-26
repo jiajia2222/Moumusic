@@ -382,6 +382,7 @@ final class PlayerService: ObservableObject {
         let quality: String
     }
     private var lastLiveActivityProgress = -10.0
+    private var liveActivityLyric: String?
 #endif
     private var runtimeStarted = false
 
@@ -498,12 +499,35 @@ final class PlayerService: ObservableObject {
         MoumusicPlaybackActivityManager.shared.synchronize(
             title: track.name,
             artist: track.artistNames,
-            artworkURL: track.album.picUrl,
+            artworkURL: liveArtworkURL(for: track),
+            currentLyric: liveActivityLyric,
             elapsed: progress,
             duration: duration,
             isPlaying: isPlaying,
             newTrack: newTrack
         )
+    }
+
+    /// LX and account-backed results do not always put the cover in the same
+    /// field. Prefer the unified album cover, then use the source metadata
+    /// aliases used by the imported User API formats.
+    private func liveArtworkURL(for track: Track) -> String? {
+        let candidates = [
+            track.album.picUrl,
+            track.sourceMetadata["picUrl"],
+            track.sourceMetadata["picurl"],
+            track.sourceMetadata["albumPic"],
+            track.sourceMetadata["album_pic"],
+            track.sourceMetadata["cover"],
+            track.sourceMetadata["coverUrl"],
+            track.sourceMetadata["pic"],
+            track.artists.first?.picUrl,
+        ]
+        return candidates.compactMap { value in
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }.first
     }
 #else
     private func syncLiveActivity(newTrack: Bool = false) {}
@@ -642,6 +666,7 @@ final class PlayerService: ObservableObject {
     /// The lead makes a line light up just before it is sung.
     private func updateLyricsCursor(at seconds: TimeInterval) {
         let index = lyrics?.activeIndex(at: seconds + SettingsManager.shared.lyricsOffset)
+        let previousIndex = lyricsCursor.activeIndex
         if index != lyricsCursor.activeIndex {
             lyricsCursor.activeIndex = index
         }
@@ -653,7 +678,15 @@ final class PlayerService: ObservableObject {
             ?? lyrics?.lines.first?.text
         WidgetSnapshotStore.update(track: currentTrack, lyric: snapshotLyric)
         #if os(iOS)
+        let previousLyric = liveActivityLyric
+        liveActivityLyric = snapshotLyric
         NowPlayingManager.shared.updateCurrentLyric(snapshotLyric)
+        // ActivityKit cannot observe the app's LyricsCursor directly. Push a
+        // state update when the active line changes so the expanded island and
+        // lock-screen activity show the same line as the in-app player.
+        if previousIndex != index || previousLyric != snapshotLyric {
+            syncLiveActivity()
+        }
         #endif
     }
 
@@ -952,6 +985,9 @@ final class PlayerService: ObservableObject {
         WidgetSnapshotStore.update(track: track, lyric: nil)
         progress = resumeAt ?? 0
         lastLiveActivityProgress = progress - 5
+        #if os(iOS)
+        liveActivityLyric = nil
+        #endif
         pendingSeek = resumeAt
         duration = track.duration
         servedQuality = nil
