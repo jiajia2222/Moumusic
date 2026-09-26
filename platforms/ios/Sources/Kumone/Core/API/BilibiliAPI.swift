@@ -374,7 +374,7 @@ actor BilibiliAPI {
                                            referer: "https://www.bilibili.com/")
         let data = root["data"] as? [String: Any]
         let rows = (data?["item"] as? [[String: Any]]) ?? []
-        return rows.filter { text($0["goto"]) == "av" }.compactMap(Self.video)
+        return rows.filter { Self.text($0["goto"]) == "av" }.compactMap(Self.video)
     }
 
     private func appRecommendedVideos(page: Int,
@@ -424,8 +424,8 @@ actor BilibiliAPI {
         let data = root["data"] as? [String: Any]
         let rows = data?["items"] as? [[String: Any]] ?? []
         return rows.filter {
-            let card = text($0["card_goto"] ?? $0["goto"])
-            return card == "av" && text($0["ad_info"]) == nil
+            let card = Self.text($0["card_goto"] ?? $0["goto"])
+            return card == "av" && Self.text($0["ad_info"]) == nil
         }.compactMap(Self.appVideo)
     }
 
@@ -957,7 +957,8 @@ actor BilibiliAPI {
         for (field, value) in headers {
             request.setValue(value, forHTTPHeaderField: field)
         }
-        if let cookies = mergedRequestCookieHeader(cookie), !cookies.isEmpty {
+        let cookies = mergedRequestCookieHeader(cookie)
+        if !cookies.isEmpty {
             request.setValue(cookies, forHTTPHeaderField: "Cookie")
         }
         let (data, response) = try await session.data(for: request)

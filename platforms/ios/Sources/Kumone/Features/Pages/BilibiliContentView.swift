@@ -296,6 +296,7 @@ struct BilibiliContentView: View {
     }
 
     private var recommendationSourcePicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 12) {
             Label("推荐客户端", systemImage: "sparkles.tv")
                 .font(.subheadline.weight(.semibold))
@@ -337,6 +338,7 @@ struct BilibiliContentView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, Theme.Layout.contentInset)
+        }
     }
 
     private var categoryTabs: some View {

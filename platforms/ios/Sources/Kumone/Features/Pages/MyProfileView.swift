@@ -212,7 +212,7 @@ struct MyProfileView: View {
             }
             Spacer(minLength: 8)
             Image(systemName: isLoggedIn ? "checkmark.circle.fill" : "chevron.right")
-                .foregroundStyle(isLoggedIn ? .green : .tertiary)
+                .foregroundStyle(isLoggedIn ? .green : .secondary)
         }
         .contentShape(Rectangle())
         .frame(minHeight: 58)
