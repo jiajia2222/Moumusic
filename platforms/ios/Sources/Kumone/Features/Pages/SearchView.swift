@@ -412,19 +412,10 @@ struct SearchView: View {
                         BilibiliSearchResults(query: searchText)
                             .environmentObject(bilibili)
                     } else {
-#endif
-                        tabPicker
-
-                        if !model.hasAttemptedSearch || (model.isLoading && currentEmpty) {
-                            ProgressView()
-                                .frame(maxWidth: .infinity, minHeight: 300)
-                        } else if let errorMessage = model.errorMessage, currentEmpty {
-                            searchErrorState(errorMessage)
-                        } else {
-                            tabContent
-                        }
-#if os(iOS)
+                        musicSearchContent
                     }
+#else
+                    musicSearchContent
 #endif
                 } else {
                     emptySearchPrompt
@@ -441,7 +432,7 @@ struct SearchView: View {
         .onSubmit(of: .search) {
             submitSearchAfterInputMethodCommits()
         }
-        #if false
+        #if os(Linux)
         .searchable(text: $searchText, prompt: "搜索歌曲、歌手、专辑、歌单")
         .onSubmit(of: .search) {
             submitSearchAfterInputMethodCommits()
@@ -476,6 +467,20 @@ struct SearchView: View {
         }
         .onDisappear {
             resignSearchInput()
+        }
+    }
+
+    @ViewBuilder
+    private var musicSearchContent: some View {
+        tabPicker
+
+        if !model.hasAttemptedSearch || (model.isLoading && currentEmpty) {
+            ProgressView()
+                .frame(maxWidth: .infinity, minHeight: 300)
+        } else if let errorMessage = model.errorMessage, currentEmpty {
+            searchErrorState(errorMessage)
+        } else {
+            tabContent
         }
     }
 
