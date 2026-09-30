@@ -219,9 +219,11 @@ struct MoumusicAmbientGlow: View {
                         x: size.width * (0.5 + 0.18 * sin(time * 0.25)),
                         y: size.height * (0.30 + 0.12 * cos(time * 0.20))
                     )
+                    let secondaryXOffset = 0.20 * cos(time * 0.22 + 1.7)
+                    let secondaryYOffset = 0.12 * sin(time * 0.18 + 2.3)
                     let secondaryCenter = CGPoint(
-                        x: size.width * (0.5 + 0.20 * cos(time * 0.22 + 1.7)),
-                        y: size.height * (0.72 + 0.12 * sin(time * 0.18 + 2.3))
+                        x: size.width * (0.5 + secondaryXOffset),
+                        y: size.height * (0.72 + secondaryYOffset)
                     )
                     let primaryRadius = min(size.width, size.height) * 0.55
                     let secondaryRadius = min(size.width, size.height) * 0.42
