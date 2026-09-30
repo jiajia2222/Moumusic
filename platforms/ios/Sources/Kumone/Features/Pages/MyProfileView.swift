@@ -1,7 +1,7 @@
 #if os(iOS)
 import SwiftUI
 
-/// Beans-style “我的” surface.  It is intentionally a real navigation hub,
+/// Beans-style 闂傚倸鍊烽懗鍫曞磻閵娾晛纾块柤纰卞墮閸ㄦ繄鈧箍鍎遍ˇ顖炲垂閸屾稓绡€濠电姴鍊绘晶娑㈡煕鎼达紕效闁哄本鐩鏉懳熼崫鍕庛劑姊?surface.  It is intentionally a real navigation hub,
 /// not a decorative replacement for Settings: every card opens the existing
 /// Moumusic feature and keeps the account/source separation intact.
 struct MyProfileView: View {
@@ -13,7 +13,10 @@ struct MyProfileView: View {
     @EnvironmentObject private var bilibili: BilibiliSessionStore
     @Environment(\.openLogin) private var openLogin
     @StateObject private var syncStore = ListeningSyncStore.shared
+    @StateObject private var moumusicServer = MoumusicServerStore.shared
     @State private var showDownloads = false
+    @State private var showMoumusicAdminLogin = false
+    @State private var showMoumusicAdminUsers = false
     @State private var showQQMusicLogin = false
     @State private var showKugouLogin = false
     @State private var showBilibiliLogin = false
@@ -23,6 +26,7 @@ struct MyProfileView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 accountCard
+                moumusicIdentityCard
                 accountSourcesCard
                 listeningCard
                 quickLinks
@@ -34,6 +38,9 @@ struct MyProfileView: View {
             .padding(.top, 10)
         }
         .scrollIndicators(.hidden)
+        .task {
+            _ = await moumusicServer.start()
+        }
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showDownloads) {
             NavigationStack {
@@ -41,6 +48,14 @@ struct MyProfileView: View {
                     .environmentObject(player)
             }
             .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showMoumusicAdminLogin) {
+            MoumusicAdminLoginView()
+                .environmentObject(moumusicServer)
+        }
+        .sheet(isPresented: $showMoumusicAdminUsers) {
+            MoumusicAdminUsersView()
+                .environmentObject(moumusicServer)
         }
         .sheet(isPresented: $showQQMusicLogin) {
             QQMusicLoginSheet()
@@ -96,7 +111,7 @@ struct MyProfileView: View {
                     Text(account.profile?.nickname ?? "未登录")
                         .font(.title3.weight(.bold))
                         .lineLimit(1)
-                    Text(account.isLoggedIn ? "账号资料与歌单已同步" : "登录以同步歌单和听歌记录")
+                    Text(account.isLoggedIn ? "账号资料与歌单已同步" : "登录后同步歌单与播放记录")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -107,7 +122,168 @@ struct MyProfileView: View {
                         .font(.title2)
                         .foregroundStyle(account.isLoggedIn ? .green : Theme.accent)
                 }
-                .accessibilityLabel(account.isLoggedIn ? "查看账号同步" : "登录账号")
+                .accessibilityLabel(account.isLoggedIn ? "查看账号同步" : "登录")
+            }
+        }
+    }
+
+    private var moumusicIdentityCardLegacy: some View {
+#if false
+        MouGlassCard(cornerRadius: 28) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 14) {
+                    if let value = moumusicServer.profile?.avatarURL, let url = URL(string: value) {
+                        AsyncImage(url: url) { phase in
+                            if case .success(let image) = phase {
+                                image.resizable().scaledToFill()
+                            } else {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.system(size: 48))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(width: 64, height: 64)
+                        .clipShape(Circle())
+                    } else {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.system(size: 50))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 64, height: 64)
+                    }
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(moumusicServer.profile?.nickname ?? "Moumusic 用户")
+                            .font(.title3.weight(.bold))
+                            .lineLimit(1)
+                        Text("ID 闂?\(moumusicServer.displayID)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Image(systemName: moumusicServer.isAdmin ? "checkmark.seal.fill" : "person.crop.circle.badge.checkmark")
+                        .font(.title2)
+                        .foregroundStyle(moumusicServer.isAdmin ? .orange : Theme.accent)
+                }
+
+                Divider()
+                HStack {
+                    Label("Moumusic server", systemImage: "server.rack")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text(moumusicServer.statusText)
+                        .font(.caption)
+                        .foregroundStyle(moumusicServer.config == nil ? .secondary : Theme.accent)
+                        .lineLimit(1)
+                }
+
+                if moumusicServer.isAdmin {
+                    Toggle(isOn: Binding(
+                        get: { moumusicServer.config?.downloadsEnabled ?? true },
+                        set: { value in Task { await moumusicServer.setDownloadsEnabled(value) } }
+                    )) {
+                        Label("Public downloads", systemImage: "arrow.down.circle")
+                            .font(.subheadline)
+                    }
+                    .tint(Theme.accent)
+                }
+            }
+        }
+    }
+
+#endif
+        return EmptyView()
+    }
+
+    private var moumusicIdentityCard: some View {
+        MouGlassCard(cornerRadius: 28) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 14) {
+                    if let avatar = moumusicServer.profile?.avatarURL, let url = URL(string: avatar) {
+                        AsyncImage(url: url) { phase in
+                            if case .success(let image) = phase {
+                                image.resizable().scaledToFill()
+                            } else {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.system(size: 48))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(width: 64, height: 64)
+                        .clipShape(Circle())
+                    } else {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.system(size: 50))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 64, height: 64)
+                    }
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(moumusicServer.profile?.nickname ?? "Moumusic 用户")
+                            .font(.title3.weight(.bold))
+                            .lineLimit(1)
+                        Text("个人 ID：\(moumusicServer.displayID)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Image(systemName: moumusicServer.isAdmin ? "checkmark.seal.fill" : "person.crop.circle.badge.checkmark")
+                        .font(.title2)
+                        .foregroundStyle(moumusicServer.isAdmin ? .orange : Theme.accent)
+                }
+
+                Divider()
+                HStack {
+                    Label("Moumusic 服务", systemImage: "server.rack")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text(moumusicServer.statusText)
+                        .font(.caption)
+                        .foregroundStyle(moumusicServer.config == nil ? .secondary : Theme.accent)
+                        .lineLimit(1)
+                }
+
+                if let info = moumusicServer.config?.serverInfo {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let ipv4 = info.ipv4 { Text("IPv4  \(ipv4)") }
+                        if let ipv6 = info.ipv6 { Text("IPv6  \(ipv6)") }
+                        HStack(spacing: 12) {
+                            if let cpu = info.cpuCores { Text("CPU  \(cpu) cores") }
+                            if let memory = info.memoryMB { Text("RAM  \(memory) MB") }
+                        }
+                        HStack(spacing: 12) {
+                            if let storage = info.storageGB { Text("Storage  \(storage) GB") }
+                            if let network = info.networkPortMbps { Text("Network  \(network) Mbps") }
+                        }
+                    }
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                }
+
+                if moumusicServer.isAdmin {
+                    Toggle(isOn: Binding(
+                        get: { moumusicServer.config?.downloadsEnabled ?? true },
+                        set: { value in Task { await moumusicServer.setDownloadsEnabled(value) } }
+                    )) {
+                            Label("允许公开下载", systemImage: "arrow.down.circle")
+                            .font(.subheadline)
+                    }
+                    .tint(Theme.accent)
+                    Button {
+                        showMoumusicAdminUsers = true
+                    } label: {
+                        Label("管理用户资料与 ID", systemImage: "person.2.badge.gearshape")
+                    }
+                    .foregroundStyle(Theme.accent)
+                } else {
+                    Button("管理员登录") {
+                        showMoumusicAdminLogin = true
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                }
             }
         }
     }
@@ -121,9 +297,11 @@ struct MyProfileView: View {
                 HStack(spacing: 10) {
                     metric(title: "累计时长", value: syncStore.formattedDuration)
                     metric(title: "已同步歌曲", value: "\(syncStore.syncedTrackCount)")
-                    metric(title: "状态", value: syncStore.statusText)
+                    // The local counters survive logout, but they must not
+                    // claim that the current account is still synchronized.
+                    metric(title: "状态", value: syncStore.platformStatusText)
                 }
-                Text("仅同步账号资料、歌单和听歌记录；播放地址仍由用户导入的 LX 音源提供。")
+                Text("网易云音乐账号负责同步最近播放与听歌时长；播放仍使用已选择的 LX 音源。未登录时不会尝试同步。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -141,7 +319,7 @@ struct MyProfileView: View {
 
                 accountSourceRow(
                     title: "网易云音乐",
-                    subtitle: account.isLoggedIn ? (account.profile?.nickname ?? "已登录") : "未登录 · 同步歌单与听歌记录",
+                    subtitle: account.isLoggedIn ? (account.profile?.nickname ?? "已登录") : "未登录 · 同步歌单与播放记录",
                     icon: "music.note",
                     isLoggedIn: account.isLoggedIn,
                     action: { openLogin() },
@@ -171,14 +349,14 @@ struct MyProfileView: View {
 
                 accountSourceRow(
                     title: "哔哩哔哩",
-                    subtitle: bilibili.isLoggedIn ? (bilibili.profileName ?? "已登录") : "未登录 · 同步资料与视频服务",
+                    subtitle: bilibili.isLoggedIn ? (bilibili.profileName ?? "已登录") : "未登录 · 同步账号资料与视频服务",
                     icon: "play.rectangle.fill",
                     isLoggedIn: bilibili.isLoggedIn
                 ) {
                     showBilibiliLogin = true
                 }
 
-                Text("账号登录只负责同步资料、歌单和历史；播放地址仍按播放设置使用账号能力或用户导入的 LX 音源。")
+                Text("账号登录只用于同步资料、歌单和播放记录；播放继续使用账号能力或已导入的 LX 音源。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -253,6 +431,8 @@ struct MyProfileView: View {
                 divider
                 profileRow("我的歌单", icon: "music.note.list", tint: Theme.accent, destination: .localPlaylists)
                 divider
+                profileRow("收藏的歌单与专辑", icon: "bookmark.fill", tint: .yellow, destination: .collections)
+                divider
                 Button { showDownloads = true } label: {
                     rowLabel("下载管理", icon: "arrow.down.circle.fill", tint: .blue)
                 }
@@ -265,15 +445,15 @@ struct MyProfileView: View {
     private var appearanceCard: some View {
         MouGlassCard {
             VStack(alignment: .leading, spacing: 12) {
-                Label("主题模式", systemImage: "circle.lefthalf.filled")
+                Label("外观", systemImage: "circle.lefthalf.filled")
                     .font(.headline.weight(.semibold))
-                Picker("主题模式", selection: $settings.appearance) {
+                Picker("外观", selection: $settings.appearance) {
                     ForEach(AppAppearance.allCases) { appearance in
                         Text(appearance.displayName).tag(appearance)
                     }
                 }
                 .pickerStyle(.segmented)
-                Text("外观切换会同步应用页面、播放器和设置页。")
+                Text("外观设置会同步应用、播放器和设置页面。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -283,16 +463,16 @@ struct MyProfileView: View {
     private var supportCard: some View {
         MouGlassCard {
             VStack(alignment: .leading, spacing: 11) {
-                Label("项目支持", systemImage: "heart.circle.fill")
+                Label("支持项目", systemImage: "heart.circle.fill")
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(Theme.accent)
                 NavigationLink {
                     AfdianSupportView()
                 } label: {
-                    rowLabel("赞赏与支持", icon: "heart.fill", tint: Theme.accent)
+                    rowLabel("赞赏支持项目", icon: "heart.fill", tint: Theme.accent)
                 }
                 .buttonStyle(.plain)
-                Text("感谢每一位支持 Moumusic 的用户。")
+                Text("感谢每一位支持 Moumusic 的朋友。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

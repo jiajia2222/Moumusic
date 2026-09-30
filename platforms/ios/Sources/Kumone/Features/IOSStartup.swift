@@ -20,7 +20,7 @@ final class IOSStartupCoordinator: ObservableObject {
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var isOnline = false
-    @Published private(set) var message = String(localized: "正在连接在线服务")
+    @Published private(set) var message = String(localized: "濮濓絽婀潻鐐村复閸︺劎鍤庨張宥呭")
 
     private var didStart = false
     private var preloadTasks: [Task<Void, Never>] = []
@@ -37,7 +37,7 @@ final class IOSStartupCoordinator: ObservableObject {
         guard !didStart else { return }
         didStart = true
         phase = .warming
-        message = String(localized: "正在预加载在线内容")
+        message = String(localized: "Preloading online content")
 
         let startedAt = Date()
         player.startRuntime()
@@ -47,9 +47,11 @@ final class IOSStartupCoordinator: ObservableObject {
         // their caches/coordinators collapse duplicate work.
         preloadTasks.append(Task { @MainActor [weak self] in
             guard let self else { return }
-            self.isOnline = await Self.probeOnlineService()
+            let networkOnline = await Self.probeOnlineService()
+            let serverOnline = await MoumusicServerStore.shared.start()
+            self.isOnline = networkOnline || serverOnline
             if !self.isOnline {
-                self.message = String(localized: "在线服务暂时不可用，稍后可重试")
+                self.message = String(localized: "Online service unavailable; retry later")
             }
         })
 
@@ -97,8 +99,8 @@ final class IOSStartupCoordinator: ObservableObject {
 
         phase = .ready
         message = isOnline
-            ? String(localized: "在线内容已开始加载")
-            : String(localized: "已进入应用，在线内容稍后重试")
+            ? String(localized: "Online content is loading")
+            : String(localized: "The app is ready; online content will retry in the background")
     }
 
     private static func probeOnlineService() async -> Bool {
@@ -170,12 +172,12 @@ struct IOSStartupSplashView: View {
                 ProgressView()
                     .tint(Theme.accent)
                     .frame(minWidth: 44, minHeight: 44)
-                    .accessibilityLabel(String(localized: "正在加载在线内容"))
+                    .accessibilityLabel(String(localized: "濮濓絽婀崝鐘烘祰閸︺劎鍤庨崘鍛啇"))
             }
             .padding(.horizontal, 32)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(String(localized: "Moumusic 正在启动并预加载在线内容"))
+        .accessibilityLabel(String(localized: "Moumusic 濮濓絽婀崥顖氬З楠炲爼顣╅崝鐘烘祰閸︺劎鍤庨崘鍛啇"))
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {

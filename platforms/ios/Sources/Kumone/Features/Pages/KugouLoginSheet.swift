@@ -8,6 +8,7 @@ struct KugouLoginSheet: View {
     @State private var errorMessage: String?
 #if os(iOS)
     @State private var showQRCodeLogin = false
+    @State private var showWebLogin = false
 #endif
 
     var body: some View {
@@ -26,6 +27,10 @@ struct KugouLoginSheet: View {
                             Label("酷狗音乐扫码登录", systemImage: "qrcode.viewfinder")
                         }
                         .buttonStyle(.borderedProminent)
+                        Button { showWebLogin = true } label: {
+                            Label("网页 / 手机号登录", systemImage: "safari")
+                        }
+                        .buttonStyle(.bordered)
 #endif
                         TextEditor(text: $cookie)
                             .frame(minHeight: 110)
@@ -72,6 +77,12 @@ struct KugouLoginSheet: View {
             .sheet(isPresented: $showQRCodeLogin) {
                 KugouQRCodeLoginSheet()
                     .environmentObject(kugou)
+            }
+            .sheet(isPresented: $showWebLogin) {
+                ProviderWebLoginSheet(provider: .kugou) { value in
+                    try await kugou.signInFromWeb(cookie: value)
+                }
+                .presentationDetents([.large])
             }
 #endif
         }

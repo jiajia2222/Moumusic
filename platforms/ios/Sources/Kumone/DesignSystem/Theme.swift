@@ -92,6 +92,22 @@ extension View {
         #endif
     }
 
+    /// `presentationBackground` was added in iOS 16.4. Keep sheets usable on
+    /// the iOS 16.0–16.3 deployment floor by leaving the system sheet surface
+    /// unchanged on those releases.
+    @ViewBuilder
+    func compatPresentationBackground<S: ShapeStyle>(_ style: S) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.4, *) {
+            presentationBackground(style)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
     /// Glass background with a graceful material fallback on macOS 15.
     @ViewBuilder
     func compatGlass(interactive: Bool = false, in shape: some Shape) -> some View {

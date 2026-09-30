@@ -10,6 +10,7 @@ struct AlbumDetailView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var showFullDescription = false
+    @StateObject private var favorites = FavoritesStore.shared
 
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
@@ -194,6 +195,8 @@ struct AlbumDetailView: View {
                 }
                 .buttonStyle(.pressable)
 
+                favoriteButton(album, compact: true)
+
                 if account.isLoggedIn {
                     Button {
                         toggleSubscribe()
@@ -280,6 +283,8 @@ struct AlbumDetailView: View {
                     }
                     .buttonStyle(.pressable)
 
+                    favoriteButton(album)
+
                     if account.isLoggedIn {
                         Button {
                             toggleSubscribe()
@@ -303,6 +308,37 @@ struct AlbumDetailView: View {
     private var totalDuration: String {
         let totalMS = tracks.reduce(into: 0) { $0 += $1.durationMS }
         return Formatters.longDuration(TimeInterval(totalMS) / 1000)
+    }
+
+    private func favoriteButton(_ album: AlbumDetail, compact: Bool = false) -> some View {
+        let providerID = String(album.id)
+        let isFavorite = favorites.contains(kind: .album, source: "wy", providerID: providerID)
+        return Button {
+            let added = favorites.toggle(
+                kind: .album,
+                source: "wy",
+                providerID: providerID,
+                name: album.name,
+                coverURL: album.picUrl,
+                subtitle: album.artist?.name
+            )
+            ToastCenter.shared.show(added ? "已收藏专辑" : "已取消收藏专辑")
+        } label: {
+            if compact {
+                Image(systemName: isFavorite ? "bookmark.fill" : "bookmark")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 38, height: 38)
+                    .background(.primary.opacity(0.06), in: Circle())
+            } else {
+                Label(isFavorite ? "已收藏" : "收藏", systemImage: "bookmark")
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.primary.opacity(0.06), in: Capsule())
+            }
+        }
+        .buttonStyle(.pressable)
     }
 
     private func toggleSubscribe() {

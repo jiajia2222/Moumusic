@@ -72,16 +72,20 @@ actor QQMusicAPI {
         let configuration = URLSessionConfiguration.ephemeral
         cookieStorage = HTTPCookieStorage()
         configuration.httpCookieStorage = cookieStorage
-        configuration.httpShouldSetCookies = true
-        configuration.httpCookieAcceptPolicy = .always
+        // Keep cookie ownership in this actor.  URLSession's automatic jar
+        // handling can retain both a host-scoped qrsig and the replacement
+        // .qq.com value, which makes ptqrlogin/check_sig see two signatures
+        // and report a valid scan as an expired/invalid login.
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 45
         session = URLSession(configuration: configuration)
 
         let redirectConfiguration = URLSessionConfiguration.ephemeral
         redirectConfiguration.httpCookieStorage = cookieStorage
-        redirectConfiguration.httpShouldSetCookies = true
-        redirectConfiguration.httpCookieAcceptPolicy = .always
+        redirectConfiguration.httpShouldSetCookies = false
+        redirectConfiguration.httpCookieAcceptPolicy = .never
         redirectConfiguration.timeoutIntervalForRequest = 20
         redirectConfiguration.timeoutIntervalForResource = 45
         redirectSession = URLSession(
@@ -95,6 +99,10 @@ actor QQMusicAPI {
     /// QR route is QQ's ptlogin flow: request the image, poll ptqrlogin, then
     /// follow the returned authorization URL so the Music cookies are stored.
     func qrCode() async throws -> QRCodePayload {
+        // A qrsig is single-use. Remove the previous value before requesting
+        // a new image; otherwise cookie storage can send two signatures and
+        // QQ may report a freshly scanned code as expired.
+        deleteCookies(named: "qrsig")
         var components = URLComponents(string: "https://ssl.ptlogin2.qq.com/ptqrshow")!
         components.queryItems = [
             URLQueryItem(name: "appid", value: "716027609"),
@@ -111,12 +119,22 @@ actor QQMusicAPI {
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("https://xui.ptlogin2.qq.com/", forHTTPHeaderField: "Referer")
         let (data, response) = try await redirectSession.data(for: request)
+        // The ephemeral session normally stores Set-Cookie automatically, but
+        // ptlogin may return the cookie on a response whose host differs from
+        // the next polling host. Keep the response headers as the source of
+        // truth so the later OAuth exchange receives the same session.
+        collectCookies(from: response)
         if (response as? HTTPURLResponse)?.statusCode == 403 {
             throw APIError.qrCodeUnavailable
         }
         guard Self.isSuccess(response), let qrsig = Self.cookieValue("qrsig", from: response), !qrsig.isEmpty else {
             throw APIError.invalidResponse
         }
+        // `ptqrlogin` returns the signature as a response cookie, but the
+        // QR image request can be served by a different ptlogin host. Keep
+        // the value in the shared cookie jar so the later `check_sig` OAuth
+        // step sends the same qrsig instead of only the polling request.
+        setCookieValue(qrsig, for: "qrsig")
         // QQ occasionally returns an HTML anti-bot page with HTTP 200. Never
         // pass that body to SwiftUI as a QR image, otherwise the sheet remains
         // blank with an endless spinner.
@@ -125,6 +143,10 @@ actor QQMusicAPI {
     }
 
     func poll(qrsig: String) async throws -> QRStatus {
+        // Keep the signature in the shared jar as well as on this request.
+        // A reused polling task can otherwise reach check_sig without the
+        // qrsig cookie and QQ reports a false login failure.
+        setCookieValue(qrsig, for: "qrsig")
         var components = URLComponents(string: "https://ssl.ptlogin2.qq.com/ptqrlogin")!
         components.queryItems = [
             URLQueryItem(name: "u1", value: "https://graph.qq.com/oauth2.0/login_jump"),
@@ -143,6 +165,10 @@ actor QQMusicAPI {
             URLQueryItem(name: "aid", value: "716027609"),
             URLQueryItem(name: "daid", value: "383"),
             URLQueryItem(name: "pt_3rd_aid", value: "100497308"),
+            // QQ's current ptlogin client sends this value when it requests
+            // the third-party login jump.  Omitting it can still return a
+            // valid-looking `0` callback, but the following check_sig chain
+            // then ends without the skey/p_skey cookies needed by Music.
             URLQueryItem(name: "o1vId", value: "49283d5cbb01a744d46314da4608d929")
         ]
         var request = URLRequest(url: components.url!)
@@ -150,6 +176,7 @@ actor QQMusicAPI {
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("https://xui.ptlogin2.qq.com/", forHTTPHeaderField: "Referer")
         let (data, response) = try await redirectSession.data(for: request)
+        collectCookies(from: response)
         guard Self.isSuccess(response), let body = String(data: data, encoding: .utf8) else {
             throw APIError.invalidResponse
         }
@@ -159,7 +186,11 @@ actor QQMusicAPI {
         switch status {
         case "66": return .waiting
         case "67": return .scanned
-        case "65": return .expired
+        // QQ uses 65 for the normal timeout and 68 when the QR token is
+        // invalidated/replaced (for example after a second refresh). Both
+        // states must clear the polling generation and create a new image;
+        // treating 68 as waiting leaves the sheet stuck on an old QR code.
+        case "65", "68": return .expired
         case "0":
             guard let jumpURL = parsed.url else { throw APIError.oauthFailed }
             try await completeOAuth(redirectURL: jumpURL)
@@ -171,14 +202,17 @@ actor QQMusicAPI {
         }
     }
 
-    /// Finish the QQ login redirect chain and exchange the OAuth code for a
-    /// Music session key. The old implementation stopped at the first jump,
-    /// which left only a partial ptlogin cookie and made the QR login appear
-    /// successful while playback/profile validation still failed.
+    /// Finish QQ's QR authorization and exchange the OAuth code for a Music
+    /// session key. QQ's `login_jump` response is a redirect chain: every
+    /// response can add another `skey`/`p_skey` cookie, so parsing only the
+    /// first URL and calling a hard-coded `check_sig` endpoint loses the
+    /// session that the Music API needs.
     private func completeOAuth(redirectURL: URL) async throws {
         var currentURL = redirectURL
 
-        // check_sig sets skey/p_skey on one or more redirect responses.
+        // The redirect delegate intentionally exposes each response. Do not
+        // replace this with URLSession's automatic redirect handling: the
+        // intermediate Set-Cookie headers are part of the QQ login session.
         for _ in 0..<6 {
             var request = URLRequest(url: currentURL)
             request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
@@ -201,10 +235,12 @@ actor QQMusicAPI {
             }
         }
 
-        let key = cookieValue("qqmusic_key")
+        let credential = cookieValue("qqmusic_key")
             ?? cookieValue("p_skey")
             ?? cookieValue("skey")
             ?? ""
+        guard !credential.isEmpty else { throw APIError.oauthFailed }
+
         let fields: [String: String] = [
             "response_type": "code",
             "client_id": "100497308",
@@ -216,7 +252,7 @@ actor QQMusicAPI {
             "src": "1",
             "update_auth": "1",
             "openapi": "80901010_1030",
-            "g_tk": String(Self.hash5381(key)),
+            "g_tk": String(Self.hash5381(credential)),
             "auth_time": String(Int(Date().timeIntervalSince1970 * 1000)),
             "ui": "DFEC5395-9E69-4D3E-96A6-300BB770874D"
         ]
@@ -228,16 +264,19 @@ actor QQMusicAPI {
         authRequest.setValue("https://graph.qq.com/", forHTTPHeaderField: "Referer")
         authRequest.setValue(cookieHeader(), forHTTPHeaderField: "Cookie")
         authRequest.httpBody = Self.formEncode(fields).data(using: .utf8)
-        let (_, authResponse) = try await redirectSession.data(for: authRequest)
+        let (authData, authResponse) = try await redirectSession.data(for: authRequest)
         collectCookies(from: authResponse)
 
         guard let authHTTP = authResponse as? HTTPURLResponse,
-              let location = authHTTP.value(forHTTPHeaderField: "Location"),
-              let code = Self.extractCode(from: location), !code.isEmpty else {
+              let code = Self.extractCode(from: authData, response: authHTTP),
+              !code.isEmpty else {
             throw APIError.oauthFailed
         }
 
         let loginPayload: [String: Any] = [
+            // Match the current QQ Music web-client envelope. The older
+            // tmeLoginType form can return HTTP 200 without issuing a
+            // musickey/uin, which leaves the app showing “凭证获取失败”.
             "comm": ["g_tk": 5381, "platform": "yqq", "ct": 24, "cv": 0],
             "req": [
                 "module": "QQConnectLogin.LoginServer",
@@ -280,6 +319,46 @@ actor QQMusicAPI {
             if let musicID = Self.text(data["musicid"]), !musicID.isEmpty {
                 setCookieValue(musicID, for: "uin")
             }
+        }
+
+        // The response shape has changed between QQ Music web clients.  Some
+        // builds put `musickey` below an extra `data/result` wrapper instead
+        // of req.data.  Walk the already decoded response as a fallback so a
+        // successful QR scan is not reported as “credential acquisition
+        // failed” only because the wrapper changed.
+        var nestedMusicKey: String?
+        var nestedMusicID: String?
+        func collectCredentials(_ value: Any) {
+            if let dictionary = value as? [String: Any] {
+                for (key, child) in dictionary {
+                    switch key.lowercased() {
+                    case "musickey", "qm_keyst", "qqmusic_key", "music_key":
+                        if nestedMusicKey == nil, let value = Self.text(child), !value.isEmpty {
+                            nestedMusicKey = value
+                        }
+                    case "musicid", "uin", "loginuin", "qqmusic_uin":
+                        if nestedMusicID == nil,
+                           let value = Self.text(child),
+                           Self.isUsableAccountID(value) {
+                            nestedMusicID = value
+                        }
+                    default:
+                        break
+                    }
+                    collectCredentials(child)
+                }
+            } else if let array = value as? [Any] {
+                array.forEach(collectCredentials)
+            }
+        }
+        collectCredentials(root)
+        if let nestedMusicKey, !nestedMusicKey.isEmpty {
+            setCookieValue(nestedMusicKey, for: "musickey")
+            setCookieValue(nestedMusicKey, for: "qm_keyst")
+            setCookieValue(nestedMusicKey, for: "qqmusic_key")
+        }
+        if let nestedMusicID, !nestedMusicID.isEmpty {
+            setCookieValue(nestedMusicID, for: "uin")
         }
 
         guard Self.hasMusicCredential(Self.cookieFields(cookieHeader())) else {
@@ -357,8 +436,11 @@ actor QQMusicAPI {
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             throw APIError.unavailable
         }
-        let returnedName = Self.text(info?["filename"]) ?? file
-        return ResolvedAudio(url: url, quality: Self.quality(forFilename: returnedName))
+        // The requested filename is only a request. If QQ omits the returned
+        // filename, there is no evidence that the server honoured it.
+        let returnedQuality = Self.text(info?["filename"])
+            .map { Self.quality(forFilename: $0) } ?? "unknown"
+        return ResolvedAudio(url: url, quality: returnedQuality)
     }
 
     func profile(cookie: String) async throws -> Profile {
@@ -380,7 +462,10 @@ actor QQMusicAPI {
             URLQueryItem(name: "cid", value: "205360838"),
             URLQueryItem(name: "userid", value: accountID),
             URLQueryItem(name: "reqfrom", value: "1"),
-            URLQueryItem(name: "g_tk", value: String(Self.hash5381(Self.credentialKey(in: cookieFields)))),
+            // The profile endpoint follows the web client's fixed public
+            // g_tk value. Hashing a rotated credential here makes a valid
+            // session look like an empty profile on some QQ accounts.
+            URLQueryItem(name: "g_tk", value: "5381"),
             URLQueryItem(name: "loginUin", value: accountID),
             URLQueryItem(name: "hostUin", value: "0"),
             URLQueryItem(name: "format", value: "json"),
@@ -495,7 +580,7 @@ actor QQMusicAPI {
 
     private static func accountID(from fields: [String: String]) -> String {
         for key in ["uin", "p_uin", "pt2gguin", "qqmusic_uin", "loginUin"] {
-            guard let value = fields[key], !value.isEmpty, value != "0", value != "o0" else { continue }
+            guard let value = fields[key], isUsableAccountID(value) else { continue }
             return normalizedAccountID(value)
         }
         return ""
@@ -505,15 +590,26 @@ actor QQMusicAPI {
         value.hasPrefix("o") ? String(value.dropFirst()) : value
     }
 
+    private static func isUsableAccountID(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let normalized = normalizedAccountID(trimmed)
+        return normalized != "0"
+            && normalized.lowercased() != "null"
+            && normalized.lowercased() != "undefined"
+    }
+
     private static func credentialKey(in fields: [String: String]) -> String {
-        for key in ["qqmusic_key", "qm_keyst", "musickey", "music_key", "p_skey", "skey"] {
+        for key in ["qqmusic_key", "qm_keyst", "musickey", "music_key", "p_skey", "skey",
+                    "psrf_access_token", "psrf_qq_access_token"] {
             if let value = fields[key], !value.isEmpty { return value }
         }
         return ""
     }
 
     private static func hasMusicCredential(_ fields: [String: String]) -> Bool {
-        ["qqmusic_key", "qm_keyst", "musickey", "music_key", "p_skey", "skey", "wxskey", "wx_skey"]
+        ["qqmusic_key", "qm_keyst", "musickey", "music_key", "p_skey", "skey", "wxskey", "wx_skey",
+         "psrf_access_token", "psrf_qq_access_token"]
             .contains { key in
                 guard let value = fields[key] else { return false }
                 return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -539,6 +635,34 @@ actor QQMusicAPI {
             return nil
         }
         return components.queryItems?.first(where: { $0.name == "code" })?.value
+    }
+
+    /// `graph.qq.com` normally returns the OAuth code in a 302 Location
+    /// header. Some edge nodes answer with a 200 HTML page containing the
+    /// same redirect URL instead. Accept both forms, but never treat an
+    /// arbitrary response body as a credential.
+    private static func extractCode(from data: Data, response: HTTPURLResponse) -> String? {
+        if let location = response.value(forHTTPHeaderField: "Location"),
+           let code = extractCode(from: location),
+           !code.isEmpty {
+            return code
+        }
+
+        guard let body = String(data: data, encoding: .utf8), !body.isEmpty else { return nil }
+        let candidates = [body, body.replacingOccurrences(of: "&amp;", with: "&")]
+        for candidate in candidates {
+            if let match = candidate.range(of: #"(?:[?&])code=([^&#\"'\s<>]+)"#, options: .regularExpression) {
+                let fragment = String(candidate[match])
+                let value = fragment
+                    .split(separator: "=", maxSplits: 1)
+                    .dropFirst()
+                    .first.map(String.init) ?? ""
+                if let decoded = value.removingPercentEncoding, !decoded.isEmpty {
+                    return decoded
+                }
+            }
+        }
+        return nil
     }
 
     private static func formEncode(_ fields: [String: String]) -> String {
@@ -569,8 +693,13 @@ actor QQMusicAPI {
             if item.hasPrefix("'") && item.hasSuffix("'") && item.count >= 2 {
                 item.removeFirst()
                 item.removeLast()
+            } else if item.hasPrefix("\"") && item.hasSuffix("\"") && item.count >= 2 {
+                item.removeFirst()
+                item.removeLast()
             }
-            return item.replacingOccurrences(of: "\\'", with: "'")
+            return item
+                .replacingOccurrences(of: "\\'", with: "'")
+                .replacingOccurrences(of: "\\\"", with: "\"")
         }
     }
 
@@ -617,10 +746,20 @@ actor QQMusicAPI {
     }
 
     private func cookieValue(_ name: String) -> String? {
-        cookieStorage.cookies?.first(where: { $0.name == name })?.value
+        let candidates = cookieStorage.cookies?.filter { $0.name == name } ?? []
+        return candidates.sorted { lhs, rhs in
+            // Prefer the broad QQ-domain value because the flow crosses from
+            // ptlogin2.qq.com to graph.qq.com and y.qq.com.
+            let lhsBroad = Self.isBroadQQDomain(lhs.domain)
+            let rhsBroad = Self.isBroadQQDomain(rhs.domain)
+            if lhsBroad != rhsBroad { return lhsBroad }
+            if lhs.path.count != rhs.path.count { return lhs.path.count > rhs.path.count }
+            return lhs.domain.count < rhs.domain.count
+        }.first?.value
     }
 
     private func setCookieValue(_ value: String, for name: String) {
+        deleteCookies(named: name)
         guard let cookie = HTTPCookie(properties: [
             .domain: ".qq.com",
             .path: "/",
@@ -632,19 +771,51 @@ actor QQMusicAPI {
 
     private func cookieHeader(includeQRSig: Bool = false) -> String {
         let allowed = Set([
-            "uin", "skey", "p_uin", "p_skey", "pt2gguin", "pt4_token", "qqmusic_uin",
-            "qqmusic_key", "qm_keyst", "music_key", "musickey", "musicid",
-            "loginUin", "pskey", "wxskey", "wx_skey", "pt_login_sig", "pt4_aid"
+            // Keep the same identity/credential set as the QQ web client.
+            // In particular, `skey` is the credential returned by some
+            // check_sig variants; dropping it here makes graph.qq.com reject
+            // an otherwise successful QR scan.
+            "uin", "wxuin", "p_uin", "wxopenid", "skey", "p_skey",
+            "pt2gguin", "pt4_token", "qqmusic_uin", "qqmusic_key", "qm_keyst",
+            "music_key", "wxskey", "wx_skey", "musickey", "musicid", "loginUin",
+            "pskey", "pt_login_sig", "pt4_aid", "ptnick", "nick", "nickname",
+            "psrf_access_token", "psrf_qq_access_token", "psrf_qqopenid"
         ])
-        var pairs = cookieStorage.cookies?.filter {
-            allowed.contains($0.name)
-        }.map { "\($0.name)=\($0.value)" } ?? []
+        var selected: [String: HTTPCookie] = [:]
+        for cookie in cookieStorage.cookies ?? [] where allowed.contains(cookie.name) {
+            guard let current = selected[cookie.name] else {
+                selected[cookie.name] = cookie
+                continue
+            }
+            if Self.preferCookie(cookie, over: current) {
+                selected[cookie.name] = cookie
+            }
+        }
+        var pairs = selected.values.map { "\($0.name)=\($0.value)" }
         if includeQRSig, let qrsig = cookieValue("qrsig"), !qrsig.isEmpty {
             pairs.insert("qrsig=\(qrsig)", at: 0)
         }
         return pairs
             .sorted()
             .joined(separator: "; ")
+    }
+
+    private func deleteCookies(named name: String) {
+        for cookie in cookieStorage.cookies ?? [] where cookie.name == name {
+            cookieStorage.deleteCookie(cookie)
+        }
+    }
+
+    private static func isBroadQQDomain(_ domain: String) -> Bool {
+        domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) == "qq.com"
+    }
+
+    private static func preferCookie(_ candidate: HTTPCookie, over current: HTTPCookie) -> Bool {
+        let candidateBroad = isBroadQQDomain(candidate.domain)
+        let currentBroad = isBroadQQDomain(current.domain)
+        if candidateBroad != currentBroad { return candidateBroad }
+        if candidate.path.count != current.path.count { return candidate.path.count > current.path.count }
+        return candidate.domain.count < current.domain.count
     }
 
     private static func mergedCookie(original: String, response: HTTPURLResponse?) -> String? {
@@ -686,6 +857,7 @@ actor QQMusicAPI {
         if value.hasPrefix("F000") { return "flac" }
         if value.hasPrefix("M800") { return "320k" }
         if value.hasPrefix("C600") { return "192k" }
-        return "128k"
+        if value.hasPrefix("M500") { return "128k" }
+        return "unknown"
     }
 }

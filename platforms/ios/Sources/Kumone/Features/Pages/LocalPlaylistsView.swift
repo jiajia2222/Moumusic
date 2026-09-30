@@ -41,6 +41,15 @@ struct LocalPlaylistsView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
+                                Button {
+                                    Task {
+                                        await account.syncLocalPlaylistToOfficialPlaylist(
+                                            localPlaylistID: playlist.id
+                                        )
+                                    }
+                                } label: {
+                                    Label("同步到官方歌单", systemImage: "arrow.triangle.2.circlepath")
+                                }
                                 ShareLink(item: store.exportText(playlist)) {
                                     Label("导出歌单", systemImage: "square.and.arrow.up")
                                 }

@@ -10,8 +10,6 @@
     <array>
         <string>audio</string>
     </array>
-    <key>NSSupportsLiveActivities</key>
-    <true/>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
@@ -25,6 +23,8 @@
     <array>
         <string>com.jiajia2222.moumusic.provider-refresh</string>
     </array>
+    <key>MOUMUSIC_SERVER_URL</key>
+    <string>$(MOUMUSIC_SERVER_URL)</string>
     <key>UIFileSharingEnabled</key>
     <true/>
     <key>LSSupportsOpeningDocumentsInPlace</key>

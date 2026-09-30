@@ -46,11 +46,19 @@ enum ProviderWebLoginKind: String, Identifiable {
         switch self {
         case .qqMusic:
             let uin = values["uin"] ?? values["qqmusic_uin"] ?? ""
-            return !uin.isEmpty && uin != "0" &&
-                !(values["qqmusic_key"] ?? "").isEmpty
+            let credential = values["qqmusic_key"] ?? values["qm_keyst"] ?? values["p_skey"]
+                ?? values["skey"] ?? values["psrf_access_token"] ?? values["psrf_qq_access_token"] ?? ""
+            // QQ rotates the cookie name used by its web player. Do not require
+            // one legacy key, otherwise a successful QR/phone login is shown
+            // as “credential acquisition failed”.
+            let openID = values["psrf_qqopenid"] ?? ""
+            return (!uin.isEmpty && uin != "0" && !credential.isEmpty) ||
+                (!credential.isEmpty && !openID.isEmpty)
         case .kugou:
-            return !(values["token"] ?? "").isEmpty &&
-                !(values["userid"] ?? values["kugooid"] ?? "").isEmpty
+            let token = values["token"] ?? values["login_token"] ?? values["kugou_token"] ?? values["kg_token"] ?? ""
+            let identity = values["userid"] ?? values["user_id"] ?? values["kugooid"]
+                ?? values["kugoo_id"] ?? values["kg_mid"] ?? values["mid"] ?? ""
+            return !token.isEmpty && !identity.isEmpty
         case .bilibili:
             return !(values["sessdata"] ?? "").isEmpty &&
                 !(values["dedeuserid"] ?? "").isEmpty
@@ -59,8 +67,9 @@ enum ProviderWebLoginKind: String, Identifiable {
 }
 
 /// Logs in on the provider's own website and transfers only its Cookie header
-/// to the caller. The web view uses an ephemeral store and is never used as a
-/// playback or API proxy.
+/// to the caller. The WebKit store is isolated from Safari; the app copies
+/// only the provider session into its Keychain and never uses this view as an
+/// API or playback proxy.
 struct ProviderWebLoginSheet: View {
     let provider: ProviderWebLoginKind
     let onSignIn: (String) async throws -> Void
@@ -93,7 +102,7 @@ struct ProviderWebLoginSheet: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .navigationTitle("扫码登录\(provider.title)")
+            .navigationTitle("网页登录 / 手机号登录\(provider.title)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -136,7 +145,14 @@ struct ProviderWebLoginSheet: View {
                 .map { "\($0.key)=\($0.value)" }
                 .joined(separator: "; ")
 
-            Task { @MainActor in await signIn(cookie: header) }
+            Task { @MainActor in
+                guard provider.looksLoggedIn(header) else {
+                    isReadingCookies = false
+                    errorMessage = "还没有检测到\(provider.title)登录状态，请先完成手机号/网页登录后再点“登录完成”"
+                    return
+                }
+                await signIn(cookie: header)
+            }
         }
     }
 
@@ -193,7 +209,11 @@ private struct ProviderWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
+        // QQ/Kugou/Bilibili phone-login flows use redirects and local storage
+        // before setting the final account cookie. A persistent app-local store
+        // is required for those flows to survive the redirect. The actual
+        // playback clients still receive only the normalized cookie header.
+        configuration.websiteDataStore = .default()
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.allowsBackForwardNavigationGestures = true
         view.load(URLRequest(url: url))

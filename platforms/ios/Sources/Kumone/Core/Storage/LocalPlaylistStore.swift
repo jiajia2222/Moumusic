@@ -70,6 +70,14 @@ final class LocalPlaylistStore: ObservableObject {
         playlists.first { $0.id == id }
     }
 
+    /// Replaces the local library when restoring an app-data backup.  The
+    /// decoded document is already source-aware, so no provider login is
+    /// needed to restore it.
+    func replacePlaylists(_ newPlaylists: [LocalPlaylist]) {
+        playlists = newPlaylists
+        persist()
+    }
+
     func containsRemotePlaylist(source: String, id: Int) -> Bool {
         playlists.contains {
             $0.remoteSource == source && $0.remotePlaylistID == String(id)
@@ -218,6 +226,7 @@ final class LocalPlaylistStore: ObservableObject {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(playlists) else { return }
         UserDefaults.standard.set(data, forKey: key)
+        AppDataBackupManager.shared.scheduleAutomaticBackup()
     }
 
     private func trackKey(_ track: Track) -> String {

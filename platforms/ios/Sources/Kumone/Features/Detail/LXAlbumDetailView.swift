@@ -43,6 +43,7 @@ struct LXAlbumDetailView: View {
     let coverURL: String?
 
     @StateObject private var model = LXAlbumDetailViewModel()
+    @StateObject private var favorites = FavoritesStore.shared
     @EnvironmentObject private var player: PlayerService
 
     var body: some View {
@@ -118,8 +119,35 @@ struct LXAlbumDetailView: View {
                     .font(.caption)
                     .foregroundStyle(Theme.accent)
             }
+            favoriteButton
             Spacer(minLength: 0)
         }
         .padding(.horizontal, Theme.Layout.contentInset)
+    }
+
+    private var favoriteButton: some View {
+        let providerID = albumID ?? "name:\(albumName)|artist:\(artistName)"
+        let isFavorite = favorites.contains(kind: .album,
+                                             source: source.rawValue,
+                                             providerID: providerID)
+        return Button {
+            let added = favorites.toggle(
+                kind: .album,
+                source: source.rawValue,
+                providerID: providerID,
+                name: albumName,
+                coverURL: coverURL,
+                subtitle: artistName.isEmpty ? nil : artistName
+            )
+            ToastCenter.shared.show(added ? "已收藏专辑" : "已取消收藏专辑")
+        } label: {
+            Image(systemName: isFavorite ? "bookmark.fill" : "bookmark")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 44, height: 44)
+                .background(.primary.opacity(0.07), in: Circle())
+        }
+        .buttonStyle(.pressable)
+        .accessibilityLabel(isFavorite ? "取消收藏专辑" : "收藏专辑")
     }
 }

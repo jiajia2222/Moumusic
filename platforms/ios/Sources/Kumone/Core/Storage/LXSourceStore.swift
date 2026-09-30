@@ -521,7 +521,14 @@ final class LXSourceStore: ObservableObject {
 
             for (key, nested) in dictionary {
                 let normalized = key.lowercased()
-                guard ["sources", "items", "data", "result", "value", "list", "source", "info", "metadata"]
+                guard [
+                    "sources", "items", "data", "result", "value", "list", "source", "info", "metadata",
+                    // Beans/ikun and newer LX mobile exports use these
+                    // container names instead of the original `sources` key.
+                    "sourcelist", "source_list", "apilist", "api_list", "apis",
+                    "musicsources", "music_sources", "providers", "providerlist",
+                    "userapilist", "sourceconfig", "source_config"
+                ]
                     .contains(normalized) else { continue }
                 if nested is [Any] || nested is [String: Any] {
                     visit(nested)
@@ -589,7 +596,9 @@ final class LXSourceStore: ObservableObject {
         let scriptKeys = [
             "script", "source", "sourceCode", "code", "content",
             "javascript", "js", "userApi", "userAPI", "userApiScript",
-            "apiScript", "lxUserAPI", "api", "body"
+            "apiScript", "lxUserAPI", "api", "body", "sourceCodeText",
+            "jsCode", "contentText", "raw", "userApiCode", "sourceScript",
+            "scriptCode"
         ]
         for key in scriptKeys {
             guard let scriptValue = valueForKey(key, in: dictionary),
@@ -619,7 +628,12 @@ final class LXSourceStore: ObservableObject {
 
         // Search known wrapper fields first, then any remaining nested value.
         // The latter keeps imports compatible with future LX export wrappers.
-        let preferredKeys = ["data", "result", "value", "source", "info", "metadata"]
+        let preferredKeys = [
+            "data", "result", "value", "source", "info", "metadata",
+            "sourceList", "source_list", "apiList", "api_list", "apis",
+            "musicSources", "music_sources", "providers", "providerList",
+            "userApiList", "sourceConfig", "source_config"
+        ]
         let orderedValues = preferredKeys.compactMap { valueForKey($0, in: dictionary) }
             + dictionary
                 .filter { pair in !preferredKeys.contains(where: { $0.caseInsensitiveCompare(pair.key) == .orderedSame }) }

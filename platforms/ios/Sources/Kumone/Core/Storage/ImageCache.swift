@@ -56,6 +56,19 @@ actor ImageCache {
         memory.object(forKey: Self.cacheKey(for: url) as NSString)
     }
 
+    /// Drops the in-memory tier as well as any in-flight image requests. The
+    /// disk tier is removed by AppCacheManager so cache clearing has one
+    /// progress indicator for images and player/video temporary files.
+    func removeAll() {
+        memory.removeAllObjects()
+        inflight.values.forEach { $0.cancel() }
+        inflight.removeAll()
+        // AppCacheManager may remove the now-empty disk directory while it
+        // clears temporary files. Recreate it so the next image request can
+        // write through the disk tier without waiting for a process restart.
+        try? FileManager.default.createDirectory(at: diskURL, withIntermediateDirectories: true)
+    }
+
     private static func cacheKey(for url: URL) -> String {
         let digest = Insecure.MD5.hash(data: Data(url.absoluteString.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()

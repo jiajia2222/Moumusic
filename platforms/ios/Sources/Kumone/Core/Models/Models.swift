@@ -23,6 +23,11 @@ struct UserProfile: Decodable, Hashable {
         signature = try? c.decode(String.self, forKey: .signature)
         vipType = (try? c.decode(Int.self, forKey: .vipType)) ?? 0
     }
+
+    /// NetEase reports zero for a non-VIP account. This is deliberately kept
+    /// separate from the presence of an auth cookie: being logged in does not
+    /// grant VIP-only playback tiers.
+    var hasActiveVIP: Bool { vipType > 0 }
 }
 
 // MARK: - Playlist

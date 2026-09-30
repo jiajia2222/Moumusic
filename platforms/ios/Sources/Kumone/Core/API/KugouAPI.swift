@@ -119,8 +119,9 @@ actor KugouAPI {
         case 1: return .waiting
         case 2, 3: return .scanned
         case 4:
-            guard let token = Self.text(payload["token"] ?? root["token"]),
-                  let userID = Self.text(payload["userid"] ?? payload["user_id"] ?? root["userid"]),
+            guard let token = Self.text(payload["token"] ?? payload["login_token"] ?? root["token"]),
+                  let userID = Self.text(payload["userid"] ?? payload["user_id"]
+                    ?? payload["kugooid"] ?? root["userid"] ?? root["user_id"]),
                   !token.isEmpty, !userID.isEmpty else {
                 throw APIError.unavailable
             }
@@ -135,8 +136,9 @@ actor KugouAPI {
 
     func profile(cookie: String) async throws -> Profile {
         let fields = Self.cookieFields(cookie)
-        guard let token = fields["token"],
-              let userID = fields["userid"] ?? fields["kugooid"],
+        guard let token = fields["token"] ?? fields["login_token"] ?? fields["kugou_token"] ?? fields["kg_token"],
+              let userID = fields["userid"] ?? fields["user_id"] ?? fields["kugooid"]
+                ?? fields["kugoo_id"] ?? fields["kg_mid"] ?? fields["mid"],
               !token.isEmpty, !userID.isEmpty else {
             throw APIError.invalidCookie
         }
@@ -176,14 +178,33 @@ actor KugouAPI {
            code != 0, code != 200 {
             throw APIError.unavailable
         }
-        let info = (root["data"] as? [String: Any])
+        var info = (root["data"] as? [String: Any])
             ?? (root["user"] as? [String: Any])
             ?? root
-        guard let id = Self.text(in: info, keys: ["userid", "user_id", "uid", "kugooid"]) ?? fields["userid"],
-              let name = Self.text(in: info, keys: ["nickname", "nick_name", "username", "name", "nick"]),
-              !name.isEmpty else {
+        // KuGou has returned both data.{user/profile/info} and a flat data
+        // object. Unwrap one provider envelope before reading identity fields
+        // so a successful login is not rejected just because the response
+        // version changed its nesting.
+        if let nested = (info["user"] as? [String: Any])
+            ?? (info["profile"] as? [String: Any])
+            ?? (info["info"] as? [String: Any]) {
+            info = nested
+        }
+        let id = Self.text(in: info, keys: [
+            "userid", "user_id", "uid", "kugooid", "kugoo_id", "kg_mid", "mid"
+        ])
+            ?? fields["userid"]
+            ?? fields["user_id"]
+            ?? fields["kugooid"]
+            ?? fields["kugoo_id"]
+            ?? fields["kg_mid"]
+            ?? fields["mid"]
+        guard let id, !id.isEmpty else {
             throw APIError.unavailable
         }
+        let name = Self.text(in: info, keys: [
+            "nickname", "nick_name", "username", "name", "nick"
+        ]) ?? "酷狗音乐用户"
         return Profile(
             id: id,
             name: name,
@@ -258,12 +279,10 @@ actor KugouAPI {
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             throw APIError.unavailable
         }
-        let returnedQuality = Self.text(in: (payload as? [String: Any]) ?? [:], keys: [
-            "quality", "type", "format", "ext", "extension", "bitrate"
-        ])
+        let returnedQuality = Self.resolvedQuality(in: payload)
         return ResolvedAudio(
             url: url,
-            quality: Self.canonicalQuality(returnedQuality ?? requestedQuality)
+            quality: returnedQuality
         )
     }
 
@@ -413,6 +432,30 @@ actor KugouAPI {
         case "viper_clear", "dolby": return "dolby"
         default: return value
         }
+    }
+
+    /// The requested quality is not proof of what the tracker returned. Some
+    /// KuGou responses omit the quality field altogether, so keep that result
+    /// explicitly unknown instead of turning a Master request into a false
+    /// Master badge.
+    private static func resolvedQuality(in payload: Any) -> String {
+        guard let object = payload as? [String: Any] else { return "unknown" }
+        if let returned = text(in: object, keys: [
+            "quality", "type", "format", "ext", "extension"
+        ]) {
+            return canonicalQuality(returned)
+        }
+        if let bitrate = integer(in: object, keys: ["bitrate", "bit_rate", "br"]) {
+            let bits = bitrate < 1_000 ? bitrate * 1_000 : bitrate
+            switch bits {
+            case 900_000...: return "flac24bit"
+            case 600_000..<900_000: return "flac"
+            case 300_000..<600_000: return "320k"
+            case 100_000..<160_000: return "128k"
+            default: return "unknown"
+            }
+        }
+        return "unknown"
     }
 
     private static func integer(_ value: Any?) -> Int? {

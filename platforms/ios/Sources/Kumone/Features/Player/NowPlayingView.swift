@@ -7,12 +7,24 @@ import UIKit
 /// Immersive full-window now-playing page: artwork-tinted gradient backdrop,
 /// large artwork on the left, big synced lyrics on the right.
 struct NowPlayingView: View {
+    private enum ActiveSheet: String, Identifiable {
+        case quality
+        case comments
+        case lyricsOptions
+        case downloads
+        case addToPlaylist
+
+        var id: String { rawValue }
+    }
+
     @EnvironmentObject private var player: PlayerService
     @ObservedObject private var lyricsCursor = PlayerService.shared.lyricsCursor
-    @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var settings: SettingsManager
+    @ObservedObject private var favorites = FavoritesStore.shared
     #if os(iOS)
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
+    @ObservedObject private var dynamicWallpaper = DynamicWallpaperStore.shared
+    @ObservedObject private var playerAmbience = PlayerAmbienceStore.shared
     @Environment(\.dismissNowPlayingAction) private var dismissNowPlayingAction
     @Environment(\.dismissNowPlayingDragAction) private var dismissNowPlayingDragAction
     #endif
@@ -23,10 +35,9 @@ struct NowPlayingView: View {
     @State private var isUserScrolling = false
     @State private var resumeTask: Task<Void, Never>?
     @State private var showLyricsOnMobile = false
-    @State private var showQualityPicker = false
-    @State private var showComments = false
+    @State private var activeSheet: ActiveSheet?
+    @State private var airPlayRequest = 0
     #if os(iOS)
-    @State private var showDownloadOptions = false
     @ObservedObject private var playerLayout = PlayerLayoutStore.shared
     #endif
     #if os(iOS)
@@ -83,6 +94,10 @@ struct NowPlayingView: View {
                         }
                         .buttonStyle(.pressable)
                     }
+
+                    if !(isCompact && settings.nowPlayingMode == .immersive) {
+                        nowPlayingMoreMenu
+                    }
                 }
                 .padding(.top, 20)
                 .padding(.trailing, 20)
@@ -128,23 +143,43 @@ struct NowPlayingView: View {
             close()
         }
         #endif
-        .sheet(isPresented: $showQualityPicker) {
-            QualityPickerSheet()
-                .environmentObject(player)
-                .environmentObject(settings)
-        }
-        .sheet(isPresented: $showComments) {
-            if let track = player.currentTrack {
-                SongCommentsSheet(track: track)
+        // One item-driven sheet prevents SwiftUI from trying to present
+        // several sheets in the same update when the user taps transport,
+        // comments and quality controls quickly in succession.
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .quality:
+                QualityPickerSheet()
+                    .environmentObject(player)
+                    .environmentObject(settings)
+            case .comments:
+                if let track = player.currentTrack {
+                    SongCommentsSheet(track: track)
+                } else {
+                    EmptyView()
+                }
+            case .lyricsOptions:
+                LyricPresentationSheet()
+                    .environmentObject(player)
+                    .environmentObject(settings)
+            case .downloads:
+                #if os(iOS)
+                if let track = player.currentTrack {
+                    DownloadOptionsSheet(tracks: [track])
+                } else {
+                    EmptyView()
+                }
+                #else
+                EmptyView()
+                #endif
+            case .addToPlaylist:
+                if let track = player.currentTrack {
+                    AddToPlaylistSheet(track: track)
+                } else {
+                    EmptyView()
+                }
             }
         }
-        #if os(iOS)
-        .sheet(isPresented: $showDownloadOptions) {
-            if let track = player.currentTrack {
-                DownloadOptionsSheet(tracks: [track])
-            }
-        }
-        #endif
     }
 
     private var hasLyricsColumn: Bool {
@@ -193,7 +228,14 @@ struct NowPlayingView: View {
     private var backdrop: some View {
         ZStack {
 #if os(iOS)
-            if backgroundStore.syncToPlayer, let image = backgroundStore.image {
+            if dynamicWallpaper.isEnabled, dynamicWallpaper.syncToPlayer {
+                MoumusicDynamicWallpaperView(
+                    kind: dynamicWallpaper.kind,
+                    speed: dynamicWallpaper.speed,
+                    intensity: dynamicWallpaper.intensity
+                )
+                .overlay(Color.black.opacity(0.18).ignoresSafeArea())
+            } else if backgroundStore.syncToPlayer, let image = backgroundStore.image {
                 MoumusicWallpaperView(
                     image: image,
                     blurRadius: backgroundStore.blurRadius,
@@ -217,7 +259,15 @@ struct NowPlayingView: View {
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
             #if os(iOS)
-            MoumusicAmbientGlow(colors: colors, isPlaying: player.isPlaying)
+            MoumusicAmbientGlow(
+                colors: colors,
+                isPlaying: player.isPlaying,
+                isEnabled: playerAmbience.isEnabled,
+                breath: playerAmbience.breath,
+                dustMode: playerAmbience.dustMode,
+                dustDensity: playerAmbience.dustDensity,
+                dustSize: playerAmbience.dustSize
+            )
             #endif
             RadialGradient(
                 colors: [.white.opacity(0.12), .clear],
@@ -259,38 +309,48 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private func phoneLandscapeLayout(size: CGSize) -> some View {
-        let artworkSize = min(190, max(120, size.height - 175))
+        // Landscape iPhones have very little vertical space.  Keep the
+        // title, content and transport areas bounded instead of allowing a
+        // maxHeight spacer to push the controls below the visual centre.
+        let headerHeight: CGFloat = 48
+        let controlsHeight: CGFloat = 72
+        let verticalSpacing: CGFloat = 8
+        let contentHeight = max(
+            132,
+            size.height - headerHeight - controlsHeight - verticalSpacing * 3 - 16
+        )
+        let artworkSize = min(156, max(108, contentHeight - 18))
 
-        VStack(spacing: 6) {
-            HStack(spacing: 18) {
-                VStack(spacing: 7) {
-                    artworkView(size: artworkSize)
-                    trackMetaView
-                }
-                .frame(maxWidth: .infinity)
+        VStack(spacing: verticalSpacing) {
+            // All compact modes use this same title position.  It remains
+            // stable when lyrics are toggled and when the device rotates.
+            landscapeTrackHeader
+                .frame(height: headerHeight, alignment: .leading)
+
+            HStack(alignment: .center, spacing: 18) {
+                artworkView(size: artworkSize)
+                    .frame(maxWidth: .infinity, alignment: .center)
 
                 if hasLyricsColumn {
                     lyricsColumn
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(maxWidth: .infinity, maxHeight: contentHeight)
                 } else {
                     Color.clear
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(maxWidth: .infinity, maxHeight: contentHeight)
                 }
             }
-            .frame(maxHeight: .infinity)
+            .frame(maxWidth: .infinity, height: contentHeight)
 
-            VStack(spacing: 4) {
-                NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
-                    .padding(.horizontal, 24)
+            VStack(spacing: 2) {
+                NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
+                    .padding(.horizontal, 16)
                 CompactTransportControls()
                     .frame(maxWidth: 360)
             }
-            // Keep transport controls clear of the home indicator while
-            // avoiding the low, nearly clipped placement on short screens.
-            .padding(.bottom, 14)
+            .frame(height: controlsHeight)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 10)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
     }
 
     private func regularLayout(size: CGSize) -> some View {
@@ -306,7 +366,7 @@ struct NowPlayingView: View {
             }
         }
         .padding(.horizontal, 48)
-        .padding(.vertical, size.height < 500 ? 24 : 40)
+        .padding(.vertical, size.height < 500 ? 16 : 24)
     }
 
     @ViewBuilder
@@ -322,7 +382,7 @@ struct NowPlayingView: View {
         case .lyrics:
             lyricsCompactLayout(size: size)
         case .amll:
-            lyricsCompactLayout(size: size)
+            amllCompactLayout(size: size)
         case .vinyl:
             vinylCompactLayout(size: size)
         }
@@ -334,7 +394,8 @@ struct NowPlayingView: View {
     private func classicCompactLayout(size: CGSize) -> some View {
         let artworkDim = min(size.width - 64, size.height * 0.38, 300)
         return VStack(spacing: 20) {
-            Spacer().frame(height: 44)
+            compactTrackMetaView
+                .padding(.top, compactTitleTopPadding)
             if showLyricsOnMobile {
                 lyricsColumn
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -342,7 +403,6 @@ struct NowPlayingView: View {
             } else {
                 VStack(spacing: 20) {
                     artworkView(size: artworkDim)
-                    trackMetaView
                     MiniLyricsView {
                         withAnimation(AppAnimation.standard) {
                             showLyricsOnMobile = true
@@ -353,29 +413,54 @@ struct NowPlayingView: View {
                 .transition(.opacity)
             }
             VStack(spacing: 12) {
-                NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
+                NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
                     .padding(.horizontal, 24)
                 CompactVolumeControl()
                     .padding(.horizontal, 24)
-                controls
+                CompactTransportControls()
             }
-            .padding(.bottom, 38)
+            .padding(.bottom, 12)
         }
         .padding(.horizontal, 16)
     }
 
     private func lyricsCompactLayout(size: CGSize) -> some View {
         VStack(spacing: 14) {
-            trackMetaView
-                .padding(.top, 38)
+            compactTrackMetaView
+                .padding(.top, compactTitleTopPadding)
             lyricsColumn
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
+            NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
                 .padding(.horizontal, 20)
             CompactVolumeControl()
                 .padding(.horizontal, 20)
-            controls
-                .padding(.bottom, 32)
+            CompactTransportControls()
+                .padding(.bottom, 12)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    /// AMLL is a player-page presentation, not a second global player mode.
+    /// Keep its typography and controls recognisable while sharing the same
+    /// real lyric cursor and source timing as the standard lyric layout.
+    private func amllCompactLayout(size: CGSize) -> some View {
+        VStack(spacing: 14) {
+            // AMLL is a lyric rendering style, not a second song title. Use
+            // the shared metadata header so the title never jumps between
+            // player modes and remove the redundant small mode label.
+            compactTrackMetaView
+                .padding(.top, compactTitleTopPadding)
+
+            lyricsColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 4)
+
+            NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
+                .padding(.horizontal, 20)
+            CompactVolumeControl()
+                .padding(.horizontal, 20)
+            CompactTransportControls()
+                .padding(.bottom, 12)
         }
         .padding(.horizontal, 16)
     }
@@ -383,7 +468,8 @@ struct NowPlayingView: View {
     private func vinylCompactLayout(size: CGSize) -> some View {
         let artworkDim = min(size.width - 72, size.height * 0.43, 310)
         return VStack(spacing: 16) {
-            Spacer().frame(height: 34)
+            compactTrackMetaView
+                .padding(.top, compactTitleTopPadding)
             VinylTurntableView(
                 artworkImage: artworkImage,
                 isPlaying: player.isPlaying,
@@ -398,15 +484,14 @@ struct NowPlayingView: View {
                 onPreviousTrack: player.previous
             )
             .frame(maxWidth: .infinity)
-            trackMetaView
             MiniLyricsView {
                 showLyricsOnMobile = true
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
+            NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
                 .padding(.horizontal, 20)
-            controls
-                .padding(.bottom, 32)
+            CompactTransportControls()
+                .padding(.bottom, 12)
         }
         .padding(.horizontal, 16)
     }
@@ -469,13 +554,12 @@ struct NowPlayingView: View {
 
     private var immersiveControls: some View {
         VStack(spacing: 17) {
-            NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
+            NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
             CompactTransportControls()
             CompactVolumeControl()
             CompactSecondaryControls(
                 showsLyrics: showLyricsOnMobile,
                 showsQueue: showQueueOnMobile,
-                onShowComments: { showComments = true },
                 onToggleLyrics: toggleImmersiveLyrics,
                 onToggleQueue: toggleImmersiveQueue
             )
@@ -558,9 +642,6 @@ struct NowPlayingView: View {
         // The other modes render their own dedicated layout below.
         showLyricsOnMobile = settings.nowPlayingMode == .immersive
         showQueueOnMobile = false
-        if settings.nowPlayingMode == .amll {
-            settings.lyricsDisplayStyle = .amll
-        }
     }
 
     private func minimalCompactLayout(size: CGSize) -> some View {
@@ -568,14 +649,12 @@ struct NowPlayingView: View {
         let artworkDimension = min(contentWidth, size.height * 0.52, 378)
 
         return VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                Color.clear
-                MinimalTrackInfoRow(metadataOnly: true)
-                    .padding(.top, NowPlayingPresentationMetrics.immersiveHeaderTopInset)
-                    .opacity(showLyricsOnMobile ? 1 : 0)
-                    .accessibilityHidden(!showLyricsOnMobile)
-            }
-            .frame(height: 90)
+            // Keep the title in the same top-left position as the other
+            // compact modes.  The old metadata-only row appeared only after
+            // opening lyrics and was centred, which made rotation/mode
+            // changes look like a different player page.
+            compactTrackMetaView
+                .padding(.top, compactTitleTopPadding)
 
             ZStack(alignment: .top) {
                 Color.clear
@@ -604,32 +683,29 @@ struct NowPlayingView: View {
                 minimalDismissGesture,
                 including: showLyricsOnMobile ? .none : .all
             )
-            .padding(.bottom, 34)
+            .padding(.bottom, 12)
 
             minimalControls
         }
         .frame(width: contentWidth)
         .padding(.horizontal, 32)
-        .padding(.bottom, 46)
+        .padding(.bottom, 12)
         .animation(.easeInOut(duration: 0.22), value: showLyricsOnMobile)
     }
 
+    private var compactTitleTopPadding: CGFloat {
+        #if os(iOS)
+        return NowPlayingPresentationMetrics.immersiveHeaderTopInset
+        #else
+        return 18
+        #endif
+    }
+
     private var minimalControls: some View {
-        VStack(spacing: 22) {
-            ZStack {
-                MinimalTrackInfoRow()
-                    .opacity(showLyricsOnMobile ? 0 : 1)
-                    .allowsHitTesting(!showLyricsOnMobile)
-                    .accessibilityHidden(showLyricsOnMobile)
-                MinimalTrackInfoRow(actionsOnly: true)
-                    .opacity(showLyricsOnMobile ? 1 : 0)
-                    .allowsHitTesting(showLyricsOnMobile)
-                    .accessibilityHidden(!showLyricsOnMobile)
-            }
-            .frame(height: 44)
-            NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
+        VStack(spacing: 14) {
+            NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
                 .padding(.horizontal, 2)
-                .padding(.top, 16)
+                .padding(.top, 8)
             CompactVolumeControl()
                 .padding(.horizontal, 2)
             MinimalTransportControls(
@@ -637,17 +713,6 @@ struct NowPlayingView: View {
                 showQueue: $showQueueOnMobile
             )
                 .padding(.horizontal, 2)
-            HStack(spacing: 8) {
-                Button { showComments = true } label: {
-                    Label("评论", systemImage: "text.bubble")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.9))
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 44)
-                        .background(.white.opacity(0.12), in: Capsule())
-                }
-                .buttonStyle(.pressable)
-            }
         }
         .accessibilityIdentifier("immersiveControls")
     }
@@ -721,7 +786,7 @@ struct NowPlayingView: View {
     }
 
     private var trackMetaView: some View {
-        VStack(spacing: 5) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
                 Text(player.currentTrack?.name ?? "")
                     .font(.system(size: 21, weight: .bold))
@@ -739,76 +804,196 @@ struct NowPlayingView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.5))
 
-            commentsButton
         }
-        .frame(maxWidth: 400)
+        .frame(maxWidth: 400, alignment: .leading)
         #if os(iOS)
         .moumusicPlayerLayout(playerLayout.entry(for: .metadata, mode: settings.nowPlayingMode))
         #endif
     }
 
-    private var commentsButton: some View {
-        Button { showComments = true } label: {
-            Label("评论", systemImage: "text.bubble")
-                .font(.system(size: 12, weight: .semibold))
+    /// Compact player metadata deliberately omits the source/album helper
+    /// line.  The source is still shown in the quality sheet, while the
+    /// player keeps one stable large title + artist header in every mode.
+    private var compactTrackMetaView: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(player.currentTrack?.name ?? "")
+                        .font(.system(size: 21, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if player.currentTrack?.fee == 1 {
+                        VIPBadge()
+                    }
+                }
+                Text(player.currentTrack?.artistNames ?? "")
+                    .font(.system(size: 13.5))
+                    .foregroundStyle(.white.opacity(0.65))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        #if os(iOS)
+        .moumusicPlayerLayout(playerLayout.entry(for: .metadata, mode: settings.nowPlayingMode))
+        #endif
+    }
+
+    /// The landscape header intentionally contains only the stable song
+    /// identity.  Action capsules belong to the transport area; putting them
+    /// under the artwork made the title wrap and pushed the controls down.
+    private var landscapeTrackHeader: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Text(player.currentTrack?.name ?? "")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                if player.currentTrack?.fee == 1 {
+                    VIPBadge()
+                }
+            }
+            Text(player.currentTrack?.artistNames ?? "")
+                .font(.system(size: 13.5))
+                .foregroundStyle(.white.opacity(0.65))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Beans-style overflow menu for the non-immersive player layouts.  The
+    /// heart is intentionally local so every LX track can be saved without a
+    /// provider login; provider account likes remain a separate feature.
+    private var nowPlayingMoreMenu: some View {
+        Menu {
+            if let track = player.currentTrack {
+                let liked = favorites.contains(track)
+                Button {
+                    let isLiked = favorites.toggle(track)
+                    ToastCenter.shared.show(isLiked ? "已加入本地收藏" : "已取消本地收藏")
+                } label: {
+                    Label(liked ? "取消收藏" : "收藏歌曲", systemImage: liked ? "heart.fill" : "heart")
+                }
+
+                Button {
+                    player.addToPlayNext(track)
+                } label: {
+                    Label("下一首播放", systemImage: "text.line.first.and.arrowtriangle.forward")
+                }
+
+                Button {
+                    activeSheet = .addToPlaylist
+                } label: {
+                    Label("加入歌单…", systemImage: "music.note.list")
+                }
+
+                Button {
+                    activeSheet = .comments
+                } label: {
+                    Label("查看评论", systemImage: "text.bubble")
+                }
+
+                PlayerPlaybackModeMenu()
+
+                Button {
+                    airPlayRequest += 1
+                } label: {
+                    Label("AirPlay", systemImage: "airplayaudio")
+                }
+
+                Menu {
+                    ForEach(LyricsDisplayStyle.allCases) { style in
+                        Button {
+                            withAnimation(AppAnimation.standard) {
+                                settings.lyricsDisplayStyle = style
+                            }
+                        } label: {
+                            HStack {
+                                Text(style.displayName)
+                                if style == settings.lyricsDisplayStyle {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("歌词样式：\(settings.lyricsDisplayStyle.displayName)", systemImage: "textformat")
+                }
+
+                Button {
+                    activeSheet = .lyricsOptions
+                } label: {
+                    Label("歌词设置…", systemImage: "slider.horizontal.3")
+                }
+
+#if os(iOS)
+                Button {
+                    activeSheet = .downloads
+                } label: {
+                    Label("下载歌曲", systemImage: "arrow.down.circle")
+                }
+#endif
+
+                SleepTimerMenu(player: player)
+
+                Divider()
+
+                Button {
+                    Platform.copyToPasteboard(
+                        string: "https://music.163.com/#/song?id=\(track.id)"
+                    )
+                    ToastCenter.shared.show(String(localized: "链接已复制"))
+                } label: {
+                    Label("复制链接", systemImage: "link")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
-                .padding(.horizontal, 12)
-                .frame(minHeight: 44)
-                .background(.white.opacity(0.12), in: Capsule())
+                .frame(width: 44, height: 44)
+                .background(.white.opacity(0.12), in: Circle())
+                .contentShape(Circle())
         }
         .buttonStyle(.pressable)
-        .accessibilityLabel("查看评论")
+        .accessibilityLabel("更多播放操作")
+        .accessibilityHint("收藏、歌词样式、评论、歌单和下载")
+        .background {
+            RoutePickerButton(
+                diameter: 1, glyphSize: 1, request: airPlayRequest,
+                tint: .clear, background: .clear
+            )
+            .opacity(0.01)
+        }
     }
 
     private func leftColumn(artworkSize: CGFloat) -> some View {
         VStack(spacing: 26) {
-            Spacer()
-
             artworkView(size: artworkSize)
             trackMetaView
 
             VStack(spacing: 14) {
-                NowPlayingScrubber(onShowQuality: { showQualityPicker = true })
+                NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
                     .frame(maxWidth: 380)
                 controls
             }
 
-            Spacer()
         }
+        .frame(maxHeight: .infinity, alignment: .center)
         .padding(.trailing, hasLyricsColumn ? 30 : 0)
     }
 
     private var controls: some View {
-        // Equal-width slots so the row always fits the screen: fixed-size
-        // buttons in a plain HStack summed wider than a phone (≈430pt with the
-        // like button), overflowing the layout and shoving the overlays and
-        // metadata off the right edge. `maxWidth: .infinity` per control makes
-        // the row scale to any width instead.
+        // Keep the bottom row focused on transport. Shuffle, repeat, AirPlay,
+        // lyrics and collection actions live in the top-right overflow menu.
         HStack(spacing: 0) {
-            if let track = player.currentTrack {
-                let liked = account.isLiked(track.id)
-                circleButton(
-                    icon: liked ? "heart.fill" : "heart",
-                    size: 15, tint: liked ? Theme.accent : nil
-                ) {
-                    Task { await account.toggleLike(trackID: track.id) }
-                }
-                .frame(maxWidth: .infinity)
-            }
-
             if player.isFMMode {
                 circleButton(icon: "trash", size: 14) {
                     player.fmTrash()
                 }
                 .frame(maxWidth: .infinity)
             } else {
-                circleButton(
-                    icon: "shuffle", size: 14,
-                    tint: player.shuffleEnabled ? Theme.accent : nil
-                ) {
-                    player.toggleShuffle()
-                }
-                .frame(maxWidth: .infinity)
                 circleButton(icon: "backward.fill", size: 16) {
                     player.previous()
                 }
@@ -822,26 +1007,6 @@ struct NowPlayingView: View {
                 player.next()
             }
             .frame(maxWidth: .infinity)
-
-            RoutePickerButton(diameter: 40, glyphSize: 15)
-                .frame(maxWidth: .infinity)
-
-            if player.isFMMode {
-                Image(systemName: "wave.3.right.circle.fill")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .frame(width: 40, height: 40)
-                    .frame(maxWidth: .infinity)
-            } else {
-                circleButton(
-                    icon: player.repeatMode == .one ? "repeat.1" : "repeat",
-                    size: 14,
-                    tint: player.repeatMode != .off ? Theme.accent : nil
-                ) {
-                    player.cycleRepeatMode()
-                }
-                .frame(maxWidth: .infinity)
-            }
         }
         #if os(iOS)
         .moumusicPlayerLayout(playerLayout.entry(for: .controls, mode: settings.nowPlayingMode))
@@ -1013,9 +1178,9 @@ private extension View {
 }
 #endif
 
-/// The main lyric line. Renders karaoke-style per-character highlighting from
-/// verbatim (`yrc`) timings, driven live by the player, when the line is active
-/// and verbatim data exists; otherwise a plain line.
+/// The main lyric line. Renders karaoke-style word/run highlighting from
+/// verbatim (`yrc`/`lxlyric`) timings, driven live by the player, when the line
+/// is active and real verbatim data exists; otherwise a plain line.
 struct LyricMainText: View {
     let line: LyricLine
     let isActive: Bool
@@ -1037,7 +1202,7 @@ struct LyricMainText: View {
                 inactiveOpacity: inactiveOpacity
             )
         } else if settings.lyricsAnnotation == .furigana, let segments = line.furigana, !segments.isEmpty,
-           isActive, verbatim, let words = line.words, !words.isEmpty {
+           isActive, verbatim, line.hasVerbatimTimings, let words = line.words {
             TimelineView(.animation(paused: !player.isPlaying)) { _ in
                 RubyText(
                     segments: segments,
@@ -1056,7 +1221,7 @@ struct LyricMainText: View {
                 color: .white.opacity(isActive ? 1 : inactiveOpacity)
             )
             .frame(maxWidth: .infinity, alignment: .leading)
-        } else if isActive, verbatim, let words = line.words, !words.isEmpty {
+        } else if isActive, verbatim, line.hasVerbatimTimings, let words = line.words {
             TimelineView(.animation(paused: !player.isPlaying)) { _ in
                 karaoke(words, at: player.livePlaybackTime + settings.lyricsOffset).font(font)
                     .minimumScaleFactor(0.72)
@@ -1118,7 +1283,7 @@ private struct AMLLyricText: View {
 
     var body: some View {
         Group {
-            if isActive, verbatim, let words = line.words, !words.isEmpty {
+            if isActive, verbatim, line.hasVerbatimTimings, let words = line.words {
                 TimelineView(.animation(paused: !player.isPlaying)) { _ in
                     ZStack(alignment: .leading) {
                         Text(line.text)
@@ -1153,11 +1318,175 @@ private struct AMLLyricText: View {
     }
 }
 
+/// Player-page lyric controls.  These belong next to the lyrics because the
+/// useful choice is per listening session, not a buried global setting.
+private struct LyricPresentationSheet: View {
+    @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var settings: SettingsManager
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    glassSection {
+                        Text("歌词样式")
+                            .font(.headline)
+
+                        ForEach(LyricsDisplayStyle.allCases) { style in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    settings.lyricsDisplayStyle = style
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: style == .amll ? "text.quote" : "text.alignleft")
+                                        .font(.system(size: 17, weight: .semibold))
+                                        .foregroundStyle(style == settings.lyricsDisplayStyle ? Theme.accent : .secondary)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(style.displayName)
+                                            .font(.body.weight(.semibold))
+                                        Text(style.explanation)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .multilineTextAlignment(.leading)
+                                    }
+                                    Spacer(minLength: 8)
+                                    if style == settings.lyricsDisplayStyle {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(Theme.accent)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                                .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    glassSection {
+                        Toggle("逐字歌词（仅使用真实时间轴）", isOn: $settings.verbatimLyrics)
+                        Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
+
+                        Picker("日文歌词注音", selection: $settings.lyricsAnnotation) {
+                            ForEach(LyricsAnnotation.allCases) { annotation in
+                                Text(annotation.displayName).tag(annotation)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("歌词同步")
+                                Spacer()
+                                Text(String(format: "%+.2f 秒", settings.lyricsOffset))
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            Slider(value: $settings.lyricsOffset, in: -2...2, step: 0.05)
+                            Text("正值提前，负值延后。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    glassSection {
+                        Label(
+                            player.lyrics?.hasVerbatimTimings == true
+                                ? "当前歌曲已提供逐字时间轴"
+                                : "当前歌曲没有逐字时间轴",
+                            systemImage: player.lyrics?.hasVerbatimTimings == true
+                                ? "checkmark.circle"
+                                : "info.circle"
+                        )
+                        .foregroundStyle(player.lyrics?.hasVerbatimTimings == true ? .green : .secondary)
+                        Text("AMLL 负责显示样式；逐字进度只使用音源真实返回的 YRC/LX 时间轴。没有真实时间轴时不会按字符平均切分，避免歌词越播越错位。网易云没有时会优先回退到 QQ 音乐歌词。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle("歌词设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .presentationDetents([.medium, .large])
+        .onChange(of: settings.lyricsOffset) { _ in
+            player.refreshLyricsCursor()
+        }
+    }
+
+    @ViewBuilder
+    private func glassSection<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12, content: content)
+            .padding(16)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(.white.opacity(0.16), lineWidth: 1)
+            }
+    }
+}
+
 private struct QualityPickerSheet: View {
     @EnvironmentObject private var player: PlayerService
     @Environment(\.dismiss) private var dismiss
     @State private var available: [AudioQuality] = []
     @State private var loading = true
+
+    private var qualityTaskID: String {
+        "\(player.currentTrack?.playbackKey ?? "none")|\(player.servedQuality ?? "")"
+    }
+
+    private var servedQualityIsDowngraded: Bool {
+        guard player.servedQualityTrackKey == player.currentTrack?.playbackKey,
+              let served = player.servedQuality,
+              let actualRank = AudioQuality.resolvedRank(served),
+              let requestedRank = AudioQuality.resolvedRank(player.currentQuality.lxType) else {
+            return false
+        }
+        return actualRank < requestedRank
+    }
+
+    private var isNativeNeteaseTrack: Bool {
+        let source = (player.currentTrack?.source
+            ?? player.currentTrack?.sourceMetadata["source"]
+            ?? "").lowercased()
+        return source.isEmpty || ["wy", "163", "netease", "neteasecloudmusic", "cloudmusic"].contains(source)
+    }
+
+    private var nonVIPNeteaseWarning: String? {
+        guard isNativeNeteaseTrack, AccountStore.shared.hasAuthCookie else { return nil }
+        guard AccountStore.shared.vipStatusKnown else {
+            return "警告：网易云账号 VIP 状态尚未确认，高级音质按非 VIP 安全策略处理。"
+        }
+        guard !AccountStore.shared.hasActiveVIP else { return nil }
+        return "警告：当前网易云账号不是 VIP。"
+    }
+
+    private var qualityWarningText: String {
+        let requested = player.currentQuality.sourceDisplayName
+        let source = player.servedSourceLabel ?? "未知音源"
+        let accountWarning = nonVIPNeteaseWarning ?? ""
+        guard let served = player.servedQuality else {
+            return "\(accountWarning)请求音质：\(requested)。实际音质尚未返回。"
+        }
+        if AudioQuality.isUnknownResolvedQuality(served) {
+            return "\(accountWarning)请求音质：\(requested)；实际音质未知。实际来源：\(source)。音源没有返回可验证的码率或格式字段。"
+        }
+        let actual = AudioQuality.resolvedDisplayName(served)
+        if !servedQualityIsDowngraded {
+            return "\(accountWarning)接口实际返回：\(actual)。实际来源：\(source)。这是音源返回的元数据，不是对音频文件做的独立编码检测。"
+        }
+        return "\(accountWarning)请求音质：\(requested)；接口实际返回：\(actual)，实际来源：\(source)，已自动降级。"
+    }
 
     var body: some View {
         NavigationStack {
@@ -1168,14 +1497,20 @@ private struct QualityPickerSheet: View {
                     Text("可用音质会随当前平台和音源变化")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                    if let servedQuality = player.servedQuality, !servedQuality.isEmpty {
+                    if player.servedQualityTrackKey == player.currentTrack?.playbackKey,
+                       let servedQuality = player.servedQuality,
+                       !servedQuality.isEmpty {
                         Label {
-                            Text("实际返回音质：\(AudioQuality(lxType: servedQuality)?.sourceDisplayName ?? servedQuality)。如果音源不支持所选音质，已自动降级。")
+                            Text(qualityWarningText)
+                                .fixedSize(horizontal: false, vertical: true)
                         } icon: {
                             Image(systemName: "exclamationmark.triangle.fill")
                         }
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(
+                            AudioQuality.isUnknownResolvedQuality(servedQuality)
+                                || servedQualityIsDowngraded ? .orange : .secondary
+                        )
                     }
                 }
 
@@ -1234,12 +1569,29 @@ private struct QualityPickerSheet: View {
                 }
             }
         }
-        .task(id: player.currentTrack?.playbackKey) {
+        .task(id: qualityTaskID) {
+            let trackKey = player.currentTrack?.playbackKey
             loading = true
-            available = []
+            // Playback may have finished resolving this track before the
+            // sheet is presented. Show that verified result immediately;
+            // network probing below can add other tiers without hiding it.
+            available = player.servedQualityTrackKey == trackKey
+                ? [player.servedQuality].compactMap { value in
+                    guard let value else { return nil }
+                    return AudioQuality(lxType: value)
+                }
+                : []
             let result = await player.availableQualitiesForCurrentTrack()
-            guard !Task.isCancelled else { return }
-            available = result
+            guard !Task.isCancelled,
+                  player.currentTrack?.playbackKey == trackKey else { return }
+            var merged = result
+            if player.servedQualityTrackKey == player.currentTrack?.playbackKey,
+               let servedQuality = player.servedQuality,
+               let actual = AudioQuality(lxType: servedQuality),
+               !merged.contains(actual) {
+                merged.append(actual)
+            }
+            available = AudioQuality.allCases.filter { merged.contains($0) }
             loading = false
         }
     }
@@ -1437,15 +1789,49 @@ private struct ImmersiveArtworkFramePreferenceKey: PreferenceKey {
     }
 }
 
-private struct CompactTrackHeader: View {
+/// Compact action menu shared by the full player and the immersive header.
+/// Transport stays visually quiet while shuffle/repeat remain one tap away.
+private struct PlayerPlaybackModeMenu: View {
     @EnvironmentObject private var player: PlayerService
-    @EnvironmentObject private var account: AccountStore
+
+    var body: some View {
+        Menu {
+            Button {
+                player.toggleShuffle()
+            } label: {
+                Label(
+                    player.shuffleEnabled ? "关闭随机播放" : "随机播放",
+                    systemImage: "shuffle"
+                )
+            }
+            Button {
+                player.cycleRepeatMode()
+            } label: {
+                Label(
+                    player.repeatMode == .off ? "开启循环播放" : "切换循环模式",
+                    systemImage: player.repeatMode == .one ? "repeat.1" : "repeat"
+                )
+            }
+        } label: {
+            Label("播放模式", systemImage: "shuffle")
+        }
+    }
+}
+
+private struct CompactTrackHeader: View {
+    private enum ActiveSheet: String, Identifiable {
+        case addToPlaylist
+        case comments
+        case lyricsOptions
+        case downloads
+
+        var id: String { rawValue }
+    }
+
+    @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
-    @State private var showAddToPlaylist = false
-    @State private var showComments = false
-    #if os(iOS)
-    @State private var showDownloadOptions = false
-    #endif
+    @ObservedObject private var favorites = FavoritesStore.shared
+    @State private var activeSheet: ActiveSheet?
 
     let showsExpandedArtwork: Bool
 
@@ -1486,78 +1872,93 @@ private struct CompactTrackHeader: View {
             .accessibilityIdentifier("immersiveTrackMetadata")
 
             if let track = player.currentTrack {
-                let liked = account.isLiked(track.id)
-                HStack(spacing: 0) {
+                Menu {
+                    let liked = favorites.contains(track)
                     Button {
-                        Task { await account.toggleLike(trackID: track.id) }
+                        let isLiked = favorites.toggle(track)
+                        ToastCenter.shared.show(isLiked ? "已加入本地收藏" : "已取消本地收藏")
                     } label: {
-                        Image(systemName: liked ? "heart.fill" : "heart")
-                            .font(.system(size: 21, weight: .medium))
-                            .foregroundStyle(liked ? Theme.accent : .white.opacity(0.88))
-                            .frame(width: 44, height: 44)
+                        Label(liked ? "取消收藏" : "收藏歌曲", systemImage: liked ? "heart.fill" : "heart")
                     }
-                    .buttonStyle(.pressable)
-                    .accessibilityLabel(liked ? "取消收藏" : "收藏")
-                    .accessibilityIdentifier("immersiveFavoriteButton")
+
+                    Button {
+                        player.addToPlayNext(track)
+                    } label: {
+                        Label("下一首播放", systemImage: "text.line.first.and.arrowtriangle.forward")
+                    }
+
+                    Button {
+                        activeSheet = .addToPlaylist
+                    } label: {
+                        Label("加入歌单…", systemImage: "music.note.list")
+                    }
+
+                    Button {
+                        activeSheet = .comments
+                    } label: {
+                        Label("查看评论", systemImage: "text.bubble")
+                    }
 
                     Menu {
-                        Button {
-                            player.addToPlayNext(track)
-                        } label: {
-                            Label("下一首播放", systemImage: "text.line.first.and.arrowtriangle.forward")
-                        }
-
-                        Button {
-                            showAddToPlaylist = true
-                        } label: {
-                            Label("加入歌单…", systemImage: "music.note.list")
-                        }
-
-                        Button {
-                            showComments = true
-                        } label: {
-                            Label("查看评论", systemImage: "text.bubble")
-                        }
-
-#if os(iOS)
-                        Button {
-                            showDownloadOptions = true
-                        } label: {
-                            Label("下载", systemImage: "arrow.down.circle")
-                        }
-#endif
-
-                        SleepTimerMenu(player: player)
-
-                        Divider()
-
-                        Button {
-                            Platform.copyToPasteboard(
-                                string: "https://music.163.com/#/song?id=\(track.id)"
-                            )
-                            ToastCenter.shared.show(String(localized: "链接已复制"))
-                        } label: {
-                            Label("复制链接", systemImage: "link")
+                        ForEach(LyricsDisplayStyle.allCases) { style in
+                            Button {
+                                withAnimation(AppAnimation.standard) {
+                                    settings.lyricsDisplayStyle = style
+                                }
+                            } label: {
+                                HStack {
+                                    Text(style.displayName)
+                                    if style == settings.lyricsDisplayStyle {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
                         }
                     } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 21, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.88))
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
+                        Label("歌词样式：\(settings.lyricsDisplayStyle.displayName)", systemImage: "textformat")
                     }
-                    .buttonStyle(.pressable)
-                    .accessibilityLabel("更多操作")
-                    .accessibilityIdentifier("immersiveMoreMenu")
+
+                    PlayerPlaybackModeMenu()
+
+#if os(iOS)
+                    Button {
+                        activeSheet = .downloads
+                    } label: {
+                        Label("下载", systemImage: "arrow.down.circle")
+                    }
+#endif
+
+                    Button {
+                        activeSheet = .lyricsOptions
+                    } label: {
+                        Label("歌词设置", systemImage: "textformat")
+                    }
+
+                    SleepTimerMenu(player: player)
+
+                    Divider()
+
+                    Button {
+                        Platform.copyToPasteboard(
+                            string: "https://music.163.com/#/song?id=\(track.id)"
+                        )
+                        ToastCenter.shared.show(String(localized: "链接已复制"))
+                    } label: {
+                        Label("复制链接", systemImage: "link")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 21, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.88))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.pressable)
+                .accessibilityLabel("更多操作")
+                .accessibilityIdentifier("immersiveMoreMenu")
             }
         }
         .accessibilityElement(children: .contain)
-        .sheet(isPresented: $showAddToPlaylist) {
-            if let track = player.currentTrack {
-                AddToPlaylistSheet(track: track)
-            }
-        }
         .contentShape(Rectangle())
         .onLongPressGesture(minimumDuration: 0.45) {
             withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
@@ -1566,18 +1967,36 @@ private struct CompactTrackHeader: View {
             ToastCenter.shared.show(settings.lyricsDisplayStyle.displayName)
         }
         .accessibilityHint(String(localized: "长按歌曲信息切换歌词样式"))
-        .sheet(isPresented: $showComments) {
-            if let track = player.currentTrack {
-                SongCommentsSheet(track: track)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .addToPlaylist:
+                if let track = player.currentTrack {
+                    AddToPlaylistSheet(track: track)
+                } else {
+                    EmptyView()
+                }
+            case .comments:
+                if let track = player.currentTrack {
+                    SongCommentsSheet(track: track)
+                } else {
+                    EmptyView()
+                }
+            case .lyricsOptions:
+                LyricPresentationSheet()
+                    .environmentObject(player)
+                    .environmentObject(settings)
+            case .downloads:
+                #if os(iOS)
+                if let track = player.currentTrack {
+                    DownloadOptionsSheet(tracks: [track])
+                } else {
+                    EmptyView()
+                }
+                #else
+                EmptyView()
+                #endif
             }
         }
-        #if os(iOS)
-        .sheet(isPresented: $showDownloadOptions) {
-            if let track = player.currentTrack {
-                DownloadOptionsSheet(tracks: [track])
-            }
-        }
-        #endif
     }
 }
 
@@ -1719,18 +2138,11 @@ private struct MPSystemVolumeSlider: UIViewRepresentable {
 private struct CompactSecondaryControls: View {
     let showsLyrics: Bool
     let showsQueue: Bool
-    let onShowComments: () -> Void
     let onToggleLyrics: () -> Void
     let onToggleQueue: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
-            secondaryButton(
-                icon: "text.bubble",
-                label: "查看评论",
-                action: onShowComments
-            )
-
             secondaryButton(
                 icon: showsLyrics && !showsQueue ? "quote.bubble.fill" : "quote.bubble",
                 label: showsLyrics ? "显示封面" : "显示歌词",
@@ -2262,8 +2674,14 @@ private struct MinimalLyricCentersKey: PreferenceKey {
 
 private struct MinimalTrackInfoRow: View {
     @EnvironmentObject private var player: PlayerService
-    @EnvironmentObject private var account: AccountStore
+    @EnvironmentObject private var settings: SettingsManager
+    @ObservedObject private var favorites = FavoritesStore.shared
     @State private var showAddToPlaylist = false
+    @State private var showComments = false
+    @State private var showLyricsOptions = false
+#if os(iOS)
+    @State private var showDownloads = false
+#endif
     @State private var airPlayRequest = 0
     var metadataOnly = false
     var actionsOnly = false
@@ -2276,7 +2694,6 @@ private struct MinimalTrackInfoRow: View {
             } else if actionsOnly {
                 if let track = player.currentTrack {
                     HStack {
-                        favoriteButton(for: track)
                         Spacer()
                         moreMenu(for: track)
                     }
@@ -2287,7 +2704,6 @@ private struct MinimalTrackInfoRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     if let track = player.currentTrack {
-                        favoriteButton(for: track)
                         moreMenu(for: track)
                     }
                 }
@@ -2298,6 +2714,23 @@ private struct MinimalTrackInfoRow: View {
                 AddToPlaylistSheet(track: track)
             }
         }
+        .sheet(isPresented: $showComments) {
+            if let track = player.currentTrack {
+                SongCommentsSheet(track: track)
+            }
+        }
+        .sheet(isPresented: $showLyricsOptions) {
+            LyricPresentationSheet()
+                .environmentObject(player)
+                .environmentObject(settings)
+        }
+#if os(iOS)
+        .sheet(isPresented: $showDownloads) {
+            if let track = player.currentTrack {
+                DownloadOptionsSheet(tracks: [track])
+            }
+        }
+#endif
     }
 
     private func metadata(
@@ -2324,23 +2757,16 @@ private struct MinimalTrackInfoRow: View {
         .accessibilityIdentifier("immersiveTrackMetadata")
     }
 
-    private func favoriteButton(for track: Track) -> some View {
-        let liked = account.isLiked(track.id)
-        return Button {
-            Task { await account.toggleLike(trackID: track.id) }
-        } label: {
-            Image(systemName: liked ? "heart.fill" : "heart")
-                .font(.system(size: 22, weight: .medium))
-                .foregroundStyle(liked ? Theme.accent : .white.opacity(0.88))
-                .frame(width: 44, height: 44)
-        }
-        .buttonStyle(.pressable)
-        .accessibilityLabel(liked ? "取消收藏" : "收藏")
-        .accessibilityIdentifier("immersiveFavoriteButton")
-    }
-
     private func moreMenu(for track: Track) -> some View {
         Menu {
+            let liked = favorites.contains(track)
+            Button {
+                let isLiked = favorites.toggle(track)
+                ToastCenter.shared.show(isLiked ? "已加入本地收藏" : "已取消本地收藏")
+            } label: {
+                Label(liked ? "取消收藏" : "收藏歌曲", systemImage: liked ? "heart.fill" : "heart")
+            }
+
             Button {
                 airPlayRequest += 1
             } label: {
@@ -2358,6 +2784,47 @@ private struct MinimalTrackInfoRow: View {
             } label: {
                 Label("加入歌单…", systemImage: "music.note.list")
             }
+
+            Button {
+                showComments = true
+            } label: {
+                Label("查看评论", systemImage: "text.bubble")
+            }
+
+            PlayerPlaybackModeMenu()
+
+            Menu {
+                ForEach(LyricsDisplayStyle.allCases) { style in
+                    Button {
+                        withAnimation(AppAnimation.standard) {
+                            settings.lyricsDisplayStyle = style
+                        }
+                    } label: {
+                        HStack {
+                            Text(style.displayName)
+                            if style == settings.lyricsDisplayStyle {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label("歌词样式", systemImage: "textformat")
+            }
+
+            Button {
+                showLyricsOptions = true
+            } label: {
+                Label("歌词设置…", systemImage: "slider.horizontal.3")
+            }
+
+#if os(iOS)
+            Button {
+                showDownloads = true
+            } label: {
+                Label("下载歌曲", systemImage: "arrow.down.circle")
+            }
+#endif
 
             Menu {
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { rate in
@@ -2447,9 +2914,6 @@ private struct MinimalTransportControls: View {
                     .frame(maxWidth: .infinity, minHeight: 58)
             }
             .accessibilityLabel("下一首")
-
-            playbackModeButton
-                .frame(maxWidth: .infinity)
         }
         .foregroundStyle(.white)
         .buttonStyle(.pressable)
@@ -2470,42 +2934,6 @@ private struct MinimalTransportControls: View {
         }
     }
 
-    @ViewBuilder
-    private var playbackModeButton: some View {
-        if player.isFMMode {
-            Color.clear
-                .frame(height: 44)
-        } else {
-            Menu {
-                ForEach(PlaybackMode.allCases) { mode in
-                    Button {
-                        player.setPlaybackMode(mode)
-                    } label: {
-                        Label(mode.title, systemImage: mode.icon)
-                    }
-                }
-            } label: {
-                Image(systemName: playbackModeIcon)
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(playbackModeTint)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .trailing)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(playbackModeLabel)
-        }
-    }
-
-    private var playbackModeIcon: String {
-        player.playbackMode.icon
-    }
-
-    private var playbackModeTint: Color {
-        player.playbackMode == .sequential ? .white.opacity(0.88) : Theme.accent
-    }
-
-    private var playbackModeLabel: String {
-        player.playbackMode.title
-    }
 }
 
 private struct MinimalQueueSheet: View {
@@ -2728,8 +3156,12 @@ struct NowPlayingScrubber: View {
     }
 
     private var qualityDisplayName: String {
-        if let served = player.servedQuality {
-            return AudioQuality(lxType: served)?.sourceDisplayName ?? served.uppercased()
+        // A resolver finishes asynchronously.  Do not let a late result from
+        // the previous track leak into the compact player while the new URL
+        // is still being resolved.
+        if player.servedQualityTrackKey == player.currentTrack?.playbackKey,
+           let served = player.servedQuality {
+            return AudioQuality.resolvedDisplayName(served)
         }
         return "检测中"
     }

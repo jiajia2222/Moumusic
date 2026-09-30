@@ -78,10 +78,19 @@ private final class BilibiliLiveViewModel: ObservableObject {
 }
 
 struct BilibiliLiveView: View {
+    /// When embedded, this view supplies only the live browsing surface and
+    /// leaves navigation/closing to BilibiliContentView.
+    let embedded: Bool
+
     @EnvironmentObject private var bilibili: BilibiliSessionStore
+    @EnvironmentObject private var settings: SettingsManager
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = BilibiliLiveViewModel()
     @State private var selectedRoom: BilibiliAPI.LiveRoom?
+
+    init(embedded: Bool = false) {
+        self.embedded = embedded
+    }
 
     var body: some View {
         ZStack {
@@ -116,12 +125,14 @@ struct BilibiliLiveView: View {
                 await model.reload(cookie: bilibili.cookie)
             }
         }
-        .navigationTitle("B 站直播")
+        .navigationTitle(embedded ? "哔哩哔哩 · 直播" : "B 站直播")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button { dismiss() } label: { Image(systemName: "xmark") }
-                    .accessibilityLabel("关闭 B 站直播")
+            if !embedded {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("关闭 B 站直播")
+                }
             }
         }
         .task {
@@ -131,6 +142,7 @@ struct BilibiliLiveView: View {
             NavigationStack {
                 BilibiliLiveRoomView(room: room)
                     .environmentObject(bilibili)
+                    .environmentObject(settings)
             }
         }
     }
@@ -207,15 +219,23 @@ struct BilibiliLiveView: View {
     }
 
     private var liveGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 18) {
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(minimum: 0), spacing: 12),
+                GridItem(.flexible(minimum: 0), spacing: 12)
+            ],
+            alignment: .leading,
+            spacing: 18
+        ) {
             ForEach(model.rooms) { room in
                 Button { selectedRoom = room } label: {
                     BilibiliLiveRoomCard(room: room)
                 }
                 .buttonStyle(.plain)
-                .frame(minHeight: 44)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Theme.Layout.contentInset)
     }
 }
@@ -226,25 +246,37 @@ private struct BilibiliLiveRoomCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topLeading) {
-                CachedAsyncImage(url: room.coverURL?.resizedImageURL(640))
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(16 / 9, contentMode: .fill)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                HStack(spacing: 5) {
-                    Circle().fill(.red).frame(width: 7, height: 7)
-                    Text("直播")
-                }
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(.black.opacity(0.58), in: Capsule())
-                .padding(8)
+                // Give the grid a real layout canvas first.  A loading
+                // CachedAsyncImage has no intrinsic size; using it as the
+                // ZStack's measuring child makes the two columns overlap.
+                Color.clear
+                    .aspectRatio(16 / 9, contentMode: .fit)
+                    .overlay {
+                        CachedAsyncImage(url: room.coverURL?.resizedImageURL(640))
+                            .scaledToFill()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .overlay(alignment: .topLeading) {
+                        HStack(spacing: 5) {
+                            Circle().fill(.red).frame(width: 7, height: 7)
+                            Text("直播")
+                        }
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(.black.opacity(0.58), in: Capsule())
+                        .padding(8)
+                    }
             }
+            .frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipped()
             Text(room.title)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 5) {
                 Text(room.userName).lineLimit(1)
                 Spacer(minLength: 0)
@@ -261,11 +293,13 @@ private struct BilibiliLiveRoomCard: View {
                     .lineLimit(1)
             }
         }
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 }
 
 struct BilibiliLiveRoomView: View {
     @EnvironmentObject private var bilibili: BilibiliSessionStore
+    @EnvironmentObject private var settings: SettingsManager
     @Environment(\.dismiss) private var dismiss
     let room: BilibiliAPI.LiveRoom
 
@@ -285,9 +319,12 @@ struct BilibiliLiveRoomView: View {
                         PiliPlusVideoPlayerView(
                             url: playbackURL,
                             cues: [],
+                            danmaku: [],
                             posterURL: room.coverURL,
-                            audioOnly: false,
+                            audioOnly: settings.bilibiliMode == .listen,
                             autoPlay: playbackURL != nil,
+                            title: room.title,
+                            author: room.userName,
                             onError: { errorMessage = $0 },
                             onFullscreen: { showFullScreen = true }
                         )
@@ -323,7 +360,7 @@ struct BilibiliLiveRoomView: View {
         }
         .task { await loadPlayback(quality: selectedQuality) }
         .fullScreenCover(isPresented: $showFullScreen) {
-            PiliPlusFullScreenPlayer(url: playbackURL, cues: [], posterURL: room.coverURL, audioOnly: false)
+            PiliPlusFullScreenPlayer(url: playbackURL, cues: [], danmaku: [], posterURL: room.coverURL, audioOnly: settings.bilibiliMode == .listen)
         }
     }
 
@@ -347,10 +384,12 @@ struct BilibiliLiveRoomView: View {
                 }
                 .buttonStyle(.bordered)
             }
-            Button { showFullScreen = true } label: {
-                Label("全屏", systemImage: "arrow.up.left.and.arrow.down.right")
+            if settings.bilibiliMode != .listen {
+                Button { showFullScreen = true } label: {
+                    Label("全屏", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
             Spacer(minLength: 0)
             Link(destination: URL(string: "https://live.bilibili.com/\(room.roomID)")!) {
                 Image(systemName: "safari")

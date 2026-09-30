@@ -16,6 +16,8 @@ struct BilibiliLoginSheet: View {
     @State private var pollTask: Task<Void, Never>?
     @State private var showWebLogin = false
     @State private var didStartLogin = false
+    @State private var didAutoRefreshExpiredCode = false
+    @State private var loginGeneration = UUID()
 
     var body: some View {
         NavigationStack {
@@ -70,7 +72,15 @@ struct BilibiliLoginSheet: View {
             }
             .onDisappear { pollTask?.cancel() }
             .onChange(of: scenePhase) { newPhase in
-                guard !bilibili.isLoggedIn, newPhase == .active, key != nil else { return }
+                // Returning from the Bilibili app is the normal success path.
+                // Do not cancel the still-running poll and reuse the same key:
+                // that key is often consumed by the provider immediately after
+                // the scan, which used to turn a successful login into a false
+                // "二维码已失效" state.
+                guard !bilibili.isLoggedIn,
+                      newPhase == .active,
+                      key != nil,
+                      pollTask == nil || phase == .expired || isFailed else { return }
                 startLogin(reusingKey: true)
             }
             .onChange(of: bilibili.isLoggedIn) { loggedIn in
@@ -81,7 +91,7 @@ struct BilibiliLoginSheet: View {
             }
             .sheet(isPresented: $showWebLogin) {
                 ProviderWebLoginSheet(provider: .bilibili) { value in
-                    try await bilibili.signIn(cookie: value)
+                    try await bilibili.signInFromWeb(cookie: value)
                     await MainActor.run {
                         pollTask?.cancel()
                         pollTask = nil
@@ -141,25 +151,43 @@ struct BilibiliLoginSheet: View {
         }
     }
 
-    private func startLogin(reusingKey: Bool = false) {
+    private func startLogin(
+        reusingKey: Bool = false,
+        automaticRefresh: Bool = false
+    ) {
         guard !bilibili.isLoggedIn else {
             dismiss()
             return
         }
         pollTask?.cancel()
+        let generation = UUID()
+        loginGeneration = generation
         phase = .loading
         if !reusingKey {
             qrImage = nil
             key = nil
+            if !automaticRefresh {
+                didAutoRefreshExpiredCode = false
+            }
         }
         pollTask = Task { @MainActor in
+            defer {
+                // If iOS suspends/cancels the task while the user scans in
+                // the Bilibili app, release the handle so returning to this
+                // sheet can start a fresh poll instead of getting stuck.
+                if generation == loginGeneration {
+                    pollTask = nil
+                }
+            }
             do {
                 let activeKey: String
                 if reusingKey, let key {
+                    guard generation == loginGeneration else { return }
                     activeKey = key
                     phase = .waiting
                 } else {
                     let payload = try await BilibiliAPI.shared.qrCode()
+                    guard generation == loginGeneration else { return }
                     activeKey = payload.key
                     key = payload.key
                     qrImage = Self.makeQRImage(from: payload.url)
@@ -168,19 +196,42 @@ struct BilibiliLoginSheet: View {
 
                 var errors = 0
                 while !Task.isCancelled {
+                    guard generation == loginGeneration else { return }
                     try await Task.sleep(for: .seconds(2.5))
                     do {
-                        switch try await BilibiliAPI.shared.poll(key: activeKey) {
+                        let status = try await BilibiliAPI.shared.poll(key: activeKey)
+                        guard generation == loginGeneration else { return }
+                        switch status {
                         case .waiting: phase = .waiting
                         case .scanned: phase = .scanned
-                        case .expired: phase = .expired; key = nil; pollTask = nil; return
+                        case .expired:
+                            // QR sessions are short-lived. Refresh once in
+                            // place so a user who leaves the sheet open is
+                            // not left staring at an unusable code. The
+                            // second expiry remains visible with a manual
+                            // refresh button rather than looping forever.
+                            key = nil
+                            pollTask = nil
+                            if !didAutoRefreshExpiredCode {
+                                didAutoRefreshExpiredCode = true
+                                phase = .loading
+                                try? await Task.sleep(for: .milliseconds(350))
+                                guard !Task.isCancelled,
+                                      generation == loginGeneration,
+                                      !bilibili.isLoggedIn else { return }
+                                startLogin(automaticRefresh: true)
+                            } else {
+                                phase = .expired
+                            }
+                            return
                         case .success(let cookie):
                             // Bilibili has accepted the QR code at this
                             // point. Do not keep polling: a later 86038
                             // would hide a local session-validation error as
                             // a misleading "QR code expired" message.
                             do {
-                                try await bilibili.signIn(cookie: cookie)
+                                try await bilibili.signInFromQR(cookie: cookie)
+                                guard generation == loginGeneration else { return }
                                 ToastCenter.shared.show("哔哩哔哩账号同步成功")
                                 pollTask = nil
                                 dismiss()
@@ -198,7 +249,7 @@ struct BilibiliLoginSheet: View {
                     }
                 }
             } catch {
-                if !Task.isCancelled {
+                if !Task.isCancelled, generation == loginGeneration {
                     pollTask = nil
                     phase = .failed(error.localizedDescription)
                 }

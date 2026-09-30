@@ -424,10 +424,14 @@ enum NeteaseAPI {
     /// Probes the authenticated account endpoint and returns only quality
     /// tiers for which this song actually has a non-preview URL. The player
     /// uses this instead of advertising every quality label in the UI.
-    static func officialQualityNames(for id: Int, duration: TimeInterval? = nil) async -> [String] {
+    static func officialQualityNames(for id: Int, duration: TimeInterval? = nil,
+                                     allowPremium: Bool = false) async -> [String] {
         guard id > 0 else { return [] }
-        let probes: [AudioQuality] = [.master, .atmos, .dolby, .surround,
-                                      .hires, .lossless, .exhigh, .standard]
+        let allProbes: [AudioQuality] = [.master, .atmos, .dolby, .surround,
+                                         .hires, .lossless, .exhigh, .standard]
+        let probes = allowPremium
+            ? allProbes
+            : allProbes.filter { !$0.requiresNeteaseVIP }
         var available = Set<String>()
         // These requests are independent. Launch them together so an expired
         // session or a slow tier cannot multiply the wait by eight.
@@ -441,12 +445,15 @@ enum NeteaseAPI {
                   let url = URL(string: rawURL),
                   let scheme = url.scheme?.lowercased(),
                    ["http", "https"].contains(scheme),
-                   data.freeTrialInfo == nil else { continue }
+                   data.freeTrialInfo == nil,
+                   allowPremium || data.fee <= 0 else { continue }
             if let duration, duration > 0, data.time > 0,
                TimeInterval(data.time) / 1000 < max(45, duration * 0.65) {
                 continue
             }
-            available.insert(officialQuality(for: data).lxType)
+            if let quality = officialQuality(for: data) {
+                available.insert(quality.lxType)
+            }
         }
         return AudioQuality.allCases
             .map(\.lxType)
@@ -459,25 +466,35 @@ enum NeteaseAPI {
     /// Maps the server's returned level/format/bitrate to the real tier that
     /// was served. This deliberately prefers response metadata over the
     /// requested tier because VIP restrictions can downgrade a request.
-    static func officialQuality(for data: SongURLData) -> AudioQuality {
-        if let level = data.level, let quality = AudioQuality(neteaseLevel: level) {
-            return quality
+    static func officialQuality(for data: SongURLData) -> AudioQuality? {
+        // NetEase can echo the requested `level` even when the account is
+        // downgraded.  `br` is the per-track value and must win whenever it is
+        // present; otherwise a 128 kbps URL can be labelled Master/Lossless.
+        if data.br > 0 {
+            switch data.br {
+            case 900_000...: return .hires
+            case 600_000..<900_000: return .lossless
+            case 300_000..<600_000: return .exhigh
+            // 192 kbps (and similar provider-specific bitrates) is not the
+            // 320 kbps “较高/极高” tier. Keep the safe standard tier instead
+            // of showing a quality badge that the returned URL does not have.
+            case 160_000..<300_000: return .standard
+            default: return .standard
+            }
         }
+
         if let type = data.type?.lowercased() {
             if type.contains("24") || type.contains("hires") || type.contains("highres") {
                 return .hires
             }
             if type.contains("flac") || type.contains("ape") {
-                return data.br >= 900_000 ? .hires : .lossless
+                return .lossless
             }
         }
-        switch data.br {
-        case 900_000...: return .hires
-        case 600_000..<900_000: return .lossless
-        case 300_000..<600_000: return .exhigh
-        case 160_000..<300_000: return .higher
-        default: return .standard
-        }
+        // `level` alone is not proof of the returned stream. NetEase can echo
+        // the requested level after downgrading an account, so leave the
+        // result unknown instead of claiming Master/Atmos/Lossless.
+        return nil
     }
 
     static func lyric(id: Int) async throws -> LyricResponse {
@@ -661,20 +678,76 @@ enum NeteaseAPI {
         guard !trimmed.isEmpty else { return }
         guard client.isLoggedIn else { throw NeteaseAPIError.needLogin }
 
-        let response = try await weapi(
-            CodeOnly.self,
-            "/v1/resource/comments/add",
-            [
-                "threadId": "R_SO_4_\(songID)",
-                "content": trimmed,
-            ]
-        )
-        guard response.code == 200 else {
-            throw NeteaseAPIError.business(
-                code: response.code,
-                message: String(localized: "发表评论失败，请稍后重试")
+        let threadID = "R_SO_4_\(songID)"
+        do {
+            // The legacy endpoint is still the most widely accepted route
+            // for a top-level song comment. Include the complete payload;
+            // sending only threadId/content is treated as an untrusted client
+            // by several NetEase deployments.
+            let response = try await weapi(
+                CodeOnly.self,
+                "/comment/add",
+                [
+                    "type": 0,
+                    "id": songID,
+                    "threadId": threadID,
+                    "content": trimmed,
+                    "commentId": 0,
+                    "at": "",
+                    "atUserIds": "",
+                ]
             )
+            guard response.code == 200 else {
+                throw NeteaseAPIError.business(
+                    code: response.code,
+                    message: String(localized: "发表评论失败，请稍后重试")
+                )
+            }
+            return
+        } catch {
+            // Do not retry a device-security rejection: repeating it can
+            // worsen the account risk score. The official client must verify
+            // this device before the API will accept a comment.
+            if Self.isDeviceVerificationRejection(error) {
+                throw NeteaseAPIError.business(
+                    code: 512,
+                    message: "网易云拒绝了当前设备的评论请求，请先在官方网易云客户端完成一次安全验证后再试。"
+                )
+            }
+
+            // Some accounts are routed to the newer endpoint. Use it only
+            // after the legacy route failed for a non-device reason.
+            do {
+                let response = try await weapi(
+                    CodeOnly.self,
+                    "/v1/resource/comments/add",
+                    ["threadId": threadID, "content": trimmed]
+                )
+                guard response.code == 200 else {
+                    throw NeteaseAPIError.business(
+                        code: response.code,
+                        message: String(localized: "发表评论失败，请稍后重试")
+                    )
+                }
+            } catch {
+                if Self.isDeviceVerificationRejection(error) {
+                    throw NeteaseAPIError.business(
+                        code: 512,
+                        message: "网易云拒绝了当前设备的评论请求，请先在官方网易云客户端完成一次安全验证后再试。"
+                    )
+                }
+                throw error
+            }
         }
+    }
+
+    private static func isDeviceVerificationRejection(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("更换设备")
+            || message.contains("换个设备")
+            || message.contains("device")
+            || message.contains("risk")
+            || message.contains("安全验证")
     }
 
     struct FMResponse: Decodable {

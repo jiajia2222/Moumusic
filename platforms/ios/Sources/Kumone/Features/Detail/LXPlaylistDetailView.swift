@@ -42,6 +42,7 @@ struct LXPlaylistDetailView: View {
     let playlistID: String
 
     @StateObject private var model = LXPlaylistDetailViewModel()
+    @StateObject private var favorites = FavoritesStore.shared
     @EnvironmentObject private var player: PlayerService
 
     var body: some View {
@@ -87,6 +88,7 @@ struct LXPlaylistDetailView: View {
                     }
                 }
                 Spacer(minLength: 0)
+                favoriteButton(detail)
             }
             .padding(.horizontal, Theme.Layout.contentInset)
 
@@ -122,5 +124,30 @@ struct LXPlaylistDetailView: View {
             }
         }
         .padding(.vertical, Theme.Layout.contentInset)
+    }
+
+    private func favoriteButton(_ detail: LXPlaylistDetail) -> some View {
+        let isFavorite = favorites.contains(kind: .playlist,
+                                             source: source.rawValue,
+                                             providerID: detail.id)
+        return Button {
+            let added = favorites.toggle(
+                kind: .playlist,
+                source: source.rawValue,
+                providerID: detail.id,
+                name: detail.name,
+                coverURL: detail.coverURL,
+                subtitle: detail.author
+            )
+            ToastCenter.shared.show(added ? "已收藏歌单" : "已取消收藏歌单")
+        } label: {
+            Image(systemName: isFavorite ? "bookmark.fill" : "bookmark")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 44, height: 44)
+                .background(.primary.opacity(0.07), in: Circle())
+        }
+        .buttonStyle(.pressable)
+        .accessibilityLabel(isFavorite ? "取消收藏歌单" : "收藏歌单")
     }
 }

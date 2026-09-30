@@ -22,6 +22,16 @@ Moumusic does not bundle or distribute third-party source scripts or provider
 URLs. Users are responsible for imported sources and must follow applicable
 service terms, copyright rules and upstream licenses.
 
+
+## Cilicili
+
+- Upstream reference: https://github.com/Rone89/cilicili
+- License: GPL-3.0-only
+- Use in Moumusic: public Bilibili feature and API-flow reference for video search,
+  recommendation clients, dynamic feed, live browsing, subtitles, danmaku,
+  comments and playback controls. Moumusic's current Swift implementation is
+  independently written; no Cilicili source files are bundled.
+
 ## Beans-Music
 
 - Upstream: https://github.com/XIaodou0416/Beans-Music

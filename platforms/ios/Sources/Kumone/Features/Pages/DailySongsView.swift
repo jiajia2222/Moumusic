@@ -7,18 +7,19 @@ struct DailySongsView: View {
 
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
+    @EnvironmentObject private var settings: SettingsManager
     @Environment(\.openLogin) private var openLogin
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if account.isLoggedIn {
+                if usesAccountDaily || !tracks.isEmpty {
                     header
                         .padding(.horizontal, Theme.Layout.contentInset)
                         .padding(.top, 16)
                 }
 
-                if !account.isLoggedIn {
+                if usesAccountDaily && !account.isLoggedIn {
                     loginState
                         .frame(minHeight: 300)
                 } else if isLoading {
@@ -41,11 +42,21 @@ struct DailySongsView: View {
             }
         }
         .navigationTitle("每日推荐")
-        .task(id: account.isLoggedIn) {
-            if tracks.isEmpty {
-                await load()
-            }
+        .task(id: taskID) {
+            await load()
         }
+    }
+
+    private var usesAccountDaily: Bool {
+        settings.homeRecommendationMode == .netease
+    }
+
+    private var taskID: String {
+        "daily-\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)"
+    }
+
+    private var dailyPlatformName: String {
+        usesAccountDaily ? "网易云音乐" : settings.homeRecommendationPlatform.displayName
     }
 
     private var header: some View {
@@ -66,9 +77,9 @@ struct DailySongsView: View {
                             .font(.system(size: 14, weight: .medium))
                             .opacity(0.85)
                     }
-                    Text("每日推荐")
+                    Text("\(dailyPlatformName) · 每日推荐")
                         .font(.system(size: 30, weight: .bold))
-                    Text("根据你的音乐口味 · 每天 6:00 更新")
+                    Text(usesAccountDaily ? "根据你的网易云音乐账号生成 · 每天 6:00 更新" : "来自已选音源平台 · 每次打开时刷新")
                         .font(.system(size: 12))
                         .opacity(0.7)
                 }
@@ -123,6 +134,22 @@ struct DailySongsView: View {
     }
 
     private func load() async {
+        if !usesAccountDaily {
+            isLoading = true
+            errorMessage = nil
+            let content = await LXCatalogService.recommendedContent(
+                platform: settings.homeRecommendationPlatform,
+                limit: 50
+            )
+            guard !Task.isCancelled else { return }
+            tracks = content.tracks.map { $0.normalizedForLXPlayback() }
+            isLoading = false
+            if tracks.isEmpty {
+                errorMessage = "当前平台暂时没有可用的每日推荐，请刷新或切换平台。"
+            }
+            return
+        }
+
         guard account.isLoggedIn else {
             isLoading = false
             errorMessage = String(localized: "登录后才能查看每日推荐")
@@ -136,8 +163,10 @@ struct DailySongsView: View {
             // track with the same normalized source metadata as the home
             // NetEase feed so the row, quality picker, lyrics fallback and
             // player all see one consistent Track shape.
-            tracks = try await NeteaseAPI.dailyRecommendSongs()
+            let dailyTracks = try await NeteaseAPI.dailyRecommendSongs()
                 .map { $0.normalizedForLXPlayback() }
+            guard !Task.isCancelled else { return }
+            tracks = dailyTracks
             isLoading = false
         } catch {
             isLoading = false

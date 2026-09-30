@@ -140,7 +140,7 @@ struct DownloadsView: View {
                                         Text(record.track.name)
                                             .foregroundStyle(.primary)
                                             .lineLimit(1)
-                                        Text("\(record.track.artistNames) · \(AudioQuality(lxType: record.quality)?.displayName ?? record.quality)")
+                    Text("\(record.track.artistNames) · \(AudioQuality.resolvedDisplayName(record.quality))")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)

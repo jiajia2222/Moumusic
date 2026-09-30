@@ -25,6 +25,7 @@ struct TrackRow: View {
 
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
+    @ObservedObject private var favorites = FavoritesStore.shared
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @ScaledMetric(relativeTo: .body) private var compactArtworkSize: CGFloat = 48
     @ScaledMetric(relativeTo: .body) private var compactRowHeight: CGFloat = 64
@@ -37,6 +38,7 @@ struct TrackRow: View {
     #endif
 
     private var isCurrent: Bool { player.currentTrack?.playbackKey == track.playbackKey }
+    private var isLocallyFavorite: Bool { favorites.contains(track) }
     private var isPlayable: Bool { playability == .playable }
     private var showsArtwork: Bool { style != .albumTrack }
     private var showsVIPBadge: Bool {
@@ -231,7 +233,7 @@ struct TrackRow: View {
 
     private var qualityName: String {
         if isCurrent, let served = player.servedQuality {
-            return AudioQuality(lxType: served)?.sourceDisplayName ?? served.uppercased()
+            return AudioQuality.resolvedDisplayName(served)
         }
         // A global playback preference is only a request. It must not be
         // shown as this song's actual quality before the LX source resolves
@@ -257,6 +259,15 @@ struct TrackRow: View {
         Button("播放") { onPlay() }
         Button("下一首播放") {
             player.addToPlayNext(track)
+        }
+        Button {
+            let isLiked = favorites.toggle(track)
+            ToastCenter.shared.show(isLiked ? "已加入本地收藏" : "已取消本地收藏")
+        } label: {
+            Label(
+                isLocallyFavorite ? "取消本地收藏" : "收藏歌曲",
+                systemImage: isLocallyFavorite ? "heart.fill" : "heart"
+            )
         }
 #if os(iOS)
         Button("下载") {
@@ -680,6 +691,12 @@ struct AddToPlaylistSheet: View {
     private func add(to playlist: LocalPlaylist) {
         let added = localStore.add(tracks, to: playlist.id)
         if added > 0 {
+            Task {
+                await AccountStore.shared.syncAddedTracksToOfficialPlaylist(
+                    tracks,
+                    localPlaylistID: playlist.id
+                )
+            }
             ToastCenter.shared.show("已添加 \(added) 首歌曲")
         }
         dismiss()
@@ -688,7 +705,15 @@ struct AddToPlaylistSheet: View {
     private func createLocalAndAdd() {
         let name = newName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        _ = localStore.create(name: name, tracks: tracks)
+        let playlistID = localStore.create(name: name, tracks: tracks)
+        if let playlistID {
+            Task {
+                await AccountStore.shared.syncAddedTracksToOfficialPlaylist(
+                    tracks,
+                    localPlaylistID: playlistID
+                )
+            }
+        }
         ToastCenter.shared.show("已收藏到「\(name)」")
         dismiss()
     }

@@ -117,17 +117,18 @@ public final class CarPlayConnector: NSObject {
             .removeDuplicates(by: { $0?.id == $1?.id })
             .sink { [weak self] track in
                 guard let self else { return }
-                let liked = track.map { AccountStore.shared.isLiked($0.id) } ?? false
+                let liked = track.map { FavoritesStore.shared.contains($0) } ?? false
                 self.likeButton?.isSelected = liked
             }
             .store(in: &cancellables)
 
-        // Liked-IDs changes (user toggled like somewhere else in the UI) → keep the Now Playing "like" button in sync.
-        AccountStore.shared.$likedTrackIDs
+        // Local favorites changes (the player is source-agnostic) → keep the
+        // CarPlay Now Playing button in sync.
+        FavoritesStore.shared.$tracks
             .sink { [weak self] _ in
                 guard let self,
                       let track = PlayerService.shared.currentTrack else { return }
-                self.likeButton?.isSelected = AccountStore.shared.isLiked(track.id)
+                self.likeButton?.isSelected = FavoritesStore.shared.contains(track)
             }
             .store(in: &cancellables)
 
@@ -207,12 +208,13 @@ public final class CarPlayConnector: NSObject {
 
         // "Like" button — uses the system's "add to library" styled button.
         let like = CPNowPlayingAddToLibraryButton(handler: { _ in
-            guard let trackID = PlayerService.shared.currentTrack?.id else { return }
-            Task { await AccountStore.shared.toggleLike(trackID: trackID) }
+            guard let track = PlayerService.shared.currentTrack else { return }
+            let isLiked = FavoritesStore.shared.toggle(track)
+            ToastCenter.shared.show(isLiked ? "已加入本地收藏" : "已取消本地收藏")
         })
         like.isEnabled = true
         like.isSelected = PlayerService.shared.currentTrack
-            .map { AccountStore.shared.isLiked($0.id) } ?? false
+            .map { FavoritesStore.shared.contains($0) } ?? false
         self.likeButton = like
 
         // "Dislike" button — custom SF Symbol icon, only shown and enabled while FM mode is on.

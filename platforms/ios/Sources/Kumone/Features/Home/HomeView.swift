@@ -226,6 +226,8 @@ final class HomeViewModel: ObservableObject {
                 }
             }
             recommendTracks = tracks
+            dailyFirstCover = tracks.first?.album.picUrl
+                ?? content.playlists.first?.coverURL
             saveSnapshot()
             state = recommendTracks.isEmpty && lxRecommendPlaylists.isEmpty
                 ? .error("LX 暂无推荐结果，请检查网络或切换推荐平台")
@@ -328,6 +330,7 @@ struct HomeView: View {
 #if os(iOS)
     @EnvironmentObject private var bilibili: BilibiliSessionStore
     @State private var showBilibiliCenter = false
+    @State private var showHomePlatformMenu = false
 #endif
     @StateObject private var model = HomeViewModel.shared
 
@@ -336,11 +339,6 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 14) {
                 communityAnnouncement
 
-#if os(iOS)
-                if settings.bilibiliVideoEnabled {
-                    bilibiliEntryCard
-                }
-#endif
                 standardHomeBody
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -348,6 +346,21 @@ struct HomeView: View {
         .navigationTitle("推荐")
         #if os(iOS)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showHomePlatformMenu = true
+                } label: {
+                    Image(systemName: "music.note.house")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 40, height: 40)
+                        .background(.thinMaterial, in: Circle())
+                        .overlay {
+                            Circle().strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+                        }
+                }
+                .accessibilityLabel("切换首页推荐平台")
+                .accessibilityHint("选择首页推荐平台或打开哔哩哔哩")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink(value: Destination.recents) {
                     Image(systemName: "clock.arrow.circlepath")
@@ -376,6 +389,25 @@ struct HomeView: View {
                 BilibiliContentView()
                     .environmentObject(bilibili)
             }
+        }
+        .sheet(isPresented: $showHomePlatformMenu) {
+            HomePlatformGlassMenu(
+                platforms: homePlatforms,
+                selectedPlatform: settings.homeRecommendationMode == .netease
+                    ? .wy
+                    : settings.homeRecommendationPlatform,
+                showBilibili: settings.bilibiliMode != .disabled,
+                onSelect: { platform in
+                    selectHomePlatform(platform)
+                    showHomePlatformMenu = false
+                },
+                onBilibili: {
+                    showHomePlatformMenu = false
+                    showBilibiliCenter = true
+                }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
 #endif
     }
@@ -461,43 +493,11 @@ struct HomeView: View {
         .accessibilityLabel("公告：Moumusic QQ 群 945130957，欢迎加入交流群，反馈问题和获取更新通知")
     }
 
-#if os(iOS)
-    private var bilibiliEntryCard: some View {
-        Button {
-            showBilibiliCenter = true
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "play.rectangle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
-                    .background(Color(red: 0.08, green: 0.62, blue: 0.86), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                Text("哔哩哔哩")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(.thinMaterial, in: Capsule())
-            .overlay {
-                Capsule()
-                    .strokeBorder(Color(red: 0.08, green: 0.62, blue: 0.86).opacity(0.28), lineWidth: 1)
-            }
-        }
-        .buttonStyle(.plain)
-        .frame(minHeight: 44)
-        .padding(.horizontal, Theme.Layout.contentInset)
-        .accessibilityLabel("打开哔哩哔哩视频中心")
-    }
-#endif
-
     private var lxLoadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 22) {
+#if os(macOS)
             homePlatformPicker
-
+#endif
             HStack(spacing: 10) {
                 Image(systemName: model.activePlatform == .wy ? "flame.fill" : "waveform")
                     .foregroundStyle(Theme.accent)
@@ -508,7 +508,7 @@ struct HomeView: View {
             .padding(.horizontal, Theme.Layout.contentInset)
 
             if !model.lxRecommendPlaylists.isEmpty {
-                Shelf(title: "推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+                Shelf(title: model.activePlatform == .wy ? "推荐歌单" : "官方推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
                     ForEach(model.lxRecommendPlaylists.prefix(12)) { playlist in
                         lxPlaylistCard(playlist)
                     }
@@ -527,35 +527,34 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+#if os(macOS)
     private var homePlatformPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("首页推荐平台")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(homePlatforms) { platform in
-                        Button {
-                            selectHomePlatform(platform)
-                        } label: {
-                            Text(platform.displayName)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(isHomePlatform(platform) ? .white : .primary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(isHomePlatform(platform) ? Theme.accent : Color.secondary.opacity(0.12))
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .frame(minHeight: 44)
+            HStack(spacing: 10) {
+                ForEach(homePlatforms) { platform in
+                    Button {
+                        selectHomePlatform(platform)
+                    } label: {
+                        Text(platform.displayName)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(isHomePlatform(platform) ? .white : .primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(isHomePlatform(platform) ? Theme.accent : Color.secondary.opacity(0.12))
+                            .clipShape(Capsule())
                     }
+                    .buttonStyle(.plain)
+                    .frame(minHeight: 32)
                 }
-                .padding(.horizontal, Theme.Layout.contentInset)
             }
         }
         .padding(.top, 4)
     }
+#endif
 
     private var homePlatforms: [LXCatalogPlatform] {
         LXCatalogPlatform.catalogueCases.filter { $0 != .aggregate }
@@ -891,6 +890,96 @@ struct FeatureCard: View {
         .contentShape(Rectangle())
     }
 }
+
+#if os(iOS)
+/// The home header's circular switcher.  This keeps the recommendation
+/// platform and Bilibili entry discoverable without adding a second picker to
+/// the feed, while retaining a real glass surface on iOS.
+private struct HomePlatformGlassMenu: View {
+    let platforms: [LXCatalogPlatform]
+    let selectedPlatform: LXCatalogPlatform
+    let showBilibili: Bool
+    let onSelect: (LXCatalogPlatform) -> Void
+    let onBilibili: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("首页内容")
+                    .font(.title3.weight(.bold))
+                    .padding(.horizontal, 4)
+
+                MouGlassCard(cornerRadius: 26, padding: 18) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("每日推荐平台", systemImage: "music.note.house.fill")
+                            .font(.headline)
+                            .foregroundStyle(Theme.accent)
+
+                        Text("选择后，首页推荐和每日推荐会使用同一平台；聚合搜索仍保持原来的搜索入口。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
+                            ForEach(platforms) { platform in
+                                Button {
+                                    onSelect(platform)
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: platform == selectedPlatform ? "checkmark.circle.fill" : "circle")
+                                        Text(platform.displayName)
+                                            .lineLimit(1)
+                                    }
+                                    .font(.subheadline.weight(.medium))
+                                    .frame(maxWidth: .infinity, minHeight: 44)
+                                    .foregroundStyle(platform == selectedPlatform ? .white : .primary)
+                                    .background(
+                                        platform == selectedPlatform ? Theme.accent : Color.secondary.opacity(0.12),
+                                        in: Capsule()
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+
+                MouGlassCard(cornerRadius: 26, padding: 18) {
+                    Button(action: onBilibili) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "play.rectangle.fill")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 40, height: 40)
+                                .background(Color(red: 0.08, green: 0.62, blue: 0.86), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("哔哩哔哩")
+                                    .font(.headline)
+                                Text(showBilibili ? "打开推荐、搜索、分区与播放" : "请先在设置中开启 B 站")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                        .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!showBilibili)
+                    .opacity(showBilibili ? 1 : 0.55)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+        .background(Color.clear)
+        .compatPresentationBackground(.ultraThinMaterial)
+    }
+}
+#endif
 
 /// Card body without its own Button wrapper (for use inside NavigationLink).
 struct CoverCardBody: View {

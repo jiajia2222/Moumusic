@@ -11,6 +11,9 @@ final class ExploreViewModel: ObservableObject {
 
     @Published var platform: LXCatalogPlatform = .kw
     @Published var selectedCategory = "推荐"
+    /// Platform-native recommendation playlists are rendered separately from
+    /// category results so the first section can stay horizontal.
+    @Published var officialPlaylists: [LXPlaylistSummary] = []
     @Published var playlists: [LXPlaylistSummary] = []
     @Published var tracks: [Track] = []
     @Published var toplists: [ToplistItem] = []
@@ -28,6 +31,7 @@ final class ExploreViewModel: ObservableObject {
         requestGeneration += 1
         loadTask?.cancel()
         isLoading = false
+        officialPlaylists = []
         playlists = []
         tracks = []
         toplists = []
@@ -48,6 +52,7 @@ final class ExploreViewModel: ObservableObject {
         loadTask?.cancel()
         isLoading = false
         selectedCategory = category
+        officialPlaylists = []
         playlists = []
         tracks = []
         toplists = []
@@ -64,6 +69,7 @@ final class ExploreViewModel: ObservableObject {
         requestGeneration += 1
         loadTask?.cancel()
         isLoading = false
+        officialPlaylists = []
         playlists = []
         tracks = []
         toplists = []
@@ -85,7 +91,10 @@ final class ExploreViewModel: ObservableObject {
             let result: [LXPlaylistSummary]
             if selectedCategory == "推荐" && page == 1 {
                 let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
-                result = content.playlists
+                officialPlaylists = content.playlists
+                // The recommendation shelf owns these cards; keeping them out
+                // of the grid avoids rendering the same playlists twice.
+                result = []
                 tracks = content.tracks
                 if platform == .wy {
                     toplists = Array(((try? await NeteaseAPI.toplists()) ?? []).prefix(10))
@@ -113,10 +122,14 @@ final class ExploreViewModel: ObservableObject {
             playlists += result.filter { seen.insert("\($0.source.rawValue)|\($0.id)").inserted }
             page += 1
             hasMore = selectedCategory != "推荐" && result.count >= 30 && page <= 6
-            errorMessage = playlists.isEmpty ? "当前平台暂时没有歌单，请切换平台或稍后重试" : nil
+            errorMessage = officialPlaylists.isEmpty && playlists.isEmpty && tracks.isEmpty
+                ? "当前平台暂时没有歌单，请切换平台或稍后重试"
+                : nil
         } catch {
             guard generation == requestGeneration else { return }
-            errorMessage = playlists.isEmpty ? error.localizedDescription : nil
+            errorMessage = officialPlaylists.isEmpty && playlists.isEmpty && tracks.isEmpty
+                ? error.localizedDescription
+                : nil
             hasMore = false
         }
     }
@@ -136,16 +149,33 @@ struct ExploreView: View {
                 platformPicker
                 categoryChips
 
-                if model.isLoading && model.playlists.isEmpty && model.tracks.isEmpty {
+                if model.isLoading && model.officialPlaylists.isEmpty && model.playlists.isEmpty && model.tracks.isEmpty {
                     ProgressView()
                         .frame(maxWidth: .infinity, minHeight: 300)
                 } else if let errorMessage = model.errorMessage,
-                          model.playlists.isEmpty && model.tracks.isEmpty {
+                          model.officialPlaylists.isEmpty && model.playlists.isEmpty && model.tracks.isEmpty {
                     ErrorStateView(message: errorMessage) {
                         Task { await model.loadMore() }
                     }
                     .frame(minHeight: 300)
                 } else {
+                    if !model.officialPlaylists.isEmpty {
+                        Shelf(title: "官方推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+                            ForEach(model.officialPlaylists.prefix(12)) { playlist in
+                                NavigationLink(value: Destination.lxPlaylist(source: playlist.source, id: playlist.id)) {
+                                    CoverCardBody(
+                                        coverURL: playlist.coverURL?.resizedImageURL(384),
+                                        title: playlist.name,
+                                        subtitle: [playlist.source.displayName, playlist.author]
+                                            .compactMap { $0 }.joined(separator: " · "),
+                                        playCount: playlist.playCount
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
                     if model.platform == .wy && !model.toplists.isEmpty {
                         SectionHeader(title: "网易云排行榜")
                             .padding(.horizontal, Theme.Layout.contentInset)
@@ -200,7 +230,7 @@ struct ExploreView: View {
             await model.loadMore()
         }
         .onAppear {
-            guard !model.playlists.isEmpty || !model.tracks.isEmpty else { return }
+            guard !model.officialPlaylists.isEmpty || !model.playlists.isEmpty || !model.tracks.isEmpty else { return }
             model.refreshCurrent()
         }
 #if os(iOS)
@@ -221,7 +251,7 @@ struct ExploreView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
 #if os(iOS)
-                if settings.bilibiliVideoEnabled {
+                if settings.bilibiliMode != .disabled {
                     Button {
                         showBilibili = true
                     } label: {

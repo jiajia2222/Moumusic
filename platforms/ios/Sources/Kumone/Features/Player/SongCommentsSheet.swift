@@ -55,6 +55,17 @@ struct SongCommentsSheet: View {
                             }
                         }
                         .pickerStyle(.segmented)
+                        .tint(Theme.accent)
+                        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+                        .overlay {
+                            Capsule(style: .continuous)
+                                .stroke(.white.opacity(0.18), lineWidth: 1)
+                        }
+                        // Keep the selection binding, but replace the stock
+                        // segmented chrome with a liquid-glass control.
+                        .opacity(0)
+                        .allowsHitTesting(false)
+                        .overlay { sortPickerGlass }
                         .padding(.horizontal)
                         .padding(.vertical, 10)
 
@@ -86,8 +97,19 @@ struct SongCommentsSheet: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             .padding(.vertical, 4)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(.white.opacity(0.14), lineWidth: 1)
+                            }
+                            .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowBackground(Color.clear)
                         }
                         .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
                     }
                 }
             }
@@ -107,6 +129,42 @@ struct SongCommentsSheet: View {
         .presentationDetents([.medium, .large])
     }
 
+    private var sortPickerGlass: some View {
+        HStack(spacing: 4) {
+            ForEach(Sort.allCases) { item in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        sort = item
+                    }
+                } label: {
+                    Text(item.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(sort == item ? .primary : .secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background {
+                            if sort == item {
+                                Capsule(style: .continuous)
+                                    .fill(.thinMaterial)
+                                    .overlay {
+                                        Capsule(style: .continuous)
+                                            .fill(Theme.accent.opacity(0.16))
+                                    }
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        .overlay {
+            Capsule(style: .continuous)
+                .stroke(.white.opacity(0.18), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.16), radius: 14, y: 6)
+    }
+
     private var commentComposer: some View {
         VStack(spacing: 6) {
             if let postStatus {
@@ -120,7 +178,14 @@ struct SongCommentsSheet: View {
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField("发表评论（网易云）", text: $draft, axis: .vertical)
                         .lineLimit(1...4)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(.white.opacity(0.14), lineWidth: 1)
+                        }
 
                     Button {
                         Task { await postComment() }
@@ -133,8 +198,11 @@ struct SongCommentsSheet: View {
                                 .frame(width: 44, height: 44)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .foregroundStyle(.white)
+                    .background(Theme.accent, in: Circle())
+                    .buttonStyle(.plain)
                     .disabled(isPosting || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .opacity(isPosting || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
                     .accessibilityLabel("发表评论")
                 }
             } else {
@@ -144,13 +212,23 @@ struct SongCommentsSheet: View {
                     Label("登录网易云后发表评论", systemImage: "person.crop.circle.badge.plus")
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
-                .buttonStyle(.bordered)
+                .foregroundStyle(.primary)
+                .background(.thinMaterial, in: Capsule(style: .continuous))
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(.white.opacity(0.16), lineWidth: 1)
+                }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) { Divider() }
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(.white.opacity(0.16), lineWidth: 1)
+        }
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
     }
 
     private func loadComments() async {
@@ -219,7 +297,10 @@ struct SongCommentsSheet: View {
         } catch is CancellationError {
             return
         } catch {
-            postStatus = error.localizedDescription
+            let message = error.localizedDescription
+            postStatus = message.contains("更换设备") || message.contains("安全验证")
+                ? "网易云拒绝了当前设备的评论请求，请先在官方网易云客户端完成一次安全验证后再试。"
+                : message
             postStatusIsError = true
             canPost = NeteaseClient.shared.isLoggedIn
         }

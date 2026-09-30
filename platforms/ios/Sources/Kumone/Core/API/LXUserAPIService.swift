@@ -46,6 +46,10 @@ final class LXUserAPIService: ObservableObject {
 
     static let shared = LXUserAPIService()
 
+    // Quality discovery must not hold the sheet open behind a dead source.
+    // The actual playback resolver intentionally uses a longer timeout.
+    private static let qualityProbeTimeout: TimeInterval = 1.8
+
     private let session: URLSession
     private var context: JSContext?
     private var key = ""
@@ -81,6 +85,18 @@ final class LXUserAPIService: ObservableObject {
     func load(_ source: LXSourceStore.Source?) {
         sourceInitializationTask?.cancel()
         sourceInitializationTask = nil
+
+        // Importing/selecting a second source invalidates requests issued by
+        // the previous JavaScript context.  Cancel the URL tasks and finish
+        // their continuations before replacing the context; otherwise an old
+        // callback can keep the previous source alive while the new source is
+        // being installed.
+        tasks.values.forEach { $0.cancel() }
+        tasks.removeAll()
+        let staleRequests = pending
+        pending.removeAll()
+        staleRequests.values.forEach { $0.resume(throwing: LXError.noSource) }
+
         pendingInitializationID = source?.id
         context = nil
         loadedID = source?.id
@@ -95,31 +111,35 @@ final class LXUserAPIService: ObservableObject {
             return
         }
 
-        let js = JSContext()
-        js?.exceptionHandler = { _, exception in
+        guard let js = JSContext() else {
+            pendingInitializationID = nil
+            statusMessage = "LX JavaScript 运行环境初始化失败"
+            return
+        }
+        js.exceptionHandler = { _, exception in
             if let exception { print("[LX] JavaScript error: \(exception)") }
         }
         context = js
         key = UUID().uuidString
-        installHostFunctions(in: js!)
-        js?.evaluateScript(preload)
-        if let exception = js?.exception {
+        installHostFunctions(in: js)
+        js.evaluateScript(preload)
+        if let exception = js.exception {
             context = nil
             pendingInitializationID = nil
             statusMessage = "LX 桥接加载失败：\(exception.toString())"
             return
         }
-        let setup = js?.objectForKeyedSubscript("lx_setup")
+        let setup = js.objectForKeyedSubscript("lx_setup")
         setup?.call(withArguments: [key, source.id, source.name, source.description,
                                     source.version, source.author, source.homepage, source.script])
-        if let exception = js?.exception {
+        if let exception = js.exception {
             context = nil
             pendingInitializationID = nil
             statusMessage = "LX 音源初始化失败：\(exception.toString())"
             return
         }
-        _ = js?.evaluateScript(source.script)
-        if let exception = js?.exception {
+        _ = js.evaluateScript(source.script)
+        if let exception = js.exception {
             context = nil
             pendingInitializationID = nil
             statusMessage = "LX 音源脚本错误：\(exception.toString())"
@@ -195,9 +215,7 @@ final class LXUserAPIService: ObservableObject {
                     continue
                 }
                 let actualQuality = Self.resolvedQuality(
-                    returned: (data["type"] as? String)
-                        ?? (data["quality"] as? String)
-                        ?? (data["format"] as? String),
+                    data: data,
                     requested: requestedQuality,
                     available: supportedQualitys.isEmpty ? ["128k"] : supportedQualitys
                 )
@@ -298,7 +316,10 @@ final class LXUserAPIService: ObservableObject {
                 throw LXError.sourceUnavailable("官方账号只返回试听片段")
             }
         }
-        return ResolvedURL(url: url, quality: NeteaseAPI.officialQuality(for: data).lxType)
+        return ResolvedURL(
+            url: url,
+            quality: NeteaseAPI.officialQuality(for: data)?.lxType ?? "unknown"
+        )
     }
 
     private func hasAuthenticatedAccount(for track: Track) -> Bool {
@@ -421,9 +442,7 @@ final class LXUserAPIService: ObservableObject {
                 }
 
                 let actualQuality = Self.resolvedQuality(
-                    returned: (data["type"] as? String)
-                        ?? (data["quality"] as? String)
-                        ?? (data["format"] as? String),
+                    data: data,
                     requested: candidate.requestedQuality,
                     available: candidate.supportedQualities.isEmpty ? ["128k"] : candidate.supportedQualities
                 )
@@ -517,9 +536,7 @@ final class LXUserAPIService: ObservableObject {
                 }
 
                 let actualQuality = Self.resolvedQuality(
-                    returned: (data["type"] as? String)
-                        ?? (data["quality"] as? String)
-                        ?? (data["format"] as? String),
+                    data: data,
                     requested: requestedQuality,
                     available: supportedQualitys.isEmpty ? ["128k"] : supportedQualitys
                 )
@@ -876,8 +893,13 @@ final class LXUserAPIService: ObservableObject {
         guard loadedID != nil else { return }
         let attempts = max(1, Int(ceil(maxWait / 0.05)))
         for _ in 0..<attempts {
+            guard !Task.isCancelled else { return }
             if !capabilities.isEmpty || context == nil || pendingInitializationID == nil { return }
-            try? await Task.sleep(for: .milliseconds(50))
+            do {
+                try await Task.sleep(for: .milliseconds(50))
+            } catch {
+                return
+            }
         }
     }
 
@@ -899,12 +921,50 @@ final class LXUserAPIService: ObservableObject {
     private func callJS(action: String, data: Any? = nil) {
         guard let context, let function = context.objectForKeyedSubscript("__lx_native__") else { return }
         let encoded: String?
-        if let data, let json = try? JSONSerialization.data(withJSONObject: data), let string = String(data: json, encoding: .utf8) {
-            encoded = string
+        // JSONSerialization throws an Objective-C exception (not a Swift
+        // Error) for a scalar passed without fragment support.  LX scripts
+        // legitimately call the bridge with scalar values for timers and
+        // cancellation, so validate the value before serializing it.  A bad
+        // provider payload is ignored instead of taking down the app.
+        if let data {
+            let isFragment = data is String
+                || data is NSNumber
+                || data is Int
+                || data is Int8
+                || data is Int16
+                || data is Int32
+                || data is Int64
+                || data is UInt
+                || data is UInt8
+                || data is UInt16
+                || data is UInt32
+                || data is UInt64
+                || data is Double
+                || data is Float
+                || data is Bool
+                || data is NSNull
+            let isContainerValue = data is [Any]
+                || data is [String: Any]
+                || data is NSArray
+                || data is NSDictionary
+            let isContainer = isContainerValue && JSONSerialization.isValidJSONObject(data)
+            let options: JSONSerialization.WritingOptions = isContainer ? [] : [.fragmentsAllowed]
+            if isContainer || isFragment,
+               let json = try? JSONSerialization.data(withJSONObject: data, options: options),
+               let string = String(data: json, encoding: .utf8) {
+                encoded = string
+            } else {
+                encoded = nil
+                print("[LX] ignored non-JSON bridge payload for action \(action)")
+            }
         } else {
             encoded = nil
         }
-        _ = function.call(withArguments: encoded == nil ? [key, action] : [key, action, encoded!])
+        if let encoded {
+            _ = function.call(withArguments: [key, action, encoded])
+        } else {
+            _ = function.call(withArguments: [key, action])
+        }
     }
 
     private func sourceCandidates(for track: Track, action: String = "musicUrl") -> [String] {
@@ -931,11 +991,15 @@ final class LXUserAPIService: ObservableObject {
 
     private func activate(_ source: LXSourceStore.Source,
                           waitTime: TimeInterval = 6) async -> Bool {
+        guard !Task.isCancelled else { return false }
         if loadedID != source.id || context == nil {
             load(source)
         }
         await waitForSourceReady(maxWait: waitTime)
-        return loadedID == source.id && context != nil && !capabilities.isEmpty
+        return !Task.isCancelled
+            && loadedID == source.id
+            && context != nil
+            && !capabilities.isEmpty
     }
 
     private func canonicalPlatform(_ value: String?) -> String? {
@@ -978,13 +1042,18 @@ final class LXUserAPIService: ObservableObject {
     private static let qualityOrder = ["128k", "320k", "flac", "flac24bit", "surround", "dolby", "atmos", "jymaster"]
 
     func availableQualityNames(for track: Track) async -> [String] {
-        let playbackSources = LXSourceStore.shared.playbackSources
+        // Do not serially wake every imported source when the picker opens.
+        // The first three are the same priority order used for playback; a
+        // later dead source can still be tested from source management.
+        let playbackSources = Array(LXSourceStore.shared.playbackSources.prefix(3))
         let primaryPlatform = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
         var available = Set<String>()
         if SettingsManager.shared.playbackSourceMode != .thirdParty {
             if primaryPlatform == "wy", NeteaseClient.shared.isLoggedIn {
                 available.formUnion(await NeteaseAPI.officialQualityNames(
-                    for: track.id, duration: track.duration
+                    for: track.id,
+                    duration: track.duration,
+                    allowPremium: AccountStore.shared.hasActiveVIP
                 ))
             } else if primaryPlatform == "tx", QQMusicSessionStore.shared.isLoggedIn {
                 available.formUnion(await officialQualityNames(for: track, platform: "tx"))
@@ -993,10 +1062,11 @@ final class LXUserAPIService: ObservableObject {
             }
         }
         for source in playbackSources {
+            guard !Task.isCancelled else { break }
             // The picker should not wait for the full playback/source startup
             // budget. Playback keeps the longer default; quality discovery can
             // retry when the source has finished initializing.
-            guard await activate(source, waitTime: 2.5) else { continue }
+            guard await activate(source, waitTime: Self.qualityProbeTimeout) else { continue }
             let platforms = sourceCandidates(for: track, action: "musicUrl")
             // Quality probing is per-song and performs real network requests.
             // Probe the track's own catalogue first; only use one fallback
@@ -1007,6 +1077,7 @@ final class LXUserAPIService: ObservableObject {
                 ? [primaryPlatform]
                 : Array(platforms.prefix(1))
             for platform in platformsToProbe {
+                guard !Task.isCancelled else { break }
                 let qualityTrack: Track
                 if platform == primaryPlatform {
                     qualityTrack = track
@@ -1098,7 +1169,7 @@ final class LXUserAPIService: ObservableObject {
                         qualities: requestedQualities
                     )
                 ],
-                timeout: 2.5
+                timeout: Self.qualityProbeTimeout
             )
             guard let data = response["data"] as? [String: Any],
                   let rawURL = data["url"] as? String,
@@ -1106,19 +1177,14 @@ final class LXUserAPIService: ObservableObject {
                   let scheme = url.scheme?.lowercased(),
                   scheme == "http" || scheme == "https" else { return nil }
 
-            let returned = (data["type"] as? String)
-                ?? (data["quality"] as? String)
-                ?? (data["format"] as? String)
             // Without a returned tier there is no evidence that the requested
-            // high-quality URL is real. Keep only the safe baseline instead of
-            // displaying a false lossless badge.
-            return returned.map {
-                Self.resolvedQuality(
-                    returned: $0,
-                    requested: requested,
-                    available: requestedQualities
-                )
-            } ?? "128k"
+            // high-quality URL is real. Keep it unknown instead of displaying
+            // a false lossless badge.
+            return Self.resolvedQuality(
+                data: data,
+                requested: requested,
+                available: requestedQualities
+            )
         } catch {
             return nil
         }
@@ -1130,32 +1196,32 @@ final class LXUserAPIService: ObservableObject {
         track: Track,
         declared: [String]
     ) async -> Set<String> {
-        guard await activate(source, waitTime: 2.5) else { return [] }
+        guard await activate(source, waitTime: Self.qualityProbeTimeout) else { return [] }
         let requestedQualities = declared.isEmpty ? ["128k"] : declared
-        var verified = Set<String>()
 
-        // Probing each tier is independent. Start them together so a dead
-        // endpoint costs at most the short probe timeout instead of one full
-        // timeout per quality (which previously made the sheet appear stuck).
-        let probes: [Task<String?, Never>] = requestedQualities.map { requested in
-            Task { @MainActor [weak self] in
-                guard let self else { return Optional<String>.none }
-                return await self.probeQualityName(
-                    source: source,
-                    platform: platform,
-                    track: track,
-                    requested: requested,
-                    requestedQualities: requestedQualities
-                )
+        // Probing each tier is independent. A structured group propagates
+        // cancellation from the picker task, so closing the sheet no longer
+        // leaves a set of stale requests running in the background.
+        return await withTaskGroup(of: String?.self, returning: Set<String>.self) { group in
+            for requested in requestedQualities {
+                group.addTask { @MainActor [weak self] in
+                    guard !Task.isCancelled, let self else { return nil }
+                    return await self.probeQualityName(
+                        source: source,
+                        platform: platform,
+                        track: track,
+                        requested: requested,
+                        requestedQualities: requestedQualities
+                    )
+                }
             }
-        }
-        for probe in probes {
-            if let actual = await probe.value {
-                verified.insert(actual)
-            }
-        }
 
-        return verified
+            var verified = Set<String>()
+            for await actual in group {
+                if let actual { verified.insert(actual) }
+            }
+            return verified
+        }
     }
 
     private func isValidAudioURL(_ url: URL) -> Bool {
@@ -1312,19 +1378,59 @@ final class LXUserAPIService: ObservableObject {
         default: return value
         }
     }
-    private static func resolvedQuality(returned: String?, requested: String,
-                                        available: [String]) -> String {
+    private static func resolvedQuality(data: [String: Any], requested: String,
+                                       available: [String]) -> String {
+        let returned = (data["type"] as? String)
+            ?? (data["quality"] as? String)
+            ?? (data["format"] as? String)
+        // A few adapters return a quality label from their global capability
+        // table while the song response contains the real bitrate. Prefer the
+        // track-level bitrate whenever it is available.
+        if let bitrate = responseBitrate(data) {
+            let bitrateQuality: String
+            switch bitrate {
+            case 900_000...: bitrateQuality = "flac24bit"
+            case 600_000..<900_000: bitrateQuality = "flac"
+            case 300_000..<600_000: bitrateQuality = "320k"
+            // The app has no separate 192-kbps picker tier.  Keep the
+            // response below 320 kbps on the safe standard label rather than
+            // claiming the 320-kbps `higher` alias.
+            case 160_000..<300_000: bitrateQuality = "128k"
+            default: bitrateQuality = "128k"
+            }
+            return normalizedQuality(bitrateQuality)
+        }
         // If a User API omits the returned tier we cannot truthfully label a
-        // URL as Atmos/Hi-Res. Treat it as the safe baseline; a later source
-        // with a verified response gets priority instead.
-        guard let returned else { return "128k" }
+        // URL as Atmos/Hi-Res. Keep the result explicitly unknown; the caller
+        // can still play the URL but must warn instead of showing a fake tier.
+        guard let returned else { return "unknown" }
         let normalized = normalizedQuality(returned)
-        let order = Self.qualityOrder
-        guard let requestedIndex = order.firstIndex(of: normalizedQuality(requested)),
-              let returnedIndex = order.firstIndex(of: normalized),
-              returnedIndex <= requestedIndex,
-              available.contains(normalized) else { return requested }
+        // Do not fall back to the requested tier here. That was the source of
+        // false "无损/母带" labels: a source could return a 128K URL (or an
+        // unknown tier) while the caller had requested FLAC/Hi-Res, and this
+        // method would then report the request as if it were the response.
+        // The picker may still show capabilities, but the playing track must
+        // only show a tier explicitly returned by this request.
+        guard Self.qualityOrder.contains(normalized),
+              available.contains(normalized) || normalized == "128k" else {
+            return "unknown"
+        }
         return normalized
+    }
+
+    private static func responseBitrate(_ data: [String: Any]) -> Int? {
+        for key in ["br", "bitrate", "bit_rate", "bitrate_kbps"] {
+            if let value = data[key] as? NSNumber {
+                let raw = value.doubleValue
+                guard raw > 0 else { continue }
+                return Int(raw < 1_000 ? raw * 1_000 : raw)
+            }
+            if let value = data[key] as? String,
+               let raw = Double(value), raw > 0 {
+                return Int(raw < 1_000 ? raw * 1_000 : raw)
+            }
+        }
+        return nil
     }
 
     private static func isPreviewResponse(_ data: [String: Any],

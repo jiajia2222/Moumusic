@@ -18,6 +18,9 @@ struct QQMusicQRCodeLoginSheet: View {
     @State private var qrImage: UIImage?
     @State private var qrsig: String?
     @State private var pollTask: Task<Void, Never>?
+    @State private var didStartLogin = false
+    @State private var didAutoRefreshExpiredCode = false
+    @State private var loginGeneration = UUID()
 
     var body: some View {
         NavigationStack {
@@ -51,11 +54,31 @@ struct QQMusicQRCodeLoginSheet: View {
                     Button("取消") { dismiss() }
                 }
             }
-            .onAppear { startLogin() }
+            .onAppear {
+                guard !qqMusic.isLoggedIn else {
+                    dismiss()
+                    return
+                }
+                guard !didStartLogin else { return }
+                didStartLogin = true
+                startLogin()
+            }
             .onDisappear { pollTask?.cancel() }
             .onChange(of: scenePhase) { newPhase in
-                guard newPhase == .active, qrsig != nil else { return }
+                // The QQ Music app switch is followed by the existing poll
+                // request. Restarting it here races that request and reuses a
+                // qrsig that QQ has already consumed, producing a false expiry.
+                guard !qqMusic.isLoggedIn,
+                      newPhase == .active,
+                      qrsig != nil,
+                      pollTask == nil || phase == .expired || isFailed else { return }
                 startLogin(reusingCode: true)
+            }
+            .onChange(of: qqMusic.isLoggedIn) { loggedIn in
+                guard loggedIn else { return }
+                pollTask?.cancel()
+                pollTask = nil
+                dismiss()
             }
         }
     }
@@ -117,21 +140,43 @@ struct QQMusicQRCodeLoginSheet: View {
         }
     }
 
-    private func startLogin(reusingCode: Bool = false) {
+    private func startLogin(
+        reusingCode: Bool = false,
+        automaticRefresh: Bool = false
+    ) {
+        guard !qqMusic.isLoggedIn else {
+            dismiss()
+            return
+        }
         pollTask?.cancel()
+        let generation = UUID()
+        loginGeneration = generation
         phase = .loading
         if !reusingCode {
             qrImage = nil
             qrsig = nil
+            if !automaticRefresh {
+                didAutoRefreshExpiredCode = false
+            }
         }
         pollTask = Task { @MainActor in
+            defer {
+                // A background suspension may cancel the polling task before
+                // it can report a status. Clear the handle so the next active
+                // scene can request a new QR code instead of waiting forever.
+                if generation == loginGeneration {
+                    pollTask = nil
+                }
+            }
             do {
                 let activeQRSig: String
                 if reusingCode, let qrsig {
+                    guard generation == loginGeneration else { return }
                     activeQRSig = qrsig
                     phase = .waiting
                 } else {
                     let payload = try await requestQRCodeWithRetry()
+                    guard generation == loginGeneration else { return }
                     activeQRSig = payload.qrsig
                     qrsig = payload.qrsig
                     guard let image = UIImage(data: payload.imageData) else {
@@ -143,14 +188,34 @@ struct QQMusicQRCodeLoginSheet: View {
 
                 var errors = 0
                 while !Task.isCancelled {
+                    guard generation == loginGeneration else { return }
                     try await Task.sleep(for: .seconds(2.5))
                     do {
-                        switch try await QQMusicAPI.shared.poll(qrsig: activeQRSig) {
+                        let status = try await QQMusicAPI.shared.poll(qrsig: activeQRSig)
+                        guard generation == loginGeneration else { return }
+                        switch status {
                         case .waiting: phase = .waiting
                         case .scanned: phase = .scanned
-                        case .expired: phase = .expired; pollTask = nil; return
+                        case .expired:
+                            // Never let scenePhase reuse a QR token that the
+                            // provider has already invalidated.
+                            qrsig = nil
+                            pollTask = nil
+                            if !didAutoRefreshExpiredCode {
+                                didAutoRefreshExpiredCode = true
+                                phase = .loading
+                                try? await Task.sleep(for: .milliseconds(350))
+                                guard !Task.isCancelled,
+                                      generation == loginGeneration,
+                                      !qqMusic.isLoggedIn else { return }
+                                startLogin(automaticRefresh: true)
+                            } else {
+                                phase = .expired
+                            }
+                            return
                         case .success(let cookie):
-                            try await qqMusic.signIn(cookie: cookie)
+                            try await qqMusic.signInFromQR(cookie: cookie)
+                            guard generation == loginGeneration else { return }
                             ToastCenter.shared.show("QQ 音乐账号同步成功")
                             pollTask = nil
                             dismiss()
@@ -163,7 +228,7 @@ struct QQMusicQRCodeLoginSheet: View {
                     }
                 }
             } catch {
-                if !Task.isCancelled {
+                if !Task.isCancelled, generation == loginGeneration {
                     pollTask = nil
                     phase = .failed(error.localizedDescription)
                 }

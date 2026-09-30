@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { MoumusicAccountError, MoumusicAccountService } from './moumusic-account.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const websiteRoot = resolve(__dirname, '..')
@@ -28,6 +29,7 @@ const defaultChatwayWidgetId = 'qfybc7qkscn3ptkgxwrv'
 const cache = new Map()
 const latestReleaseCache = new Map()
 const rateBuckets = new Map()
+const moumusicAccounts = new MoumusicAccountService()
 
 export class AfdianError extends Error {
   constructor(code, message, status = 502) {
@@ -393,9 +395,120 @@ function sendJson(response, status, body) {
   response.setHeader('cache-control', 'no-store')
   response.end(JSON.stringify(body))
 }
+async function readJsonBody(request, maxBytes = 64 * 1024) {
+  let size = 0
+  let body = ''
+  for await (const chunk of request) {
+    size += Buffer.byteLength(chunk)
+    if (size > maxBytes) throw new MoumusicAccountError('REQUEST_TOO_LARGE', 'Request body is too large.', 413)
+    body += chunk
+  }
+  if (!body.trim()) return {}
+  try {
+    const parsed = JSON.parse(body)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('object required')
+    return parsed
+  } catch {
+    throw new MoumusicAccountError('INVALID_JSON', 'Request body must be valid JSON.', 400)
+  }
+}
 
+function applyMoumusicCORS(request, response) {
+  const allowed = String(process.env.MOUMUSIC_CORS_ORIGIN || '').trim()
+  const origin = String(request.headers.origin || '').trim()
+  if (!allowed || origin !== allowed) return
+  response.setHeader('access-control-allow-origin', allowed)
+  response.setHeader('access-control-allow-headers', 'authorization, content-type')
+  response.setHeader('access-control-allow-methods', 'GET, POST, PATCH, OPTIONS')
+  response.setHeader('access-control-max-age', '600')
+  response.setHeader('vary', 'Origin')
+}
+
+function sendMoumusicError(response, error, requestId) {
+  const safeError = error instanceof MoumusicAccountError
+    ? error
+    : new MoumusicAccountError('INTERNAL_ERROR', 'Moumusic account service is temporarily unavailable.', 503)
+  if (!(error instanceof MoumusicAccountError)) logEvent('moumusic_account_error', { requestId, code: safeError.code })
+  sendJson(response, safeError.status || 400, { success: false, error: { code: safeError.code, message: safeError.message } })
+}
+
+async function handleMoumusicRequest(request, response, pathname, requestId) {
+  applyMoumusicCORS(request, response)
+  if (request.method === 'OPTIONS') {
+    response.statusCode = 204
+    response.end()
+    return
+  }
+  const tail = pathname.split('/').filter(Boolean).slice(2)
+  try {
+    if (request.method === 'GET' && (tail[0] === 'health' || tail[0] === 'config')) {
+      await moumusicAccounts.ensureReady()
+      sendJson(response, 200, { success: true, config: moumusicAccounts.publicConfig() })
+      return
+    }
+    if (request.method === 'POST' && tail.join('/') === 'auth/register') {
+      sendJson(response, 201, { success: true, ...await moumusicAccounts.register(await readJsonBody(request)) })
+      return
+    }
+    if (request.method === 'POST' && tail.join('/') === 'auth/admin/login') {
+      sendJson(response, 200, { success: true, ...await moumusicAccounts.adminLogin(await readJsonBody(request)) })
+      return
+    }
+    if (request.method === 'POST' && tail.join('/') === 'auth/logout') {
+      await moumusicAccounts.logout(request)
+      sendJson(response, 200, { success: true })
+      return
+    }
+    if (request.method === 'GET' && tail.join('/') === 'me') {
+      const user = await moumusicAccounts.authenticate(request)
+      await moumusicAccounts.ensureReady()
+      sendJson(response, 200, { success: true, profile: moumusicAccounts.publicUser(user), server: moumusicAccounts.publicConfig() })
+      return
+    }
+    if (request.method === 'GET' && tail[0] === 'profile' && tail[1]) {
+      sendJson(response, 200, { success: true, profile: await moumusicAccounts.profile(decodeURIComponent(tail[1])) })
+      return
+    }
+    if (request.method === 'PATCH' && tail.join('/') === 'profile') {
+      const user = await moumusicAccounts.authenticate(request)
+      sendJson(response, 200, { success: true, profile: await moumusicAccounts.updateProfile(user, await readJsonBody(request)) })
+      return
+    }
+    if (tail[0] === 'admin' && tail[1] === 'settings') {
+      const user = await moumusicAccounts.authenticate(request)
+      moumusicAccounts.requireAdmin(user)
+      if (request.method === 'GET') {
+        await moumusicAccounts.ensureReady()
+        sendJson(response, 200, { success: true, config: moumusicAccounts.publicConfig() })
+      } else if (request.method === 'PATCH') {
+        sendJson(response, 200, { success: true, config: await moumusicAccounts.updateAdminSettings(user, await readJsonBody(request)) })
+      } else {
+        response.setHeader('allow', 'GET, PATCH')
+        sendJson(response, 405, { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed.' } })
+      }
+      return
+    }
+    if (tail[0] === 'admin' && tail[1] === 'users') {
+      const user = await moumusicAccounts.authenticate(request)
+      if (request.method === 'GET' && tail.length === 2) {
+        sendJson(response, 200, { success: true, users: await moumusicAccounts.listUsers(user) })
+      } else if (request.method === 'PATCH' && tail[2]) {
+        sendJson(response, 200, { success: true, user: await moumusicAccounts.updateUser(user, decodeURIComponent(tail[2]), await readJsonBody(request)) })
+      } else {
+        response.setHeader('allow', 'GET, PATCH')
+        sendJson(response, 405, { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed.' } })
+      }
+      return
+    }
+    sendJson(response, 404, { success: false, error: { code: 'NOT_FOUND', message: 'Moumusic account endpoint not found.' } })
+  } catch (error) {
+    sendMoumusicError(response, error, requestId)
+  }
+}
 async function sendLatestReleaseRedirect(response, platform) {
   try {
+    await moumusicAccounts.ensureReady()
+    if (!moumusicAccounts.downloadsEnabled) throw new MoumusicAccountError('DOWNLOADS_DISABLED', 'Downloads are temporarily disabled by the administrator.', 403)
     const name = releaseAssetNames[platform]?.[0]
     if (!name) throw new AfdianError('RELEASE_ASSET_MISSING', `No ${platform} asset configured.`, 503)
     response.statusCode = 302
@@ -458,6 +571,11 @@ async function handleRequest(request, response) {
 
   if (pathname.startsWith('/api/') && !checkRateLimit(request)) {
     sendJson(response, 429, { success: false, error: { code: 'RATE_LIMITED', message: '请求过于频繁，请稍后再试。' } })
+    return
+  }
+
+  if (pathname.startsWith('/api/moumusic/')) {
+    await handleMoumusicRequest(request, response, pathname, requestId)
     return
   }
 

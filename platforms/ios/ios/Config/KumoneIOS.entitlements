@@ -6,6 +6,9 @@
 	<array>
 		<string>group.com.jiajia2222.moumusic</string>
 	</array>
+	<!-- Enables the small iCloud key-value backup used for local library data. -->
+	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
+	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
 	<!-- Base entitlements - add your app's entitlements here -->
 	<!-- AI agents can safely modify this file to add capabilities -->
 	

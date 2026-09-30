@@ -92,6 +92,16 @@ enum AudioQuality: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// These tiers are not treated as available NetEase account privileges
+    /// for a non-VIP account. A third-party LX source may still advertise one
+    /// of them, but the player must label that route explicitly.
+    var requiresNeteaseVIP: Bool {
+        switch self {
+        case .master, .atmos, .dolby, .surround, .hires: return true
+        default: return false
+        }
+    }
+
     /// NetEase's official account endpoint uses different level names from
     /// LX User API. Keep this mapping in one place so the player can request
     /// an account URL without changing the third-party source protocol.
@@ -120,6 +130,59 @@ enum AudioQuality: String, CaseIterable, Identifiable, Sendable {
         case "standard", "128k": self = .standard
         default: return nil
         }
+    }
+
+    /// Converts a provider response into a display label. This is deliberately
+    /// separate from `displayName`: that property describes a requested tier,
+    /// while this helper describes what the provider actually reported.
+    static func resolvedDisplayName(_ rawValue: String?) -> String {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return "未知"
+        }
+        if rawValue.lowercased() == "unknown" {
+            return "未知（音源未返回音质字段）"
+        }
+        if let quality = AudioQuality(lxType: rawValue) {
+            return quality.sourceDisplayName
+        }
+        if let bitrate = Int(rawValue.lowercased()
+            .replacingOccurrences(of: "kbps", with: "")
+            .replacingOccurrences(of: "k", with: "")) {
+            return "\(bitrate) kbps"
+        }
+        return rawValue.uppercased()
+    }
+
+    static func isUnknownResolvedQuality(_ rawValue: String?) -> Bool {
+        rawValue?.lowercased() == "unknown" || rawValue == nil
+    }
+
+    /// Returns a comparable rank for a provider-reported result.  This is
+    /// intentionally separate from the request enum because providers may
+    /// return a concrete bitrate such as 192k that is not a selectable tier.
+    static func resolvedRank(_ rawValue: String?) -> Int? {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty,
+              rawValue.lowercased() != "unknown" else {
+            return nil
+        }
+        if let quality = AudioQuality(lxType: rawValue) {
+            switch quality {
+            case .master: return 900
+            case .atmos: return 850
+            case .dolby: return 840
+            case .surround: return 830
+            case .hires: return 800
+            case .lossless: return 700
+            case .exhigh, .higher: return 320
+            case .standard: return 128
+            }
+        }
+        let numeric = rawValue.lowercased()
+            .replacingOccurrences(of: "kbps", with: "")
+            .replacingOccurrences(of: "k", with: "")
+        return Int(numeric)
     }
 }
 
@@ -290,6 +353,30 @@ enum BilibiliRecommendationSource: String, CaseIterable, Identifiable, Sendable 
     }
 }
 
+/// Beans-style Bilibili mode. Watch and listen are deliberately mutually exclusive.
+enum BilibiliMode: String, CaseIterable, Identifiable, Equatable, Hashable, Sendable {
+    case disabled
+    case watch
+    case listen
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .disabled: return "关闭"
+        case .watch: return "看哔哩哔哩"
+        case .listen: return "听哔哩哔哩"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .disabled: return "不显示 B 站入口，也不会加载 B 站推荐。"
+        case .watch: return "显示视频、直播、动态与 B 站视频播放器。"
+        case .listen: return "保留 B 站音频播放；视频入口会切换为音频播放，不同时开启两个模式。"
+        }
+    }
+}
 @MainActor
 final class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
@@ -300,6 +387,7 @@ final class SettingsManager: ObservableObject {
         static let appearance = "settings.appearance"
         #if os(iOS)
         static let nowPlayingMode = "settings.nowPlayingMode"
+        static let lockScreenImmersiveArtwork = "settings.lockScreenImmersiveArtwork"
         #endif
         static let showTranslation = "settings.showLyricsTranslation"
         static let showRomaji = "settings.showLyricsRomaji"
@@ -316,12 +404,10 @@ final class SettingsManager: ObservableObject {
         static let homeRecommendationMode = "settings.homeRecommendationMode"
         static let homeRecommendationPlatform = "settings.homeRecommendationPlatform"
         static let sourcePlatformFallback = "settings.sourcePlatformFallback"
-        /// Legacy all-in-one Bilibili switch.  Kept only to migrate existing
-        /// installations to the two independent controls below.
-        static let bilibiliContentEnabled = "settings.bilibiliContentEnabled"
-        static let bilibiliVideoEnabled = "settings.bilibiliVideoEnabled"
-        static let bilibiliAudioEnabled = "settings.bilibiliAudioEnabled"
+        static let autoPauseOnRouteChange = "settings.autoPauseOnRouteChange"
+        static let bilibiliMode = "settings.bilibiliMode"
         static let bilibiliRecommendationSource = "settings.bilibiliRecommendationSource"
+        static let bilibiliDanmakuEnabled = "settings.bilibiliDanmakuEnabled"
     }
 
     @Published var audioQuality: AudioQuality {
@@ -339,6 +425,16 @@ final class SettingsManager: ObservableObject {
     #if os(iOS)
     @Published var nowPlayingMode: NowPlayingMode {
         didSet { UserDefaults.standard.set(nowPlayingMode.rawValue, forKey: Keys.nowPlayingMode) }
+    }
+
+    /// Supplies a high-resolution artwork representation to Apple's Now
+    /// Playing system so the expanded Lock Screen player can use immersive
+    /// album art. Turning it off keeps the standard, lightweight artwork.
+    @Published var lockScreenImmersiveArtwork: Bool {
+        didSet {
+            UserDefaults.standard.set(lockScreenImmersiveArtwork, forKey: Keys.lockScreenImmersiveArtwork)
+            NowPlayingManager.shared.refreshArtworkMode()
+        }
     }
     #endif
 
@@ -414,19 +510,26 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(enableSourcePlatformFallback, forKey: Keys.sourcePlatformFallback) }
     }
 
-    /// Lets the user browse and watch Bilibili content.  This is deliberately
-    /// independent from the audio-only capability so the Bilibili centre can
-    /// be hidden without disabling an already-open audio session.
-    @Published var bilibiliVideoEnabled: Bool {
-        didSet { UserDefaults.standard.set(bilibiliVideoEnabled, forKey: Keys.bilibiliVideoEnabled) }
+    /// Pause playback when iOS reports that headphones or another output
+    /// route was disconnected.  This mirrors the behavior users expect from
+    /// a native music player, while keeping an explicit opt-out for speakers,
+    /// Bluetooth adapters, and accessibility setups.
+    @Published var autoPauseOnRouteChange: Bool {
+        didSet { UserDefaults.standard.set(autoPauseOnRouteChange, forKey: Keys.autoPauseOnRouteChange) }
     }
 
-    /// Makes the "听视频" mode available in the native Bilibili player.
-    @Published var bilibiliAudioEnabled: Bool {
-        didSet { UserDefaults.standard.set(bilibiliAudioEnabled, forKey: Keys.bilibiliAudioEnabled) }
+    /// The Bilibili capability is one mutually-exclusive mode. The current
+    /// settings schema intentionally has no migration path for older builds:
+    /// a fresh install defaults to the video experience, and the selected mode
+    /// is the only source of truth for the Bilibili UI and player.
+    @Published var bilibiliMode: BilibiliMode {
+        didSet { UserDefaults.standard.set(bilibiliMode.rawValue, forKey: Keys.bilibiliMode) }
     }
-
     /// Which Bilibili client feed is used by the Bilibili recommendation page.
+    /// Show scrolling danmaku when a Bilibili video exposes the public XML feed.
+    @Published var bilibiliDanmakuEnabled: Bool {
+        didSet { UserDefaults.standard.set(bilibiliDanmakuEnabled, forKey: Keys.bilibiliDanmakuEnabled) }
+    }
     @Published var bilibiliRecommendationSource: BilibiliRecommendationSource {
         didSet {
             UserDefaults.standard.set(bilibiliRecommendationSource.rawValue,
@@ -442,6 +545,7 @@ final class SettingsManager: ObservableObject {
         appearance = defaults.string(forKey: Keys.appearance).flatMap(AppAppearance.init) ?? .auto
         #if os(iOS)
         nowPlayingMode = defaults.string(forKey: Keys.nowPlayingMode).flatMap(NowPlayingMode.init) ?? .immersive
+        lockScreenImmersiveArtwork = defaults.object(forKey: Keys.lockScreenImmersiveArtwork) as? Bool ?? true
         #endif
         showLyricsTranslation = defaults.object(forKey: Keys.showTranslation) as? Bool ?? true
         showLyricsRomaji = defaults.object(forKey: Keys.showRomaji) as? Bool ?? false
@@ -449,7 +553,7 @@ final class SettingsManager: ObservableObject {
         lyricsAnnotation = defaults.string(forKey: Keys.lyricsAnnotation)
             .flatMap(LyricsAnnotation.init) ?? (legacyRomaji ? .romaji : .off)
         lyricsDisplayStyle = defaults.string(forKey: Keys.lyricsDisplayStyle)
-            .flatMap(LyricsDisplayStyle.init) ?? .standard
+            .flatMap(LyricsDisplayStyle.init) ?? .amll
         verbatimLyrics = defaults.object(forKey: Keys.verbatimLyrics) as? Bool ?? true
         lyricsOffset = defaults.object(forKey: Keys.lyricsOffset) as? Double ?? 0
         enableUnblock = defaults.object(forKey: Keys.unblock) as? Bool ?? false
@@ -464,9 +568,55 @@ final class SettingsManager: ObservableObject {
             ($0 == .aggregate || $0 == .sd) ? nil : $0
         } ?? .wy
         enableSourcePlatformFallback = defaults.object(forKey: Keys.sourcePlatformFallback) as? Bool ?? true
-        let legacyBilibiliEnabled = defaults.object(forKey: Keys.bilibiliContentEnabled) as? Bool ?? true
-        bilibiliVideoEnabled = defaults.object(forKey: Keys.bilibiliVideoEnabled) as? Bool ?? legacyBilibiliEnabled
-        bilibiliAudioEnabled = defaults.object(forKey: Keys.bilibiliAudioEnabled) as? Bool ?? legacyBilibiliEnabled
+        autoPauseOnRouteChange = defaults.object(forKey: Keys.autoPauseOnRouteChange) as? Bool ?? true
+        bilibiliMode = defaults.string(forKey: Keys.bilibiliMode)
+            .flatMap(BilibiliMode.init(rawValue:)) ?? .watch
+        bilibiliDanmakuEnabled = defaults.object(forKey: Keys.bilibiliDanmakuEnabled) as? Bool ?? true
+        bilibiliRecommendationSource = defaults.string(forKey: Keys.bilibiliRecommendationSource)
+            .flatMap(BilibiliRecommendationSource.init(rawValue:)) ?? .app
+    }
+
+    /// Reloads the published values after an app-data backup has restored
+    /// UserDefaults. Without this, the file is restored correctly but an
+    /// already-running view would keep showing the old settings until restart.
+    func reloadFromDefaults() {
+        let defaults = UserDefaults.standard
+        audioQuality = defaults.string(forKey: Keys.quality)
+            .flatMap(AudioQuality.init(rawValue:)) ?? .exhigh
+        playbackSourceMode = defaults.string(forKey: Keys.playbackSourceMode)
+            .flatMap(PlaybackSourceMode.init(rawValue:)) ?? .automatic
+        appearance = defaults.string(forKey: Keys.appearance)
+            .flatMap(AppAppearance.init) ?? .auto
+#if os(iOS)
+        nowPlayingMode = defaults.string(forKey: Keys.nowPlayingMode)
+            .flatMap(NowPlayingMode.init) ?? .immersive
+        lockScreenImmersiveArtwork = defaults.object(forKey: Keys.lockScreenImmersiveArtwork) as? Bool ?? true
+#endif
+        showLyricsTranslation = defaults.object(forKey: Keys.showTranslation) as? Bool ?? true
+        showLyricsRomaji = defaults.object(forKey: Keys.showRomaji) as? Bool ?? false
+        let legacyRomaji = defaults.object(forKey: Keys.showRomaji) as? Bool ?? false
+        lyricsAnnotation = defaults.string(forKey: Keys.lyricsAnnotation)
+            .flatMap(LyricsAnnotation.init) ?? (legacyRomaji ? .romaji : .off)
+        lyricsDisplayStyle = defaults.string(forKey: Keys.lyricsDisplayStyle)
+            .flatMap(LyricsDisplayStyle.init) ?? .amll
+        verbatimLyrics = defaults.object(forKey: Keys.verbatimLyrics) as? Bool ?? true
+        lyricsOffset = defaults.object(forKey: Keys.lyricsOffset) as? Double ?? 0
+        enableUnblock = defaults.object(forKey: Keys.unblock) as? Bool ?? false
+        autoCheckUpdates = defaults.object(forKey: Keys.autoCheckUpdates) as? Bool ?? true
+        showDesktopLyrics = defaults.object(forKey: Keys.desktopLyrics) as? Bool ?? false
+        desktopLyricsCentered = defaults.object(forKey: Keys.desktopLyricsCentered) as? Bool ?? false
+        homeRecommendationMode = defaults.string(forKey: Keys.homeRecommendationMode)
+            .flatMap(HomeRecommendationMode.init) ?? .lx
+        let storedPlatform = defaults.string(forKey: Keys.homeRecommendationPlatform)
+            .flatMap(LXCatalogPlatform.init)
+        homeRecommendationPlatform = storedPlatform.flatMap {
+            ($0 == .aggregate || $0 == .sd) ? nil : $0
+        } ?? .wy
+        enableSourcePlatformFallback = defaults.object(forKey: Keys.sourcePlatformFallback) as? Bool ?? true
+        autoPauseOnRouteChange = defaults.object(forKey: Keys.autoPauseOnRouteChange) as? Bool ?? true
+        bilibiliMode = defaults.string(forKey: Keys.bilibiliMode)
+            .flatMap(BilibiliMode.init(rawValue:)) ?? .watch
+        bilibiliDanmakuEnabled = defaults.object(forKey: Keys.bilibiliDanmakuEnabled) as? Bool ?? true
         bilibiliRecommendationSource = defaults.string(forKey: Keys.bilibiliRecommendationSource)
             .flatMap(BilibiliRecommendationSource.init(rawValue:)) ?? .app
     }

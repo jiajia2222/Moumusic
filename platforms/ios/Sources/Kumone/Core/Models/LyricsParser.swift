@@ -20,6 +20,17 @@ struct LyricLine: Identifiable, Hashable {
     /// Per-word timings for karaoke highlighting; nil when only line-level
     /// (lrc) timing is available.
     var words: [LyricWord]?
+
+    /// A provider can include a `words` array without actually providing a
+    /// usable time axis (for example, one zero-duration item for the whole
+    /// line).  Treat that as ordinary LRC so AMLL never animates fabricated
+    /// karaoke timings.
+    var hasVerbatimTimings: Bool {
+        guard let words, !words.isEmpty else { return false }
+        return words.contains { word in
+            word.duration > 0 || abs(word.start - time) > 0.001
+        }
+    }
 }
 
 struct ParsedLyrics: Hashable {
@@ -29,6 +40,13 @@ struct ParsedLyrics: Hashable {
     var translationContributor: String?
 
     var isEmpty: Bool { lines.isEmpty }
+
+    /// Whether the provider supplied a real word/run time axis (YRC/KRC/
+    /// LX verbatim).  A line-timed LRC must not be presented as word-timed
+    /// karaoke: inventing timings makes short songs drift noticeably.
+    var hasVerbatimTimings: Bool {
+        lines.contains { $0.hasVerbatimTimings }
+    }
 
     /// Index of the active line for a playback position.
     func activeIndex(at time: TimeInterval) -> Int? {
@@ -86,7 +104,6 @@ enum LyricsParser {
 
         merge(tlyric, into: \.translation)
         merge(rlyric ?? lxlyric, into: \.romaji)
-        lines = addSyntheticWordTimings(to: lines)
         lines = addFurigana(to: lines)
         result.lines = lines
         return result
@@ -312,7 +329,6 @@ enum LyricsParser {
         }
 
         out.lines = lines
-        out.lines = addSyntheticWordTimings(to: out.lines)
         out.lines = addFurigana(to: out.lines)
         return out
     }
@@ -326,48 +342,4 @@ enum LyricsParser {
         return lines
     }
 
-    /// Makes line-timed lyrics feel like Apple Music's karaoke view when a
-    /// provider does not expose yrc/krc word timings. This is deliberately a
-    /// fallback only: real provider timings are kept untouched. English is
-    /// split by words; scripts without spaces are split by grapheme cluster.
-    private static func addSyntheticWordTimings(to input: [LyricLine]) -> [LyricLine] {
-        guard !input.isEmpty else { return input }
-        var lines = input
-        for index in lines.indices where lines[index].words == nil {
-            let tokens = karaokeTokens(lines[index].text)
-            guard !tokens.isEmpty else { continue }
-            let start = lines[index].time
-            let next = index + 1 < lines.count ? lines[index + 1].time : start + 4
-            let span = min(max(next - start, 1.2), 8)
-            let weights = tokens.map { max(1, $0.reduce(0) { $1.isWhitespace ? $0 : $0 + 1 }) }
-            let total = max(1, weights.reduce(0, +))
-            var cursor = start
-            let words = zip(tokens, weights).map { token, weight -> LyricWord in
-                let duration = span * Double(weight) / Double(total)
-                defer { cursor += duration }
-                return LyricWord(text: token, start: cursor, duration: duration)
-            }
-            lines[index].words = words
-        }
-        return lines
-    }
-
-    private static func karaokeTokens(_ text: String) -> [String] {
-        let characters = Array(text)
-        guard characters.count > 1 else { return text.isEmpty ? [] : [text] }
-        if characters.contains(where: { $0.isWhitespace }) {
-            var tokens: [String] = []
-            var current = ""
-            for character in characters {
-                current.append(character)
-                if character.isWhitespace {
-                    tokens.append(current)
-                    current = ""
-                }
-            }
-            if !current.isEmpty { tokens.append(current) }
-            return tokens
-        }
-        return characters.map(String.init)
-    }
 }

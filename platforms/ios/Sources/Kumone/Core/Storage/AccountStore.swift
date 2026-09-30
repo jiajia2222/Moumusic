@@ -32,6 +32,8 @@ final class AccountStore: ObservableObject {
     var isLoggedIn: Bool { NeteaseClient.shared.isLoggedIn && profile != nil }
     var hasAuthCookie: Bool { NeteaseClient.shared.isLoggedIn }
     var vipType: Int { profile?.vipType ?? 0 }
+    var vipStatusKnown: Bool { profile != nil }
+    var hasActiveVIP: Bool { profile?.hasActiveVIP ?? false }
 
     var likedSongsPlaylist: PlaylistSummary? {
         userPlaylists.first(where: \.isLikedSongsList) ?? userPlaylists.first
@@ -52,14 +54,25 @@ final class AccountStore: ObservableObject {
     /// Called at launch and after login succeeds.
     func bootstrap() async {
         defer { isBootstrapped = true }
-        guard hasAuthCookie else { return }
+        guard hasAuthCookie else {
+            profile = nil
+            ListeningSyncStore.shared.markSignedOut()
+            return
+        }
         refreshCookieIfNeeded()
         do {
             profile = try await NeteaseAPI.userAccount()
         } catch {
+            profile = nil
+            ListeningSyncStore.shared.markSignedOut()
+            return
+        }
+        guard let profile else {
+            ListeningSyncStore.shared.markSignedOut()
             return
         }
         await refreshLibrary()
+        await ListeningSyncStore.shared.refreshRemoteRecords(uid: profile.userId)
     }
 
     func refreshLibrary() async {
@@ -91,11 +104,21 @@ final class AccountStore: ObservableObject {
     /// foreground. This never imports every remote playlist automatically:
     /// only copies explicitly selected by the user are updated.
     func refreshForOpen(force: Bool = false) async {
-        guard hasAuthCookie else { return }
+        guard hasAuthCookie else {
+            profile = nil
+            ListeningSyncStore.shared.markSignedOut()
+            return
+        }
         let now = Date()
         if !force,
            let last = lastPlaylistSyncAt,
            now.timeIntervalSince(last) < 20 {
+            // Playlist metadata is throttled, but the recent-play list is the
+            // user's listening history and should still refresh when the
+            // account/profile page is reopened.
+            if let uid = profile?.userId {
+                await ListeningSyncStore.shared.refreshRemoteRecords(uid: uid)
+            }
             return
         }
         if profile == nil {
@@ -104,6 +127,9 @@ final class AccountStore: ObservableObject {
         }
         refreshCookieIfNeeded()
         await refreshLibrary()
+        if let uid = profile?.userId {
+            await ListeningSyncStore.shared.refreshRemoteRecords(uid: uid)
+        }
     }
 
     /// Imports the selected cloud playlists into the app's local playlist
@@ -145,6 +171,102 @@ final class AccountStore: ObservableObject {
         NowPlayingManager.shared.refreshLikeState()
     }
 
+    /// Automatically mirrors newly added NetEase tracks to the account's
+    /// official liked-songs playlist. Success is intentionally silent so
+    /// adding a track remains a single action without another sync button.
+    @discardableResult
+    func syncAddedTracksToOfficialPlaylist(
+        _ tracks: [Track],
+        localPlaylistID: UUID
+    ) async -> Int {
+        guard isLoggedIn,
+              let localPlaylist = LocalPlaylistStore.shared.playlist(id: localPlaylistID) else {
+            return 0
+        }
+        var playlistID = officialPlaylistID(for: localPlaylist)
+        if playlistID == nil {
+            await refreshLibrary()
+            playlistID = officialPlaylistID(for: localPlaylist)
+        }
+        guard let playlistID else { return 0 }
+
+        let ids = tracks.compactMap(neteaseTrackID(for:))
+        guard !ids.isEmpty else { return 0 }
+
+        do {
+            for chunkStart in stride(from: 0, to: ids.count, by: 100) {
+                let chunk = Array(ids.dropFirst(chunkStart).prefix(100))
+                try await NeteaseAPI.playlistTracks(
+                    op: "add",
+                    playlistID: playlistID,
+                    trackIDs: chunk
+                )
+            }
+            return ids.count
+        } catch {
+            ToastCenter.shared.show("本地已保存，网易云官方歌单同步失败")
+            return 0
+        }
+    }
+
+    /// Full sync exposed from a playlist's long-press menu.
+    func syncLocalPlaylistToOfficialPlaylist(localPlaylistID: UUID) async {
+        guard isLoggedIn else {
+            ToastCenter.shared.show("登录网易云后才能同步官方歌单")
+            return
+        }
+        guard let localPlaylist = LocalPlaylistStore.shared.playlist(id: localPlaylistID) else {
+            return
+        }
+        var playlistID = officialPlaylistID(for: localPlaylist)
+        if playlistID == nil {
+            await refreshLibrary()
+            playlistID = officialPlaylistID(for: localPlaylist)
+        }
+        guard let playlistID else {
+            ToastCenter.shared.show("网易云官方歌单暂时无法获取")
+            return
+        }
+
+        let ids = localPlaylist.tracks.compactMap(neteaseTrackID(for:))
+        guard !ids.isEmpty else {
+            ToastCenter.shared.show("当前歌单没有可同步的网易云歌曲")
+            return
+        }
+
+        do {
+            for chunkStart in stride(from: 0, to: ids.count, by: 100) {
+                let chunk = Array(ids.dropFirst(chunkStart).prefix(100))
+                try await NeteaseAPI.playlistTracks(
+                    op: "add",
+                    playlistID: playlistID,
+                    trackIDs: chunk
+                )
+            }
+            ToastCenter.shared.show("已同步 \(ids.count) 首歌曲到网易云官方歌单")
+        } catch {
+            ToastCenter.shared.show("官方歌单同步失败，歌曲仍保存在本地")
+        }
+    }
+
+    private func officialPlaylistID(for localPlaylist: LocalPlaylist) -> Int? {
+        if localPlaylist.remoteSource == "netease",
+           let remoteID = localPlaylist.remotePlaylistID,
+           let playlistID = Int(remoteID) {
+            return playlistID
+        }
+        return userPlaylists.first(where: \.isLikedSongsList)?.id
+    }
+
+    private func neteaseTrackID(for track: Track) -> Int? {
+        let normalized = track.normalizedForLXPlayback()
+        let source = (normalized.source ?? normalized.sourceMetadata["source"] ?? "wy").lowercased()
+        guard source == "wy" || source == "netease" || source == "163" else { return nil }
+        return Int(normalized.sourceMetadata["songmid"]
+            ?? normalized.sourceMetadata["id"]
+            ?? String(normalized.id))
+    }
+
     func logout() async {
         await NeteaseAPI.logout()
         profile = nil
@@ -153,6 +275,7 @@ final class AccountStore: ObservableObject {
         likedAlbums = []
         likedArtists = []
         isBootstrapped = true
+        ListeningSyncStore.shared.markSignedOut()
     }
 
     private func syncImportedPlaylistCopies() async {
@@ -272,6 +395,10 @@ final class ListeningSyncStore: ObservableObject {
     @Published private(set) var syncedTrackCount: Int
     @Published private(set) var lastSyncedAt: Date?
     @Published private(set) var lastSyncSucceeded: Bool?
+    @Published private(set) var recentTracks: [Track] = []
+    @Published private(set) var remotePlayCount = 0
+    @Published private(set) var remoteRecordsError: String?
+    @Published private(set) var isAuthenticated = false
 
     private init() {
         let defaults = UserDefaults.standard
@@ -281,8 +408,43 @@ final class ListeningSyncStore: ObservableObject {
         lastSyncSucceeded = defaults.object(forKey: "account.sync.lastSyncSucceeded") as? Bool
     }
 
+    func markSignedOut() {
+        isAuthenticated = false
+        lastSyncSucceeded = nil
+        recentTracks = []
+        remotePlayCount = 0
+        remoteRecordsError = nil
+    }
+
+    func markAuthenticated() {
+        isAuthenticated = true
+    }
+
+    /// Reads the actual NetEase recent-play list. A read failure must not erase
+    /// a successfully submitted local listening interval.
+    func refreshRemoteRecords(uid: Int) async {
+        guard AccountStore.shared.isLoggedIn else {
+            markSignedOut()
+            return
+        }
+        markAuthenticated()
+        do {
+            let records = try await NeteaseAPI.playRecords(uid: uid, week: true)
+            recentTracks = records.map { $0.song.normalizedForLXPlayback() }
+            remotePlayCount = records.reduce(0) { $0 + max(0, $1.playCount) }
+            remoteRecordsError = nil
+        } catch {
+            remoteRecordsError = error.localizedDescription
+        }
+    }
+
     func record(seconds: Int) {
         guard seconds > 0 else { return }
+        guard AccountStore.shared.isLoggedIn else {
+            markSignedOut()
+            return
+        }
+        markAuthenticated()
         syncedSeconds += seconds
         syncedTrackCount += 1
         lastSyncedAt = .now
@@ -299,6 +461,11 @@ final class ListeningSyncStore: ObservableObject {
     /// listening interval was synced when NetEase rejected or never received
     /// the weblog request.
     func recordFailure() {
+        guard AccountStore.shared.isLoggedIn else {
+            markSignedOut()
+            return
+        }
+        markAuthenticated()
         lastSyncSucceeded = false
         UserDefaults.standard.set(false, forKey: "account.sync.lastSyncSucceeded")
     }
@@ -308,6 +475,18 @@ final class ListeningSyncStore: ObservableObject {
         case true: return "已同步"
         case false: return "同步失败"
         case nil: return "待同步"
+        }
+    }
+
+    var platformStatusText: String {
+        guard isAuthenticated else { return "网易云音乐 · 未登录" }
+        if remoteRecordsError != nil {
+            return "网易云音乐 · 读取失败"
+        }
+        switch lastSyncSucceeded {
+        case true: return "网易云音乐 · 已同步"
+        case false: return "网易云音乐 · 同步失败"
+        case nil: return "网易云音乐 · 等待同步"
         }
     }
 

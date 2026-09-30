@@ -6,7 +6,6 @@ import UIKit
 
 struct PlayerBar: View {
     @EnvironmentObject private var player: PlayerService
-    @EnvironmentObject private var account: AccountStore
 
     var body: some View {
         GeometryReader { proxy in
@@ -47,9 +46,6 @@ struct PlayerBar: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if let track = player.currentTrack {
-                LikeButton(trackID: track.id)
-            }
         }
     }
 
@@ -156,8 +152,8 @@ struct PlayerBar: View {
     private func optionsSection(compact: Bool) -> some View {
         HStack(spacing: 4) {
             if !compact, let level = player.servedQuality,
-               let quality = AudioQuality(rawValue: level) ?? AudioQuality(lxType: level) {
-                QualityTag(text: quality.badge)
+               !level.isEmpty {
+                QualityTag(text: AudioQuality.resolvedDisplayName(level))
                     .padding(.trailing, 2)
             }
             PlayerIconButton(
@@ -248,16 +244,21 @@ struct LikeButton: View {
     let trackID: Int
     var size: CGFloat = 13
 
-    @EnvironmentObject private var account: AccountStore
+    @EnvironmentObject private var player: PlayerService
+    @ObservedObject private var favorites = FavoritesStore.shared
 
     var body: some View {
-        let liked = account.isLiked(trackID)
+        let track = player.currentTrack?.id == trackID ? player.currentTrack : nil
+        let liked = track.map(favorites.contains) ?? false
         PlayerIconButton(
             icon: liked ? "heart.fill" : "heart", size: size,
             isActive: liked
         ) {
-            Task { await account.toggleLike(trackID: trackID) }
+            guard let track else { return }
+            let isLiked = favorites.toggle(track)
+            ToastCenter.shared.show(isLiked ? "已加入本地收藏" : "已取消本地收藏")
         }
+        .disabled(track == nil)
         .help(liked ? String(localized: "取消喜欢") : String(localized: "喜欢"))
     }
 }

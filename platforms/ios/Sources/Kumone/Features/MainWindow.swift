@@ -96,7 +96,7 @@ struct MainWindow: View {
             }
         }
         .animation(AppAnimation.smooth, value: player.showNowPlaying)
-        .animation(.spring(duration: 0.3), value: toasts.current)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: toasts.current)
     }
 
     private var detailStack: some View {

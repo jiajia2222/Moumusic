@@ -70,6 +70,7 @@ struct PlaylistDetailView: View {
     var isLikedList = false
 
     @StateObject private var model: PlaylistDetailViewModel
+    @StateObject private var favorites = FavoritesStore.shared
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -233,6 +234,8 @@ struct PlaylistDetailView: View {
                 }
                 .buttonStyle(.pressable)
 
+                favoriteButton(detail, compact: true)
+
                 if isLikedList {
                     Button {
                         startHeartbeat()
@@ -340,6 +343,8 @@ struct PlaylistDetailView: View {
             }
             .buttonStyle(.pressable)
 
+            favoriteButton(detail)
+
             if isLikedList {
                 Button {
                     startHeartbeat()
@@ -389,6 +394,37 @@ struct PlaylistDetailView: View {
                            isLoggedIn: account.isLoggedIn,
                            vipType: account.vipType) == .playable
         }
+    }
+
+    private func favoriteButton(_ detail: PlaylistDetail, compact: Bool = false) -> some View {
+        Button {
+            let added = favorites.toggle(
+                kind: .playlist,
+                source: "wy",
+                providerID: String(detail.id),
+                name: detail.name,
+                coverURL: detail.coverImgUrl,
+                subtitle: detail.creator?.nickname
+            )
+            ToastCenter.shared.show(added ? "已收藏歌单" : "已取消收藏歌单")
+        } label: {
+            if compact {
+                Image(systemName: favorites.contains(kind: .playlist, source: "wy", providerID: String(detail.id))
+                      ? "bookmark.fill" : "bookmark")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 38, height: 38)
+                    .background(.primary.opacity(0.06), in: Circle())
+            } else {
+                Label(favorites.contains(kind: .playlist, source: "wy", providerID: String(detail.id))
+                      ? "已收藏" : "收藏", systemImage: "bookmark")
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.primary.opacity(0.06), in: Capsule())
+            }
+        }
+        .buttonStyle(.pressable)
     }
 
     private func startHeartbeat() {

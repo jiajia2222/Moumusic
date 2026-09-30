@@ -8,6 +8,7 @@ public struct KumoneApp: App {
     @StateObject private var account = AccountStore.shared
     @StateObject private var settings = SettingsManager.shared
     @StateObject private var toasts = ToastCenter.shared
+    @StateObject private var favorites = FavoritesStore.shared
 
     public init() {}
 
@@ -54,9 +55,10 @@ public struct KumoneApp: App {
 
                 Divider()
 
-                Button(player.currentTrack.map { AccountStore.shared.isLiked($0.id) ? String(localized: "取消喜欢") : String(localized: "喜欢") } ?? String(localized: "喜欢")) {
+                Button(player.currentTrack.map { favorites.contains($0) ? String(localized: "取消喜欢") : String(localized: "喜欢") } ?? String(localized: "喜欢")) {
                     if let track = player.currentTrack {
-                        Task { await account.toggleLike(trackID: track.id) }
+                        let isLiked = favorites.toggle(track)
+                        ToastCenter.shared.show(isLiked ? "已加入本地收藏" : "已取消本地收藏")
                     }
                 }
                 .keyboardShortcut("l", modifiers: [.command, .shift])

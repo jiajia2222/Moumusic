@@ -8,6 +8,7 @@ struct QQMusicLoginSheet: View {
     @State private var errorMessage: String?
 #if os(iOS)
     @State private var showQRCodeLogin = false
+    @State private var showWebLogin = false
 #endif
 
     var body: some View {
@@ -26,6 +27,10 @@ struct QQMusicLoginSheet: View {
                             Label("QQ 音乐扫码登录", systemImage: "qrcode.viewfinder")
                         }
                         .buttonStyle(.borderedProminent)
+                        Button { showWebLogin = true } label: {
+                            Label("网页 / 手机号登录", systemImage: "safari")
+                        }
+                        .buttonStyle(.bordered)
 #endif
                         TextEditor(text: $cookie)
                             .frame(minHeight: 110)
@@ -72,6 +77,12 @@ struct QQMusicLoginSheet: View {
             .sheet(isPresented: $showQRCodeLogin) {
                 QQMusicQRCodeLoginSheet()
                     .environmentObject(qqMusic)
+            }
+            .sheet(isPresented: $showWebLogin) {
+                ProviderWebLoginSheet(provider: .qqMusic) { value in
+                    try await qqMusic.signInFromWeb(cookie: value)
+                }
+                .presentationDetents([.large])
             }
 #endif
         }

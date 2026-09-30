@@ -5,6 +5,58 @@ import Foundation
 /// The player consumes the same public playurl/subtitle data used by
 /// PiliPlus.  Account cookies are only passed in-process and are never
 /// returned by this API to a web page.
+private final class BilibiliDanmakuXMLParser: NSObject, XMLParserDelegate {
+    struct Item {
+        let start: TimeInterval
+        let end: TimeInterval
+        let text: String
+        let color: UInt32
+        let mode: Int
+    }
+
+    private(set) var items: [Item] = []
+    private var current: Item?
+    private var currentText = ""
+
+    func parse(_ data: Data) throws -> [Item] {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        guard parser.parse() else { throw BilibiliAPI.APIError.invalidResponse }
+        return items
+    }
+
+    func parser(_ parser: XMLParser,
+                didStartElement elementName: String,
+                namespaceURI: String?,
+                qualifiedName qName: String?,
+                attributes attributeDict: [String : String] = [:]) {
+        guard elementName == "d", let raw = attributeDict["p"] else { return }
+        let parts = raw.split(separator: ",", omittingEmptySubsequences: false)
+        guard let start = Double(parts.first ?? "") else { return }
+        let mode = parts.count > 1 ? Int(parts[1]) ?? 1 : 1
+        let color = parts.count > 3 ? UInt32(String(parts[3]), radix: 16) ?? 0xFFFFFF : 0xFFFFFF
+        current = Item(start: start, end: start + 6, text: "", color: color, mode: mode)
+        currentText = ""
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        guard current != nil else { return }
+        currentText.append(string)
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String,
+                namespaceURI: String?, qualifiedName qName: String?) {
+        guard elementName == "d", var item = current else { return }
+        let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty {
+            item = Item(start: item.start, end: item.end, text: text,
+                        color: item.color, mode: item.mode)
+            items.append(item)
+        }
+        current = nil
+        currentText = ""
+    }
+}
 actor BilibiliAPI {
     static let shared = BilibiliAPI()
 
@@ -24,6 +76,18 @@ actor BilibiliAPI {
         let id: String
         let name: String
         let avatarURL: String?
+        let isVIP: Bool
+        let vipType: Int
+        let vipDueDate: Date?
+        let membershipLabel: String?
+
+        var membershipTitle: String? {
+            guard isVIP else { return nil }
+            if let membershipLabel, !membershipLabel.isEmpty {
+                return membershipLabel
+            }
+            return vipType >= 2 ? "\u{5927}\u{4F1A}\u{5458}" : "\u{666E}\u{901A}\u{4F1A}\u{5458}"
+        }
     }
 
     struct Video: Identifiable, Hashable, Sendable {
@@ -69,6 +133,26 @@ actor BilibiliAPI {
     struct VideoQuality: Identifiable, Hashable, Sendable {
         let code: Int
         let title: String
+        let requiresLogin: Bool
+        let requiresVIP: Bool
+        let isHDR: Bool
+        let isDolby: Bool
+
+        init(code: Int, title: String, requiresLogin: Bool = false,
+             requiresVIP: Bool = false, isHDR: Bool = false, isDolby: Bool = false) {
+            self.code = code
+            self.title = title
+            self.requiresLogin = requiresLogin
+            self.requiresVIP = requiresVIP
+            self.isHDR = isHDR
+            self.isDolby = isDolby
+        }
+
+        var displayTitle: String {
+            if requiresVIP { return "\(title) · 会员" }
+            if requiresLogin { return "\(title) · 登录" }
+            return title
+        }
 
         var id: Int { code }
     }
@@ -80,6 +164,27 @@ actor BilibiliAPI {
         let code: Int
         let title: String
         let bitrate: Int?
+        let requiresLogin: Bool
+        let requiresVIP: Bool
+        let isHiRes: Bool
+        let isDolby: Bool
+
+        init(code: Int, title: String, bitrate: Int?, requiresLogin: Bool = false,
+             requiresVIP: Bool = false, isHiRes: Bool = false, isDolby: Bool = false) {
+            self.code = code
+            self.title = title
+            self.bitrate = bitrate
+            self.requiresLogin = requiresLogin
+            self.requiresVIP = requiresVIP
+            self.isHiRes = isHiRes
+            self.isDolby = isDolby
+        }
+
+        var displayTitle: String {
+            if requiresVIP { return "\(title) · 会员" }
+            if requiresLogin { return "\(title) · 登录" }
+            return title
+        }
 
         var id: Int { code }
     }
@@ -214,6 +319,66 @@ actor BilibiliAPI {
         let hasMore: Bool
     }
 
+    struct DanmakuCue: Identifiable, Hashable, Sendable {
+        let id: String
+        let start: TimeInterval
+        let end: TimeInterval
+        let text: String
+        let color: UInt32
+        let mode: Int
+    }
+
+    struct InteractionState: Sendable {
+        let isLiked: Bool
+        let coinCount: Int
+        let isFavorited: Bool
+    }
+
+    struct DynamicItem: Identifiable, Hashable, Sendable {
+        let id: String
+        let author: String
+        let avatarURL: String?
+        let text: String
+        let coverURL: String?
+        let publishedAt: Date?
+        let likeCount: Int
+        let commentCount: Int
+        let video: Video?
+    }
+
+    // Account surfaces used by the Beans 2.0-style “我的” page.  These are
+    // deliberately separate from the music account stores: a B 站 session is
+    // only used for B 站 public/account data and is never treated as a music
+    // playback source.
+    struct WatchHistoryItem: Identifiable, Hashable, Sendable {
+        let historyID: String
+        let bvid: String?
+        let title: String
+        let coverURL: String?
+        let author: String
+        let durationText: String
+        let viewedAt: Date?
+        let video: Video?
+
+        var id: String { historyID }
+    }
+
+    struct FavoriteFolder: Identifiable, Hashable, Sendable {
+        let id: Int
+        let title: String
+        let mediaCount: Int
+        let coverURL: String?
+    }
+
+    struct PrivateMessageThread: Identifiable, Hashable, Sendable {
+        let id: String
+        let userID: Int
+        let userName: String
+        let avatarURL: String?
+        let lastMessage: String
+        let unreadCount: Int
+        let updatedAt: Date?
+    }
     enum APIError: LocalizedError {
         case requestFailed
         case invalidResponse
@@ -237,7 +402,11 @@ actor BilibiliAPI {
     private let session: URLSession
     private let cookieStorage: HTTPCookieStorage
     private let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
-    private var visitorBootstrapAttempted = false
+    // The first search used to fail intermittently because the old boolean
+    // marked the bootstrap as complete before the network request finished.
+    // Keep the in-flight task instead: callers share one bootstrap request,
+    // and a failed request can be retried on the next API call.
+    private var visitorBootstrapTask: Task<Void, Never>?
     private let sessionCookieNames = [
         "DedeUserID", "DedeUserID__ckMd5", "SESSDATA", "bili_jct", "sid"
     ]
@@ -261,6 +430,10 @@ actor BilibiliAPI {
         ]))
         applyHeaders(to: &request, referer: "https://www.bilibili.com/")
         let (data, response) = try await session.data(for: request)
+        // Keep any visitor/session cookies returned by passport in the same
+        // jar used by the poll request. URLSession normally does this, but
+        // the QR endpoint can redirect across passport hosts on iOS.
+        collectCookies(from: response)
         guard Self.isSuccess(response),
               let root = Self.object(data),
               let payload = root["data"] as? [String: Any],
@@ -281,6 +454,7 @@ actor BilibiliAPI {
         var request = URLRequest(url: components.url!)
         applyHeaders(to: &request, referer: "https://www.bilibili.com/")
         let (data, response) = try await session.data(for: request)
+        collectCookies(from: response)
         guard Self.isSuccess(response),
               let root = Self.object(data),
               let payload = root["data"] as? [String: Any] else {
@@ -317,13 +491,35 @@ actor BilibiliAPI {
               let root = Self.object(data),
               Self.integer(root["code"]) == 0,
               let payload = root["data"] as? [String: Any],
-              Self.bool(payload["isLogin"]) == true,
               let id = Self.text(payload["mid"]),
               let name = Self.text(payload["uname"]),
               !name.isEmpty else {
             throw APIError.unavailable
         }
-        return Profile(id: id, name: name, avatarURL: Self.imageURL(Self.text(payload["face"])))
+        // `/nav` has returned Boolean, numeric, and string flags over time.
+        // Some responses omit `isLogin` after a fresh QR scan while still
+        // returning a real account id and name; accept that shape, but never
+        // override an explicit false value.
+        let loggedIn = Self.bool(payload["isLogin"]) ?? ((Int(id) ?? 0) > 0)
+        guard loggedIn else { throw APIError.unavailable }
+        let vip = payload["vip"] as? [String: Any]
+        let vipType = Self.integer(vip?["type"] ?? vip?["vip_type"] ?? payload["vip_type"]) ?? 0
+        let vipStatus = Self.integer(vip?["status"] ?? vip?["vip_status"] ?? payload["vip_status"]) ?? 0
+        let dueDate = Self.dateFromMilliseconds(vip?["due_date"] ?? payload["vip_due_date"])
+        let vipLabel = vip?["label"] as? [String: Any]
+        let membershipLabel = Self.text(vipLabel?["text"] ?? vip?["label_text"])
+        let isVIP = (vipStatus > 0 && vipType > 0) ||
+            Self.bool(vip?["is_senior_member"] ?? payload["is_senior_member"]) == true ||
+            Self.bool(vip?["is_annual_vip"] ?? payload["is_annual_vip"]) == true
+        return Profile(
+            id: id,
+            name: name,
+            avatarURL: Self.imageURL(Self.text(payload["face"])),
+            isVIP: isVIP,
+            vipType: vipType,
+            vipDueDate: dueDate,
+            membershipLabel: membershipLabel
+        )
     }
 
     func popularVideos(page: Int = 1, cookie: String? = nil) async throws -> [Video] {
@@ -772,48 +968,263 @@ actor BilibiliAPI {
         )
     }
 
+    /// Loads the account timeline used by Cilicili's Dynamic page.
+    func dynamicFeed(cookie: String? = nil) async throws -> [DynamicItem] {
+        guard let cookie, !cookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw APIError.unavailable
+        }
+        var components = URLComponents(string: "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all")!
+        components.queryItems = [
+            URLQueryItem(name: "type", value: "all"),
+            URLQueryItem(name: "platform", value: "web"),
+            URLQueryItem(name: "features", value: "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard,onlyfansAssetsV2,forwardListHidden,ugcDelete"),
+            URLQueryItem(name: "web_location", value: "333.1365")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://t.bilibili.com/")
+        let data = root["data"] as? [String: Any]
+        return (data?["items"] as? [[String: Any]] ?? []).compactMap(Self.dynamicItem)
+    }
+
+    /// Returns the signed-in user's B 站 watch history.  The endpoint is
+    /// intentionally called only after a cookie-backed login; anonymous
+    /// browsing continues to use the public recommendation APIs.
+    func watchHistory(page: Int = 1, pageSize: Int = 30,
+                      cookie: String? = nil) async throws -> [WatchHistoryItem] {
+        guard let cookie, !cookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw APIError.unavailable
+        }
+        var components = URLComponents(string: "https://api.bilibili.com/x/v2/history")!
+        components.queryItems = [
+            URLQueryItem(name: "pn", value: "\(max(1, page))"),
+            URLQueryItem(name: "ps", value: "\(min(max(1, pageSize), 100))")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://www.bilibili.com/account/history")
+        return Self.dictionaryRows(root["data"]).compactMap(Self.watchHistoryItem)
+    }
+
+    /// Lists the folders visible in the user's B 站 favorites.
+    func favoriteFolders(cookie: String? = nil) async throws -> [FavoriteFolder] {
+        guard let cookie,
+              let mid = Self.cookieValue("DedeUserID", from: cookie),
+              !mid.isEmpty else { throw APIError.unavailable }
+        var components = URLComponents(string: "https://api.bilibili.com/x/v3/fav/folder/created/list-all")!
+        components.queryItems = [
+            URLQueryItem(name: "up_mid", value: mid),
+            URLQueryItem(name: "type", value: "2")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://space.bilibili.com/\(mid)/favlist")
+        return Self.dictionaryRows(root["data"]).compactMap(Self.favoriteFolder)
+    }
+
+    /// Loads videos from one B 站 favorite folder.  Favorite responses use a
+    /// different shape than search responses, so they are normalized into the
+    /// same Video model before reaching the existing detail/player UI.
+    func favoriteVideos(folderID: Int, page: Int = 1, pageSize: Int = 30,
+                        cookie: String? = nil) async throws -> [Video] {
+        guard folderID > 0, let cookie,
+              !cookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw APIError.unavailable
+        }
+        var components = URLComponents(string: "https://api.bilibili.com/x/v3/fav/resource/list")!
+        components.queryItems = [
+            URLQueryItem(name: "media_id", value: "\(folderID)"),
+            URLQueryItem(name: "pn", value: "\(max(1, page))"),
+            URLQueryItem(name: "ps", value: "\(min(max(1, pageSize), 100))"),
+            URLQueryItem(name: "platform", value: "web")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://www.bilibili.com/medialist/detail/ml\(folderID)")
+        return Self.dictionaryRows(root["data"]).compactMap(Self.favoriteVideo)
+    }
+
+    /// Reads the lightweight session list used by the B 站 private-message
+    /// inbox.  Message bodies are not fetched here; the list is enough for the
+    /// account page and avoids storing private conversations locally.
+    func privateMessages(cookie: String? = nil) async throws -> [PrivateMessageThread] {
+        guard let cookie, !cookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw APIError.unavailable
+        }
+        var components = URLComponents(string: "https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions")!
+        components.queryItems = [
+            URLQueryItem(name: "session_type", value: "1"),
+            URLQueryItem(name: "fold", value: "0"),
+            URLQueryItem(name: "sort_rule", value: "2"),
+            URLQueryItem(name: "build", value: "0"),
+            URLQueryItem(name: "mobi_app", value: "web")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://message.bilibili.com/")
+        return Self.dictionaryRows(root["data"]).compactMap(Self.privateMessageThread)
+    }
+
+    /// Reads the XML danmaku feed used by the Cilicili player.
+    func danmaku(cid: Int, cookie: String? = nil) async throws -> [DanmakuCue] {
+        guard cid > 0 else { throw APIError.invalidResponse }
+        await ensureVisitorCookies()
+        let endpoint = URL(string: "https://comment.bilibili.com/\(cid).xml")!
+        var request = URLRequest(url: endpoint)
+        applyHeaders(to: &request, referer: "https://www.bilibili.com/")
+        request.setValue("application/xml,text/xml,*/*", forHTTPHeaderField: "Accept")
+        let cookies = mergedRequestCookieHeader(cookie)
+        if !cookies.isEmpty { request.setValue(cookies, forHTTPHeaderField: "Cookie") }
+        let (data, response) = try await session.data(for: request)
+        guard Self.isSuccess(response), !data.isEmpty else { throw APIError.requestFailed }
+        let parsed = try BilibiliDanmakuXMLParser().parse(data)
+        return parsed.prefix(6000).enumerated().map { index, item in
+            DanmakuCue(id: "\(cid)-\(index)-\(item.start)-\(item.text)",
+                       start: item.start, end: item.end, text: item.text,
+                       color: item.color, mode: item.mode)
+        }
+    }
+
+    func interactionState(aid: Int, cookie: String? = nil) async throws -> InteractionState {
+        guard aid > 0 else { throw APIError.invalidResponse }
+        let likeURL = URL(string: "https://api.bilibili.com/x/web-interface/archive/has/like?aid=\(aid)")!
+        let coinURL = URL(string: "https://api.bilibili.com/x/web-interface/archive/coins?aid=\(aid)")!
+        let favoriteURL = URL(string: "https://api.bilibili.com/x/v2/fav/video/favoured?aid=\(aid)")!
+        let likeRoot = try await requestObject(likeURL, cookie: cookie)
+        let coinRoot = try await requestObject(coinURL, cookie: cookie)
+        let favoriteRoot = try await requestObject(favoriteURL, cookie: cookie)
+        let likeData = likeRoot["data"] as? [String: Any]
+        let coinData = coinRoot["data"] as? [String: Any]
+        let favoriteData = favoriteRoot["data"] as? [String: Any]
+        let likeValue = Self.integer(likeRoot["data"]) ?? Self.integer(likeData?["like"]) ?? 0
+        return InteractionState(
+            isLiked: likeValue == 1 || Self.bool(likeData?["like"]) == true,
+            coinCount: Self.integer(coinData?["multiply"] ?? coinRoot["data"]) ?? 0,
+            isFavorited: Self.bool(favoriteData?["favoured"] ?? favoriteRoot["data"]) ?? false
+        )
+    }
+
+    func postComment(aid: Int, message: String, cookie: String? = nil) async throws {
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard aid > 0, !text.isEmpty, let cookie,
+              let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty else {
+            throw APIError.unavailable
+        }
+        let endpoint = URL(string: "https://api.bilibili.com/x/v2/reply/add")!
+        _ = try await postFormObject(endpoint, fields: [
+            "oid": "\(aid)", "type": "1", "message": text,
+            "plat": "1", "csrf": csrf
+        ], cookie: cookie, referer: "https://www.bilibili.com/video/")
+    }
+
+    func setVideoLike(aid: Int, liked: Bool, cookie: String? = nil) async throws {
+        guard aid > 0, let cookie,
+              let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty else {
+            throw APIError.unavailable
+        }
+        let endpoint = URL(string: "https://api.bilibili.com/x/web-interface/archive/like")!
+        _ = try await postFormObject(endpoint, fields: [
+            "aid": "\(aid)", "like": liked ? "1" : "2", "csrf": csrf,
+            "cross_domain": "true", "source": "web_normal", "ga": "1"
+        ], cookie: cookie, referer: "https://www.bilibili.com/")
+    }
+
+    func addVideoCoin(aid: Int, cookie: String? = nil) async throws {
+        guard aid > 0, let cookie,
+              let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty else {
+            throw APIError.unavailable
+        }
+        let endpoint = URL(string: "https://api.bilibili.com/x/web-interface/coin/add")!
+        _ = try await postFormObject(endpoint, fields: [
+            "aid": "\(aid)", "multiply": "1", "select_like": "0", "csrf": csrf,
+            "cross_domain": "true", "source": "web_normal", "ga": "1"
+        ], cookie: cookie, referer: "https://www.bilibili.com/")
+    }
+
+    func setVideoFavorite(aid: Int, favorited: Bool, cookie: String? = nil) async throws {
+        guard aid > 0, let cookie,
+              let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty,
+              let mid = Self.cookieValue("DedeUserID", from: cookie) else { throw APIError.unavailable }
+        var folderComponents = URLComponents(string: "https://api.bilibili.com/x/v3/fav/folder/created/list-all")!
+        folderComponents.queryItems = [
+            URLQueryItem(name: "up_mid", value: mid),
+            URLQueryItem(name: "type", value: "2"),
+            URLQueryItem(name: "rid", value: "\(aid)")
+        ]
+        let folderRoot = try await requestObject(folderComponents.url!, cookie: cookie)
+        let rows = ((folderRoot["data"] as? [String: Any])?["list"] as? [[String: Any]]) ?? []
+        let folderIDs = rows.compactMap { Self.integer($0["id"] ?? $0["media_id"]) }.filter { $0 > 0 }
+        let addIDs = favorited ? folderIDs.prefix(1).map(String.init).joined(separator: ",") : ""
+        let deleteIDs = favorited ? "" : folderIDs.map(String.init).joined(separator: ",")
+        guard favorited || !deleteIDs.isEmpty else { return }
+        let endpoint = URL(string: "https://api.bilibili.com/x/v3/fav/resource/deal")!
+        _ = try await postFormObject(endpoint, fields: [
+            "rid": "\(aid)", "type": "2", "add_media_ids": addIDs,
+            "del_media_ids": deleteIDs, "csrf": csrf, "platform": "web", "gaia_source": "web_normal", "ga": "1"
+        ], cookie: cookie, referer: "https://www.bilibili.com/")
+    }
     /// Returns one progressive stream plus the qualities actually accepted
     /// by the current account/video.  The UI never invents an unavailable
     /// resolution.
     func playback(for video: Video, quality: Int? = nil, cookie: String? = nil) async throws -> Playback {
         guard let cid = video.cid else { throw APIError.invalidResponse }
-        let requestedQuality = quality ?? 80
+        let requestedQuality = quality ?? 120
         var components = URLComponents(string: "https://api.bilibili.com/x/player/playurl")!
         components.queryItems = [
             URLQueryItem(name: "bvid", value: video.bvid),
             URLQueryItem(name: "cid", value: "\(cid)"),
             URLQueryItem(name: "qn", value: "\(requestedQuality)"),
-            URLQueryItem(name: "fnval", value: "0"),
+            URLQueryItem(name: "fnval", value: "4048"),
             URLQueryItem(name: "fnver", value: "0"),
             URLQueryItem(name: "fourk", value: "1")
         ]
         let root = try await requestObject(components.url!, cookie: cookie,
                                            referer: "https://www.bilibili.com/video/\(video.bvid)")
         guard let data = root["data"] as? [String: Any] else { throw APIError.invalidResponse }
-        let actualQuality = Self.integer(data["quality"]) ?? requestedQuality
+        // Never report the requested qn as the achieved quality.  Bilibili
+        // may downgrade a non-member or a restricted video while returning
+        // HTTP 200; the actual representation is authoritative.
+        var actualQuality = Self.integer(data["quality"]) ?? 0
         var available = Self.qualities(data)
-        if available.isEmpty {
+        if actualQuality <= 0,
+           let dash = data["dash"] as? [String: Any],
+           let firstVideo = (dash["video"] as? [[String: Any]])?.first {
+            actualQuality = Self.integer(firstVideo["id"] ?? firstVideo["quality"] ?? firstVideo["qn"]) ?? 0
+        }
+        if actualQuality <= 0 {
+            actualQuality = available.first?.code ?? 0
+        }
+        if available.isEmpty, actualQuality > 0 {
             available = [VideoQuality(code: actualQuality, title: "\(actualQuality)p")]
-        } else if !available.contains(where: { $0.code == actualQuality }) {
+        } else if actualQuality > 0 && !available.contains(where: { $0.code == actualQuality }) {
             available.append(VideoQuality(code: actualQuality, title: "\(actualQuality)p"))
             available.sort { $0.code > $1.code }
         }
 
         if let rows = data["durl"] as? [[String: Any]] {
-            for row in rows {
+            let orderedRows = rows.sorted { left, right in
+                let leftQuality = Self.integer(left["id"] ?? left["quality"] ?? left["qn"]) ?? 0
+                let rightQuality = Self.integer(right["id"] ?? right["quality"] ?? right["qn"]) ?? 0
+                return (leftQuality == actualQuality ? 1 : 0, leftQuality)
+                    > (rightQuality == actualQuality ? 1 : 0, rightQuality)
+            }
+            for row in orderedRows {
                 for key in ["url", "baseUrl", "base_url"] {
                     if let value = Self.text(row[key]), let url = URL(string: value) {
-                        return Playback(url: url, quality: actualQuality, qualities: available)
+                        let rowQuality = Self.integer(row["id"] ?? row["quality"] ?? row["qn"]) ?? actualQuality
+                        return Playback(url: url, quality: rowQuality, qualities: available)
                     }
                 }
             }
         }
         if let dash = data["dash"] as? [String: Any],
            let rows = dash["video"] as? [[String: Any]] {
-            for row in rows {
+            let orderedRows = rows.sorted { left, right in
+                let leftQuality = Self.integer(left["id"] ?? left["quality"] ?? left["qn"]) ?? 0
+                let rightQuality = Self.integer(right["id"] ?? right["quality"] ?? right["qn"]) ?? 0
+                return (leftQuality == actualQuality ? 1 : 0, leftQuality)
+                    > (rightQuality == actualQuality ? 1 : 0, rightQuality)
+            }
+            for row in orderedRows {
                 for key in ["baseUrl", "base_url", "url"] {
                     if let value = Self.text(row[key]), let url = URL(string: value) {
-                        return Playback(url: url, quality: actualQuality, qualities: available)
+                        let rowQuality = Self.integer(row["id"] ?? row["quality"] ?? row["qn"]) ?? actualQuality
+                        return Playback(url: url, quality: rowQuality, qualities: available)
                     }
                 }
             }
@@ -863,8 +1274,8 @@ actor BilibiliAPI {
         components.queryItems = [
             URLQueryItem(name: "bvid", value: video.bvid),
             URLQueryItem(name: "cid", value: "\(cid)"),
-            URLQueryItem(name: "qn", value: "\(quality ?? 80)"),
-            URLQueryItem(name: "fnval", value: "16"),
+            URLQueryItem(name: "qn", value: "\(quality ?? 120)"),
+            URLQueryItem(name: "fnval", value: "4048"),
             URLQueryItem(name: "fnver", value: "0"),
             URLQueryItem(name: "fourk", value: "1")
         ]
@@ -880,7 +1291,9 @@ actor BilibiliAPI {
         var candidates: [AudioCandidate] = []
         var seen = Set<Int>()
         for (index, row) in rows.enumerated() {
-            let bitrate = Self.integer(row["bandwidth"] ?? row["bandwidth_kbps"])
+            let bandwidth = Self.integer(row["bandwidth"])
+            let bandwidthKbps = Self.integer(row["bandwidth_kbps"])
+            let bitrate = bandwidth ?? bandwidthKbps
             let fallbackCode = bitrate.map { max(1, $0) } ?? (index + 1)
             let code = Self.integer(row["id"] ?? row["quality"] ?? row["code"]) ?? fallbackCode
             guard seen.insert(code).inserted else { continue }
@@ -889,21 +1302,31 @@ actor BilibiliAPI {
                 ?? (row["backupUrl"] as? [Any])?.compactMap { Self.text($0) }.first
             guard let rawURL, let url = URL(string: rawURL) else { continue }
 
-            let title: String
-            if let bitrate, bitrate > 0 {
-                title = "\(max(1, Int((Double(bitrate) / 1000.0).rounded()))) kbps"
-            } else {
-                title = "音频 \(code)"
-            }
+            let isHiRes = Self.bool(row["is_hi_res"] ?? row["hi_res"] ?? row["hires"]) == true || code == 30251
+            let isDolby = Self.bool(row["is_dolby"] ?? row["dolby"] ?? row["atmos"]) == true ||
+                code == 30250 || code == 30255
+            let requiresLogin = Self.bool(row["need_login"] ?? row["needLogin"]) == true
+            let requiresVIP = Self.bool(row["need_vip"] ?? row["needVip"] ?? row["need_member"]) == true
+            let title = Self.audioQualityTitle(code: code, bitrate: bitrate, row: row)
             candidates.append(AudioCandidate(
                 url: url,
-                quality: BilibiliAudioQuality(code: code, title: title, bitrate: bitrate)
+                quality: BilibiliAudioQuality(
+                    code: code,
+                    title: title,
+                    bitrate: bitrate,
+                    requiresLogin: requiresLogin,
+                    requiresVIP: requiresVIP,
+                    isHiRes: isHiRes,
+                    isDolby: isDolby
+                )
             ))
         }
 
         guard !candidates.isEmpty else { throw APIError.unavailable }
         return candidates.sorted {
-            ($0.quality.bitrate ?? 0, $0.quality.code) > ($1.quality.bitrate ?? 0, $1.quality.code)
+            let left = (Self.audioQualityRank($0.quality.code), $0.quality.bitrate ?? 0, $0.quality.code)
+            let right = (Self.audioQualityRank($1.quality.code), $1.quality.bitrate ?? 0, $1.quality.code)
+            return left > right
         }
     }
 
@@ -948,6 +1371,30 @@ actor BilibiliAPI {
         return cues
     }
 
+    private func postFormObject(_ url: URL,
+                                fields: [String: String],
+                                cookie: String,
+                                referer: String) async throws -> [String: Any] {
+        await ensureVisitorCookies()
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        applyHeaders(to: &request, referer: referer)
+        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        let cookies = mergedRequestCookieHeader(cookie)
+        if !cookies.isEmpty { request.setValue(cookies, forHTTPHeaderField: "Cookie") }
+        var components = URLComponents()
+        components.queryItems = fields.sorted { $0.key < $1.key }.map {
+            URLQueryItem(name: $0.key, value: $0.value)
+        }
+        request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
+        let (data, response) = try await session.data(for: request)
+        collectCookies(from: response)
+        guard Self.isSuccess(response), let root = Self.object(data) else {
+            throw APIError.requestFailed
+        }
+        guard Self.integer(root["code"]) == 0 else { throw APIError.unavailable }
+        return root
+    }
     private func requestObject(_ url: URL, cookie: String? = nil,
                                referer: String = "https://www.bilibili.com/",
                                headers: [String: String] = [:]) async throws -> [String: Any] {
@@ -1158,12 +1605,34 @@ actor BilibiliAPI {
     private static func qualities(_ data: [String: Any]) -> [VideoQuality] {
         let formats = (data["support_formats"] as? [[String: Any]] ?? []).compactMap { raw -> VideoQuality? in
             guard let code = integer(raw["quality"] ?? raw["qn"]), code > 0 else { return nil }
-            let title = text(raw["new_description"] ?? raw["display_desc"] ?? raw["description"])
-                ?? "\(code)p"
-            return VideoQuality(code: code, title: title)
+            let rawTitle = text(raw["new_description"] ?? raw["display_desc"] ?? raw["description"])
+            let title = rawTitle ?? videoQualityTitle(code)
+            let requiresLogin = bool(raw["need_login"] ?? raw["needLogin"]) == true
+            let requiresVIP = bool(raw["need_vip"] ?? raw["needVip"] ?? raw["need_member"]) == true
+            let isHDR = bool(raw["is_hdr"] ?? raw["hdr"]) == true ||
+                title.localizedCaseInsensitiveContains("hdr") || code == 125
+            let isDolby = bool(raw["is_dolby"] ?? raw["dolby"]) == true ||
+                title.localizedCaseInsensitiveContains("dolby") || title.contains("杜比") || code == 126
+            return VideoQuality(code: code, title: title, requiresLogin: requiresLogin,
+                               requiresVIP: requiresVIP, isHDR: isHDR, isDolby: isDolby)
         }
-        if !formats.isEmpty {
-            return Array(Dictionary(grouping: formats, by: \.code).values.compactMap(\.first))
+        let dashFormats = ((data["dash"] as? [String: Any])?["video"] as? [[String: Any]] ?? [])
+            .compactMap { raw -> VideoQuality? in
+                guard let code = integer(raw["id"] ?? raw["quality"] ?? raw["qn"]), code > 0 else { return nil }
+                let rawTitle = text(raw["display_desc"] ?? raw["description"] ?? raw["format"])
+                let title = rawTitle ?? videoQualityTitle(code)
+                return VideoQuality(
+                    code: code,
+                    title: title,
+                    requiresLogin: bool(raw["need_login"] ?? raw["needLogin"]) == true,
+                    requiresVIP: bool(raw["need_vip"] ?? raw["needVip"] ?? raw["need_member"]) == true,
+                    isHDR: bool(raw["is_hdr"] ?? raw["hdr"]) == true || code == 125,
+                    isDolby: bool(raw["is_dolby"] ?? raw["dolby"]) == true || code == 126
+                )
+            }
+
+        if !formats.isEmpty || !dashFormats.isEmpty {
+            return Array(Dictionary(grouping: formats + dashFormats, by: \.code).values.compactMap(\.first))
                 .sorted { $0.code > $1.code }
         }
 
@@ -1171,10 +1640,73 @@ actor BilibiliAPI {
         let descriptions = data["accept_description"] as? [Any] ?? []
         return codes.enumerated().compactMap { index, value in
             guard let code = integer(value), code > 0 else { return nil }
-            let title = index < descriptions.count ? (text(descriptions[index]) ?? "\(code)p") : "\(code)p"
-            return VideoQuality(code: code, title: title)
+            let title = index < descriptions.count ? (text(descriptions[index]) ?? videoQualityTitle(code)) : videoQualityTitle(code)
+            return VideoQuality(code: code, title: title, isHDR: code == 125, isDolby: code == 126)
         }
         .sorted { $0.code > $1.code }
+    }
+
+    private static func videoQualityTitle(_ code: Int) -> String {
+        switch code {
+        case 127: return "8K"
+        case 126: return "杜比视界"
+        case 125: return "HDR"
+        case 120: return "4K"
+        case 116: return "1080P 60帧"
+        case 112: return "1080P+"
+        case 80: return "1080P"
+        case 74: return "720P 60帧"
+        case 64: return "720P"
+        case 32: return "480P"
+        case 16: return "360P"
+        default: return "\(code)p"
+        }
+    }
+
+    private static func audioQualityTitle(code: Int, bitrate: Int?, row: [String: Any]) -> String {
+        if let title = text(row["display_desc"] ?? row["description"] ?? row["format"]) {
+            let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty { return normalized }
+        }
+        switch code {
+        case 30251: return "Hi-Res"
+        case 30250: return "杜比全景声"
+        case 30255: return "杜比音效"
+        case 30280: return "192 kbps"
+        case 30232: return "132 kbps"
+        case 30216: return "64 kbps"
+        default:
+            if let bitrate, bitrate > 0 {
+                return "\(max(1, Int((Double(bitrate) / 1000.0).rounded()))) kbps"
+            }
+            return "Audio \(code)"
+        }
+    }
+
+    private static func audioQualityRank(_ code: Int) -> Int {
+        switch code {
+        case 30251: return 600 // Hi-Res
+        case 30250: return 590 // Dolby Atmos
+        case 30255: return 580 // Dolby audio
+        case 30280: return 300
+        case 30232: return 200
+        case 30216: return 100
+        default: return 0
+        }
+    }
+
+    private static func dateFromMilliseconds(_ value: Any?) -> Date? {
+        let raw: Double?
+        if let value = value as? NSNumber {
+            raw = value.doubleValue
+        } else if let value = value as? String {
+            raw = Double(value)
+        } else {
+            raw = nil
+        }
+        guard let raw, raw > 0 else { return nil }
+        let seconds = raw > 10_000_000_000 ? raw / 1000 : raw
+        return Date(timeIntervalSince1970: seconds)
     }
 
     private static func uniqueSubtitles(_ subtitles: [Subtitle]) -> [Subtitle] {
@@ -1206,6 +1738,152 @@ actor BilibiliAPI {
         )
     }
 
+    private static func dynamicItem(_ raw: [String: Any]) -> DynamicItem? {
+        let modules = raw["modules"] as? [String: Any]
+        let authorModule = modules?["module_author"] as? [String: Any]
+        let dynamicModule = modules?["module_dynamic"] as? [String: Any]
+        let major = dynamicModule?["major"] as? [String: Any]
+        let archive = major?["archive"] as? [String: Any]
+        let bvid = text(archive?["bvid"] ?? raw["bvid"])
+        let video: Video? = bvid.flatMap { value in
+            var normalized = archive ?? [:]
+            normalized["bvid"] = value
+            normalized["aid"] = archive?["aid"] ?? raw["rid"]
+            normalized["pic"] = archive?["cover"]
+            normalized["author"] = authorModule?["name"]
+            normalized["mid"] = authorModule?["mid"]
+            normalized["face"] = authorModule?["face"]
+            normalized["description"] = archive?["desc"] ?? ""
+            normalized["duration"] = archive?["duration_text"] ?? ""
+            return Self.video(normalized)
+        }
+        let id = text(raw["id_str"] ?? raw["id"] ?? raw["dyn_id_str"]) ?? UUID().uuidString
+        let textValue = stripHTML(text(dynamicModule?["desc"] ?? raw["content"] ?? raw["text"]) ?? "")
+        let author = stripHTML(text(authorModule?["name"] ?? raw["uname"]) ?? "B 站用户")
+        let cover = imageURL(text(archive?["cover"] ?? raw["cover"]))
+        guard !textValue.isEmpty || video != nil else { return nil }
+        let stats = modules?["module_stat"] as? [String: Any]
+        return DynamicItem(
+            id: id,
+            author: author,
+            avatarURL: imageURL(text(authorModule?["face"] ?? raw["face"])),
+            text: textValue,
+            coverURL: cover,
+            publishedAt: dateFromMilliseconds(authorModule?["pub_ts"] ?? raw["pub_ts"]),
+            likeCount: integer(stats?["like"] ?? raw["like"]) ?? 0,
+            commentCount: integer(stats?["comment"] ?? raw["comment"]) ?? 0,
+            video: video
+        )
+    }
+
+    private static func dictionaryRows(_ value: Any?) -> [[String: Any]] {
+        if let rows = value as? [[String: Any]] { return rows }
+        if let values = value as? [Any] {
+            return values.compactMap { $0 as? [String: Any] }
+        }
+        guard let payload = value as? [String: Any] else { return [] }
+        for key in ["list", "items", "medias", "session_list", "result", "folders"] {
+            if let rows = payload[key] as? [[String: Any]] { return rows }
+            if let values = payload[key] as? [Any] {
+                let rows = values.compactMap { $0 as? [String: Any] }
+                if !rows.isEmpty { return rows }
+            }
+        }
+        return []
+    }
+
+    private static func watchHistoryItem(_ raw: [String: Any]) -> WatchHistoryItem? {
+        let nested = raw["history"] as? [String: Any]
+        let bvid = text(raw["bvid"] ?? nested?["bvid"])
+        let title = stripHTML(text(raw["title"] ?? nested?["title"]) ?? "")
+        guard !title.isEmpty || bvid != nil else { return nil }
+        let owner = raw["owner"] as? [String: Any] ?? nested?["owner"] as? [String: Any]
+        let author = stripHTML(text(raw["author"] ?? raw["uname"] ?? owner?["name"]
+                                    ?? nested?["author"]) ?? "B 站用户")
+        let durationValue = integer(raw["duration"] ?? nested?["duration"])
+        let durationText = text(raw["duration_text"] ?? nested?["duration_text"])
+            ?? durationValue.map(formatDuration)
+            ?? text(raw["duration"] ?? nested?["duration"])
+            ?? ""
+        var normalized = raw
+        if let bvid { normalized["bvid"] = bvid }
+        if let aid = integer(raw["aid"] ?? nested?["aid"]) { normalized["aid"] = aid }
+        normalized["title"] = title
+        normalized["pic"] = raw["pic"] ?? raw["cover"] ?? nested?["pic"] ?? nested?["cover"]
+        normalized["author"] = author
+        normalized["duration"] = durationText
+        let video = bvid.flatMap { _ in Self.video(normalized) }
+        let historyID = text(raw["kid"] ?? raw["history_id"] ?? raw["id"])
+            ?? bvid
+            ?? UUID().uuidString
+        return WatchHistoryItem(
+            historyID: historyID,
+            bvid: bvid,
+            title: title.isEmpty ? "B 站视频" : title,
+            coverURL: imageURL(text(raw["pic"] ?? raw["cover"] ?? nested?["pic"] ?? nested?["cover"])),
+            author: author,
+            durationText: durationText,
+            viewedAt: dateFromMilliseconds(raw["view_at"] ?? raw["watched_at"] ?? raw["viewed_at"]),
+            video: video
+        )
+    }
+
+    private static func favoriteFolder(_ raw: [String: Any]) -> FavoriteFolder? {
+        let id = integer(raw["id"] ?? raw["media_id"] ?? raw["fid"]) ?? 0
+        guard id > 0 else { return nil }
+        return FavoriteFolder(
+            id: id,
+            title: stripHTML(text(raw["title"] ?? raw["name"]) ?? "收藏夹"),
+            mediaCount: integer(raw["media_count"] ?? raw["count"] ?? raw["cnt_info"]) ?? 0,
+            coverURL: imageURL(text(raw["cover"] ?? raw["cover_url"] ?? raw["pic"]))
+        )
+    }
+
+    private static func favoriteVideo(_ raw: [String: Any]) -> Video? {
+        let aid = integer(raw["aid"] ?? raw["id"] ?? raw["rid"])
+        var normalized = raw
+        if normalized["bvid"] == nil, let aid, aid > 0 {
+            normalized["bvid"] = bvid(for: aid)
+        }
+        if normalized["aid"] == nil, let aid { normalized["aid"] = aid }
+        let upper = raw["upper"] as? [String: Any]
+        normalized["pic"] = raw["pic"] ?? raw["cover"]
+        normalized["author"] = raw["author"] ?? raw["upper_name"] ?? upper?["name"]
+        normalized["mid"] = raw["mid"] ?? upper?["mid"]
+        normalized["face"] = raw["face"] ?? upper?["face"]
+        normalized["description"] = raw["intro"] ?? raw["description"] ?? ""
+        if let seconds = integer(raw["duration"]) {
+            normalized["duration"] = formatDuration(seconds)
+        }
+        let counts = raw["cnt_info"] as? [String: Any]
+        normalized["play"] = raw["play"] ?? counts?["play"]
+        normalized["review"] = raw["review"] ?? counts?["reply"]
+        return video(normalized)
+    }
+
+    private static func privateMessageThread(_ raw: [String: Any]) -> PrivateMessageThread? {
+        let account = raw["account_info"] as? [String: Any]
+            ?? raw["talker_info"] as? [String: Any]
+            ?? raw["user_info"] as? [String: Any]
+        let userID = integer(raw["talker_id"] ?? raw["talkerid"] ?? raw["mid"] ?? account?["mid"]) ?? 0
+        let userName = stripHTML(text(account?["uname"] ?? account?["name"] ?? raw["uname"])
+                                  ?? "B 站用户")
+        let last = raw["last_msg"] as? [String: Any]
+        let message = stripHTML(text(last?["content"] ?? last?["msg"] ?? last?["text"]
+                                     ?? raw["content"] ?? raw["message"]) ?? "新消息")
+        let threadID = text(raw["session_id"] ?? raw["id"])
+            ?? (userID > 0 ? "\(userID)" : UUID().uuidString)
+        return PrivateMessageThread(
+            id: threadID,
+            userID: userID,
+            userName: userName,
+            avatarURL: imageURL(text(account?["face"] ?? account?["avatar"] ?? raw["face"])),
+            lastMessage: message,
+            unreadCount: integer(raw["unread_count"] ?? raw["unread"] ?? raw["is_unread"]) ?? 0,
+            updatedAt: dateFromMilliseconds(raw["session_ts"] ?? raw["updated_at"] ?? raw["timestamp"])
+        )
+    }
+
     private static func comment(_ raw: [String: Any]) -> Comment? {
         let member = raw["member"] as? [String: Any]
         let content = raw["content"] as? [String: Any]
@@ -1230,30 +1908,60 @@ actor BilibiliAPI {
             .joined(separator: "; ")
     }
 
+    private func collectCookies(from response: URLResponse) {
+        guard let http = response as? HTTPURLResponse,
+              let url = http.url else { return }
+        var headers: [String: String] = [:]
+        for (key, value) in http.allHeaderFields {
+            headers[String(describing: key)] = String(describing: value)
+        }
+        for cookie in HTTPCookie.cookies(withResponseHeaderFields: headers, for: url) {
+            cookieStorage.setCookie(cookie)
+        }
+    }
+
+    private static func cookieValue(_ name: String, from header: String) -> String? {
+        header.split(separator: ";").compactMap { part -> (String, String)? in
+            let pair = part.split(separator: "=", maxSplits: 1).map(String.init)
+            guard pair.count == 2 else { return nil }
+            return (pair[0].trimmingCharacters(in: .whitespaces), pair[1])
+        }.first(where: { $0.0 == name })?.1
+    }
     private static func cookieHeader(fromLoginURL rawURL: String?) -> String {
-        let allowed = ["DedeUserID", "DedeUserID__ckMd5", "SESSDATA", "bili_jct", "sid"]
+        let allowed = Set(["DedeUserID", "DedeUserID__ckMd5", "SESSDATA", "bili_jct", "sid"])
         var values: [String: String] = [:]
         guard let rawURL, !rawURL.isEmpty else { return "" }
 
-        if let components = URLComponents(string: rawURL) {
-            for item in components.queryItems ?? [] where allowed.contains(item.name) {
-                if let value = item.value, !value.isEmpty { values[item.name] = value }
+        // The QR poll response has used both a flat login URL and a URL
+        // nested in `gourl` over time.  The nested form can be percent
+        // encoded more than once, so parse every decoded representation
+        // instead of looking only at the first URLComponents query.
+        func scan(_ text: String) {
+            if let components = URLComponents(string: text) {
+                for item in components.queryItems ?? [] where allowed.contains(item.name) {
+                    if let value = item.value, !value.isEmpty { values[item.name] = value }
+                }
+            }
+
+            for item in text.split(whereSeparator: {
+                $0 == "?" || $0 == "&" || $0 == "#" || $0 == ";" || $0 == "\n" || $0 == "\r"
+            }) {
+                let pair = item.split(separator: "=", maxSplits: 1).map(String.init)
+                guard pair.count == 2 else { continue }
+                let name = pair[0].removingPercentEncoding ?? pair[0]
+                let value = pair[1].removingPercentEncoding ?? pair[1]
+                if allowed.contains(name), !value.isEmpty { values[name] = value }
             }
         }
 
-        var decodedURL = rawURL
-        for _ in 0..<2 {
-            guard let decoded = decodedURL.removingPercentEncoding, decoded != decodedURL else { break }
-            decodedURL = decoded
+        var representations = [rawURL]
+        var decoded = rawURL
+        for _ in 0..<3 {
+            guard let next = decoded.removingPercentEncoding, next != decoded else { break }
+            representations.append(next)
+            decoded = next
         }
-        let query = decodedURL.split(separator: "?", maxSplits: 1).dropFirst().first ?? ""
-        for item in query.split(separator: "&") {
-            let pair = item.split(separator: "=", maxSplits: 1).map(String.init)
-            guard pair.count == 2 else { continue }
-            let name = pair[0].removingPercentEncoding ?? pair[0]
-            let value = pair[1].removingPercentEncoding ?? pair[1]
-            if allowed.contains(name), !value.isEmpty { values[name] = value }
-        }
+        representations.forEach(scan)
         return values.sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: "; ")
@@ -1274,20 +1982,44 @@ actor BilibiliAPI {
     }
 
     private func ensureVisitorCookies() async {
-        guard !visitorBootstrapAttempted else { return }
-        visitorBootstrapAttempted = true
+        guard !hasVisitorCookies else { return }
+        if let visitorBootstrapTask {
+            await visitorBootstrapTask.value
+            return
+        }
+
+        let task = Task { [weak self] in
+            await self?.bootstrapVisitorCookies()
+        }
+        visitorBootstrapTask = task
+        await task.value
+        visitorBootstrapTask = nil
+    }
+
+    private func bootstrapVisitorCookies() async {
         guard !hasVisitorCookies else { return }
         guard let endpoint = URL(string: "https://api.bilibili.com/x/frontend/finger/spi") else { return }
-        var request = URLRequest(url: endpoint)
-        applyHeaders(to: &request, referer: "https://www.bilibili.com/")
-        guard let (data, response) = try? await session.data(for: request),
-              Self.isSuccess(response),
-              let root = Self.object(data),
-              Self.integer(root["code"]) == 0,
-              let payload = root["data"] as? [String: Any] else { return }
 
-        if let buvid3 = Self.text(payload["b_3"]) { storeVisitorCookie(name: "buvid3", value: buvid3) }
-        if let buvid4 = Self.text(payload["b_4"]) { storeVisitorCookie(name: "buvid4", value: buvid4) }
+        // Bilibili can briefly reject the fingerprint endpoint while the app
+        // is waking. A short second attempt prevents the very first search
+        // from being sacrificed to that transient response.
+        for attempt in 0..<2 {
+            if attempt > 0 {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            var request = URLRequest(url: endpoint)
+            applyHeaders(to: &request, referer: "https://www.bilibili.com/")
+            guard let (data, response) = try? await session.data(for: request),
+                  Self.isSuccess(response),
+                  let root = Self.object(data),
+                  Self.integer(root["code"]) == 0,
+                  let payload = root["data"] as? [String: Any] else { continue }
+
+            collectCookies(from: response)
+            if let buvid3 = Self.text(payload["b_3"]) { storeVisitorCookie(name: "buvid3", value: buvid3) }
+            if let buvid4 = Self.text(payload["b_4"]) { storeVisitorCookie(name: "buvid4", value: buvid4) }
+            if hasVisitorCookies { return }
+        }
     }
 
     private var hasVisitorCookies: Bool {
@@ -1371,6 +2103,13 @@ actor BilibiliAPI {
     private static func bool(_ value: Any?) -> Bool? {
         if let value = value as? Bool { return value }
         if let value = value as? NSNumber { return value.boolValue }
+        if let value = value as? String {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes": return true
+            case "0", "false", "no": return false
+            default: return nil
+            }
+        }
         return nil
     }
 

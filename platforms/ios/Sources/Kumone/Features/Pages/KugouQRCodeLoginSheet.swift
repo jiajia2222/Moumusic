@@ -143,7 +143,7 @@ struct KugouQRCodeLoginSheet: View {
                             pollTask = nil
                             return
                         case .success(let cookie):
-                            try await kugou.signIn(cookie: cookie)
+                            try await kugou.signInFromQR(cookie: cookie)
                             ToastCenter.shared.show("酷狗音乐账号登录成功")
                             pollTask = nil
                             dismiss()

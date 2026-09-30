@@ -12,7 +12,9 @@ public struct IOSMainWindow: View {
     @StateObject private var updater = IOSUpdater.shared
     @StateObject private var updateLog = IOSUpdateLogStore.shared
     @StateObject private var startup = IOSStartupCoordinator.shared
+    @StateObject private var backupStore = AppDataBackupManager.shared
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
+    @ObservedObject private var dynamicWallpaper = DynamicWallpaperStore.shared
     @Namespace private var nowPlayingTransition
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -54,6 +56,7 @@ public struct IOSMainWindow: View {
                 profilePath.append(Destination.accountSync)
             })
             .task {
+                backupStore.startAutomaticBackup()
                 await startup.start(
                     player: player,
                     account: account,
@@ -90,13 +93,19 @@ public struct IOSMainWindow: View {
                 }
             }
             .overlay(alignment: .top) {
-                if let toast = toasts.current {
+                // On modern iOS the now-playing page is a full-screen cover.
+                // Its host overlay is underneath that cover, so render the
+                // same message inside the presentation while it is open.
+                if !player.showNowPlaying, let toast = toasts.current {
                     ToastView(toast: toast)
                         .transition(.move(edge: .top).combined(with: .opacity))
                         .padding(.top, 8)
                 }
             }
-            .animation(.spring(duration: 0.3), value: toasts.current)
+            // The duration-based spring overload is iOS 17+. Use the
+            // response/damping form so the iOS 16 deployment can compile and
+            // retain the same toast motion.
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: toasts.current)
     }
 
     @ViewBuilder
@@ -178,7 +187,14 @@ public struct IOSMainWindow: View {
         // old split view still contains the desktop/provider navigation and
         // would reintroduce those entry points on iPad.
         ZStack {
-            if backgroundStore.syncToApp, let image = backgroundStore.image {
+            if dynamicWallpaper.isEnabled, dynamicWallpaper.syncToApp {
+                MoumusicDynamicWallpaperView(
+                    kind: dynamicWallpaper.kind,
+                    speed: dynamicWallpaper.speed,
+                    intensity: dynamicWallpaper.intensity
+                )
+                .overlay(Color.black.opacity(0.08).ignoresSafeArea())
+            } else if backgroundStore.syncToApp, let image = backgroundStore.image {
                 MoumusicWallpaperView(
                     image: image,
                     blurRadius: backgroundStore.blurRadius,
@@ -190,6 +206,35 @@ public struct IOSMainWindow: View {
             }
             tabInterface
                 .background(Color.clear)
+
+            // Beans 2.0 uses the iOS 26/27 edge treatment: the content stays
+            // readable while the top and bottom transition softly into the
+            // system chrome.  Material keeps this correct for both light and
+            // dark appearances and also works over a user wallpaper.
+            if #available(iOS 26.0, *) {
+                VStack(spacing: 0) {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .mask(LinearGradient(
+                            colors: [.black, .black.opacity(0.72), .clear],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ))
+                        .frame(height: 52)
+                    Spacer(minLength: 0)
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .mask(LinearGradient(
+                            colors: [.clear, .black.opacity(0.72), .black],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ))
+                        .frame(height: 78)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
         }
         .animation(AppAnimation.smooth, value: backgroundStore.image != nil)
     }
@@ -204,10 +249,26 @@ public struct IOSMainWindow: View {
             usesSystemInteractiveDismissal: usesSystemInteractiveDismissal,
             dismissAnimation: dismissAnimation
         ) {
-            NowPlayingView()
-                .environmentObject(player)
-                .environmentObject(account)
-                .environmentObject(settings)
+            ZStack {
+                NowPlayingView()
+                    .environmentObject(player)
+                    .environmentObject(account)
+                    .environmentObject(settings)
+
+                // Playback failures used to be visible only from the main
+                // window. Keep them visible above the song, lyrics, and
+                // immersive now-playing pages as well.
+                if let toast = toasts.current {
+                    PlaybackToastOverlay(toast: toast)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .zIndex(1000)
+                        .allowsHitTesting(false)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.28, dampingFraction: 0.86), value: toasts.current)
         }
     }
 
@@ -593,6 +654,36 @@ struct IOSMiniPlayerBar: View {
                 player.showNowPlaying = true
             }
         }
+    }
+}
+
+private struct PlaybackToastOverlay: View {
+    let toast: Toast
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Theme.accent)
+
+            Text(toast.message)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+                .lineLimit(4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .frame(maxWidth: 440, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(toast.message))
     }
 }
 

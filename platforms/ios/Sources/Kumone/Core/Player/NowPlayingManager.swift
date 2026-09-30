@@ -12,6 +12,7 @@ final class NowPlayingManager {
     private var baseAlbumTitle = ""
     private var baseArtist = ""
     private var currentLyric = ""
+    private var currentTrack: Track?
 
     private init() {}
 
@@ -20,8 +21,9 @@ final class NowPlayingManager {
         let center = MPRemoteCommandCenter.shared()
 
         center.playCommand.addTarget { [weak player] _ in
-            guard let player, player.hasCurrentTrack else { return .noActionableNowPlayingItem }
-            if !player.isPlaying { player.togglePlayPause() }
+            guard let player, player.resumeLastPlayback() else {
+                return .noActionableNowPlayingItem
+            }
             return .success
         }
         center.pauseCommand.addTarget { [weak player] _ in
@@ -30,7 +32,10 @@ final class NowPlayingManager {
             return .success
         }
         center.togglePlayPauseCommand.addTarget { [weak player] _ in
-            guard let player, player.hasCurrentTrack else { return .noActionableNowPlayingItem }
+            guard let player else { return .noActionableNowPlayingItem }
+            if !player.hasCurrentTrack {
+                return player.resumeLastPlayback() ? .success : .noActionableNowPlayingItem
+            }
             player.togglePlayPause()
             return .success
         }
@@ -60,6 +65,7 @@ final class NowPlayingManager {
     }
 
     func updateMetadata(for track: Track, duration: TimeInterval) {
+        currentTrack = track
         baseAlbumTitle = track.album.name
         baseArtist = track.artistNames
         currentLyric = ""
@@ -75,19 +81,29 @@ final class NowPlayingManager {
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
         ]
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-        MPNowPlayingInfoCenter.default().playbackState = .playing
+        // Restoring metadata must not pretend that a terminated/paused app is
+        // already playing. This keeps Apple's default Play affordance visible
+        // and lets the next remote Play command resume the saved track.
+        MPNowPlayingInfoCenter.default().playbackState = player?.isPlaying == true ? .playing : .paused
         refreshLikeState()
 
+        refreshArtworkMode()
+    }
+
+    /// Rebuilds the artwork object without resetting playback position or
+    /// lyric metadata. iOS uses the artwork's bounds and resolution when the
+    /// Lock Screen player is expanded, so this is also the live setting hook.
+    func refreshArtworkMode() {
+        guard let track = currentTrack else { return }
         artworkTask?.cancel()
-        // 1024px: the lock screen's tap-to-fullscreen artwork presentation
-        // needs high-resolution art to engage.
+        let artworkSize = lockScreenArtworkSize
         artworkTask = Task { [weak self] in
-        let url: URL?
-        if let directURL = track.album.picUrl?.resizedImageURL(1024) {
-            url = directURL
-        } else {
-            url = await Self.fallbackArtworkURL(for: track)
-        }
+            let url: URL?
+            if let directURL = track.album.picUrl?.resizedImageURL(artworkSize) {
+                url = directURL
+            } else {
+                url = await Self.fallbackArtworkURL(for: track, size: artworkSize)
+            }
             guard let url,
                   let image = await ImageCache.shared.image(for: url),
                   let self, !Task.isCancelled else { return }
@@ -96,6 +112,14 @@ final class NowPlayingManager {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = self.info
         }
     }
+
+    #if os(iOS)
+    private var lockScreenArtworkSize: Int {
+        SettingsManager.shared.lockScreenImmersiveArtwork ? 1024 : 256
+    }
+    #else
+    private var lockScreenArtworkSize: Int { 1024 }
+    #endif
 
     #if os(iOS)
     /// NetEase displays the current lyric in the system Now Playing artist
@@ -115,13 +139,13 @@ final class NowPlayingManager {
     /// lock-screen metadata requested by Moumusic.
     func updateResolvedQuality(_ quality: String?, for track: Track) {}
 
-    private static func fallbackArtworkURL(for track: Track) async -> URL? {
+    private static func fallbackArtworkURL(for track: Track, size: Int) async -> URL? {
         let query = [track.name, track.artistNames]
             .filter { !$0.isEmpty }
             .joined(separator: " ")
         guard let result = try? await NeteaseAPI.search(query, type: .songs, limit: 6),
               let match = result.songs?.first(where: { $0.name == track.name }) ?? result.songs?.first else { return nil }
-        return match.album.picUrl?.resizedImageURL(1024)
+        return match.album.picUrl?.resizedImageURL(size)
     }
 
     func updateElapsed(_ elapsed: TimeInterval, rate: Double) {

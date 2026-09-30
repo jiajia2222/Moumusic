@@ -168,6 +168,14 @@ final class PlayerService: ObservableObject {
     @Published private(set) var isBuffering = false
     @Published private(set) var duration: TimeInterval = 0
     @Published private(set) var servedQuality: String?
+    /// The route that supplied the playable URL for the current track. This
+    /// is intentionally separate from `servedQuality`: a third-party source
+    /// can advertise a tier that the logged-in account does not own.
+    @Published private(set) var servedSourceLabel: String?
+    /// The resolved quality belongs to one concrete track. Keeping the key
+    /// next to the label prevents a late resolver from making the next song
+    /// appear to have the previous song's quality.
+    @Published private(set) var servedQualityTrackKey: String?
     /// A selection made from the now-playing quality picker applies only to
     /// this playing track. The Settings value remains the default for the
     /// next track and is never overwritten by an in-player tap.
@@ -250,17 +258,35 @@ final class PlayerService: ObservableObject {
 
     var hasCurrentTrack: Bool { currentTrack != nil }
 
+    /// Whether the system can restore something meaningful after the app has
+    /// been terminated or the AVPlayer item has been released.
+    var hasResumablePlayback: Bool {
+        currentTrack != nil || !queue.isEmpty || !recentContexts.isEmpty
+    }
+
     var currentQuality: AudioQuality {
         trackQualityOverride ?? SettingsManager.shared.audioQuality
     }
 
     func availableQualitiesForCurrentTrack() async -> [AudioQuality] {
         guard let track = currentTrack else { return [] }
+        let trackKey = track.playbackKey
 #if os(iOS)
         let playbackMode = SettingsManager.shared.playbackSourceMode
         let cacheKey = qualityAvailabilityCacheKey(for: track, mode: playbackMode)
         if let cached = qualityAvailabilityCache[cacheKey], cached.expiresAt > Date() {
-            return cached.qualities
+            // A probe can finish before playback resolves the real URL and
+            // cache only the safe 128K fallback. Merge the verified result for
+            // this exact track into that cache hit so the picker does not stay
+            // stuck on the earlier, incomplete answer.
+            guard servedQualityTrackKey == trackKey,
+                  let servedQuality,
+                  let actualQuality = AudioQuality(lxType: servedQuality) else {
+                return cached.qualities
+            }
+            return AudioQuality.allCases.filter {
+                cached.qualities.contains($0) || $0 == actualQuality
+            }
         }
         var names: Set<String> = []
         let source = (track.source ?? track.sourceMetadata["source"] ?? "")
@@ -279,9 +305,12 @@ final class PlayerService: ObservableObject {
         if playbackMode != .thirdParty,
            NeteaseClient.shared.isLoggedIn,
            isNativeNetease {
+            let allowNeteasePremium = AccountStore.shared.hasActiveVIP
             qualityTasks.append(Task {
                 await NeteaseAPI.officialQualityNames(
-                    for: track.id, duration: track.duration
+                    for: track.id,
+                    duration: track.duration,
+                    allowPremium: allowNeteasePremium
                 )
             })
         }
@@ -299,8 +328,28 @@ final class PlayerService: ObservableObject {
                 await officialQualityNames(for: track)
             })
         }
-        for task in qualityTasks {
-            names.formUnion(await task.value)
+        // The picker is a convenience probe, not a reason to hold the sheet
+        // open while one dead source retries. Keep all already-started probes
+        // concurrent and cap the aggregate wait for this concrete track.
+        let probedNames = await Self.withQualityProbeTimeout(operation: {
+            var values: [String] = []
+            for task in qualityTasks {
+                values.append(contentsOf: await task.value)
+            }
+            return values
+        }) ?? []
+        guard !Task.isCancelled, currentTrack?.playbackKey == trackKey else {
+            return []
+        }
+        names.formUnion(probedNames)
+        // A provider may return the playable URL before its capability probe
+        // finishes (or expose only a lower fallback tier in the probe). Keep
+        // the quality actually served for this track visible in the picker,
+        // but never borrow the previous track's value.
+        if servedQualityTrackKey == trackKey,
+           let servedQuality,
+           let actualQuality = AudioQuality(lxType: servedQuality) {
+            names.insert(actualQuality.lxType)
         }
         var seenTypes = Set<String>()
         let available = AudioQuality.allCases.filter {
@@ -329,6 +378,7 @@ final class PlayerService: ObservableObject {
             .joined(separator: ",")
         let accountState = [
             NeteaseClient.shared.isLoggedIn ? "wy1" : "wy0",
+            AccountStore.shared.hasActiveVIP ? "wyvip1" : "wyvip0",
             QQMusicSessionStore.shared.isLoggedIn ? "tx1" : "tx0",
             KugouSessionStore.shared.isLoggedIn ? "kg1" : "kg0",
         ].joined(separator: ",")
@@ -363,6 +413,12 @@ final class PlayerService: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
     private var resolveGeneration = 0
+    /// Only the newest track may own resolver/lyrics work.  Cancelling the
+    /// previous tasks also prevents rapid next/previous taps from keeping
+    /// several source requests, AVAsset probes and lyric parsers alive at once.
+    private var resolveTask: Task<Void, Never>?
+    private var lyricsTask: Task<Void, Never>?
+    private var translationTask: Task<Void, Never>?
     private struct QualityAvailabilityCacheEntry {
         let expiresAt: Date
         let qualities: [AudioQuality]
@@ -380,9 +436,8 @@ final class PlayerService: ObservableObject {
     private struct OfficialAudio {
         let url: URL
         let quality: String
+        let sourceLabel: String
     }
-    private var lastLiveActivityProgress = -10.0
-    private var liveActivityLyric: String?
 #endif
     private var runtimeStarted = false
 
@@ -441,6 +496,7 @@ final class PlayerService: ObservableObject {
         ) { [weak self] note in
             MainActor.assumeIsolated {
                 guard let self,
+                      SettingsManager.shared.autoPauseOnRouteChange,
                       let reasonValue = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
                       let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue),
                       reason == .oldDeviceUnavailable, self.isPlaying else { return }
@@ -471,11 +527,6 @@ final class PlayerService: ObservableObject {
                         seconds,
                         rate: self.isPlaying ? Double(self.playbackRate) : 0
                     )
-                    if self.isPlaying,
-                       seconds - self.lastLiveActivityProgress >= 5 {
-                        self.lastLiveActivityProgress = seconds
-                        self.syncLiveActivity()
-                    }
                 }
             }
         }
@@ -489,49 +540,6 @@ final class PlayerService: ObservableObject {
         NowPlayingManager.shared.attach(to: self)
         restoreState()
     }
-
-#if os(iOS)
-    /// Starts or refreshes the system Live Activity. The system performs the
-    /// actual expanded-to-compact Dynamic Island transition when the user
-    /// leaves the app or it moves to the background.
-    private func syncLiveActivity(newTrack: Bool = false) {
-        guard #available(iOS 16.2, *), let track = currentTrack else { return }
-        MoumusicPlaybackActivityManager.shared.synchronize(
-            title: track.name,
-            artist: track.artistNames,
-            artworkURL: liveArtworkURL(for: track),
-            currentLyric: liveActivityLyric,
-            elapsed: progress,
-            duration: duration,
-            isPlaying: isPlaying,
-            newTrack: newTrack
-        )
-    }
-
-    /// LX and account-backed results do not always put the cover in the same
-    /// field. Prefer the unified album cover, then use the source metadata
-    /// aliases used by the imported User API formats.
-    private func liveArtworkURL(for track: Track) -> String? {
-        let candidates = [
-            track.album.picUrl,
-            track.sourceMetadata["picUrl"],
-            track.sourceMetadata["picurl"],
-            track.sourceMetadata["albumPic"],
-            track.sourceMetadata["album_pic"],
-            track.sourceMetadata["cover"],
-            track.sourceMetadata["coverUrl"],
-            track.sourceMetadata["pic"],
-            track.artists.first?.picUrl,
-        ]
-        return candidates.compactMap { value in
-            guard let value else { return nil }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }.first
-    }
-#else
-    private func syncLiveActivity(newTrack: Bool = false) {}
-#endif
 
     /// Set while the user drags the seek bar so the time observer doesn't fight the thumb.
     var isScrubbing = false
@@ -549,7 +557,6 @@ final class PlayerService: ObservableObject {
                 // The system already silenced us; sync our state and UI.
                 isPlaying = false
                 NowPlayingManager.shared.updateElapsed(progress, rate: 0)
-                syncLiveActivity()
             }
         case .ended:
             let optionsValue = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
@@ -561,7 +568,6 @@ final class PlayerService: ObservableObject {
             engine.rate = playbackRate
             isPlaying = true
             NowPlayingManager.shared.updateElapsed(progress, rate: Double(playbackRate))
-            syncLiveActivity()
         @unknown default:
             break
         }
@@ -613,8 +619,48 @@ final class PlayerService: ObservableObject {
         }
     }
 
+    @discardableResult
+    func resumeLastPlayback() -> Bool {
+        // The persisted queue normally restores `currentTrack` during
+        // startRuntime(). Keep a defensive fallback for a remote command
+        // arriving while that state is still being rebuilt.
+        if currentTrack == nil, !activeQueue.isEmpty {
+            let index = min(max(currentIndex, 0), activeQueue.count - 1)
+            currentIndex = index
+            currentTrack = activeQueue[index]
+            duration = activeQueue[index].duration
+            NowPlayingManager.shared.updateMetadata(for: activeQueue[index], duration: duration)
+        }
+
+        guard let track = currentTrack else {
+            // A queue-less install can still have a recent playlist context.
+            // Resolve it asynchronously rather than making the system Play
+            // button appear broken.
+            guard let context = recentContexts.first else { return false }
+            play(context: context)
+            return true
+        }
+
+        if isPlaying { return true }
+        if engine.currentItem == nil {
+            // Restored session: re-resolve the source.
+            startPlaying(track, indexUnchanged: true, preserveTrackQualityOverride: true)
+            return true
+        }
+
+        engine.play()
+        engine.rate = playbackRate
+        isPlaying = true
+        NowPlayingManager.shared.updateElapsed(progress, rate: Double(playbackRate))
+        persistState()
+        return true
+    }
+
     func togglePlayPause() {
-        guard let track = currentTrack else { return }
+        guard let track = currentTrack else {
+            _ = resumeLastPlayback()
+            return
+        }
         if isPlaying {
             engine.pause()
             isPlaying = false
@@ -629,7 +675,6 @@ final class PlayerService: ObservableObject {
             isPlaying = true
         }
         NowPlayingManager.shared.updateElapsed(progress, rate: isPlaying ? Double(playbackRate) : 0)
-        syncLiveActivity()
     }
 
     func pause() {
@@ -637,7 +682,6 @@ final class PlayerService: ObservableObject {
         isPlaying = false
         AudioSpectrum.shared.reset()
         NowPlayingManager.shared.updateElapsed(progress, rate: 0)
-        syncLiveActivity()
     }
 
     func next() {
@@ -678,15 +722,7 @@ final class PlayerService: ObservableObject {
             ?? lyrics?.lines.first?.text
         WidgetSnapshotStore.update(track: currentTrack, lyric: snapshotLyric)
         #if os(iOS)
-        let previousLyric = liveActivityLyric
-        liveActivityLyric = snapshotLyric
         NowPlayingManager.shared.updateCurrentLyric(snapshotLyric)
-        // ActivityKit cannot observe the app's LyricsCursor directly. Push a
-        // state update when the active line changes so the expanded island and
-        // lock-screen activity show the same line as the in-app player.
-        if previousIndex != index || previousLyric != snapshotLyric {
-            syncLiveActivity()
-        }
         #endif
     }
 
@@ -703,7 +739,8 @@ final class PlayerService: ObservableObject {
         // NetEase metadata match so English/Japanese songs can show a
         // translation when one exists, without delaying first paint.
         guard parsed.lines.contains(where: { $0.translation == nil }) else { return }
-        Task { [weak self] in
+        translationTask?.cancel()
+        translationTask = Task { [weak self] in
             await self?.enrichTranslation(for: track, base: parsed, generation: generation)
         }
     }
@@ -735,6 +772,10 @@ final class PlayerService: ObservableObject {
         }
         guard changed, generation == resolveGeneration else { return }
         lyrics = merged
+        // Translation enrichment happens after the first lyric payload. Push
+        // the merged line through the same snapshot path so the widget and
+        // Live Activity do not keep the pre-enrichment placeholder.
+        updateLyricsCursor(at: livePlaybackTime)
     }
 
     func seek(to seconds: TimeInterval, completion: (@MainActor () -> Void)? = nil) {
@@ -749,7 +790,6 @@ final class PlayerService: ObservableObject {
             seconds,
             rate: isPlaying ? Double(playbackRate) : 0
         )
-        syncLiveActivity()
     }
 
     func toggleShuffle() {
@@ -926,7 +966,6 @@ final class PlayerService: ObservableObject {
                 } else {
                     isPlaying = false
                     NowPlayingManager.shared.updateElapsed(progress, rate: 0)
-                    syncLiveActivity()
                 }
                 return
             }
@@ -950,7 +989,6 @@ final class PlayerService: ObservableObject {
             seek(to: 0)
             engine.play()
             isPlaying = true
-            syncLiveActivity()
             return
         }
         advanceToNext(userInitiated: false)
@@ -961,6 +999,9 @@ final class PlayerService: ObservableObject {
     private func startPlaying(_ track: Track, indexUnchanged: Bool = false,
                               resumeAt: TimeInterval? = nil,
                               preserveTrackQualityOverride: Bool = false) {
+        resolveTask?.cancel()
+        lyricsTask?.cancel()
+        translationTask?.cancel()
         let track = track.normalizedForLXPlayback()
         if !preserveTrackQualityOverride {
             trackQualityOverride = nil
@@ -984,20 +1025,17 @@ final class PlayerService: ObservableObject {
         currentTrack = track
         WidgetSnapshotStore.update(track: track, lyric: nil)
         progress = resumeAt ?? 0
-        lastLiveActivityProgress = progress - 5
-        #if os(iOS)
-        liveActivityLyric = nil
-        #endif
         pendingSeek = resumeAt
         duration = track.duration
         servedQuality = nil
+        servedSourceLabel = nil
+        servedQualityTrackKey = nil
         unblockSource = nil
         isTrial = false
         lyrics = nil
         scrobbled = false
         startScrobbled = false
         isPlaying = true
-        syncLiveActivity(newTrack: true)
         lyricsCursor.activeIndex = nil
         // Before the URL is even resolved: holds the bars still rather than
         // letting them fall back to the decorative animation for the moment it
@@ -1009,26 +1047,30 @@ final class PlayerService: ObservableObject {
         NowPlayingManager.shared.updateMetadata(for: track, duration: track.duration)
         persistState()
 
-        Task {
-            await resolveAndLoad(
+        resolveTask = Task { [weak self] in
+            guard let self else { return }
+            await self.resolveAndLoad(
                 track,
                 generation: generation,
                 requestedQuality: requestedQuality
             )
         }
-        Task {
-            await loadLyrics(for: track, generation: generation)
+        lyricsTask = Task { [weak self] in
+            guard let self else { return }
+            await self.loadLyrics(for: track, generation: generation)
         }
     }
 
     private func resolveAndLoad(_ track: Track, generation: Int,
                                 requestedQuality: AudioQuality) async {
+        guard !Task.isCancelled, generation == resolveGeneration else { return }
         let quality = requestedQuality.rawValue
 #if os(macOS)
         let isLXCatalogTrack = track.source != nil
 #endif
         var resolvedURL: URL?
         var servedByLXQuality: String?
+        var servedBySourceLabel: String?
 #if os(macOS)
         var data: SongURLData?
 #endif
@@ -1040,6 +1082,7 @@ final class PlayerService: ObservableObject {
            FileManager.default.fileExists(atPath: local.fileURL.path) {
             resolvedURL = local.fileURL
             servedByLXQuality = local.quality
+            servedBySourceLabel = "本地下载"
         } else {
             let sourceValue = (track.source ?? track.sourceMetadata["source"] ?? "")
                 .lowercased()
@@ -1056,7 +1099,6 @@ final class PlayerService: ObservableObject {
                 guard generation == resolveGeneration else { return }
                 ToastCenter.shared.show("请先登录账号或在设置 → LX 音源中选择播放音源")
                 isPlaying = false
-                syncLiveActivity()
                 return
             }
             if playbackMode != .thirdParty, hasOfficialAccount,
@@ -1065,6 +1107,7 @@ final class PlayerService: ObservableObject {
                ) {
                 resolvedURL = official.url
                 servedByLXQuality = official.quality
+                servedBySourceLabel = official.sourceLabel
             }
 
             if resolvedURL == nil, playbackMode != .official, hasLXSource {
@@ -1081,6 +1124,7 @@ final class PlayerService: ObservableObject {
                 // asset before handing it to AVPlayer, then ask the remaining
                 // enabled source candidates for a full-length stream.
                 for attempt in 0..<4 {
+                    guard !Task.isCancelled, generation == resolveGeneration else { return }
                     do {
                         let candidate = try await LXUserAPIService.shared.resolveMusicURL(
                             for: track,
@@ -1090,7 +1134,7 @@ final class PlayerService: ObservableObject {
                         if await isLikelyPreviewURL(candidate.url, expectedDuration: track.duration) {
                             rejectedPreviewURLs.insert(candidate.url.absoluteString)
                             lastError = LXUserAPIService.LXError.sourceUnavailable(
-                                "闊虫簮杩斿洖 30 绉掕瘯鍚墖娈碉紝宸插垏鎹㈠鐢ㄩ煶婧?"
+                                "音源返回 30 秒试听片段，已切换备用音源"
                             )
                             continue
                         }
@@ -1108,15 +1152,15 @@ final class PlayerService: ObservableObject {
                 }
                 resolvedURL = resolved.url
                 servedByLXQuality = resolved.quality
+                servedBySourceLabel = "LX 第三方音源"
             } catch {
-                guard generation == resolveGeneration else { return }
+                guard !Task.isCancelled, generation == resolveGeneration else { return }
                 consecutiveFailures += 1
                 ToastCenter.shared.show("《\(track.name)》播放失败：\(error.localizedDescription)")
                 // A source-level error is not fixed by immediately trying five
                 // more queue entries. Keep the current song visible so the user
                 // can adjust the source or retry after reading the real error.
                 isPlaying = false
-                syncLiveActivity()
                 return
             }
             }
@@ -1158,17 +1202,22 @@ final class PlayerService: ObservableObject {
                 advanceToNext(userInitiated: false)
             } else {
                 isPlaying = false
-                syncLiveActivity()
             }
             return
         }
 
         consecutiveFailures = 0
 #if os(iOS)
-        servedQuality = servedByLXQuality
-        NowPlayingManager.shared.updateResolvedQuality(servedQuality, for: track)
+        // Do not publish the requested/provider-advertised tier yet.  Some
+        // sources return an Atmos/Master capability label for a URL that is
+        // actually ordinary Hi-Res or even 320K.  The player UI will receive
+        // the verified result after AVFoundation has loaded the audio track.
+        servedQuality = nil
+        servedSourceLabel = servedBySourceLabel
+        servedQualityTrackKey = nil
 #else
         servedQuality = servedByLXQuality ?? data?.level
+        servedQualityTrackKey = track.playbackKey
         if data?.freeTrialInfo != nil {
             isTrial = true
             ToastCenter.shared.show(String(localized: "VIP 歌曲，当前为试听片段"))
@@ -1183,6 +1232,15 @@ final class PlayerService: ObservableObject {
         let asset = AVURLAsset(url: url)
         let assetTrack = await loadAudioTrack(from: asset, timeout: 2)
         guard generation == resolveGeneration else { return }
+
+#if os(iOS)
+        servedQuality = verifiedServedQuality(
+            providerQuality: servedByLXQuality,
+            audioTrack: assetTrack
+        )
+        servedQualityTrackKey = track.playbackKey
+        NowPlayingManager.shared.updateResolvedQuality(servedQuality, for: track)
+#endif
 
         let item = AVPlayerItem(asset: asset)
         if let assetTrack, let mix = AudioSpectrum.shared.makeAudioMix(for: assetTrack) {
@@ -1224,9 +1282,13 @@ final class PlayerService: ObservableObject {
 #if os(iOS)
             syncListeningStart(track: track, sourceID: source.sourceID)
 #else
-            let tid = track.id
-            let sid = source.sourceID
-            Task.detached { await NeteaseAPI.scrobbleStart(trackID: tid, sourceID: sid) }
+            if AccountStore.shared.isLoggedIn {
+                let tid = track.id
+                let sid = source.sourceID
+                Task.detached { await NeteaseAPI.scrobbleStart(trackID: tid, sourceID: sid) }
+            } else {
+                ListeningSyncStore.shared.markSignedOut()
+            }
 #endif
         }
 
@@ -1248,7 +1310,10 @@ final class PlayerService: ObservableObject {
         await withTaskGroup(of: T?.self) { group in
             group.addTask { await operation() }
             group.addTask {
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                // Quality discovery is only a UI hint. Return the safe
+                // baseline quickly when an account/source endpoint stalls;
+                // playback itself keeps its longer resolver timeout.
+                try? await Task.sleep(nanoseconds: 1_800_000_000)
                 return nil
             }
             let result = await group.next() ?? nil
@@ -1261,20 +1326,29 @@ final class PlayerService: ObservableObject {
     /// track's catalogue. The returned quality is the provider's response.
     private func resolveOfficialAudio(for track: Track, quality: AudioQuality) async -> OfficialAudio? {
         let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
-        let candidates = qualityCandidates(startingAt: quality)
+        let requestedCandidates = qualityCandidates(startingAt: quality)
 
         if source.isEmpty || ["wy", "163", "netease", "neteasecloudmusic", "cloudmusic"].contains(source),
            NeteaseClient.shared.isLoggedIn {
+            let hasActiveNeteaseVIP = AccountStore.shared.hasActiveVIP
+            let candidates = hasActiveNeteaseVIP
+                ? requestedCandidates
+                : requestedCandidates.filter { !$0.requiresNeteaseVIP }
             for candidate in candidates {
                 guard let data = (try? await NeteaseAPI.songURL(
                     ids: [track.id], level: candidate.neteaseLevel
                 ))?.first,
                 data.freeTrialInfo == nil,
+                hasActiveNeteaseVIP || data.fee <= 0,
                 data.time <= 0 || track.duration <= 0
                     || TimeInterval(data.time) / 1000 >= max(45, track.duration * 0.65),
                 let rawURL = data.url,
                 let url = validAudioURL(rawURL) else { continue }
-                return OfficialAudio(url: url, quality: NeteaseAPI.officialQuality(for: data).lxType)
+                return OfficialAudio(
+                    url: url,
+                    quality: NeteaseAPI.officialQuality(for: data)?.lxType ?? "unknown",
+                    sourceLabel: "网易云官方账号音源"
+                )
             }
         }
 
@@ -1293,7 +1367,11 @@ final class PlayerService: ObservableObject {
                         songMid: songMid, mediaMid: mediaMid, quality: token, cookie: cookie
                       ),
                       let actual = AudioQuality(lxType: resolved.quality) else { continue }
-                return OfficialAudio(url: resolved.url, quality: actual.lxType)
+                return OfficialAudio(
+                    url: resolved.url,
+                    quality: actual.lxType,
+                    sourceLabel: "QQ 音乐官方账号音源"
+                )
             }
         }
 
@@ -1314,7 +1392,11 @@ final class PlayerService: ObservableObject {
                         albumID: albumID, albumAudioID: albumAudioID
                       ),
                       let actual = AudioQuality(lxType: resolved.quality) else { continue }
-                return OfficialAudio(url: resolved.url, quality: actual.lxType)
+                return OfficialAudio(
+                    url: resolved.url,
+                    quality: actual.lxType,
+                    sourceLabel: "酷狗音乐官方账号音源"
+                )
             }
         }
 
@@ -1453,16 +1535,64 @@ final class PlayerService: ObservableObject {
         }
     }
 
+    /// Returns the quality of the bytes that AVFoundation is actually about
+    /// to play.  Provider `type` fields are useful fallbacks, but they are
+    /// frequently copied from a capability list; the track's estimated data
+    /// rate is the safer source for the label shown beside the scrubber.
+    private func verifiedServedQuality(
+        providerQuality: String?,
+        audioTrack: AVAssetTrack?
+    ) -> String? {
+        let normalizedProvider = providerQuality?.lowercased()
+            .replacingOccurrences(of: " ", with: "")
+        let requiresTechnicalVerification = [
+            "master", "jymaster", "master_quality", "master-quality",
+            "atmos", "immersive", "dolby", "dolby-atmos", "dolbyatmos",
+            "surround", "spatial", "spatial-audio",
+        ].contains(normalizedProvider ?? "")
+
+        // A semantic tier such as Atmos or Master is not safe to display
+        // until the actual audio track has been inspected.  If a source does
+        // not expose track metadata, show "检测中" rather than repeating a
+        // capability label that may not belong to this URL.
+        guard let audioTrack else {
+            return requiresTechnicalVerification ? nil : providerQuality
+        }
+        let rate = audioTrack.estimatedDataRate
+        guard rate.isFinite, rate > 0 else {
+            return requiresTechnicalVerification ? nil : providerQuality
+        }
+
+        switch Int(rate.rounded()) {
+        case 900_000...:
+            return "flac24bit"
+        case 600_000..<900_000:
+            return "flac"
+        case 300_000..<600_000:
+            return "320k"
+        default:
+            return "128k"
+        }
+    }
+
     private func loadLyrics(for track: Track, generation: Int) async {
 #if os(iOS)
+        guard !Task.isCancelled, generation == resolveGeneration else { return }
         let sourceKey = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
+        // Keep a usable line-timed result, but continue searching for a real
+        // word-timed payload.  The latter is what AMLL needs; a line-only LRC
+        // must never be split into invented per-character timings.
+        var lineTimedFallback: ParsedLyrics?
         if ["wy", "netease", "163"].contains(sourceKey),
            let response = try? await NeteaseAPI.lyric(id: track.id) {
-            guard generation == resolveGeneration else { return }
+            guard !Task.isCancelled, generation == resolveGeneration else { return }
             let parsed = LyricsParser.parse(response)
             if !parsed.isEmpty {
-                publishLyrics(parsed, for: track, generation: generation)
-                return
+                if parsed.hasVerbatimTimings {
+                    publishLyrics(parsed, for: track, generation: generation)
+                    return
+                }
+                lineTimedFallback = parsed
             }
         }
 
@@ -1471,13 +1601,16 @@ final class PlayerService: ObservableObject {
         if !sourceKey.isEmpty,
            LXSourceStore.shared.selectedSource != nil,
            let lx = try? await LXUserAPIService.shared.resolveLyrics(for: track) {
-            guard generation == resolveGeneration else { return }
+            guard !Task.isCancelled, generation == resolveGeneration else { return }
             let parsed = LyricsParser.parseLX(lyric: lx.lyric, tlyric: lx.tlyric,
                                                rlyric: lx.rlyric, lxlyric: lx.lxlyric,
                                                yrc: lx.yrc)
             if !parsed.isEmpty {
-               publishLyrics(parsed, for: track, generation: generation)
-               return
+                if parsed.hasVerbatimTimings {
+                    publishLyrics(parsed, for: track, generation: generation)
+                    return
+                }
+                lineTimedFallback = lineTimedFallback ?? parsed
             }
         }
 
@@ -1485,12 +1618,15 @@ final class PlayerService: ObservableObject {
         // the selected LX User API source in resolveAndLoad(_:generation:requestedQuality:).
         if !sourceKey.isEmpty,
            let native = try? await LXCatalogService.nativeLyrics(for: track) {
-            guard generation == resolveGeneration else { return }
+            guard !Task.isCancelled, generation == resolveGeneration else { return }
             let parsed = LyricsParser.parseLX(lyric: native.lyric, tlyric: native.tlyric,
                                                rlyric: native.rlyric, lxlyric: native.lxlyric)
             if !parsed.isEmpty {
-               publishLyrics(parsed, for: track, generation: generation)
-               return
+                if parsed.hasVerbatimTimings {
+                    publishLyrics(parsed, for: track, generation: generation)
+                    return
+                }
+                lineTimedFallback = lineTimedFallback ?? parsed
             }
         }
 
@@ -1499,6 +1635,7 @@ final class PlayerService: ObservableObject {
         // across platforms, so a matched track is required before fetching.
         let fallbackPlatforms = ["tx", "wy", "kw", "kg", "mg"]
         for platform in fallbackPlatforms where platform != sourceKey {
+            guard !Task.isCancelled, generation == resolveGeneration else { return }
             guard let matched = await LXCatalogService.matchingTrack(track, on: platform),
                   let native = try? await LXCatalogService.nativeLyrics(for: matched) else {
                 continue
@@ -1508,9 +1645,12 @@ final class PlayerService: ObservableObject {
                                                rlyric: native.rlyric,
                                                lxlyric: native.lxlyric)
             if !parsed.isEmpty {
-                guard generation == resolveGeneration else { return }
-               publishLyrics(parsed, for: track, generation: generation)
-               return
+                guard !Task.isCancelled, generation == resolveGeneration else { return }
+                if parsed.hasVerbatimTimings {
+                    publishLyrics(parsed, for: track, generation: generation)
+                    return
+                }
+                lineTimedFallback = lineTimedFallback ?? parsed
             }
         }
 
@@ -1520,11 +1660,17 @@ final class PlayerService: ObservableObject {
         if !sourceKey.isEmpty {
             if let candidate = try? await NeteaseAPI.matchingSong(for: track),
                let response = try? await NeteaseAPI.lyric(id: candidate.id) {
-                let parsed = LyricsParser.parse(response, includeVerbatim: false)
+                // NetEase YRC is the preferred cross-platform fallback for
+                // real word timing.  AMLL renders it; it is not safe to
+                // fabricate timings when only line-level LRC exists.
+                let parsed = LyricsParser.parse(response, includeVerbatim: true)
                 if !parsed.isEmpty {
-                    guard generation == resolveGeneration else { return }
-               publishLyrics(parsed, for: track, generation: generation)
-               return
+                    guard !Task.isCancelled, generation == resolveGeneration else { return }
+                    if parsed.hasVerbatimTimings {
+                        publishLyrics(parsed, for: track, generation: generation)
+                        return
+                    }
+                    lineTimedFallback = lineTimedFallback ?? parsed
                 }
             }
         }
@@ -1532,6 +1678,10 @@ final class PlayerService: ObservableObject {
         // Do not leave the lyric panel in a permanent loading state when no
         // provider has lyrics for this track.
         guard generation == resolveGeneration else { return }
+        if let lineTimedFallback {
+            publishLyrics(lineTimedFallback, for: track, generation: generation)
+            return
+        }
         lyrics = ParsedLyrics()
         updateLyricsCursor(at: progress)
         return
@@ -1634,10 +1784,13 @@ final class PlayerService: ObservableObject {
     }
 
     private func syncListeningStart(track: Track, sourceID: Int) {
-        // Listening history only needs the NetEase auth cookie. Requiring the
-        // profile here made a temporary account/profile request failure look
-        // like a logged-out account and silently skipped the sync.
-        guard NeteaseClient.shared.isLoggedIn else { return }
+        // A cookie can survive a server-side logout or an incomplete bootstrap.
+        // Require the verified AccountStore profile too, otherwise playback can
+        // appear to sync for a user who is not actually signed in.
+        guard AccountStore.shared.isLoggedIn else {
+            ListeningSyncStore.shared.markSignedOut()
+            return
+        }
         let key = track.playbackKey
         Task { [weak self] in
             guard let trackID = await self?.neteaseTrackID(for: track) else { return }
@@ -1659,8 +1812,8 @@ final class PlayerService: ObservableObject {
 
     private func syncListeningFinish(track: Track, sourceID: Int, seconds: Int) {
         guard seconds > 0 else { return }
-        guard NeteaseClient.shared.isLoggedIn else {
-            ListeningSyncStore.shared.recordFailure()
+        guard AccountStore.shared.isLoggedIn else {
+            ListeningSyncStore.shared.markSignedOut()
             return
         }
         let key = track.playbackKey
@@ -1686,6 +1839,9 @@ final class PlayerService: ObservableObject {
                                                    seconds: seconds) {
                     guard !Task.isCancelled else { return }
                     ListeningSyncStore.shared.record(seconds: seconds)
+                    if let uid = AccountStore.shared.profile?.userId {
+                        await ListeningSyncStore.shared.refreshRemoteRecords(uid: uid)
+                    }
                     self?.pendingNeteaseTrackIDs.removeValue(forKey: key)
                     return
                 }
@@ -1714,8 +1870,12 @@ final class PlayerService: ObservableObject {
 #if os(iOS)
         syncListeningFinish(track: track, sourceID: sourceID, seconds: seconds)
 #else
-        Task.detached {
-            await NeteaseAPI.scrobbleFinish(trackID: track.id, sourceID: sourceID, seconds: seconds)
+        if AccountStore.shared.isLoggedIn {
+            Task.detached {
+                await NeteaseAPI.scrobbleFinish(trackID: track.id, sourceID: sourceID, seconds: seconds)
+            }
+        } else {
+            ListeningSyncStore.shared.markSignedOut()
         }
 #endif
     }

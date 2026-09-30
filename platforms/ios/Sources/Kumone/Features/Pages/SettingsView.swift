@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 #if os(iOS)
 import PhotosUI
 #endif
@@ -14,9 +15,14 @@ struct SettingsView: View {
     @StateObject private var bilibili = BilibiliSessionStore.shared
     @StateObject private var updateLog = IOSUpdateLogStore.shared
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
+    @ObservedObject private var dynamicWallpaper = DynamicWallpaperStore.shared
+    @ObservedObject private var playerAmbience = PlayerAmbienceStore.shared
 #endif
     @State private var cacheSize = "计算中…"
     private let afdianURL = URL(string: "https://afdian.com/a/moumou2026")!
+    @State private var isClearingCache = false
+    @State private var cacheProgress: Double?
+    @State private var cacheClearMessage: String?
     @State private var showEqualizer = false
     @ObservedObject private var equalizer = MoumusicEqualizer.shared
 #if os(iOS)
@@ -27,6 +33,10 @@ struct SettingsView: View {
     @State private var showBilibiliLogin = false
     @State private var showPlayerLayoutEditor = false
 #endif
+    @StateObject private var backupStore = AppDataBackupManager.shared
+    @State private var isExportingBackup = false
+    @State private var isImportingBackup = false
+    @State private var exportDocument: MoumusicBackupFileDocument?
 
     var body: some View {
         ScrollView {
@@ -58,6 +68,24 @@ struct SettingsView: View {
                          : "未登录网易云账号，对应歌曲将使用 LX 音源")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                if account.isLoggedIn && !account.hasActiveVIP {
+                    Label(
+                        "警告：当前网易云账号不是 VIP。网易云官方账号音源不会把全景声、杜比、环绕声或 Hi-Res 当作账号权限；选择这些档位时会自动降级，或按设置切换到第三方音源。",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                } else if account.hasAuthCookie && !account.vipStatusKnown {
+                    Label(
+                        "警告：网易云账号资料还未同步完成，VIP 状态尚未确认。确认前不会按 VIP 请求高级音质。",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
 #endif
 
@@ -166,6 +194,12 @@ struct SettingsView: View {
                      : "单平台模式：只使用歌曲标记的平台，不跨平台匹配。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("拔出耳机自动暂停", isOn: $settings.autoPauseOnRouteChange)
+                Text(settings.autoPauseOnRouteChange
+                     ? "断开耳机、车载或蓝牙输出时自动暂停当前歌曲。"
+                     : "断开输出设备时继续播放，请确认周围环境适合播放。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 #endif
                 Button {
                     showEqualizer = true
@@ -188,23 +222,19 @@ struct SettingsView: View {
             }
 
             settingsGroup("哔哩哔哩") {
-                Toggle("看哔哩哔哩", isOn: $settings.bilibiliVideoEnabled)
-                Toggle("听哔哩哔哩", isOn: $settings.bilibiliAudioEnabled)
-                Picker("首页推荐客户端", selection: $settings.bilibiliRecommendationSource) {
-                    ForEach(BilibiliRecommendationSource.allCases) { source in
-                        Text(source.displayName).tag(source)
+                NavigationLink {
+                    NavigationStack {
+                        BilibiliSettingsView()
+                            .environmentObject(settings)
                     }
+                } label: {
+                    Label("打开 B 站独立设置", systemImage: "slider.horizontal.3")
                 }
-                #if os(iOS)
-                .pickerStyle(.menu)
-                #endif
-                Text(settings.bilibiliRecommendationSource.explanation)
+                .frame(minHeight: 44)
+                Text("视频、音频和首页推荐客户端已移到独立页面，不再和全局音源设置混在一起。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("“看”控制视频入口；“听”控制视频页的仅听音频和字幕。首页推荐客户端可在这里或哔哩哔哩页面顶部切换。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
 #if os(iOS)
@@ -230,6 +260,11 @@ struct SettingsView: View {
                 Text("选择播放页的布局风格；沉浸、经典、简洁、歌词和唱片模式互不覆盖。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("锁屏沉浸封面", isOn: $settings.lockScreenImmersiveArtwork)
+                Text("开启后向系统媒体中心提供高分辨率封面；锁屏展开播放器时，iOS 会按系统规则显示类似 Apple Music 的沉浸式封面。关闭后仍保留普通小封面。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button {
                     showPlayerLayoutEditor = true
                 } label: {
@@ -241,7 +276,82 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            settingsGroup("动态壁纸与背景") {
+            settingsGroup("动态壁纸") {
+                Toggle("启用动态壁纸", isOn: $dynamicWallpaper.isEnabled)
+                Picker("动态样式", selection: $dynamicWallpaper.kind) {
+                    ForEach(DynamicWallpaperKind.allCases) { kind in
+                        Text(kind.displayName).tag(kind)
+                    }
+                }
+                .pickerStyle(.menu)
+                HStack {
+                    Text("动画速度")
+                    Slider(value: $dynamicWallpaper.speed, in: 0.05...1.0)
+                    Text(String(format: "%.2fx", dynamicWallpaper.speed))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 48, alignment: .trailing)
+                }
+                HStack {
+                    Text("显示强度")
+                    Slider(value: $dynamicWallpaper.intensity, in: 0.2...1.0)
+                    Text(String(format: "%.0f%%", dynamicWallpaper.intensity * 100))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 48, alignment: .trailing)
+                }
+                Toggle("同步到应用页面", isOn: $dynamicWallpaper.syncToApp)
+                Toggle("同步到沉浸播放页", isOn: $dynamicWallpaper.syncToPlayer)
+                Text("动态壁纸会在应用进入后台或开启减少动态效果时自动暂停；启用后优先显示，静态背景仍会保留。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            settingsGroup("播放器氛围") {
+                Toggle("封面动态氛围", isOn: $playerAmbience.isEnabled)
+                Text("来自 Beans 的封面主色光晕；它和全局动态壁纸是两套独立效果。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    Text("呼吸光晕")
+                    Slider(value: $playerAmbience.breath, in: 0...1)
+                    Text(String(format: "%.0f%%", playerAmbience.breath * 100))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 48, alignment: .trailing)
+                }
+
+                Picker("背景浮尘", selection: $playerAmbience.dustMode) {
+                    ForEach(MoumusicPlayerDustMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if playerAmbience.dustMode == .snow {
+                    HStack {
+                        Text("浮尘密度")
+                        Slider(value: $playerAmbience.dustDensity, in: 0.25...2.5)
+                        Text(String(format: "%.1fx", playerAmbience.dustDensity))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .trailing)
+                    }
+                    HStack {
+                        Text("浮尘大小")
+                        Slider(value: $playerAmbience.dustSize, in: 0.6...3.2)
+                        Text(String(format: "%.1fx", playerAmbience.dustSize))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .trailing)
+                    }
+                }
+            }
+
+            settingsGroup("图片背景") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 10) {
                         Label("背景图片", systemImage: "photo.on.rectangle.angled")
@@ -298,39 +408,10 @@ struct SettingsView: View {
 #endif
 
             settingsGroup("歌词显示") {
-                Picker("歌词样式", selection: $settings.lyricsDisplayStyle) {
-                    ForEach(LyricsDisplayStyle.allCases) { style in
-                        Text(style.displayName).tag(style)
-                    }
-                }
-                Text(settings.lyricsDisplayStyle.explanation)
+                Text("歌词样式、逐字歌词、翻译和同步偏移请在歌曲播放页的“歌词设置”中调整。播放页会优先使用音源提供的真实逐字时间轴，没有时间轴时只做整行高亮。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
-                Toggle("逐字歌词（卡拉 OK）", isOn: $settings.verbatimLyrics)
-                Picker("日文歌词注音", selection: $settings.lyricsAnnotation) {
-                    ForEach(LyricsAnnotation.allCases) { annotation in
-                        Text(annotation.displayName).tag(annotation)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("歌词同步")
-                        Spacer()
-                        Text(String(format: "%+.2f 秒", settings.lyricsOffset))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                    Slider(value: $settings.lyricsOffset, in: -2...2, step: 0.05)
-#if os(iOS)
-                        .onChange(of: settings.lyricsOffset) { _ in
-                            player.refreshLyricsCursor()
-                        }
-#endif
-                    Text("正值让歌词提前，负值让歌词延后；不同音源版本可分别试听调整。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                    .fixedSize(horizontal: false, vertical: true)
 #if os(macOS)
                 Toggle("桌面歌词", isOn: $settings.showDesktopLyrics)
                 Toggle("桌面歌词水平居中", isOn: $settings.desktopLyricsCentered)
@@ -344,12 +425,66 @@ struct SettingsView: View {
                 LabeledContent("图片缓存", value: cacheSize)
                 Button("清除缓存") { clearCache() }
 #if os(iOS)
+                if let cacheProgress {
+                    ProgressView(value: cacheProgress)
+                    Text("正在清理缓存 \(Int(cacheProgress * 100))%")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let cacheClearMessage {
+                    Text(cacheClearMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Button {
                     showDownloads = true
                 } label: {
                     Label("下载管理", systemImage: "arrow.down.circle")
                 }
 #endif
+            }
+
+            settingsGroup("数据备份与恢复") {
+                Toggle("自动备份到 iCloud", isOn: $backupStore.automaticICloudBackup)
+                Text("只备份本地收藏、歌单和应用设置；账号 Cookie、Token 和密码不会导出或上传。未启用 iCloud 时仍可使用文件备份。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 12) {
+                    Button {
+                        exportDocument = backupStore.prepareExportDocument()
+                        isExportingBackup = exportDocument != nil
+                    } label: {
+                        Label("导出备份", systemImage: "square.and.arrow.up")
+                    }
+
+                    Button {
+                        isImportingBackup = true
+                    } label: {
+                        Label("导入恢复", systemImage: "square.and.arrow.down")
+                    }
+                }
+
+                Button {
+                    _ = backupStore.restoreFromICloud()
+                } label: {
+                    Label(
+                        backupStore.isICloudAvailable ? "立即从 iCloud 恢复" : "iCloud 不可用",
+                        systemImage: backupStore.isICloudAvailable ? "icloud.and.arrow.down" : "icloud.slash"
+                    )
+                }
+                .disabled(!backupStore.isICloudAvailable)
+
+                if let lastBackupDate = backupStore.lastBackupDate {
+                    LabeledContent("上次 iCloud 备份", value: lastBackupDate.formatted(date: .abbreviated, time: .shortened))
+                }
+                if !backupStore.statusMessage.isEmpty {
+                    Text(backupStore.statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             settingsGroup("更新") {
@@ -418,6 +553,12 @@ struct SettingsView: View {
                 .accessibilityHint("打开爱发电支持页面")
 #endif
             }
+#if os(iOS)
+            // The floating player bar is rendered above this scroll view.
+            // Keep the last settings group reachable instead of letting the
+            // bar cover it on the smaller iPhone layouts.
+            PlayerClearanceSpacer()
+#endif
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)
@@ -433,12 +574,46 @@ struct SettingsView: View {
 #endif
         .task {
             updateCacheSize()
+            backupStore.startAutomaticBackup()
 #if os(iOS)
             // A stale Keychain cookie must not make the login row look
             // permanently authenticated and prevent the user from scanning a
             // fresh QR code.
             await bilibili.refreshProfile()
 #endif
+        }
+        .fileExporter(
+            isPresented: $isExportingBackup,
+            document: exportDocument,
+            contentType: .json,
+            defaultFilename: "Moumusic-Backup"
+        ) { result in
+            if case .failure(let error) = result {
+                backupStore.setStatusMessage("备份导出失败：\(error.localizedDescription)")
+            }
+        }
+        .fileImporter(
+            isPresented: $isImportingBackup,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result, let url = urls.first else {
+                if case .failure(let error) = result {
+                    backupStore.setStatusMessage("备份导入失败：\(error.localizedDescription)")
+                }
+                return
+            }
+
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessed { url.stopAccessingSecurityScopedResource() }
+            }
+
+            do {
+                try backupStore.importBackup(data: Data(contentsOf: url))
+            } catch {
+                backupStore.setStatusMessage("备份导入失败：\(error.localizedDescription)")
+            }
         }
         .sheet(isPresented: $showEqualizer) {
             EqualizerView()
@@ -561,6 +736,32 @@ struct SettingsView: View {
     }
 
     private func updateCacheSize() {
+        Task { @MainActor in
+            let summary = await AppCacheManager.shared.summary()
+            cacheSize = ByteCountFormatter.string(fromByteCount: summary.byteCount, countStyle: .file)
+        }
+    }
+
+    private func clearCache() {
+        guard !isClearingCache else { return }
+        isClearingCache = true
+        cacheProgress = 0
+        cacheClearMessage = nil
+        Task { @MainActor in
+            let result = await AppCacheManager.shared.clearAll { value in
+                await MainActor.run {
+                    cacheProgress = value
+                }
+            }
+            cacheSize = ByteCountFormatter.string(fromByteCount: 0, countStyle: .file)
+            cacheProgress = nil
+            isClearingCache = false
+            cacheClearMessage = "已清理 \(result.fileCount) 个缓存文件"
+            ToastCenter.shared.show("缓存已清除")
+        }
+    }
+
+    private func updateCacheSizeLegacy() {
         let directory = cacheDirectory
         DispatchQueue.global(qos: .utility).async {
             let files = (try? FileManager.default.contentsOfDirectory(
@@ -574,7 +775,7 @@ struct SettingsView: View {
         }
     }
 
-    private func clearCache() {
+    private func clearCacheLegacy() {
         let directory = cacheDirectory
         DispatchQueue.global(qos: .utility).async {
             try? FileManager.default.removeItem(at: directory)
