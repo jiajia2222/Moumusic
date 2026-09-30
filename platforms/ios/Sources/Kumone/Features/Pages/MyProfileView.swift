@@ -189,7 +189,6 @@ struct MyProfileView: View {
                 }
             }
         }
-    }
 
 #endif
         return EmptyView()
