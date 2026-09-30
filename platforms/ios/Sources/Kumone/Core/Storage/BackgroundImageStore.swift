@@ -208,9 +208,10 @@ struct MoumusicAmbientGlow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        if isEnabled {
-            TimelineView(.animation(minimumInterval: 1 / 30, paused: !isPlaying || dustMode != .snow || reduceMotion)) { timelineContext in
-                Canvas { context, size in
+        Group {
+            if isEnabled {
+                TimelineView(.animation(minimumInterval: 1 / 30, paused: !isPlaying || dustMode != .snow || reduceMotion)) { timelineContext in
+                    Canvas { context, size in
                     guard size.width > 0, size.height > 0 else { return }
                     let time = dustMode == .snow && !reduceMotion
                         ? timelineContext.date.timeIntervalSinceReferenceDate
@@ -283,11 +284,12 @@ struct MoumusicAmbientGlow: View {
                             )
                         }
                     }
+                    }
+                    .drawingGroup()
                 }
-                .drawingGroup()
+            } else {
+                Color.clear
             }
-        } else {
-            Color.clear
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
