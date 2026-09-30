@@ -600,7 +600,9 @@ struct HomeView: View {
 
     private var loadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 34) {
+#if os(macOS)
             homePlatformPicker
+#endif
             featureCards
                 .padding(.top, 8)
 

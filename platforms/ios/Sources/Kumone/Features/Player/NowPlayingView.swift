@@ -339,7 +339,8 @@ struct NowPlayingView: View {
                         .frame(maxWidth: .infinity, maxHeight: contentHeight)
                 }
             }
-            .frame(maxWidth: .infinity, height: contentHeight)
+            .frame(maxWidth: .infinity)
+            .frame(height: contentHeight)
 
             VStack(spacing: 2) {
                 NowPlayingScrubber(onShowQuality: { activeSheet = .quality })

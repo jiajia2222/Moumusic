@@ -331,7 +331,7 @@ final class PlayerService: ObservableObject {
         // The picker is a convenience probe, not a reason to hold the sheet
         // open while one dead source retries. Keep all already-started probes
         // concurrent and cap the aggregate wait for this concrete track.
-        let probedNames = await Self.withQualityProbeTimeout(operation: {
+        let probedNames: [String] = await Self.withQualityProbeTimeout(operation: {
             var values: [String] = []
             for task in qualityTasks {
                 values.append(contentsOf: await task.value)
@@ -1331,10 +1331,10 @@ final class PlayerService: ObservableObject {
         if source.isEmpty || ["wy", "163", "netease", "neteasecloudmusic", "cloudmusic"].contains(source),
            NeteaseClient.shared.isLoggedIn {
             let hasActiveNeteaseVIP = AccountStore.shared.hasActiveVIP
-            let candidates = hasActiveNeteaseVIP
+            let neteaseCandidates = hasActiveNeteaseVIP
                 ? requestedCandidates
                 : requestedCandidates.filter { !$0.requiresNeteaseVIP }
-            for candidate in candidates {
+            for candidate in neteaseCandidates {
                 guard let data = (try? await NeteaseAPI.songURL(
                     ids: [track.id], level: candidate.neteaseLevel
                 ))?.first,
@@ -1360,7 +1360,7 @@ final class PlayerService: ObservableObject {
                 ? track.sourceMetadata["strMediaMid"]
                 : track.sourceMetadata["media_mid"]
             var attempted = Set<String>()
-            for candidate in candidates {
+            for candidate in requestedCandidates {
                 let token = qqQualityToken(for: candidate)
                 guard attempted.insert(token).inserted,
                       let resolved = try? await QQMusicAPI.shared.musicURL(
@@ -1384,7 +1384,7 @@ final class PlayerService: ObservableObject {
                 ?? track.sourceMetadata["albumAudioID"]
                 ?? track.sourceMetadata["mixsongid"]
             var attempted = Set<String>()
-            for candidate in candidates {
+            for candidate in requestedCandidates {
                 let token = candidate.lxType
                 guard attempted.insert(token).inserted,
                       let resolved = try? await KugouAPI.shared.musicURL(

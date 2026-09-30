@@ -79,13 +79,8 @@ final class BackgroundImageStore: ObservableObject {
         } catch {
             // Fall through to the image representation below.
         }
-        // Files and some third-party providers do not vend `Data` through
-        // Transferable even though they do expose a public image UTI.
-        if let data = try await selection.loadDataRepresentation(
-            forTypeIdentifier: UTType.image.identifier
-        ), UIImage(data: data) != nil {
-            return data
-        }
+        // The explicit image Transferable keeps this compatible with the
+        // iOS 16 PhotosPicker API, which has no loadDataRepresentation API.
         return try await selection.loadTransferable(type: ImageTransfer.self)?.data
     }
 
@@ -214,11 +209,11 @@ struct MoumusicAmbientGlow: View {
 
     var body: some View {
         if isEnabled {
-            TimelineView(.animation(minimumInterval: 1 / 30, paused: !isPlaying || dustMode != .snow || reduceMotion)) { context in
+            TimelineView(.animation(minimumInterval: 1 / 30, paused: !isPlaying || dustMode != .snow || reduceMotion)) { timelineContext in
                 Canvas { context, size in
                     guard size.width > 0, size.height > 0 else { return }
                     let time = dustMode == .snow && !reduceMotion
-                        ? context.date.timeIntervalSinceReferenceDate
+                        ? timelineContext.date.timeIntervalSinceReferenceDate
                         : 1.7
                     let primaryCenter = CGPoint(
                         x: size.width * (0.5 + 0.18 * sin(time * 0.25)),

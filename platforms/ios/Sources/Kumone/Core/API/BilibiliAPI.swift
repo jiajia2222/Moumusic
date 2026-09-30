@@ -1988,8 +1988,9 @@ actor BilibiliAPI {
             return
         }
 
-        let task = Task { [weak self] in
-            await self?.bootstrapVisitorCookies()
+        let task: Task<Void, Never> = Task { [weak self] in
+            guard let self = self else { return }
+            await self.bootstrapVisitorCookies()
         }
         visitorBootstrapTask = task
         await task.value
