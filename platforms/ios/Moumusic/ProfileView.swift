@@ -178,6 +178,7 @@ struct ProfileView: View {
                     }
                     // Moumusic 资料卡片（Beans 同款）+ 独立 ID
                     XProfileCardView()
+                    BilibiliEntryCard()
                     // 板块按用户自定义顺序渲染（可拖拽排序）
                     ForEach(profileOrder, id: \.self) { key in
                         switch key {

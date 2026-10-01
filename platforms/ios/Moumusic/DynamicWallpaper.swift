@@ -98,8 +98,12 @@ final class DynamicWallpaperStore: ObservableObject {
 
     /// iOS 17 以下不支持 Metal 着色器壁纸。
     static var isSupported: Bool {
+        #if MOUMUSIC_COMPAT
+        return false
+        #else
         if #available(iOS 17.0, *) { return true }
         return false
+        #endif
     }
 
     var isActive: Bool { Self.isSupported && kind != .none }
@@ -138,13 +142,18 @@ struct DynamicWallpaperLayer: View {
     var dotsStyleRaw: String = "wavy"
 
     var body: some View {
+        #if MOUMUSIC_COMPAT
+        Color.clear
+        #else
         if #available(iOS 17.0, *) {
             shader
         } else {
             Color.clear
         }
+        #endif
     }
 
+    #if !MOUMUSIC_COMPAT
     @available(iOS 17.0, *)
     @ViewBuilder
     private var shader: some View {
@@ -170,6 +179,7 @@ struct DynamicWallpaperLayer: View {
         case .grainGradient: SWGrainGradient()
         }
     }
+    #endif
 }
 
 // MARK: - 设置区块

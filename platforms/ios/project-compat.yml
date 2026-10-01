@@ -1,0 +1,63 @@
+﻿# Moumusic — COMPATIBILITY variant (iOS 15-18). No CiliCili / Bilibili, no Metal wallpapers.
+# Built with SWIFT_ACTIVE_COMPILATION_CONDITIONS=MOUMUSIC_COMPAT (see .github/workflows/ios-build.yml).
+name: Moumusic
+
+options:
+  deploymentTarget:
+    iOS: "15.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) MOUMUSIC_COMPAT"
+
+targets:
+  Moumusic:
+    type: application
+    platform: iOS
+    sources:
+      - path: Moumusic
+        excludes:
+          - "en.lproj"
+          - "zh-Hans.lproj"
+          - "Shaders/**"
+    resources:
+      - Moumusic/en.lproj
+      - Moumusic/zh-Hans.lproj
+      - Moumusic/XProfile.html
+    settings:
+      base:
+        PRODUCT_NAME: Moumusic
+        PRODUCT_BUNDLE_IDENTIFIER: com.jiajia2222.moumusic.ios
+        MARKETING_VERSION: "3.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_OBJC_BRIDGING_HEADER: Moumusic/Beans-Bridging-Header.h
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: Moumusic/Info.plist
+      properties:
+        CFBundleDisplayName: Moumusic
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UIBackgroundModes: [audio]
+        UILaunchScreen:
+          UIImageName: LaunchBackground
+          UIColorName: LaunchBackgroundColor
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        CADisableMinimumFrameDurationOnPhone: true
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+
+schemes:
+  Moumusic:
+    build:
+      targets:
+        Moumusic: all
+    run:
+      config: Debug
+    archive:
+      config: Release

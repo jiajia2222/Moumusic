@@ -1,14 +1,36 @@
+﻿# Moumusic — FULL-FEATURE variant (iOS 26+). Includes the CiliCili (Bilibili) framework and Metal wallpapers.
+# The compatibility variant (iOS 15-18) is project-compat.yml.
 name: Moumusic
 
 options:
   deploymentTarget:
-    iOS: "15.0"
+    iOS: "26.0"
 
 settings:
   base:
     SWIFT_VERSION: "5.0"
 
 targets:
+  CiliCiliKit:
+    type: framework
+    platform: iOS
+    sources:
+      - path: Modules/CiliCili/Sources
+      - path: Modules/CiliCili/Bridge
+    settings:
+      base:
+        PRODUCT_NAME: CiliCiliKit
+        PRODUCT_BUNDLE_IDENTIFIER: com.jiajia2222.moumusic.ios.cilicili
+        DEFINES_MODULE: YES
+        GENERATE_INFOPLIST_FILE: YES
+        MARKETING_VERSION: "3.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        SWIFT_APPROACHABLE_CONCURRENCY: YES
+        SKIP_INSTALL: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+
   Moumusic:
     type: application
     platform: iOS
@@ -21,6 +43,10 @@ targets:
       - Moumusic/en.lproj
       - Moumusic/zh-Hans.lproj
       - Moumusic/XProfile.html
+      - Modules/CiliCili/Assets/CiliCiliAssets.xcassets
+    dependencies:
+      - target: CiliCiliKit
+        embed: true
     settings:
       base:
         PRODUCT_NAME: Moumusic
@@ -42,9 +68,12 @@ targets:
           UIColorName: LaunchBackgroundColor
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         CADisableMinimumFrameDurationOnPhone: true
+        NSPhotoLibraryAddUsageDescription: 用于将图片和视频保存到系统照片图库。
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
 

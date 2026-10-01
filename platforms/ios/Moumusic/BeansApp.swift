@@ -3,6 +3,9 @@ import UIKit
 
 @main
 struct BeansApp: App {
+    #if !MOUMUSIC_COMPAT
+    @UIApplicationDelegateAdaptor(MoumusicAppDelegate.self) private var appDelegate
+    #endif
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var auth = AuthStore()
     @StateObject private var player = PlayerManager()
