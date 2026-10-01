@@ -1209,6 +1209,9 @@ struct SettingsView: View {
     @State private var backupMessage: String?
     /// 日志
     @State private var showLogViewer = false
+    @State private var showFeedback = false
+    @State private var showDeveloperTools = false
+    @ObservedObject private var deviceReporter = DeviceReporter.shared
 
     private var themeMode: BeansThemeMode {
         BeansThemeMode(rawValue: themeModeRaw) ?? .system
@@ -1458,6 +1461,7 @@ struct SettingsView: View {
                         equalizerSection
                         changelogSection
                         backupSection
+                        supportSection
                         logSection
                         footerNote
                     }
@@ -1521,6 +1525,14 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showLogViewer) {
             LogViewerSheet(importedText: nil)
+                .environmentObject(theme)
+        }
+        .sheet(isPresented: $showFeedback) {
+            FeedbackSheet()
+                .environmentObject(theme)
+        }
+        .fullScreenCover(isPresented: $showDeveloperTools) {
+            DeveloperToolsView()
                 .environmentObject(theme)
         }
         .sheet(isPresented: $showSourceManager) {
@@ -2911,6 +2923,29 @@ struct SettingsView: View {
         return nil
     }
 
+    /// 帮助与开发者：问题反馈（提交后解锁下载）、开发者工具（仅开发者设备可见）
+    private var supportSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "帮助")
+            VStack(spacing: 8) {
+                HStack(spacing: 10) {
+                    logActionButton(icon: "bubble.left.and.exclamationmark.bubble.right", title: "问题反馈") {
+                        showFeedback = true
+                    }
+                    if deviceReporter.isDeveloper {
+                        logActionButton(icon: "hammer", title: "开发者工具") {
+                            showDeveloperTools = true
+                        }
+                    }
+                }
+            }
+            .padding(14)
+            .background {
+                BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+        }
+    }
+
     /// 日志：查看 / 清空（导出入口放在日志查看器右上角）
     private var logSection: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -2952,7 +2987,7 @@ struct SettingsView: View {
 
     private var footerNote: some View {
         VStack(spacing: 6) {
-            Text("Beans Music · 仅供学习交流，纯 AI 实现此应用")
+            Text("Moumusic · 仅供学习交流")
                 .font(BeansFont.appFont(11))
                 .foregroundStyle(Color.beansComment.opacity(0.7))
             Text("接入网易云音乐、QQ 音乐等公开接口")

@@ -96,6 +96,7 @@ final class DeviceReporter: ObservableObject {
     @Published private(set) var isBlocked: Bool
     @Published private(set) var downloadUnlocked: Bool
     @Published private(set) var downloadGlobalEnabled: Bool
+    @Published private(set) var isDeveloper: Bool
 
     private let defaults = UserDefaults.standard
     private var heartbeatInFlight = false
@@ -108,6 +109,7 @@ final class DeviceReporter: ObservableObject {
         static let blocked = "beans.backend.userBlocked"
         static let download = "beans.backend.downloadUnlocked"
         static let downloadGlobal = "beans.downloadGlobalFeatureEnabled"
+        static let developer = "beans.backend.isDeveloper"
     }
 
     private init() {
@@ -118,6 +120,7 @@ final class DeviceReporter: ObservableObject {
         isBlocked = d.bool(forKey: Key.blocked)
         downloadUnlocked = d.bool(forKey: Key.download)
         downloadGlobalEnabled = d.bool(forKey: Key.downloadGlobal)
+        isDeveloper = d.bool(forKey: Key.developer)
     }
 
     /// 设备在服务端的标识（私有，仅用于心跳/同步）。
@@ -162,6 +165,12 @@ final class DeviceReporter: ObservableObject {
         }
     }
 
+    /// 反馈提交成功后服务端会解锁下载，立即同步到本地。
+    func markDownloadUnlocked() {
+        downloadUnlocked = true
+        defaults.set(true, forKey: Key.download)
+    }
+
     private func apply(_ obj: [String: Any]) {
         if let v = obj["original_public_user_id"] as? String ?? obj["public_user_id"] as? String {
             publicUserID = v; defaults.set(v, forKey: Key.publicID)
@@ -174,6 +183,7 @@ final class DeviceReporter: ObservableObject {
         if let b = obj["blocked"] as? Bool { isBlocked = b; defaults.set(b, forKey: Key.blocked) }
         if let b = obj["download_unlocked"] as? Bool { downloadUnlocked = b; defaults.set(b, forKey: Key.download) }
         if let b = obj["download_global_enabled"] as? Bool { downloadGlobalEnabled = b; defaults.set(b, forKey: Key.downloadGlobal) }
+        if let b = obj["is_developer"] as? Bool { isDeveloper = b; defaults.set(b, forKey: Key.developer) }
     }
 
     private static func hardwareIdentifier() -> String {
