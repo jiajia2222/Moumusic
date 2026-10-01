@@ -60,6 +60,10 @@
     -webkit-backdrop-filter:blur(24px) saturate(1.35);backdrop-filter:blur(24px) saturate(1.35);
     pointer-events:none;z-index:0;}
 
+  .id-badge{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.3px;color:#fff;background:#536471;}
+  .id-badge[hidden]{display:none;}
+  .id-badge.classic_gold{color:#3a2a00;background:linear-gradient(135deg,#ffe28a,#e0a82e);}
+  .id-badge.black_purple_gold{color:#f6d77a;background:linear-gradient(135deg,#0b0b0f,#4b2a7a);box-shadow:0 0 0 1px rgba(246,215,122,.55) inset;}
   .banner{position:relative;width:100%;height:var(--banner-height);background:var(--header-blue);
     background-size:cover;background-position:center;cursor:pointer;overflow:hidden;z-index:1;}
   .banner img,.banner video{width:100%;height:100%;object-fit:cover;display:block;}
@@ -273,9 +277,9 @@
   </div>
 
   <div class="content">
-    <div class="editable display-name" id="displayName" contenteditable="true">江周</div>
-    <div class="editable username" id="username" contenteditable="true">@jiangzhou</div>
-    <div class="editable bio" id="bio" contenteditable="true">淡々とうまくいく</div>
+    <div class="editable display-name" id="displayName" contenteditable="true">Moumusic</div>
+    <div class="editable username" id="username" contenteditable="true">@moumusic</div>`n    <div class="id-badge" id="idBadge" hidden></div>
+    <div class="editable bio" id="bio" contenteditable="true">用音乐记录每一天</div>
     <div class="translate">翻译简介</div>
     <div class="meta-row">
       <span class="meta-item">
@@ -292,7 +296,7 @@
           <line x1="8" y1="2" x2="8" y2="6"/>
           <line x1="3" y1="10" x2="21" y2="10"/>
         </svg>
-        <span class="editable" contenteditable="true">2003年12月</span>
+        <span class="editable" contenteditable="true">2026年10月</span>
         <span>加入</span>
       </span>
     </div>
@@ -390,21 +394,21 @@ const listenStat = document.getElementById('listenStat');
 
 let locked = false;
 
-const MY_AVATAR_URL = 'https://s41.ax1x.com/2026/09/16/pnunKt1.jpg';
+const MY_AVATAR_URL = '';
 const FALLBACK_AVATAR = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#8b98a5"/><circle cx="50" cy="38" r="19" fill="#d7dde3"/><path d="M16 100c4-23 18-35 34-35s30 12 34 35" fill="#d7dde3"/></svg>'
 );
 const DEFAULT_INFO = {
-  name: '江周',
-  user: '@jiangzhou',
-  bio: '淡々とうまくいく',
+  name: 'Moumusic',
+  user: '@moumusic',
+  bio: '用音乐记录每一天',
   metaL: '未知',
-  metaR: '2003年12月'
+  metaR: ''
 };
-const LS_KEY = 'zhou_x_profile_settings_v3';
+const LS_KEY = 'moumusic_profile_settings_v1';
 const LEGACY_LS_KEY = 'card_settings_v2';
-const AVATAR_FILE = 'zhou-x-avatar.txt';
-const BANNER_FILE = 'zhou-x-banner.txt';
+const AVATAR_FILE = 'moumusic-avatar.txt';
+const BANNER_FILE = 'moumusic-banner.txt';
 
 function hasTmStorage(){
   return window.tm && typeof window.tm.saveFile === 'function' && typeof window.tm.loadFile === 'function';
@@ -440,7 +444,9 @@ function saveSettings(){
     texts: readTexts()
   };
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(data));
+    const json = JSON.stringify(data);
+    localStorage.setItem(LS_KEY, json);
+    if(window.tm && typeof window.tm.sync === 'function') window.tm.sync(json);
     return true;
   } catch(error) {
     console.warn('保存文字和设置失败', error);
@@ -562,6 +568,16 @@ function applyDefaultInfo(){
 window.__beansUpdateStats = function(data){
   if(!data) return;
   if(listenStat && data.listeningDuration) listenStat.textContent = data.listeningDuration;
+};
+
+window.__moumusicSetIdentity = function(data){
+  if(!data || !data.displayId) return;
+  const badge = document.getElementById('idBadge');
+  badge.hidden = false;
+  badge.className = 'id-badge ' + (data.exclusive ? (data.badgeStyle || 'black_purple_gold') : '');
+  badge.textContent = (data.exclusive ? '★ ' : '') + 'ID ' + data.displayId;
+  const u = document.getElementById('username');
+  if(u.innerText.trim() === DEFAULT_INFO.user){ u.innerText = '@' + data.displayId; }
 };
 
 avatarImg.addEventListener('error', function(){

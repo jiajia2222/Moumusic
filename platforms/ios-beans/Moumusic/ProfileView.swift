@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 import UIKit
 import PhotosUI
 import UniformTypeIdentifiers
@@ -70,7 +70,7 @@ struct ProfileView: View {
 
     private var appVersionText: String {
         let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2"
-        return "Beans Music · \(ver)"
+        return "Moumusic · \(ver)"
     }
 
     /// 登录状态的合并提示（展示各平台真实昵称）
@@ -176,6 +176,8 @@ struct ProfileView: View {
                     } else {
                         header
                     }
+                    // Moumusic 资料卡片（Beans 同款）+ 独立 ID
+                    XProfileCardView()
                     // 板块按用户自定义顺序渲染（可拖拽排序）
                     ForEach(profileOrder, id: \.self) { key in
                         switch key {
