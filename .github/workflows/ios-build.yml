@@ -1,0 +1,66 @@
+name: iOS unsigned IPAs
+
+# Builds two unsigned IPAs from platforms/ios. Does NOT create a release.
+#   ios26   : deployment target 26.0, built with the iOS 26 SDK
+#   ios15-18: deployment target 15.0 (compat build)
+on:
+  workflow_dispatch:   # manual only: run it once all features are done
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: ios26
+            target: "26.0"
+          - variant: ios15-18
+            target: "15.0"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install XcodeGen
+        run: HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install xcodegen
+
+      - name: Generate project
+        working-directory: platforms/ios
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        working-directory: platforms/ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Moumusic.xcodeproj \
+            -scheme Moumusic \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            IPHONEOS_DEPLOYMENT_TARGET="${{ matrix.target }}" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log | tail -n 400
+
+      - name: Package IPA
+        working-directory: platforms/ios
+        run: |
+          rm -rf Payload && mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Moumusic.app Payload/
+          plutil -p Payload/Moumusic.app/Info.plist | grep -E "CFBundleShortVersionString|CFBundleVersion|MinimumOSVersion"
+          ditto -c -k --sequesterRsrc --keepParent Payload "Moumusic-${{ matrix.variant }}-unsigned.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Moumusic-${{ matrix.variant }}-unsigned
+          path: platforms/ios/Moumusic-${{ matrix.variant }}-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log-${{ matrix.variant }}
+          path: platforms/ios/build.log
