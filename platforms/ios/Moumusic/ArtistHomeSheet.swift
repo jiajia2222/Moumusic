@@ -30,6 +30,13 @@ struct ArtistHomeSheet: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var searchText = ""
+    @State private var showBatchDownload = false
+    @ObservedObject private var favoriteArtists = FavoriteArtistsStore.shared
+
+    /// 当前歌手（无 id 时用名字合成，仅用于收藏标识）。
+    private var currentArtist: Artist {
+        artist ?? Artist(id: artistID ?? "\(artistSource.rawValue)-name-\(artistName)", name: artistName, coverURL: nil, source: artistSource)
+    }
 
     var body: some View {
         BeansNavigationStack {
@@ -68,10 +75,34 @@ struct ArtistHomeSheet: View {
             }
         }
         .task { await load() }
+        .sheet(isPresented: $showBatchDownload) {
+            BatchDownloadSheet(songs: hotSongs, title: artist?.name ?? artistName)
+                .environmentObject(theme)
+        }
         .modifier(BeansSheetModifier(detents: [.large], dragIndicator: true))
     }
 
     private var artistHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            artistHeaderRow
+            HStack(spacing: 10) {
+                GlassButton(
+                    title: favoriteArtists.contains(id: currentArtist.id) ? "取消收藏歌手" : "收藏歌手",
+                    systemName: favoriteArtists.contains(id: currentArtist.id) ? "heart.fill" : "heart"
+                ) {
+                    BeansHaptics.tap()
+                    favoriteArtists.toggle(currentArtist)
+                }
+                GlassButton(title: "下载歌手歌曲", systemName: "arrow.down.circle") {
+                    showBatchDownload = true
+                }
+                .disabled(hotSongs.isEmpty)
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private var artistHeaderRow: some View {
         HStack(spacing: 14) {
             AsyncImage(url: artist?.coverURL) { phase in
                 if case .success(let image) = phase {

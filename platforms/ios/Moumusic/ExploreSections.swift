@@ -11,6 +11,7 @@ struct NetEaseExploreSections: View {
     @State private var artists: [Artist] = []
     @State private var selectedAlbum: Album?
     @State private var selectedArtist: Artist?
+    @ObservedObject private var favoriteArtists = FavoriteArtistsStore.shared
 
     private static var cache: (date: Date, albums: [Album], artists: [Artist])?
 
@@ -44,6 +45,9 @@ struct NetEaseExploreSections: View {
                         }
                     }
                 }
+            }
+            if !favoriteArtists.items.isEmpty {
+                artistRow(title: "收藏歌手", list: favoriteArtists.artists)
             }
             if !artists.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
@@ -83,6 +87,32 @@ struct NetEaseExploreSections: View {
                 .environmentObject(player)
                 .environmentObject(auth)
                 .environmentObject(theme)
+        }
+    }
+
+    private func artistRow(title: String, list: [Artist]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: title)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 16) {
+                    ForEach(list) { artist in
+                        Button {
+                            BeansHaptics.tap()
+                            selectedArtist = artist
+                        } label: {
+                            VStack(spacing: 6) {
+                                CoverImage(url: artist.coverURL, size: 76, cornerRadius: 38)
+                                Text(artist.name)
+                                    .font(BeansFont.appFont(12, .medium))
+                                    .foregroundStyle(Color.beansLabel)
+                                    .lineLimit(1)
+                                    .frame(width: 80)
+                            }
+                        }
+                        .buttonStyle(GlassPressButtonStyle(scale: 0.95))
+                    }
+                }
+            }
         }
     }
 
