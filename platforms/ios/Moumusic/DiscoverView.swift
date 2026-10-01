@@ -153,6 +153,10 @@ struct DiscoverView: View {
                                     EmptyView()
                                 }
                             }
+                            // 网易云：新碟上架 + 歌手
+                            if source == .netease {
+                                NetEaseExploreSections()
+                            }
                         }
                     }
                     .padding(.horizontal, isNativeClean ? 24 : 16)
