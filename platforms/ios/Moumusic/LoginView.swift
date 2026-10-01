@@ -28,7 +28,7 @@ struct LoginView: View {
                 Image(systemName: "beats.headphones")
                     .font(.system(size: 54, weight: .light))
                     .foregroundStyle(LinearGradient.beansAccent)
-                Text("Beans Music")
+                Text("Moumusic")
                     .font(BeansFont.appFont(34, .bold))
                     .foregroundStyle(Color.beansLabel)
                 Text("登录网易云音乐，同步你的歌单")

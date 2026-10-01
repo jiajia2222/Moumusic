@@ -18,7 +18,7 @@ struct OnboardingView: View {
     private var isEnglish: Bool { languageRaw == AppLanguage.english.rawValue }
     private var nextText: String { isEnglish ? "Next" : "下一步" }
     private var skipText: String { isEnglish ? "Skip Intro" : "跳过介绍" }
-    private var enterText: String { isEnglish ? "Enter Beans Music" : "进入软件" }
+    private var enterText: String { isEnglish ? "Enter Moumusic" : "进入软件" }
 
     var body: some View {
         ZStack {
@@ -182,7 +182,7 @@ struct OnboardingView: View {
                 .shadow(color: Color.beansHighlight.opacity(0.45), radius: 24, y: 12)
                 .padding(.bottom, 6)
 
-            Text(isEnglish ? "Welcome to Beans Music" : "欢迎使用 Beans Music")
+            Text(isEnglish ? "Welcome to Moumusic" : "欢迎使用 Moumusic")
                 .font(BeansFont.appFont(30, .bold))
                 .foregroundStyle(Color.beansLabel)
 
@@ -349,9 +349,9 @@ struct OnboardingView: View {
                 .foregroundStyle(Color.beansLabel)
 
             VStack(alignment: .leading, spacing: 10) {
-                Text(isEnglish ? "· Beans Music is for personal learning and research only. Commercial and illegal use is prohibited." : "· Beans Music 只用作个人学习研究，禁止用于商业及非法用途，如产生法律纠纷与本人无关。")
+                Text(isEnglish ? "· Moumusic is for personal learning and research only. Commercial and illegal use is prohibited." : "· Moumusic 只用作个人学习研究，禁止用于商业及非法用途，如产生法律纠纷与本人无关。")
                 Text(isEnglish ? "· Music APIs come from open-source GitHub projects. This app does not store audio. Please support official music services." : "· 音乐 API 来自于 GitHub 开源项目（非官方版 API），本软件不提供任何音频存储服务，如需下载音频，请支持正版！")
-                Text(isEnglish ? "· Music copyrights belong to their respective platforms. Beans Music assumes no related legal liability." : "· 音乐版权归各网站所有，本站不承担任何法律责任和连带责任。")
+                Text(isEnglish ? "· Music copyrights belong to their respective platforms. Moumusic assumes no related legal liability." : "· 音乐版权归各网站所有，本站不承担任何法律责任和连带责任。")
             }
             .font(BeansFont.appFont(13))
             .foregroundStyle(Color.beansSecondary)
