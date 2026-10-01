@@ -6,8 +6,8 @@ import UIKit
 /// 协议参照 Beans 2.0.2 的 DeviceReporter / RemoteControlStore，服务端见 moumusic-server。
 enum MoumusicServer {
     private static let overrideKey = "moumusic.serverBase"
-    /// 部署到 Cloudflare 之后只需改这里（或在 UserDefaults 写入 moumusic.serverBase）。
-    static let defaultBase = "http://216.23.117.52:8788/moumusic"
+    /// 经 Cloudflare Tunnel 对外，源站 IP 不暴露；可在 UserDefaults 写入 moumusic.serverBase 覆盖。
+    static let defaultBase = "https://musicserver.nadev.xyz/moumusic"
 
     static var base: URL {
         let raw = UserDefaults.standard.string(forKey: overrideKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
