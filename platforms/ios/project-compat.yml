@@ -30,7 +30,7 @@ targets:
       base:
         PRODUCT_NAME: Moumusic
         PRODUCT_BUNDLE_IDENTIFIER: com.jiajia2222.moumusic.ios
-        MARKETING_VERSION: "3.0.0"
+        MARKETING_VERSION: "1.0.43"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_OBJC_BRIDGING_HEADER: Moumusic/Beans-Bridging-Header.h

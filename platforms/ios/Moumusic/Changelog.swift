@@ -48,8 +48,8 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
-            id: "3.0.0",
-            version: "3.0.0",
+            id: "1.0.43",
+            version: "1.0.43",
             title: "Moumusic 全新重构",
             notices: [
                 "建议更新时卸载后重新安装，不要覆盖安装，否则可能出现部分问题。",

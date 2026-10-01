@@ -23,7 +23,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.jiajia2222.moumusic.ios.cilicili
         DEFINES_MODULE: YES
         GENERATE_INFOPLIST_FILE: YES
-        MARKETING_VERSION: "3.0.0"
+        MARKETING_VERSION: "1.0.43"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.0"
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
@@ -41,7 +41,7 @@ targets:
       base:
         PRODUCT_NAME: MoumusicLiveActivity
         PRODUCT_BUNDLE_IDENTIFIER: com.jiajia2222.moumusic.ios.liveactivity
-        MARKETING_VERSION: "3.0.0"
+        MARKETING_VERSION: "1.0.43"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: YES
@@ -75,7 +75,7 @@ targets:
       base:
         PRODUCT_NAME: Moumusic
         PRODUCT_BUNDLE_IDENTIFIER: com.jiajia2222.moumusic.ios
-        MARKETING_VERSION: "3.0.0"
+        MARKETING_VERSION: "1.0.43"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_OBJC_BRIDGING_HEADER: Moumusic/Beans-Bridging-Header.h

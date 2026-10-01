@@ -19,6 +19,8 @@ struct ProfileView: View {
     @AppStorage("beans.pauseHomeRendering") private var homeRenderingPaused = false
 
     @State private var showHistory = false
+    @State private var showFavorites = false
+    @Environment(\.colorScheme) private var systemScheme
 
     /// 统一账号登录面板（网易云 + QQ 音乐整合）
     @State private var showAccountHub = false
@@ -165,6 +167,39 @@ struct ProfileView: View {
         .padding(.top, 4)
     }
 
+    /// 顶部：大标题 + 浅深色切换 + 设置齿轮。
+    private var profileHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center) {
+                Text("我的")
+                    .font(BeansFont.appFont(38, .bold))
+                    .foregroundStyle(Color.beansLabel)
+                Spacer(minLength: 12)
+                GlassIconButton(systemName: effectiveDark ? "sun.max" : "moon", forceLiquid: true) {
+                    BeansHaptics.tap()
+                    themeModeRaw = (effectiveDark ? BeansThemeMode.light : BeansThemeMode.dark).rawValue
+                }
+                GlassIconButton(systemName: "gearshape", forceLiquid: true) {
+                    BeansHaptics.tap()
+                    homeRenderingPaused = true
+                    showSettings = true
+                }
+            }
+            Rectangle()
+                .fill(Color.beansLabel.opacity(0.10))
+                .frame(height: 1)
+        }
+        .padding(.top, 4)
+    }
+
+    private var effectiveDark: Bool {
+        switch themeMode {
+        case .dark: return true
+        case .light: return false
+        case .system: return systemScheme == .dark
+        }
+    }
+
     var body: some View {
         let _ = theme.accent
         ZStack {
@@ -173,28 +208,25 @@ struct ProfileView: View {
             // 实例级 UITabBar 清透风格（固定全透明，无需调节）
             TabBarAppearanceConfigurator()
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: isNativeClean ? 26 : 22) {
-                    if isNativeClean {
-                        appleHeader
-                    } else {
-                        header
+                LazyVStack(alignment: .leading, spacing: 22) {
+                    profileHeader
+                    ProfileIdentityCard()
+                    BeansCardGroup {
+                        BeansNavRow(icon: "rectangle.stack.badge.person.crop", title: "音乐收藏") {
+                            showFavorites = true
+                        }
+                        #if !MOUMUSIC_COMPAT
+                        BeansRowDivider()
+                        BeansNavRow(icon: "play.tv", title: "哔哩哔哩") {
+                            BilibiliPresenter.shared.open()
+                        }
+                        #endif
                     }
-                    // Moumusic 资料卡片（Beans 同款）+ 独立 ID
-                    XProfileCardView()
-                    BilibiliEntryCard()
-                    // 板块按用户自定义顺序渲染（可拖拽排序）
-                    ForEach(profileOrder, id: \.self) { key in
-                        switch key {
-                        case "账号":
-                            userCard
-                        case "关于":
-                            EmptyView()
-                        default:
-                            EmptyView()
+                    BeansCardGroup {
+                        BeansExpandRow(icon: "heart.fill", title: "自愿赞助", expanded: $donationExpanded) {
+                            SponsorExpandedContent()
                         }
                     }
-                    // 更新入口固定放在“我的”页面最底部，避免被板块排序隐藏。
-                    updateLinkCard
                     profileVersionFooter
                 }
                 .padding(.horizontal, isNativeClean ? 24 : 16)
@@ -222,6 +254,12 @@ struct ProfileView: View {
             Button("知道了", role: .cancel) {}
         } message: {
             Text("请使用微信扫描上方二维码完成赞助。")
+        }
+        .sheet(isPresented: $showFavorites) {
+            FavoritesSheet()
+                .environmentObject(player)
+                .environmentObject(auth)
+                .environmentObject(theme)
         }
         .sheet(isPresented: $showHistory) {
             HistoryView()
