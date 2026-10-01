@@ -374,7 +374,9 @@ struct DiscoverView: View {
             ForEach(homeProviders) { p in
                 Button {
                     BeansHaptics.tap()
-                    if source != p { homeSourceRaw = p.rawValue }
+                    if p.isVideoPlatform {
+                        BilibiliPresenter.shared.open()
+                    } else if source != p { homeSourceRaw = p.rawValue }
                 } label: {
                     HStack(spacing: 6) {
                         if let imageName = p.brandImageName {
@@ -471,7 +473,7 @@ struct DiscoverView: View {
         case .netease: return neteaseTopLists.count
         case .qq: return qqTopLists.count
         case .kugou: return kugouTopLists.count
-        case .kuwo, .migu: return 0
+        case .kuwo, .migu, .bilibili: return 0
         }
     }
 
@@ -485,7 +487,7 @@ struct DiscoverView: View {
         case .netease: return !topLists.isEmpty
         case .qq: return !qqTopLists.isEmpty
         case .kugou: return !kugouTopLists.isEmpty
-        case .kuwo, .migu: return false
+        case .kuwo, .migu, .bilibili: return false
         }
     }
 
@@ -1034,7 +1036,11 @@ struct DiscoverView: View {
         ForEach(homeProviders) { provider in
             Button {
                 BeansHaptics.select()
-                homeSourceRaw = provider.rawValue
+                if provider.isVideoPlatform {
+                    BilibiliPresenter.shared.open()
+                } else {
+                    homeSourceRaw = provider.rawValue
+                }
             } label: {
                 Label(LocalizedStringKey(provider.rawValue), systemImage: provider == current ? "checkmark" : provider.icon)
             }
@@ -1153,7 +1159,7 @@ struct DiscoverView: View {
         case .netease: return "推荐歌单"
         case .qq: return "QQ音乐热门歌单"
         case .kugou: return "歌单广场"
-        case .kuwo, .migu: return "推荐歌单"
+        case .kuwo, .migu, .bilibili: return "推荐歌单"
         }
     }
 
@@ -1162,7 +1168,7 @@ struct DiscoverView: View {
         case .netease: return "推荐歌单暂时没有内容"
         case .qq: return "QQ音乐热门歌单暂未加载成功\n下拉刷新可重新获取"
         case .kugou: return "歌单广场暂时没有内容"
-        case .kuwo, .migu: return "推荐歌单暂时没有内容"
+        case .kuwo, .migu, .bilibili: return "推荐歌单暂时没有内容"
         }
     }
 
@@ -1360,8 +1366,8 @@ struct DiscoverView: View {
             snapshot.dailySongs = daily
             snapshot.kugouTopLists = top
             snapshot.personalized = pp
-        case .kuwo, .migu:
-            // 内容由 ExtraPlatformHomeSection 自行加载
+        case .kuwo, .migu, .bilibili:
+            // 内容由 ExtraPlatformHomeSection 自行加载；哔哩哔哩全屏打开 CiliCili
             break
         }
         return snapshot
@@ -2183,6 +2189,8 @@ private struct HomeUnifiedSearchSheet: View {
             return (try? await ExtraPlatforms.search(.kuwo, keyword: keyword, limit: 30)) ?? []
         case .migu:
             return (try? await ExtraPlatforms.search(.migu, keyword: keyword, limit: 30)) ?? []
+        case .bilibili:
+            return []
         }
     }
 

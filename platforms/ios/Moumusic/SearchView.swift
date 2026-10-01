@@ -44,8 +44,21 @@ enum SearchProvider: String, CaseIterable, Identifiable, Hashable {
     case kugou = "酷狗音乐"
     case kuwo = "酷我音乐"
     case migu = "咪咕音乐"
+    case bilibili = "哔哩哔哩"
 
     var id: String { rawValue }
+
+    /// 适配版（iOS 15-18）不包含哔哩哔哩模块，不出现在平台列表里。
+    static var allCases: [SearchProvider] {
+        #if MOUMUSIC_COMPAT
+        return [.netease, .qq, .kugou, .kuwo, .migu]
+        #else
+        return [.netease, .qq, .kugou, .kuwo, .migu, .bilibili]
+        #endif
+    }
+
+    /// 视频平台：不走歌曲搜索 / 榜单，点击后全屏打开对应模块。
+    var isVideoPlatform: Bool { self == .bilibili }
 
     /// 酷我 / 咪咕 对应的歌曲来源；官方三平台返回 nil。
     var extraSongSource: SongSource? {
@@ -74,6 +87,9 @@ enum SearchProvider: String, CaseIterable, Identifiable, Hashable {
         case .migu: return LinearGradient(
             colors: [Color(red: 0.90, green: 0.20, blue: 0.55), Color(red: 0.70, green: 0.10, blue: 0.40)],
             startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .bilibili: return LinearGradient(
+            colors: [Color(red: 0.0, green: 0.68, blue: 0.90), Color(red: 0.0, green: 0.52, blue: 0.78)],
+            startPoint: .topLeading, endPoint: .bottomTrailing)
         }
     }
 
@@ -84,6 +100,7 @@ enum SearchProvider: String, CaseIterable, Identifiable, Hashable {
         case .kugou: return "music.note"
         case .kuwo: return "music.quarternote.3"
         case .migu: return "waveform.circle.fill"
+        case .bilibili: return "play.tv"
         }
     }
 
@@ -92,7 +109,7 @@ enum SearchProvider: String, CaseIterable, Identifiable, Hashable {
         case .netease: return "BrandNetease"
         case .qq: return "BrandQQ"
         case .kugou: return "BrandKugou"
-        case .kuwo, .migu: return nil
+        case .kuwo, .migu, .bilibili: return nil
         }
     }
 }
@@ -234,7 +251,11 @@ struct SearchView: View {
                 ForEach(searchProviders) { candidate in
                     Button {
                         BeansHaptics.tap()
-                        provider = candidate
+                        if candidate.isVideoPlatform {
+                            BilibiliPresenter.shared.open()
+                        } else {
+                            provider = candidate
+                        }
                     } label: {
                         Label(LocalizedStringKey(candidate.rawValue), systemImage: candidate == provider ? "checkmark" : candidate.icon)
                     }
@@ -365,7 +386,9 @@ struct SearchView: View {
             ForEach(searchProviders) { p in
                 Button {
                     BeansHaptics.tap()
-                    if provider != p { provider = p }
+                    if p.isVideoPlatform {
+                        BilibiliPresenter.shared.open()
+                    } else if provider != p { provider = p }
                 } label: {
                     HStack(spacing: 6) {
                         if let imageName = p.brandImageName {
@@ -876,10 +899,12 @@ struct SearchView: View {
                         songResults = songs
                         if !songs.isEmpty { BeansHaptics.success() }
                     }
-                case (.kuwo, .artist), (.migu, .artist):
+                case (.kuwo, .artist), (.migu, .artist), (.bilibili, .artist):
                     await MainActor.run { artistResults = [] }
-                case (.kuwo, .album), (.migu, .album):
+                case (.kuwo, .album), (.migu, .album), (.bilibili, .album):
                     await MainActor.run { albumResults = [] }
+                case (.bilibili, .song):
+                    await MainActor.run { songResults = [] }
                 }
                 let count = await MainActor.run {
                     selectedType == .song ? songResults.count : (selectedType == .artist ? artistResults.count : albumResults.count)

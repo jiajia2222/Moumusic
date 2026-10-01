@@ -716,6 +716,8 @@ struct LocalSearchAddSheet: View {
                     songs = try await ExtraPlatforms.search(.kuwo, keyword: trimmed, limit: 30)
                 case .migu:
                     songs = try await ExtraPlatforms.search(.migu, keyword: trimmed, limit: 30)
+                case .bilibili:
+                    songs = []
                 }
                 guard !Task.isCancelled else { return }
                 results = songs

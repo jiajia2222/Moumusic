@@ -336,7 +336,11 @@ struct RootView: View {
         ForEach(platformPrefs.enabledSearchProviders) { provider in
             Button {
                 BeansHaptics.select()
-                homeSourceRaw = provider.rawValue
+                if provider.isVideoPlatform {
+                    BilibiliPresenter.shared.open()
+                } else {
+                    homeSourceRaw = provider.rawValue
+                }
             } label: {
                 Label(LocalizedStringKey(provider.rawValue), systemImage: provider == current ? "checkmark" : provider.icon)
             }

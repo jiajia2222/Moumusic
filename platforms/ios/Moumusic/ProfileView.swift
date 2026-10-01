@@ -66,6 +66,7 @@ struct ProfileView: View {
             case .kugou: return "Kugou Music"
             case .kuwo: return "Kuwo Music"
             case .migu: return "Migu Music"
+            case .bilibili: return "Bilibili"
             }
         }.joined(separator: " / ")
     }
@@ -899,6 +900,7 @@ struct AccountHubSheet: View {
             case .kugou: return "Kugou Music"
             case .kuwo: return "Kuwo Music"
             case .migu: return "Migu Music"
+            case .bilibili: return "Bilibili"
             }
         }.joined(separator: " / ")
     }

@@ -4,14 +4,38 @@ import UIKit
 #if !MOUMUSIC_COMPAT
 import CiliCiliKit
 
-/// 全功能版：把 CiliCili（哔哩哔哩）作为全屏模块打开。
-struct BilibiliEntryCard: View {
-    @State private var showBilibili = false
+/// 哔哩哔哩全屏模块的统一入口：平台切换按钮、搜索页和「我的」页都通过它打开。
+@MainActor
+final class BilibiliPresenter: ObservableObject {
+    static let shared = BilibiliPresenter()
+    @Published var isPresented = false
 
+    func open() { isPresented = true }
+    func close() { isPresented = false }
+}
+
+/// 全功能版：在应用根视图挂载一次全屏 CiliCili。
+struct BilibiliHostModifier: ViewModifier {
+    @ObservedObject private var presenter = BilibiliPresenter.shared
+
+    func body(content: Content) -> some View {
+        content
+            .fullScreenCover(isPresented: $presenter.isPresented) {
+                BilibiliContainer(onClose: { presenter.close() })
+            }
+    }
+}
+
+extension View {
+    func bilibiliHost() -> some View { modifier(BilibiliHostModifier()) }
+}
+
+/// 「我的」页顶部的哔哩哔哩入口卡片。
+struct BilibiliEntryCard: View {
     var body: some View {
         Button {
             BeansHaptics.tap()
-            showBilibili = true
+            BilibiliPresenter.shared.open()
         } label: {
             GlassCard {
                 HStack(spacing: 12) {
@@ -36,9 +60,6 @@ struct BilibiliEntryCard: View {
             }
         }
         .buttonStyle(GlassPressButtonStyle())
-        .fullScreenCover(isPresented: $showBilibili) {
-            BilibiliContainer(onClose: { showBilibili = false })
-        }
     }
 }
 
@@ -68,8 +89,19 @@ final class MoumusicAppDelegate: NSObject, UIApplicationDelegate {
     }
 }
 #else
-/// 适配版（iOS 15–18）不包含哔哩哔哩模块。
+/// 适配版（iOS 15–18）不包含哔哩哔哩模块：入口全部为空操作。
+@MainActor
+final class BilibiliPresenter: ObservableObject {
+    static let shared = BilibiliPresenter()
+    func open() {}
+    func close() {}
+}
+
 struct BilibiliEntryCard: View {
     var body: some View { EmptyView() }
+}
+
+extension View {
+    func bilibiliHost() -> some View { self }
 }
 #endif
