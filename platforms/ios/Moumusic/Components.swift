@@ -169,8 +169,21 @@ struct WallpaperImage: View {
 
 // MARK: - 全局容器（跟随全局 UI 样式）
 
+/// 设置页等「同一卡片内的多行」：开启后内部行不再单独绘制玻璃底。
+private struct BeansFlatGlassKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var beansFlatGlass: Bool {
+        get { self[BeansFlatGlassKey.self] }
+        set { self[BeansFlatGlassKey.self] = newValue }
+    }
+}
+
 struct BeansGlass<S: Shape>: View {
     @AppStorage("beans.uiStyle") private var uiStyleRaw = BeansUIStyle.liquid.rawValue
+    @Environment(\.beansFlatGlass) private var flatGlass
 
     let shape: S
     var forceLiquid = false
@@ -184,7 +197,9 @@ struct BeansGlass<S: Shape>: View {
     }
 
     var body: some View {
-        if isLiquid {
+        if flatGlass {
+            shape.fill(Color.clear)
+        } else if isLiquid {
             if #available(iOS 26, *) {
                 GlassEffectContainer {
                     shape

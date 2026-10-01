@@ -25,7 +25,12 @@ enum BeansAudioQuality: String, CaseIterable, Identifiable {
 
     /// 当前官方播放音质（默认 Hi-Res；不可用时由各平台接口自行降级）。
     static var current: BeansAudioQuality {
-        let raw = UserDefaults.standard.string(forKey: "beans.audioQuality") ?? Self.hires.rawValue
+        let d = UserDefaults.standard
+        if d.bool(forKey: PlaybackPreferenceKeys.qualityByNetwork) {
+            let key = BeansNetworkType.shared.isCellular ? PlaybackPreferenceKeys.qualityCellular : PlaybackPreferenceKeys.qualityWifi
+            if let raw = d.string(forKey: key), let q = BeansAudioQuality(rawValue: raw) { return q }
+        }
+        let raw = d.string(forKey: "beans.audioQuality") ?? Self.hires.rawValue
         return BeansAudioQuality(rawValue: raw) ?? .hires
     }
 }

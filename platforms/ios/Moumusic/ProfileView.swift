@@ -1034,10 +1034,6 @@ struct SettingsView: View {
     @State private var backupMessage: String?
     /// 日志
     @State private var showLogViewer = false
-    @State private var showFeedback = false
-    @State private var showCacheManagement = false
-    @State private var showDiagnostics = false
-    @State private var showDeveloperTools = false
     @ObservedObject private var deviceReporter = DeviceReporter.shared
 
     private var themeMode: BeansThemeMode {
@@ -1158,48 +1154,71 @@ struct SettingsView: View {
     }
 
     fileprivate enum SettingsSectionID: CaseIterable {
-        case accounts, platforms, theme, dynamicWallpaper, playback, equalizer, backup, changelog, support, log
+        case accounts, platforms, theme, dynamicWallpaper, sourceQuality, playback, equalizer, backup
+        case changelog, checkUpdate, feedback, diagnostics, cache, disclaimer, environment, developer
 
         var category: SettingsCategory {
             switch self {
             case .accounts, .platforms: return .accounts
             case .theme, .dynamicWallpaper: return .appearance
-            case .playback, .equalizer: return .playback
+            case .sourceQuality, .playback, .equalizer: return .playback
             case .backup: return .data
-            case .changelog, .support, .log: return .about
+            default: return .about
             }
         }
 
-        /// 搜索关键词：包含分类名、区块标题与区块内常用设置项。
+        /// 搜索关键词：包含分类名与区块内常用设置项。
         var keywords: String {
             switch self {
-            case .accounts: return "账号与平台 账号 登录 账号登录 网易云 QQ 酷狗 account login"
+            case .accounts: return "账号与平台 账号 登录 账号登录 网易云 QQ 酷狗 哔哩哔哩 account login"
             case .platforms: return "账号与平台 平台 平台显示 网易云 QQ 酷狗 酷我 咪咕 哔哩哔哩 platform"
-            case .theme: return "外观与界面 外观 主题 主题模式 界面 字体 静态壁纸 壁纸 背景 底栏 颜色 赞助 语言 关闭液态模式 全局漂浮特效 用户名 沉浸详情界面 锁屏沉浸封面 问候语 appearance theme"
-            case .dynamicWallpaper: return "外观与界面 动态壁纸 锁屏沉浸封面 自定义封面 Fractal Clouds Ink Smoke Liquid Chrome Neuro Noise Simplex Noise Metaballs Water Star Nest Dot Orbit Dots Grain Gradient 分形云层 墨水扩散 液态金属 神经噪声 单纯形噪声 融合球 水面 星云 圆点 点阵 颗粒渐变"
-            case .playback: return "播放与音效 播放 音源与音质 播放来源 播放音质 第三方音源 Wi-Fi 蜂窝数据 触感反馈 显示锁屏与灵动岛播放器 与其他音频同时播放 启动时自动播放上次歌曲 第三方播放会员歌提醒 playback quality"
+            case .theme: return "外观与界面 外观 主题 主题模式 界面 字体 静态壁纸 壁纸 背景 底栏 颜色 语言 关闭液态模式 全局漂浮特效 用户名 沉浸详情界面 问候语 appearance theme"
+            case .dynamicWallpaper: return "外观与界面 动态壁纸 同步到播放器界面 锁屏沉浸封面 Fractal Clouds Ink Smoke Liquid Chrome Neuro Noise Simplex Noise Metaballs Water Star Nest Dot Orbit Dots Grain Gradient 分形云层 墨水扩散 液态金属 神经噪声 单纯形噪声 融合球 水面 星云 圆点 点阵 颗粒渐变"
+            case .sourceQuality: return "播放与音效 音源与音质 播放来源 自动 官方 第三方 播放音质 第三方音源 按网络类型选择音质 Wi-Fi 蜂窝数据 播放失败时切换平台 管理 导入 quality"
+            case .playback: return "播放与音效 播放设置 触感反馈 显示锁屏与灵动岛播放器 与其他音频同时播放 启动时自动播放上次歌曲 第三方播放会员歌提醒 playback"
             case .equalizer: return "播放与音效 均衡器 音效 equalizer"
             case .backup: return "数据管理 备份与恢复 导出备份 导入恢复 backup restore"
             case .changelog: return "关于与支持 更新日志 版本 changelog"
-            case .support: return "关于与支持 帮助 问题反馈 反馈 免责声明 检查更新 诊断 崩溃 卡死 缓存清理 清理缓存 运行环境 开发者工具 help feedback cache"
-            case .log: return "关于与支持 诊断与日志 日志 log"
+            case .checkUpdate: return "关于与支持 检查更新 更新 update"
+            case .feedback: return "关于与支持 问题反馈 反馈 帮助 feedback"
+            case .diagnostics: return "关于与支持 诊断与日志 诊断 日志 崩溃 卡死 log"
+            case .cache: return "关于与支持 缓存清理 清理缓存 缓存 cache"
+            case .disclaimer: return "关于与支持 免责声明 disclaimer"
+            case .environment: return "关于与支持 运行环境 设备 系统 版本"
+            case .developer: return "关于与支持 开发者工具 刷新率 公告 权限 诊断 developer"
             }
         }
     }
 
     @State private var settingsQuery = ""
-    @AppStorage("beans.settings.category") private var settingsCategoryRaw = SettingsCategory.accounts.rawValue
     @State private var showSettingsAccountHub = false
-
-    private var settingsCategory: SettingsCategory {
-        SettingsCategory(rawValue: settingsCategoryRaw) ?? .accounts
-    }
+    @State private var showFeedback = false
+    @State private var showDiagnostics = false
+    @State private var showCacheManagement = false
+    @State private var showDeveloperTools = false
+    @State private var sourceQualityExpanded = false
+    @State private var dynamicWallpaperExpanded = false
+    @State private var cacheExpanded = false
+    @State private var disclaimerExpanded = false
+    @State private var environmentExpanded = false
+    @State private var checkingSettingsUpdate = false
+    @State private var settingsUpdateResult: UpdateChecker.CheckResult?
+    @State private var showSettingsUpdateAlert = false
+    @AppStorage(PlaybackSourceMode.key) private var sourceModeRaw = PlaybackSourceMode.auto.rawValue
+    @AppStorage(PlaybackPreferenceKeys.qualityByNetwork) private var qualityByNetwork = false
+    @AppStorage(PlaybackPreferenceKeys.qualityWifi) private var qualityWifiRaw = BeansAudioQuality.hires.rawValue
+    @AppStorage(PlaybackPreferenceKeys.qualityCellular) private var qualityCellularRaw = BeansAudioQuality.exhigh.rawValue
+    @AppStorage(PlaybackPreferenceKeys.crossPlatformFallback) private var crossPlatformFallback = true
+    @ObservedObject private var cacheManager = BeansCacheManager.shared
+    @ObservedObject private var settingsReporter = DeviceReporter.shared
 
     private var settingsSearchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(Color.beansComment)
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Color.beansComment)
             TextField("搜索设置", text: $settingsQuery)
-                .font(BeansFont.appFont(14))
+                .font(BeansFont.appFont(17))
                 .autocapitalization(.none)
                 .disableAutocorrection(true)
             if !settingsQuery.isEmpty {
@@ -1212,58 +1231,52 @@ struct SettingsView: View {
                 .accessibilityLabel("清除设置搜索")
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 40)
+        .padding(.horizontal, 16)
+        .frame(height: 52)
         .background { BeansGlass(shape: Capsule()) }
     }
 
-    private var settingsCategoryPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(SettingsCategory.allCases) { category in
-                    let selected = settingsCategory == category
-                    Button {
-                        BeansHaptics.select()
-                        settingsCategoryRaw = category.rawValue
-                    } label: {
-                        Text(category.rawValue)
-                            .font(BeansFont.appFont(13, selected ? .semibold : .medium))
-                            .foregroundStyle(selected ? Color.beansAmber : Color.beansLabel)
-                            .padding(.horizontal, 14).frame(height: 34)
-                            .background(selected ? Color.beansAmber.opacity(0.14) : Color.beansLabel.opacity(0.055), in: Capsule())
-                            .overlay(Capsule().strokeBorder(selected ? Color.beansAmber.opacity(0.42) : Color.beansLabel.opacity(0.08), lineWidth: 0.8))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 1)
-        }
+    private var queryTerms: [String] {
+        settingsQuery.trimmingCharacters(in: .whitespaces).lowercased().split(separator: " ").map(String.init)
     }
 
-    private var visibleSettingsSections: [SettingsSectionID] {
-        let query = settingsQuery.trimmingCharacters(in: .whitespaces).lowercased()
-        if query.isEmpty {
-            return SettingsSectionID.allCases.filter { $0.category == settingsCategory }
-        }
-        let terms = query.split(separator: " ").map(String.init)
-        return SettingsSectionID.allCases.filter { section in
-            let haystack = section.keywords.lowercased()
-            return terms.allSatisfy { haystack.contains($0) }
-        }
+    private func isVisible(_ section: SettingsSectionID) -> Bool {
+        if section == .developer && !settingsReporter.isDeveloper { return false }
+        #if MOUMUSIC_COMPAT
+        if section == .dynamicWallpaper { return false }
+        #endif
+        let terms = queryTerms
+        if terms.isEmpty { return true }
+        let haystack = section.keywords.lowercased()
+        return terms.allSatisfy { haystack.contains($0) }
     }
 
     @ViewBuilder
     private var settingsContent: some View {
-        let sections = visibleSettingsSections
-        if sections.isEmpty {
+        let categories = SettingsCategory.allCases.filter { category in
+            SettingsSectionID.allCases.contains { $0.category == category && isVisible($0) }
+        }
+        if categories.isEmpty {
             Text("没有找到相关设置")
                 .font(BeansFont.appFont(14))
                 .foregroundStyle(Color.beansComment)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 40)
         } else {
-            ForEach(sections, id: \.self) { section in
-                settingsSection(section)
+            ForEach(categories) { category in
+                VStack(alignment: .leading, spacing: 8) {
+                    BeansGroupTitle(text: category.rawValue)
+                    let sections = SettingsSectionID.allCases.filter { $0.category == category && isVisible($0) }
+                    BeansCardGroup {
+                        VStack(spacing: 0) {
+                            ForEach(Array(sections.enumerated()), id: \.offset) { index, section in
+                                if index > 0 { BeansRowDivider() }
+                                settingsSection(section)
+                            }
+                        }
+                        .environment(\.beansFlatGlass, true)
+                    }
+                }
             }
         }
     }
@@ -1271,56 +1284,209 @@ struct SettingsView: View {
     @ViewBuilder
     private func settingsSection(_ section: SettingsSectionID) -> some View {
         switch section {
-        case .accounts: settingsAccountsSection
-        case .platforms: settingsPlatformsSection
-        case .theme: themeSection
+        case .accounts:
+            BeansNavRow(icon: "person.crop.circle.badge.checkmark", title: "账号登录") { showSettingsAccountHub = true }
+        case .platforms: platformSection
+        case .theme: appearanceSection
         case .dynamicWallpaper:
-            VStack(alignment: .leading, spacing: 16) {
-                DynamicWallpaperSettingsSection()
-                LockScreenArtworkToggleCard()
+            BeansExpandRow(icon: "wand.and.stars", title: "动态壁纸", expanded: $dynamicWallpaperExpanded) {
+                DynamicWallpaperSettingsContent()
+            }
+        case .sourceQuality:
+            BeansExpandRow(icon: "waveform", title: "音源与音质", subtitle: "统一音质", expanded: $sourceQualityExpanded) {
+                sourceQualityContent
             }
         case .playback: playbackSection
         case .equalizer: equalizerSection
         case .backup: backupSection
-        case .changelog: changelogSection
-        case .support: supportSection
-        case .log: logSection
-        }
-    }
-
-    private var settingsAccountsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "账号登录")
-            VStack(alignment: .leading, spacing: 10) {
-                Text("登录网易云音乐、QQ 音乐、酷狗音乐以同步歌单与收藏")
-                    .font(BeansFont.appFont(12))
-                    .foregroundStyle(Color.beansComment)
-                GlassButton(title: "账号登录", systemName: "person.crop.circle") {
-                    showSettingsAccountHub = true
+        case .changelog:
+            BeansNavRow(icon: "clock.arrow.circlepath", title: "更新日志", trailingText: "v\(UpdateChecker.currentVersion)") { showChangelog = true }
+        case .checkUpdate:
+            BeansNavRow(icon: "checkmark.circle.fill", title: "检查更新", trailingText: checkingSettingsUpdate ? "检查中…" : nil) {
+                guard !checkingSettingsUpdate else { return }
+                checkingSettingsUpdate = true
+                Task {
+                    let result = await UpdateChecker.checkNow()
+                    await MainActor.run {
+                        checkingSettingsUpdate = false
+                        settingsUpdateResult = result
+                        showSettingsUpdateAlert = true
+                    }
                 }
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background { BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
-        }
-        .sheet(isPresented: $showSettingsAccountHub) {
-            AccountHubSheet()
-                .environmentObject(auth)
-                .environmentObject(theme)
+        case .feedback:
+            BeansNavRow(icon: "bubble.left.and.exclamationmark.bubble.right.fill", title: "问题反馈") { showFeedback = true }
+        case .diagnostics:
+            BeansNavRow(icon: "stethoscope", title: "诊断与日志") { showDiagnostics = true }
+        case .cache:
+            BeansExpandRow(icon: "internaldrive", title: "缓存清理", expanded: $cacheExpanded) { cacheContent }
+        case .disclaimer:
+            BeansExpandRow(icon: "exclamationmark.triangle.fill", title: "免责声明", expanded: $disclaimerExpanded) { disclaimerContent }
+        case .environment:
+            BeansExpandRow(icon: "iphone", title: "运行环境", expanded: $environmentExpanded) { environmentContent }
+        case .developer:
+            BeansNavRow(icon: "hammer", title: "开发者工具", subtitle: "刷新率、公告、权限与诊断") { showDeveloperTools = true }
         }
     }
 
-    private var settingsPlatformsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "平台显示")
-            VStack(alignment: .leading, spacing: 10) {
-                Text("选择要显示的平台，随时可以更改")
-                    .font(BeansFont.appFont(12))
-                    .foregroundStyle(Color.beansComment)
-                PlatformPreferencePicker()
+    // MARK: 音源与音质
+
+    private var sourceModeSelection: PlaybackSourceMode { PlaybackSourceMode(rawValue: sourceModeRaw) ?? .auto }
+
+    private var sourceQualityContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("播放来源").font(BeansFont.appFont(17, .semibold)).foregroundStyle(Color.beansLabel)
+                Picker("播放来源", selection: $sourceModeRaw) {
+                    ForEach(PlaybackSourceMode.allCases) { mode in Text(mode.title).tag(mode.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                Text(sourceModeSelection.hint).font(BeansFont.appFont(12)).foregroundStyle(Color.beansComment)
             }
-            .padding(14)
-            .background { BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
+            Divider().overlay(Color.beansComment.opacity(0.15))
+            Toggle(isOn: $qualityByNetwork) {
+                Text("按网络类型选择音质").font(BeansFont.appFont(16)).foregroundStyle(Color.beansLabel)
+            }
+            .toggleStyle(.switch).tint(Color.beansAmber)
+            if qualityByNetwork {
+                networkQualityPicker(title: "Wi-Fi", selection: $qualityWifiRaw)
+                networkQualityPicker(title: "蜂窝数据", selection: $qualityCellularRaw)
+                Text("已按 Wi-Fi / 蜂窝网络分别选择").font(BeansFont.appFont(11)).foregroundStyle(Color.beansComment)
+            } else {
+                playbackQualitySection
+            }
+            Divider().overlay(Color.beansComment.opacity(0.15))
+            thirdPartyQualityBlock
+            Divider().overlay(Color.beansComment.opacity(0.15))
+            Toggle(isOn: $crossPlatformFallback) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("播放失败时切换平台").font(BeansFont.appFont(16, .semibold)).foregroundStyle(Color.beansLabel)
+                    Text("当前平台及其音源失败后，会匹配其它平台的同一歌曲并交给已启用音源解析。")
+                        .font(BeansFont.appFont(11)).foregroundStyle(Color.beansComment)
+                }
+            }
+            .toggleStyle(.switch).tint(Color.beansAmber)
+            Divider().overlay(Color.beansComment.opacity(0.15))
+            Button {
+                showSourceManager = true
+                BeansHaptics.tap()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "shippingbox.fill").foregroundStyle(Color.beansLabel)
+                    Text("管理 / 导入音源").font(BeansFont.appFont(16, .semibold)).foregroundStyle(Color.beansLabel)
+                    Spacer()
+                    Text("\(customSourceCount) 个").font(BeansFont.appFont(14)).foregroundStyle(Color.beansComment)
+                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.beansComment)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .task(id: thirdPartyAudioQualityOptionsSignature) {
+            normalizeThirdPartyAudioQualitySelection()
+        }
+    }
+
+    private func networkQualityPicker(title: String, selection: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(BeansFont.appFont(14, .semibold)).foregroundStyle(Color.beansLabel)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(BeansAudioQuality.allCases) { quality in
+                        let selected = selection.wrappedValue == quality.rawValue
+                        Button {
+                            selection.wrappedValue = quality.rawValue
+                            BeansHaptics.select()
+                        } label: {
+                            Text(quality.displayName)
+                                .font(BeansFont.appFont(12, selected ? .semibold : .medium))
+                                .foregroundStyle(selected ? Color.beansAmber : Color.beansLabel)
+                                .padding(.horizontal, 12).frame(height: 31)
+                                .background(selected ? Color.beansAmber.opacity(0.14) : Color.beansLabel.opacity(0.055), in: Capsule())
+                                .overlay(Capsule().strokeBorder(selected ? Color.beansAmber.opacity(0.42) : Color.beansLabel.opacity(0.08), lineWidth: 0.8))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private var thirdPartyQualityBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(thirdPartyAudioQualityTitle)
+                .font(BeansFont.appFont(16, .semibold))
+                .foregroundStyle(Color.beansLabel)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(thirdPartyAudioQualityOptions) { quality in
+                        let selected = thirdPartyAudioQualitySelection.wrappedValue == quality
+                        Button {
+                            thirdPartyAudioQualitySelection.wrappedValue = quality
+                            BeansHaptics.select()
+                        } label: {
+                            Text(quality.displayName)
+                                .font(BeansFont.appFont(12, selected ? .semibold : .medium))
+                                .foregroundStyle(selected ? Color.beansAmber : Color.beansLabel)
+                                .padding(.horizontal, 12).frame(height: 31)
+                                .background(selected ? Color.beansAmber.opacity(0.14) : Color.beansLabel.opacity(0.055), in: Capsule())
+                                .overlay(Capsule().strokeBorder(selected ? Color.beansAmber.opacity(0.42) : Color.beansLabel.opacity(0.08), lineWidth: 0.8))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            Text(thirdPartyAudioQualityHint).font(BeansFont.appFont(11)).foregroundStyle(Color.beansComment)
+        }
+    }
+
+    // MARK: 缓存 / 免责声明 / 运行环境
+
+    private var cacheContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(ByteCountFormatter.string(fromByteCount: cacheManager.totalBytes, countStyle: .file))
+                .font(BeansFont.appFont(24, .bold)).foregroundStyle(Color.beansLabel)
+            Text("保留登录信息、设置、壁纸、自定义封面、下载文件、本地音乐及正在使用的播放素材。")
+                .font(BeansFont.appFont(12)).foregroundStyle(Color.beansComment)
+            HStack(spacing: 10) {
+                GlassButton(title: "详细管理", systemName: "list.bullet") { showCacheManagement = true }
+                GlassButton(title: "清理全部缓存", systemName: "trash", prominent: true) {
+                    Task { await BeansCacheManager.shared.clearAll(); ToastCenter.shared.show("缓存已清理") }
+                }
+            }
+        }
+        .task { await BeansCacheManager.shared.refresh() }
+    }
+
+    private var disclaimerContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach([
+                "本软件仅为个人技术学习与开源展示用途，非商业软件、无任何盈利行为。",
+                "本软件所有音乐、歌词、图片等内容版权归原版权方所有，仅来源于公开网络接口聚合展示。",
+                "本软件不存储、不上传、不私自分发任何版权资源，仅提供在线试听与检索工具能力。",
+                "用户下载、保存、传播音频资源的一切行为由用户自行承担法律责任，与软件开发者无关。",
+                "若有版权侵权问题，版权方可联系开发者，我方将第一时间下架相关内容。",
+                "使用者默认同意本免责条款，禁止用于商业、盈利、侵权传播场景。"
+            ], id: \.self) { line in
+                Text(line).font(BeansFont.appFont(13)).foregroundStyle(Color.beansComment)
+            }
+        }
+    }
+
+    private var environmentContent: some View {
+        let info = Bundle.main.infoDictionary
+        let lines = [
+            "版本：\(info?["CFBundleShortVersionString"] as? String ?? "?")（\(info?["CFBundleVersion"] as? String ?? "?")）",
+            "系统：iOS \(UIDevice.current.systemVersion)",
+            "设备：\(DeviceReporter.marketingModelHint())",
+            "设备码：\(StableDeviceID.value)",
+        ]
+        return VStack(alignment: .leading, spacing: 8) {
+            ForEach(lines, id: \.self) { Text($0).font(BeansFont.appFont(13)).foregroundStyle(Color.beansComment) }
+            GlassButton(title: "复制设备码", systemName: "doc.on.doc") {
+                UIPasteboard.general.string = StableDeviceID.value
+                ToastCenter.shared.show("设备标识已复制")
+            }
         }
     }
 
@@ -1460,11 +1626,8 @@ struct SettingsView: View {
             ZStack {
                 GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
+                    LazyVStack(alignment: .leading, spacing: 20) {
                         settingsSearchBar
-                        if settingsQuery.trimmingCharacters(in: .whitespaces).isEmpty {
-                            settingsCategoryPicker
-                        }
                         settingsContent
                         footerNote
                     }
@@ -1533,6 +1696,26 @@ struct SettingsView: View {
         .sheet(isPresented: $showFeedback) {
             FeedbackSheet()
                 .environmentObject(theme)
+        }
+        .sheet(isPresented: $showSettingsAccountHub) {
+            AccountHubSheet()
+                .environmentObject(auth)
+                .environmentObject(theme)
+        }
+        .alert("检查更新", isPresented: $showSettingsUpdateAlert, presenting: settingsUpdateResult) { result in
+            switch result {
+            case .update(let info):
+                Button("前往更新") { UIApplication.shared.open(info.htmlURL) }
+                Button("取消", role: .cancel) {}
+            default:
+                Button("好", role: .cancel) {}
+            }
+        } message: { result in
+            switch result {
+            case .update(let info): Text("发现新版本 \(info.version)，是否前往更新页？")
+            case .upToDate: Text("当前已是最新版本 \(UpdateChecker.currentVersion)")
+            case .failed: Text("检查失败，请检查网络后重试")
+            }
         }
         .sheet(isPresented: $showCacheManagement) {
             CacheManagementView()
@@ -2411,10 +2594,6 @@ struct SettingsView: View {
 
                 Divider().overlay(Color.beansComment.opacity(0.15))
 
-                playbackQualitySection
-
-                Divider().overlay(Color.beansComment.opacity(0.15))
-
                 #if !MOUMUSIC_COMPAT
                 Toggle(isOn: $showLiveActivity) {
                     HStack(spacing: 12) {
@@ -2465,87 +2644,6 @@ struct SettingsView: View {
                 .toggleStyle(.switch)
                 .tint(Color.beansAmber)
 
-                HStack(spacing: 10) {
-                    Image(systemName: "shippingbox.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Color.beansAmber)
-                    Text(beansLocalized("第三方音源", "Third-party Sources"))
-                        .font(BeansFont.appFont(13, .semibold))
-                        .foregroundStyle(Color.beansLabel)
-                    Spacer()
-                    Text(beansLocalized("\(customSourceCount) 个", "\(customSourceCount) sources"))
-                        .font(BeansFont.appFont(12))
-                        .foregroundStyle(Color.beansComment)
-                }
-
-                Button {
-                    showSourceManager = true
-                    BeansHaptics.tap()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "square.and.pencil")
-                        Text(beansLocalized("管理 / 导入音源", "Manage / Import Sources"))
-                    }
-                    .font(BeansFont.appFont(13, .semibold))
-                    .foregroundStyle(Color.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.black, in: Capsule())
-                }
-                .buttonStyle(GlassPressButtonStyle(scale: 0.97))
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "speaker.wave.2.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.beansAmber)
-                            .frame(width: 28)
-                        Text(thirdPartyAudioQualityTitle)
-                            .font(BeansFont.appFont(13, .semibold))
-                            .foregroundStyle(Color.beansLabel)
-                        Spacer()
-                        Text(thirdPartyAudioQualitySelection.wrappedValue.displayName)
-                            .font(BeansFont.appFont(12))
-                            .foregroundStyle(Color.beansComment)
-                    }
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(thirdPartyAudioQualityOptions) { quality in
-                                let selected = thirdPartyAudioQualitySelection.wrappedValue == quality
-                                Button {
-                                    thirdPartyAudioQualitySelection.wrappedValue = quality
-                                    BeansHaptics.select()
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        Text(quality.displayName)
-                                        if selected {
-                                            Image(systemName: "checkmark")
-                                                .font(.system(size: 9, weight: .bold))
-                                        }
-                                    }
-                                    .font(BeansFont.appFont(12, selected ? .semibold : .medium))
-                                    .foregroundStyle(selected ? Color.beansAmber : Color.beansLabel)
-                                    .padding(.horizontal, 12)
-                                    .frame(height: 31)
-                                    .background {
-                                        Capsule()
-                                            .fill(selected ? Color.beansAmber.opacity(0.14) : Color.beansLabel.opacity(0.055))
-                                    }
-                                    .overlay {
-                                        Capsule()
-                                            .strokeBorder(selected ? Color.beansAmber.opacity(0.42) : Color.beansLabel.opacity(0.08), lineWidth: 0.8)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal, 1)
-                    }
-                    Text(thirdPartyAudioQualityHint)
-                        .font(BeansFont.appFont(11))
-                        .foregroundStyle(Color.beansComment)
-                }
-
             }
             .padding(16)
             .background {
@@ -2553,9 +2651,6 @@ struct SettingsView: View {
             }
             .beansCardShadow(radius: 9, y: 3)
             .transition(.opacity.combined(with: .move(edge: .top)))
-            .task(id: thirdPartyAudioQualityOptionsSignature) {
-                normalizeThirdPartyAudioQualitySelection()
-            }
             }
         }
     }
@@ -2950,43 +3045,6 @@ struct SettingsView: View {
             return result
         }
         return nil
-    }
-
-    /// 帮助与开发者：问题反馈（提交后解锁下载）、开发者工具（仅开发者设备可见）
-    private var supportSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "帮助")
-            VStack(spacing: 8) {
-                HStack(spacing: 10) {
-                    logActionButton(icon: "bubble.left.and.exclamationmark.bubble.right", title: "问题反馈") {
-                        showFeedback = true
-                    }
-                    logActionButton(icon: "externaldrive", title: "清理缓存") {
-                        showCacheManagement = true
-                    }
-                }
-                HStack(spacing: 10) {
-                    logActionButton(icon: "waveform.path.ecg", title: "诊断与日志") {
-                        showDiagnostics = true
-                    }
-                    logActionButton(icon: "doc.plaintext", title: "运行环境") {
-                        UIPasteboard.general.string = BeansDiagnostics.shared.snapshotLine()
-                        ToastCenter.shared.show(BeansDiagnostics.shared.snapshotLine())
-                    }
-                }
-                if deviceReporter.isDeveloper {
-                    HStack(spacing: 10) {
-                        logActionButton(icon: "hammer", title: "开发者工具") {
-                            showDeveloperTools = true
-                        }
-                    }
-                }
-            }
-            .padding(14)
-            .background {
-                BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-        }
     }
 
     /// 日志：查看 / 清空（导出入口放在日志查看器右上角）

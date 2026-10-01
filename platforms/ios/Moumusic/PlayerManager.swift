@@ -132,8 +132,12 @@ final class PlayerManager: NSObject, ObservableObject {
 
     /// 只要存在启用的自定义音源，就允许官方地址失败后进行兜底解析。
     private var externalSourcesEnabled: Bool {
-        UnblockSourceStore.shared.sources.contains(where: \.enabled)
+        guard PlaybackSourceMode.current != .official else { return false }
+        return UnblockSourceStore.shared.sources.contains(where: \.enabled)
     }
+
+    /// 「仅第三方」模式下不请求官方播放地址。
+    private var officialAllowed: Bool { PlaybackSourceMode.current != .thirdParty }
 
     private struct ThirdPartyVIPNotice {
         let songKey: String
@@ -500,7 +504,7 @@ final class PlayerManager: NSObject, ObservableObject {
             let thirdPartyQuality = ThirdPartyAudioQuality.current
             BeansLogger.shared.log("▶ 开始播放：\(song.name) - \(song.artists)｜平台=\(song.source.rawValue) id=\(song.id) 音质=\(quality.level) 第三方音质=\(thirdPartyQuality.rawValue) 自定义音源=\(enableUnblock ? "开" : "关") 官方受限=\(strictUnlock ? "是" : "否")", level: .info)
             if song.source == .kugou {
-                urlString = try? await KugouMusicAPI.shared.songURL(song: song, quality: quality)
+                urlString = officialAllowed ? (try? await KugouMusicAPI.shared.songURL(song: song, quality: quality)) : nil
                 if urlString == nil {
                     resolvedThirdParty = await kugouFallback(
                         song: song,
@@ -510,11 +514,11 @@ final class PlayerManager: NSObject, ObservableObject {
                 }
             } else if song.source == .qq, let mid = song.qqMid {
                 // QQ 官方地址失败后只走 QQ 第三方音源，不跨平台匹配同名歌曲。
-                let officialResult = try? await QQMusicAPI.shared.songURLResult(
+                let officialResult = officialAllowed ? (try? await QQMusicAPI.shared.songURLResult(
                     songmid: mid,
                     mediaMid: song.qqMediaMid,
                     quality: quality
-                )
+                )) : nil
                 urlString = officialResult?.url
                 qqOfficialBR = officialResult?.br
                 attemptedQQOfficialBRs = officialResult?.attemptedBRs ?? []
@@ -597,9 +601,9 @@ final class PlayerManager: NSObject, ObservableObject {
     ) async -> (String?, UnblockService.Resolved?) {
         var urlString: String?
         var resolved: UnblockService.Resolved?
-        let infos = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: quality.level)
+        let infos = officialAllowed ? (try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: quality.level)) : nil
         var info = infos?[song.id]
-        if (info?.url == nil || info?.freeTrial == true), quality != .standard {
+        if officialAllowed, (info?.url == nil || info?.freeTrial == true), quality != .standard {
             // 高音质拿不到时自动回落到标准音质
             let fallback = try? await NetEaseAPI.shared.songURLInfo(ids: [song.id], level: "standard")
             info = fallback?[song.id]
@@ -678,7 +682,7 @@ final class PlayerManager: NSObject, ObservableObject {
         }
 
         let strict = shouldLockOfficialOnly(song)
-        if let matched = await matchNetEaseSong(
+        if PlaybackPreferenceKeys.crossPlatformFallbackEnabled, let matched = await matchNetEaseSong(
             name: song.name,
             artists: song.artists,
             durationMS: Int(song.duration * 1000),
@@ -721,7 +725,7 @@ final class PlayerManager: NSObject, ObservableObject {
                 return resolved
             }
         }
-        if let matched = await matchNetEaseSong(
+        if PlaybackPreferenceKeys.crossPlatformFallbackEnabled, let matched = await matchNetEaseSong(
             name: song.name,
             artists: song.artists,
             durationMS: Int(song.duration * 1000),

@@ -259,3 +259,77 @@ struct DynamicWallpaperSettingsSection: View {
          ("flow", "流动"), ("plasma", "等离子"), ("snake", "蛇形")]
     }
 }
+
+
+/// 设置页「动态壁纸」展开内容：下拉选择 + 说明 + 同步到播放器界面。
+struct DynamicWallpaperSettingsContent: View {
+    @ObservedObject private var store = DynamicWallpaperStore.shared
+    @AppStorage("beans.dynamicWallpaper.syncPlayer") private var syncPlayer = false
+    @State private var showWaterPicker = false
+
+    private let dotsStyles: [(String, String)] = [
+        ("wavy", "波浪"), ("mountains", "山脉"), ("ocean", "海洋"), ("standing", "站立波"),
+        ("flow", "流动"), ("plasma", "等离子"), ("snake", "蛇形")
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if !DynamicWallpaperStore.isSupported {
+                Text("动态壁纸需要 iOS 17 或更高版本。")
+                    .font(BeansFont.appFont(12)).foregroundStyle(Color.beansComment)
+            }
+            Picker(selection: $store.kind) {
+                ForEach(BeansDynamicWallpaper.allCases) { item in
+                    Label(item == .none ? item.chineseName : item.englishName, systemImage: icon(for: item)).tag(item)
+                }
+            } label: {
+                Text("动态壁纸")
+            }
+            .pickerStyle(.menu)
+            .tint(Color.beansAmber)
+            Text(store.kind.summary)
+                .font(BeansFont.appFont(13)).foregroundStyle(Color.beansComment)
+            if store.kind == .water {
+                GlassButton(title: "上传一张图片作为水面内容", systemName: "photo") { showWaterPicker = true }
+            }
+            if store.kind == .dots {
+                Picker("点阵样式", selection: $store.dotsStyleRaw) {
+                    ForEach(dotsStyles, id: \.0) { Text($0.1).tag($0.0) }
+                }
+                .pickerStyle(.menu)
+            }
+            if store.kind != .none {
+                GlassButton(title: "恢复当前默认参数", systemName: "arrow.counterclockwise") { store.resetDefaults() }
+            }
+            Toggle(isOn: $syncPlayer) {
+                Text("同步到播放器界面").font(BeansFont.appFont(16)).foregroundStyle(Color.beansLabel)
+            }
+            .toggleStyle(.switch).tint(Color.beansAmber)
+            LockScreenArtworkToggleCard()
+        }
+        .sheet(isPresented: $showWaterPicker) {
+            WallpaperPhotoPicker { data in
+                store.setWaterImage(data)
+                ToastCenter.shared.show("Water 壁纸已更新")
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    private func icon(for item: BeansDynamicWallpaper) -> String {
+        switch item {
+        case .none: return "nosign"
+        case .fractalClouds: return "cloud.fill"
+        case .inkSmoke: return "drop.fill"
+        case .liquidChrome: return "circle.lefthalf.filled"
+        case .neuroNoise: return "point.3.connected.trianglepath.dotted"
+        case .simplexNoise: return "waveform.path.ecg"
+        case .metaballs: return "circle.hexagongrid.fill"
+        case .water: return "water.waves"
+        case .starNest: return "sparkles"
+        case .dotOrbit: return "circle.grid.2x2"
+        case .dots: return "circle.grid.3x3.fill"
+        case .grainGradient: return "square.3.layers.3d"
+        }
+    }
+}
