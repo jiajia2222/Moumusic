@@ -19,6 +19,7 @@ struct PlayerView: View {
     @State private var showSleepTimer = false
     @State private var showAddToPlaylist = false
     @State private var showCustomCoverPicker = false
+    @State private var showLyricPoster = false
     @ObservedObject private var customCovers = CustomSongCoverStore.shared
     @AppStorage(CustomCoverKeys.sound) private var customCoverVideoSound = false
     @State private var showComments = false
@@ -603,6 +604,12 @@ struct PlayerView: View {
                     .environmentObject(theme)
             }
         }
+        .sheet(isPresented: $showLyricPoster) {
+            if let song {
+                LyricPosterSheet(song: song, lyrics: lyrics, currentTime: player.progress)
+                    .environmentObject(theme)
+            }
+        }
         .sheet(isPresented: $showCustomCoverPicker) {
             FeedbackMediaPicker(limit: 1) { urls in
                 if let song, let url = urls.first {
@@ -1050,6 +1057,7 @@ struct PlayerView: View {
                 Button("定时关闭") { showSleepTimer = true }
                 Button("添加到本地歌单") { showAddToLocalPlaylist = true }
                 Button("官方歌单收藏") { showAddToPlaylist = true }
+                Button("分享歌词海报") { showLyricPoster = true }
                 Button(customCovers.hasCover(for: song) ? "更换自定义封面" : "添加自定义封面") { showCustomCoverPicker = true }
                 if customCovers.hasCover(for: song) {
                     Button("恢复默认封面") { if let song { customCovers.remove(for: song) } }
@@ -1250,6 +1258,7 @@ struct PlayerView: View {
                 Button("定时关闭") { showSleepTimer = true }
                 Button("添加到本地歌单") { showAddToLocalPlaylist = true }
                 Button("官方歌单收藏") { showAddToPlaylist = true }
+                Button("分享歌词海报") { showLyricPoster = true }
                 Button(customCovers.hasCover(for: song) ? "更换自定义封面" : "添加自定义封面") { showCustomCoverPicker = true }
                 if customCovers.hasCover(for: song) {
                     Button("恢复默认封面") { if let song { customCovers.remove(for: song) } }
