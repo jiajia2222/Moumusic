@@ -41,6 +41,7 @@ final class BeansAvatarStore: ObservableObject {
 
 // MARK: - 资料卡
 
+@MainActor
 struct ProfileIdentityCard: View {
     @ObservedObject private var reporter = DeviceReporter.shared
     @ObservedObject private var stats = ListeningStatsStore.shared
@@ -307,6 +308,7 @@ final class SponsorStore: ObservableObject {
     }
 }
 
+@MainActor
 struct SponsorExpandedContent: View {
     @ObservedObject private var store = SponsorStore.shared
 
@@ -363,6 +365,7 @@ struct SponsorExpandedContent: View {
 
 // MARK: - 音乐收藏
 
+@MainActor
 struct FavoritesSheet: View {
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var player: PlayerManager

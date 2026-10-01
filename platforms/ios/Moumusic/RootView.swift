@@ -3,27 +3,30 @@ import UIKit
 
 enum RootTab: String, CaseIterable, Identifiable {
     case discover
-    case search
+    case featured
     case library
     case profile
+    case search
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .discover: return "主页"
-        case .search: return "搜索"
-        case .library: return "音乐库"
+        case .featured: return "精选"
+        case .library: return "歌单"
         case .profile: return "我的"
+        case .search: return "搜索"
         }
     }
 
     var icon: String {
         switch self {
         case .discover: return "house.fill"
-        case .search: return "magnifyingglass"
+        case .featured: return "dot.radiowaves.left.and.right"
         case .library: return "music.note.list"
-        case .profile: return "person.crop.circle"
+        case .profile: return "person.crop.circle.fill"
+        case .search: return "magnifyingglass"
         }
     }
 }
@@ -88,15 +91,21 @@ struct RootView: View {
             DiscoverView()
                 .tabItem { Label(tabLabelsVisible ? "主页" : "", systemImage: "house.fill") }
                 .tag(RootTab.discover)
+            FeaturedView()
+                .tabItem { Label(tabLabelsVisible ? "精选" : "", systemImage: "dot.radiowaves.left.and.right") }
+                .tag(RootTab.featured)
+            LibraryView()
+                .tabItem { Label(tabLabelsVisible ? "歌单" : "", systemImage: "music.note.list") }
+                .tag(RootTab.library)
+            ProfileView()
+                .tabItem { Label(tabLabelsVisible ? "我的" : "", systemImage: "person.crop.circle.fill") }
+                .tag(RootTab.profile)
             SearchView()
                 .tabItem { Label(tabLabelsVisible ? "搜索" : "", systemImage: "magnifyingglass") }
                 .tag(RootTab.search)
-            LibraryView()
-                .tabItem { Label(tabLabelsVisible ? "音乐库" : "", systemImage: "music.note.list") }
-                .tag(RootTab.library)
-            ProfileView()
-                .tabItem { Label(tabLabelsVisible ? "我的" : "", systemImage: "person.crop.circle") }
-                .tag(RootTab.profile)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .beansOpenProfileTab)) { _ in
+            selection = .profile
         }
         .tint(Color.beansAmber)
         .background {

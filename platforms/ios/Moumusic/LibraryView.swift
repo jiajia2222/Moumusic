@@ -65,6 +65,7 @@ struct LibraryView: View {
     @State private var showDeleteConfirm = false
     @State private var source: LibraryProvider = .netease
     @AppStorage("beans.homeHeaderHideSort") private var hideSortButton = false
+    @AppStorage("beans.homeSource") private var homeSourceRaw = SearchProvider.netease.rawValue
     @AppStorage(PlatformPreferenceStore.hidePickerKey) private var hidePlatformPicker = false
     @State private var qqPlaylists: [Playlist] = []
     @State private var qqLoading = false
@@ -142,14 +143,7 @@ struct LibraryView: View {
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: isNativeClean ? 30 : 24) {
-                    if isNativeClean {
-                        appleHeader
-                    } else {
-                        header
-                    }
-                    if !hidePlatformPicker {
-                        providerPicker
-                    }
+                    libraryTopBar
                     // 板块按用户自定义顺序渲染（可拖拽排序）
                     ForEach(libraryOrder, id: \.self) { key in
                         switch key {
@@ -187,6 +181,10 @@ struct LibraryView: View {
         }
         .onAppear {
             source = platformPrefs.ensureVisible(source)
+            followGlobalPlatform()
+        }
+        .onChange(of: homeSourceRaw) { _ in
+            followGlobalPlatform()
         }
         .onReceive(platformPrefs.changes) { _ in
             let next = platformPrefs.ensureVisible(source)
@@ -267,6 +265,35 @@ struct LibraryView: View {
         } else {
             legacyRoute = route
         }
+    }
+
+    /// 顶部：当前平台 + 我的入口，下方大标题「我的歌单」。
+    private var libraryTopBar: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            PlatformHeaderBar()
+            HStack(alignment: .center) {
+                Text("我的歌单")
+                    .font(BeansFont.appFont(34, .bold))
+                    .foregroundStyle(Color.beansLabel)
+                Spacer(minLength: 12)
+                if !hideSortButton {
+                    GlassIconButton(systemName: "arrow.up.arrow.down", forceLiquid: true) {
+                        BeansHaptics.tap()
+                        showSectionSort = true
+                    }
+                    GlassIconButton(systemName: "list.number", forceLiquid: true) {
+                        BeansHaptics.tap()
+                        showSyncedPlaylistSort = true
+                    }
+                }
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private func followGlobalPlatform() {
+        guard let provider = SearchProvider(rawValue: homeSourceRaw), let mapped = LibraryProvider(rawValue: provider.rawValue) else { return }
+        if source != mapped { source = mapped }
     }
 
     private var header: some View {

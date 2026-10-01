@@ -120,7 +120,7 @@ struct DiscoverView: View {
                 if !homeRenderingPaused {
                     ScrollViewReader { proxy in
                     VStack(alignment: .leading, spacing: isNativeClean ? 34 : 26) {
-                        header
+                        topBar
                         if !hidePlatformPicker {
                             providerPicker
                         }
@@ -275,6 +275,16 @@ struct DiscoverView: View {
             navigationPath.append(route)
         } else {
             legacyRoute = route
+        }
+    }
+
+    /// 顶部：当前平台 + 我的入口；用户自定义了问候语时才保留大标题问候区。
+    private var topBar: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            PlatformHeaderBar()
+            if !homeGreetingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                header
+            }
         }
     }
 
