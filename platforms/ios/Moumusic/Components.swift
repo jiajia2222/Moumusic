@@ -77,6 +77,7 @@ struct GlassBackdrop: View {
     @EnvironmentObject private var theme: ThemeStore
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("beans.uiStyle") private var uiStyleRaw = BeansUIStyle.liquid.rawValue
+    @ObservedObject private var dynamicWallpaper = DynamicWallpaperStore.shared
     /// 自定义背景色（nil 使用默认氛围渐变）
     var customColor: Color? = nil
     /// 主页模式：即使“同步到全部页面”关闭，也始终显示壁纸/背景色（仅发现页传 true）
@@ -107,7 +108,10 @@ struct GlassBackdrop: View {
         let activeBackgroundColor = theme.customBackground(for: colorScheme) ?? customColor
         let activeBackgroundImage = theme.customBackgroundImage(for: colorScheme)
         ZStack {
-            if uiStyle == .nativeClean, !showCustomBackground || (activeBackgroundImage == nil && activeBackgroundColor == nil) {
+            if dynamicWallpaper.isActive, showCustomBackground {
+                DynamicWallpaperLayer(kind: dynamicWallpaper.kind, waterImage: dynamicWallpaper.waterImage, dotsStyleRaw: dynamicWallpaper.dotsStyleRaw)
+                LinearGradient(colors: wallpaperOverlay, startPoint: .top, endPoint: .bottom)
+            } else if uiStyle == .nativeClean, !showCustomBackground || (activeBackgroundImage == nil && activeBackgroundColor == nil) {
                 Color(UIColor.systemBackground)
             } else if let image = activeBackgroundImage, showCustomBackground {
                 WallpaperImage(image: image, blurRadius: wallpaperBlur)

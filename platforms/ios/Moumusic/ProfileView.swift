@@ -1457,6 +1457,7 @@ struct SettingsView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         themeSection
+                        DynamicWallpaperSettingsSection()
                         playbackSection
                         equalizerSection
                         changelogSection
