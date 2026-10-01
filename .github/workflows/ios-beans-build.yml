@@ -4,12 +4,7 @@ name: iOS (Beans UI) unsigned IPAs
 #   ios26   : deployment target 26.0, built with the iOS 26 SDK (liquid glass paths)
 #   ios15-18: deployment target 15.0 (compat build)
 on:
-  workflow_dispatch:
-  push:
-    branches: [refactor/beans-ui]
-    paths:
-      - "platforms/ios-beans/**"
-      - ".github/workflows/ios-beans-build.yml"
+  workflow_dispatch:   # manual only: run it once all features are done
 
 permissions:
   contents: read
