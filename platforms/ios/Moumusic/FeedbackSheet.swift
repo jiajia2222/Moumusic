@@ -3,6 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// 问题反馈：设备信息 + 问题描述 + 最多 4 个附件；提交成功后服务端会解锁下载功能。
+@MainActor
 struct FeedbackSheet: View {
     @EnvironmentObject private var theme: ThemeStore
     @Environment(\.dismiss) private var dismiss
@@ -213,6 +214,7 @@ struct FeedbackSheet: View {
 
 // MARK: - 历史
 
+@MainActor
 struct FeedbackHistoryView: View {
     @EnvironmentObject private var theme: ThemeStore
     @Environment(\.dismiss) private var dismiss
@@ -356,7 +358,7 @@ struct FeedbackMediaPicker: UIViewControllerRepresentable {
 
 extension DeviceReporter {
     /// 反馈页的默认设备型号：优先设备名，其次硬件标识。
-    static func marketingModelHint() -> String {
+    nonisolated static func marketingModelHint() -> String {
         var sys = utsname()
         uname(&sys)
         let id = withUnsafePointer(to: &sys.machine) {

@@ -34,6 +34,15 @@ final class SyncedPlaylistCache {
             .flatMap { try? JSONDecoder().decode([String: SongEntry].self, from: $0) } ?? [:]
     }
 
+    func removeAll() {
+        lock.lock()
+        playlistEntries.removeAll()
+        songEntries.removeAll()
+        lock.unlock()
+        defaults.removeObject(forKey: playlistsKey)
+        defaults.removeObject(forKey: songsKey)
+    }
+
     func cachedPlaylists(source: SongSource, accountID: String) -> PlaylistEntry? {
         lock.lock()
         defer { lock.unlock() }

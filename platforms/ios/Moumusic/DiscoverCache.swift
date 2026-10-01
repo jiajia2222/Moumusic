@@ -30,6 +30,10 @@ final class DiscoverCache {
 
     private init() {}
 
+    func removeAll() {
+        store.removeAll()
+    }
+
     func cached(for source: SearchProvider) -> Snapshot? {
         store[source.rawValue]
     }

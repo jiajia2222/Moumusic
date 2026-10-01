@@ -27,6 +27,13 @@ final class DetailSongsCache {
             .flatMap { try? JSONDecoder().decode([String: Entry].self, from: $0) } ?? [:]
     }
 
+    func removeAll() {
+        lock.lock()
+        entries.removeAll()
+        lock.unlock()
+        defaults.removeObject(forKey: storageKey)
+    }
+
     func cachedSongs(for key: String) -> Entry? {
         lock.lock()
         defer { lock.unlock() }

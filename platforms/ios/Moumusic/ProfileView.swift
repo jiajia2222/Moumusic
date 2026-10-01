@@ -1210,6 +1210,7 @@ struct SettingsView: View {
     /// 日志
     @State private var showLogViewer = false
     @State private var showFeedback = false
+    @State private var showCacheManagement = false
     @State private var showDeveloperTools = false
     @ObservedObject private var deviceReporter = DeviceReporter.shared
 
@@ -1530,6 +1531,10 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showFeedback) {
             FeedbackSheet()
+                .environmentObject(theme)
+        }
+        .sheet(isPresented: $showCacheManagement) {
+            CacheManagementView()
                 .environmentObject(theme)
         }
         .fullScreenCover(isPresented: $showDeveloperTools) {
@@ -2933,7 +2938,12 @@ struct SettingsView: View {
                     logActionButton(icon: "bubble.left.and.exclamationmark.bubble.right", title: "问题反馈") {
                         showFeedback = true
                     }
-                    if deviceReporter.isDeveloper {
+                    logActionButton(icon: "externaldrive", title: "清理缓存") {
+                        showCacheManagement = true
+                    }
+                }
+                if deviceReporter.isDeveloper {
+                    HStack(spacing: 10) {
                         logActionButton(icon: "hammer", title: "开发者工具") {
                             showDeveloperTools = true
                         }

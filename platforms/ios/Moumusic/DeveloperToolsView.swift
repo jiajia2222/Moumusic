@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 /// 开发者工具：刷新率浮层、公告、下载权限、专属 ID。仅服务端标记为开发者的设备可见。
+@MainActor
 struct DeveloperToolsView: View {
     @EnvironmentObject private var theme: ThemeStore
     @Environment(\.dismiss) private var dismiss

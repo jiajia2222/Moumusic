@@ -4,6 +4,7 @@ import WebKit
 
 /// 个人资料卡片：加载内置 XProfile.html（与 Beans 2.0.2 同款），
 /// 通过 window.tm 桥接把头像/背景存到本机，并把设置同步到 Moumusic 服务端。
+@MainActor
 struct XProfileCardView: View {
     @ObservedObject private var reporter = DeviceReporter.shared
     @ObservedObject private var stats = ListeningStatsStore.shared
