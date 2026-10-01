@@ -1,5 +1,6 @@
 import AVFoundation
 import MediaPlayer
+import SwiftUI
 import UIKit
 
 /// 锁屏封面：歌曲有自定义图片封面时替换系统「正在播放」封面；
