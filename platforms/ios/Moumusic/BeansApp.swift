@@ -60,6 +60,7 @@ struct BeansApp: App {
                 player.resumePersistedPlaybackIfEnabled()
                 FontManager.reinstallIfNeeded()
                 theme.restoreWallpapersIfNeeded()
+                BeansDiagnostics.shared.start()
                 ListeningStatsStore.shared.attach(player)
                 #if !MOUMUSIC_COMPAT
                 LiveActivityManager.shared.attach(player)

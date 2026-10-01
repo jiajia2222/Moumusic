@@ -1221,6 +1221,7 @@ struct SettingsView: View {
     @State private var showLogViewer = false
     @State private var showFeedback = false
     @State private var showCacheManagement = false
+    @State private var showDiagnostics = false
     @State private var showDeveloperTools = false
     @ObservedObject private var deviceReporter = DeviceReporter.shared
 
@@ -1720,6 +1721,10 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showCacheManagement) {
             CacheManagementView()
+                .environmentObject(theme)
+        }
+        .sheet(isPresented: $showDiagnostics) {
+            DiagnosticsView()
                 .environmentObject(theme)
         }
         .fullScreenCover(isPresented: $showDeveloperTools) {
@@ -3143,6 +3148,15 @@ struct SettingsView: View {
                     }
                     logActionButton(icon: "externaldrive", title: "清理缓存") {
                         showCacheManagement = true
+                    }
+                }
+                HStack(spacing: 10) {
+                    logActionButton(icon: "waveform.path.ecg", title: "诊断与日志") {
+                        showDiagnostics = true
+                    }
+                    logActionButton(icon: "doc.plaintext", title: "运行环境") {
+                        UIPasteboard.general.string = BeansDiagnostics.shared.snapshotLine()
+                        ToastCenter.shared.show(BeansDiagnostics.shared.snapshotLine())
                     }
                 }
                 if deviceReporter.isDeveloper {
