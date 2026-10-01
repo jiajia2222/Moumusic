@@ -94,6 +94,7 @@ struct DiscoverView: View {
     @State private var neteaseCat = "全部"
     /// 官方歌单分类列表
     @State private var playlistCats: [String] = []
+    @State private var showPlaylistSquare = false
 
     var body: some View {
         let _ = theme.accent
@@ -213,6 +214,12 @@ struct DiscoverView: View {
                 guard !homeRenderingPaused else { return }
                 guard platformPrefs.isEnabled(SearchProvider.kugou) else { return }
                 reloadAfterLoginUpdate(.kugou)
+            }
+            .sheet(isPresented: $showPlaylistSquare) {
+                PlaylistSquareView()
+                    .environmentObject(theme)
+                    .environmentObject(player)
+                    .environmentObject(auth)
             }
             .sheet(isPresented: $showSectionSort) {
                 SectionOrderSheet(
@@ -1059,7 +1066,10 @@ struct DiscoverView: View {
 
     private var personalizedSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: playlistSectionTitle)
+            SectionHeader(title: playlistSectionTitle, trailing: "歌单广场", onTrailingTap: {
+                BeansHaptics.tap()
+                showPlaylistSquare = true
+            })
             if visiblePersonalizedPlaylists.isEmpty {
                 EmptyStateView(icon: "music.note.list", text: playlistEmptyText)
             } else if isNativeClean && !playlistsExpanded {
