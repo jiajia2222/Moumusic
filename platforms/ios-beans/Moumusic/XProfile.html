@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>个人主页卡片</title>
+<style>
+  :root{
+    --bg:transparent;
+    --text:#0f1419; --text-sub:#536471;
+    --line:#cfd9de; --mask:rgba(0,0,0,.05);
+    --header-blue:#4a9ff5;
+    --accent-color:#1d9bf0;
+    --banner-height:170px;
+    --profile-scale:.92;
+    --card-radius:22px;
+    --content-padding:16px;
+    --action-size:30px;
+    --avatar-size:88px;
+    --avatar-gap:#ffffff;
+    --name-size:23px; --user-size:15px; --bio-size:15px; --meta-size:15px;
+    --panel-bg:rgba(255,255,255,.24);
+    --panel-text:#0f1419;
+    --panel-border:rgba(255,255,255,.45);
+  }
+  html[data-theme="dark"]{
+    --bg:transparent;
+    --text:#e7e9ea; --text-sub:#71767b;
+    --line:#2f3336; --mask:rgba(255,255,255,.08);
+    --avatar-gap:#000000;
+    --panel-bg:rgba(0,0,0,.24);
+    --panel-text:#e7e9ea;
+    --panel-border:rgba(255,255,255,.12);
+  }
+  @media (prefers-color-scheme: dark){
+    html[data-theme="auto"]{
+      --bg:transparent;
+      --text:#e7e9ea; --text-sub:#71767b;
+      --line:#2f3336; --mask:rgba(255,255,255,.08);
+      --avatar-gap:#000000;
+      --panel-bg:rgba(0,0,0,.24);
+      --panel-text:#e7e9ea;
+      --panel-border:rgba(255,255,255,.12);
+    }
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;height:100%;background:transparent;color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans",sans-serif;
+    overflow:hidden;-webkit-text-size-adjust:100%;-webkit-user-select:none;user-select:none;
+    -webkit-touch-callout:none;touch-action:manipulation;}
+  input, textarea, [contenteditable="true"]{-webkit-user-select:text;user-select:text;}
+
+  .card{position:relative;width:100%;height:100%;margin:0 auto;
+    background:transparent;overflow:hidden;box-shadow:none;border-radius:var(--card-radius);
+    transform:scale(var(--profile-scale));transform-origin:top center;}
+  .card::after{content:"";position:absolute;left:0;right:0;top:var(--banner-height);bottom:0;
+    background:var(--panel-bg);border:1px solid var(--panel-border);border-top:0;
+    border-radius:0 0 var(--card-radius) var(--card-radius);
+    -webkit-backdrop-filter:blur(24px) saturate(1.35);backdrop-filter:blur(24px) saturate(1.35);
+    pointer-events:none;z-index:0;}
+
+  .id-badge{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.3px;color:#fff;background:#536471;}
+  .id-badge[hidden]{display:none;}
+  .id-badge.classic_gold{color:#3a2a00;background:linear-gradient(135deg,#ffe28a,#e0a82e);}
+  .id-badge.black_purple_gold{color:#f6d77a;background:linear-gradient(135deg,#0b0b0f,#4b2a7a);box-shadow:0 0 0 1px rgba(246,215,122,.55) inset;}
+  .banner{position:relative;width:100%;height:var(--banner-height);background:var(--header-blue);
+    background-size:cover;background-position:center;cursor:pointer;overflow:hidden;z-index:1;}
+  .banner img,.banner video{width:100%;height:100%;object-fit:cover;display:block;}
+  .banner video,.avatar video{display:none;}
+  .banner::after{content:"点击更换背景";position:absolute;inset:0;display:flex;
+    align-items:center;justify-content:center;color:rgba(255,255,255,.9);font-size:13px;
+    background:rgba(0,0,0,.25);opacity:0;transition:opacity .2s;pointer-events:none;}
+  .banner:hover::after{opacity:1;}
+  .card.locked .banner::after{display:none;}
+  .card.locked .banner{cursor:default;}
+
+  .avatar-wrap{position:absolute;left:var(--content-padding);top:calc(var(--banner-height) - var(--avatar-size) / 2);z-index:3;}
+  .avatar{width:var(--avatar-size);height:var(--avatar-size);border-radius:50%;
+    border:4px solid var(--avatar-gap);
+    background:transparent;background-size:cover;background-position:center;
+    cursor:pointer;display:block;overflow:hidden;transition:width .15s,height .15s;position:relative;
+    box-shadow:none;}
+  .avatar img,.avatar video{width:100%;height:100%;object-fit:cover;display:block;}
+  .card.locked .avatar{cursor:default;}
+
+  .actions{position:relative;z-index:1;display:flex;justify-content:flex-end;align-items:center;gap:6px;padding:8px var(--content-padding) 0;}
+
+  .bell-btn{
+    width:var(--action-size);
+    height:var(--action-size);
+    border:1px solid var(--line);
+    background:transparent;
+    color:var(--text-sub);
+    border-radius:50%;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0;
+    -webkit-appearance:none;
+    appearance:none;
+    position:relative;
+    box-shadow:none;
+  }
+  .bell-btn svg{
+    width:16px;
+    height:16px;
+    display:block;
+    color:var(--text-sub);
+  }
+
+  .bell-plus{
+    position:absolute;
+    top:1px;
+    right:1px;
+    width:10px;
+    height:10px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:var(--text-sub);
+    font-size:11px;
+    line-height:1;
+    background:none;
+    background-color:transparent;
+    border:0;
+    box-shadow:none;
+    border-radius:0;
+    padding:0;
+    margin:0;
+    -webkit-appearance:none;
+    appearance:none;
+    font-family:-apple-system,sans-serif;
+  }
+
+  .follow-btn{
+    min-width:82px;
+    height:30px;
+    padding:0 14px;
+    border:1px solid var(--line);
+    background:transparent;
+    color:var(--text);
+    border-radius:999px;
+    font-size:13px;
+    font-weight:700;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    -webkit-appearance:none;
+    appearance:none;
+    box-shadow:none;
+  }
+
+  .content{padding:4px var(--content-padding) 20px;position:relative;z-index:1;}
+
+  .editable{border-radius:4px;padding:2px 4px;margin:0 -4px;outline:none;
+    transition:background .15s;word-break:break-word;-webkit-user-select:text;user-select:text;
+    box-shadow:none;}
+  .editable:focus{background:var(--mask);}
+  .card.locked .editable{pointer-events:none;background:transparent!important;
+    -webkit-user-select:none;user-select:none;}
+
+  .display-name{display:block;font-size:var(--name-size);font-weight:700;color:var(--text);
+    line-height:1.1;margin:0;min-width:20px;width:fit-content;}
+  .username{display:block;font-size:var(--user-size);color:var(--text-sub);
+    line-height:1.1;margin-top:0;min-width:20px;width:fit-content;}
+  .bio{font-size:var(--bio-size);color:var(--text);line-height:1.35;margin-top:6px;
+    display:block;white-space:pre-wrap;}
+  .translate{color:var(--accent-color);font-size:15px;margin-top:4px;cursor:pointer;width:fit-content;}
+
+  .meta-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:5px;
+    font-size:var(--meta-size);color:var(--text-sub);}
+  .meta-item{display:flex;align-items:center;gap:4px;}
+  .meta-item svg{width:16px;height:16px;display:block;color:var(--text-sub);flex-shrink:0;}
+
+  .panel{
+    position:fixed;
+    left:0;
+    right:0;
+    top:var(--banner-height);
+    bottom:0;
+    background:var(--panel-bg);
+    color:var(--panel-text);
+    border-top:1px solid var(--panel-border);
+    box-shadow:none;
+    transform:translateY(100%);
+    transition:transform .32s ease;
+    z-index:999;
+    display:flex;
+    flex-direction:column;
+    padding-top:env(safe-area-inset-top);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .panel.open{transform:translateY(0);}
+
+  .panel-header{display:flex;align-items:center;justify-content:space-between;
+    padding:16px 18px;border-bottom:1px solid var(--panel-border);
+    font-weight:700;font-size:16px;flex-shrink:0;}
+  .panel-close{border:none;background:transparent;color:var(--panel-text);font-size:20px;
+    cursor:pointer;line-height:1;padding:4px 8px;border-radius:6px;box-shadow:none;}
+
+  .panel-body{flex:1;overflow-y:auto;padding:16px 18px 40px;-webkit-overflow-scrolling:touch;}
+
+  .section-title{font-size:12px;font-weight:700;color:var(--text-sub);
+    text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px;}
+  .section-title:first-of-type{margin-top:0;}
+
+  .seg{display:flex;background:var(--mask);border-radius:10px;padding:3px;gap:3px;}
+  .seg button{flex:1;border:none;background:transparent;color:var(--panel-text);
+    font-size:13px;padding:8px 4px;border-radius:8px;cursor:pointer;font-weight:500;
+    -webkit-appearance:none;appearance:none;box-shadow:none;}
+  .seg button.active{background:rgba(255,255,255,.7);color:#0f1419;
+    box-shadow:none;font-weight:700;}
+  html[data-theme="dark"] .seg button.active{background:rgba(255,255,255,.18);color:var(--panel-text);}
+  @media (prefers-color-scheme: dark){
+    html[data-theme="auto"] .seg button.active{background:rgba(255,255,255,.18);color:var(--panel-text);}
+  }
+
+  .field{margin-bottom:14px;}
+  .field label{display:flex;justify-content:space-between;font-size:13px;
+    margin-bottom:6px;color:var(--panel-text);}
+  .field label span{color:var(--text-sub);}
+
+  .color-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;color:var(--panel-text);font-size:13px;}
+  .color-row input[type="color"]{width:42px;height:28px;padding:0;border:1px solid var(--panel-border);border-radius:8px;background:transparent;}
+
+  .stats-row{display:flex;gap:8px;margin-top:14px;}
+  .stat{flex:1;min-width:0;padding:9px 10px;border:1px solid var(--panel-border);border-radius:12px;background:rgba(255,255,255,.12);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);}
+  html[data-theme="dark"] .stat{background:rgba(0,0,0,.12);}
+  .stat-label{font-size:11px;color:var(--text-sub);display:block;margin-bottom:3px;}
+  .stat-value{font-size:15px;font-weight:700;color:var(--text);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+  input[type="range"]{width:100%;accent-color:var(--accent-color);-webkit-appearance:none;appearance:none;
+    height:4px;background:var(--line);border-radius:4px;outline:none;box-shadow:none;}
+  input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:22px;height:22px;border-radius:50%;background:var(--accent-color);border:2px solid #fff;
+    box-shadow:none;cursor:pointer;}
+
+  .toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%) translateY(20px);
+    background:rgba(0,0,0,.8);color:#fff;padding:10px 18px;border-radius:999px;
+    font-size:13px;opacity:0;pointer-events:none;transition:all .25s;z-index:1200;white-space:nowrap;
+    box-shadow:none;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  .fileInput{display:none;}
+</style>
+</head>
+<body>
+
+<div class="card" id="card">
+
+  <div class="banner" id="bannerBox">
+    <img id="bannerImg" src="" alt="">
+    <video id="bannerVideo" muted loop playsinline></video>
+    <input type="file" accept="image/*,video/*" class="fileInput" id="bannerFile">
+  </div>
+
+  <div class="avatar-wrap">
+    <div class="avatar" id="avatarBox">
+      <img id="avatarImg" src="" alt="">
+      <video id="avatarVideo" muted loop playsinline></video>
+      <input type="file" accept="image/*,video/*" class="fileInput" id="avatarFile">
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="bell-btn" id="bellBtn" aria-label="调节面板">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span class="bell-plus">＋</span>
+    </button>
+    <button class="follow-btn" id="followBtn">关注</button>
+  </div>
+
+  <div class="content">
+    <div class="editable display-name" id="displayName" contenteditable="true">Moumusic</div>
+    <div class="editable username" id="username" contenteditable="true">@moumusic</div>`n    <div class="id-badge" id="idBadge" hidden></div>
+    <div class="editable bio" id="bio" contenteditable="true">用音乐记录每一天</div>
+    <div class="translate">翻译简介</div>
+    <div class="meta-row">
+      <span class="meta-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+        <span class="editable" contenteditable="true">未知</span>
+      </span>
+      <span class="meta-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+        <span class="editable" contenteditable="true">2026年10月</span>
+        <span>加入</span>
+      </span>
+    </div>
+    <div class="stats-row">
+      <div class="stat"><span class="stat-label">听歌时长</span><span class="stat-value" id="listenStat">--</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="panel">
+  <div class="panel-header">
+    <span>调节面板</span>
+    <button class="panel-close" id="panelClose">✕</button>
+  </div>
+  <div class="panel-body">
+
+    <div class="section-title">主题模式</div>
+    <div class="seg" id="themeSeg">
+      <button data-theme="light">日间</button>
+      <button data-theme="dark">夜间</button>
+      <button data-theme="auto">跟随系统</button>
+    </div>
+
+    <div class="section-title">头像大小</div>
+    <div class="field">
+      <label>头像尺寸 <span id="avatarVal">88px</span></label>
+      <input type="range" id="avatarRange" min="48" max="140" value="88">
+    </div>
+
+    <div class="section-title">布局尺寸</div>
+    <div class="field">
+      <label>整体缩放 <span id="scaleVal">92%</span></label>
+      <input type="range" id="scaleRange" min="75" max="105" value="92">
+    </div>
+    <div class="field">
+      <label>顶部背景高度 <span id="bannerVal">170px</span></label>
+      <input type="range" id="bannerRange" min="100" max="240" value="170">
+    </div>
+    <div class="field">
+      <label>左右边距 <span id="paddingVal">16px</span></label>
+      <input type="range" id="paddingRange" min="8" max="32" value="16">
+    </div>
+    <div class="field">
+      <label>圆角大小 <span id="radiusVal">22px</span></label>
+      <input type="range" id="radiusRange" min="0" max="36" value="22">
+    </div>
+    <div class="field">
+      <label>操作按钮大小 <span id="actionVal">30px</span></label>
+      <input type="range" id="actionRange" min="24" max="48" value="30">
+    </div>
+
+    <div class="section-title">文字大小（按排数）</div>
+    <div class="field">
+      <label>第 1 排 · 昵称 <span id="nameVal">23px</span></label>
+      <input type="range" id="nameRange" min="14" max="40" value="23">
+    </div>
+    <div class="field">
+      <label>第 2 排 · 用户名 <span id="userVal">15px</span></label>
+      <input type="range" id="userRange" min="10" max="28" value="15">
+    </div>
+    <div class="field">
+      <label>第 3 排 · 简介 <span id="bioVal">15px</span></label>
+      <input type="range" id="bioRange" min="10" max="28" value="15">
+    </div>
+    <div class="field">
+      <label>第 4 排 · 信息 <span id="metaVal">15px</span></label>
+      <input type="range" id="metaRange" min="10" max="28" value="15">
+    </div>
+
+    <div class="section-title">文字颜色</div>
+    <div class="color-row"><span>主要文字</span><input type="color" id="textColorInput" value="#0f1419"></div>
+    <div class="color-row"><span>次要文字</span><input type="color" id="subColorInput" value="#536471"></div>
+    <div class="color-row"><span>强调色</span><input type="color" id="accentColorInput" value="#1d9bf0"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const card = document.getElementById('card');
+const bannerBox = document.getElementById('bannerBox');
+const bannerImg = document.getElementById('bannerImg');
+const bannerVideo = document.getElementById('bannerVideo');
+const bannerFile = document.getElementById('bannerFile');
+const avatarBox = document.getElementById('avatarBox');
+const avatarImg = document.getElementById('avatarImg');
+const avatarVideo = document.getElementById('avatarVideo');
+const avatarFile = document.getElementById('avatarFile');
+const bellBtn = document.getElementById('bellBtn');
+const followBtn = document.getElementById('followBtn');
+const panel = document.getElementById('panel');
+const panelClose = document.getElementById('panelClose');
+const toast = document.getElementById('toast');
+const listenStat = document.getElementById('listenStat');
+
+let locked = false;
+
+const MY_AVATAR_URL = '';
+const FALLBACK_AVATAR = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#8b98a5"/><circle cx="50" cy="38" r="19" fill="#d7dde3"/><path d="M16 100c4-23 18-35 34-35s30 12 34 35" fill="#d7dde3"/></svg>'
+);
+const DEFAULT_INFO = {
+  name: 'Moumusic',
+  user: '@moumusic',
+  bio: '用音乐记录每一天',
+  metaL: '未知',
+  metaR: ''
+};
+const LS_KEY = 'moumusic_profile_settings_v1';
+const LEGACY_LS_KEY = 'card_settings_v2';
+const AVATAR_FILE = 'moumusic-avatar.txt';
+const BANNER_FILE = 'moumusic-banner.txt';
+
+function hasTmStorage(){
+  return window.tm && typeof window.tm.saveFile === 'function' && typeof window.tm.loadFile === 'function';
+}
+
+function readTexts(){
+  const metas = document.querySelectorAll('.meta-row .meta-item .editable');
+  return {
+    name: document.getElementById('displayName').innerText,
+    user: document.getElementById('username').innerText,
+    bio: document.getElementById('bio').innerText,
+    metaL: metas[0] ? metas[0].innerText : '',
+    metaR: metas[1] ? metas[1].innerText : ''
+  };
+}
+
+function saveSettings(){
+  const data = {
+    avatarSize: document.getElementById('avatarRange').value,
+    nameSize: document.getElementById('nameRange').value,
+    userSize: document.getElementById('userRange').value,
+    bioSize: document.getElementById('bioRange').value,
+    metaSize: document.getElementById('metaRange').value,
+    profileScale: document.getElementById('scaleRange').value,
+    bannerHeight: document.getElementById('bannerRange').value,
+    contentPadding: document.getElementById('paddingRange').value,
+    cardRadius: document.getElementById('radiusRange').value,
+    actionSize: document.getElementById('actionRange').value,
+    textColor: document.getElementById('textColorInput').value,
+    subColor: document.getElementById('subColorInput').value,
+    accentColor: document.getElementById('accentColorInput').value,
+    theme: document.documentElement.getAttribute('data-theme') || 'auto',
+    texts: readTexts()
+  };
+  try {
+    const json = JSON.stringify(data);
+    localStorage.setItem(LS_KEY, json);
+    if(window.tm && typeof window.tm.sync === 'function') window.tm.sync(json);
+    return true;
+  } catch(error) {
+    console.warn('保存文字和设置失败', error);
+    return false;
+  }
+}
+
+function applySettings(data){
+  const d = data || {};
+  const fields = [
+    ['avatarSize', 'avatarRange', 'avatarVal', '--avatar-size'],
+    ['nameSize', 'nameRange', 'nameVal', '--name-size'],
+    ['userSize', 'userRange', 'userVal', '--user-size'],
+    ['bioSize', 'bioRange', 'bioVal', '--bio-size'],
+    ['metaSize', 'metaRange', 'metaVal', '--meta-size']
+  ];
+  fields.forEach(function(field){
+    const value = d[field[0]];
+    if(value === undefined || value === null || value === '') return;
+    document.getElementById(field[1]).value = value;
+    document.getElementById(field[2]).textContent = value + 'px';
+    document.documentElement.style.setProperty(field[3], value + 'px');
+  });
+  const sizes = [
+    ['profileScale', 'scaleRange', 'scaleVal', value => { document.documentElement.style.setProperty('--profile-scale', (Number(value) / 100).toFixed(2)); return value + '%'; }],
+    ['bannerHeight', 'bannerRange', 'bannerVal', value => { document.documentElement.style.setProperty('--banner-height', value + 'px'); return value + 'px'; }],
+    ['contentPadding', 'paddingRange', 'paddingVal', value => { document.documentElement.style.setProperty('--content-padding', value + 'px'); return value + 'px'; }],
+    ['cardRadius', 'radiusRange', 'radiusVal', value => { document.documentElement.style.setProperty('--card-radius', value + 'px'); return value + 'px'; }],
+    ['actionSize', 'actionRange', 'actionVal', value => { document.documentElement.style.setProperty('--action-size', value + 'px'); return value + 'px'; }]
+  ];
+  sizes.forEach(function(field){
+    const value = d[field[0]];
+    if(value === undefined || value === null || value === '') return;
+    document.getElementById(field[1]).value = value;
+    document.getElementById(field[2]).textContent = field[3](value);
+  });
+  [['textColor', 'textColorInput', '--text'], ['subColor', 'subColorInput', '--text-sub'], ['accentColor', 'accentColorInput', '--accent-color']].forEach(function(field){
+    const value = d[field[0]];
+    if(!value) return;
+    document.getElementById(field[1]).value = value;
+    document.documentElement.style.setProperty(field[2], value);
+  });
+  if(d.theme) setTheme(d.theme);
+  if(d.texts){
+    const metas = document.querySelectorAll('.meta-row .meta-item .editable');
+    if(Object.prototype.hasOwnProperty.call(d.texts, 'name')) document.getElementById('displayName').innerText = d.texts.name;
+    if(Object.prototype.hasOwnProperty.call(d.texts, 'user')) document.getElementById('username').innerText = d.texts.user;
+    if(Object.prototype.hasOwnProperty.call(d.texts, 'bio')) document.getElementById('bio').innerText = d.texts.bio;
+    if(Object.prototype.hasOwnProperty.call(d.texts, 'metaL') && metas[0]) metas[0].innerText = d.texts.metaL;
+    if(Object.prototype.hasOwnProperty.call(d.texts, 'metaR') && metas[1]) metas[1].innerText = d.texts.metaR;
+  }
+}
+
+function loadSettings(){
+  try {
+    const raw = localStorage.getItem(LS_KEY) || localStorage.getItem(LEGACY_LS_KEY);
+    if(!raw) return null;
+    const data = JSON.parse(raw);
+    applySettings(data);
+    return data;
+  } catch(error) {
+    console.warn('读取已保存设置失败', error);
+    return null;
+  }
+}
+
+async function saveImage(fileName, dataURL){
+  if(!hasTmStorage()) return false;
+  try {
+    await window.tm.saveFile(fileName, dataURL);
+    return true;
+  } catch(error) {
+    console.warn('保存图片失败', error);
+    showToast('图片保存失败，请重新选择');
+    return false;
+  }
+}
+
+function applyMedia(dataURL, image, video){
+  if(!dataURL) return false;
+  const isVideo = dataURL.startsWith('data:video/');
+  if(isVideo){
+    image.style.display = 'none';
+    video.src = dataURL;
+    video.style.display = 'block';
+    video.play().catch(()=>{});
+  } else {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    video.style.display = 'none';
+    image.src = dataURL;
+    image.style.display = 'block';
+  }
+  return true;
+}
+
+async function loadMedia(fileName, image, video){
+  if(!hasTmStorage()) return false;
+  try {
+    const dataURL = await window.tm.loadFile(fileName);
+    if(!dataURL) return false;
+    return applyMedia(dataURL, image, video);
+  } catch(error) {
+    return false;
+  }
+}
+
+function applyDefaultInfo(){
+  document.getElementById('displayName').innerText = DEFAULT_INFO.name;
+  document.getElementById('username').innerText = DEFAULT_INFO.user;
+  document.getElementById('bio').innerText = DEFAULT_INFO.bio;
+  const metas = document.querySelectorAll('.meta-row .meta-item .editable');
+  if(metas[0]) metas[0].innerText = DEFAULT_INFO.metaL;
+  if(metas[1]) metas[1].innerText = DEFAULT_INFO.metaR;
+  applyMedia(MY_AVATAR_URL, avatarImg, avatarVideo);
+}
+
+window.__beansUpdateStats = function(data){
+  if(!data) return;
+  if(listenStat && data.listeningDuration) listenStat.textContent = data.listeningDuration;
+};
+
+window.__moumusicSetIdentity = function(data){
+  if(!data || !data.displayId) return;
+  const badge = document.getElementById('idBadge');
+  badge.hidden = false;
+  badge.className = 'id-badge ' + (data.exclusive ? (data.badgeStyle || 'black_purple_gold') : '');
+  badge.textContent = (data.exclusive ? '★ ' : '') + 'ID ' + data.displayId;
+  const u = document.getElementById('username');
+  if(u.innerText.trim() === DEFAULT_INFO.user){ u.innerText = '@' + data.displayId; }
+};
+
+avatarImg.addEventListener('error', function(){
+  if(avatarImg.src !== FALLBACK_AVATAR) avatarImg.src = FALLBACK_AVATAR;
+});
+
+function showToast(msg){
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(()=>toast.classList.remove('show'),1500);
+}
+
+avatarBox.onclick = function(){
+  if(locked){ showToast('已锁定，无法编辑'); return; }
+  avatarFile.click();
+};
+bannerBox.onclick = function(){
+  if(locked){ showToast('已锁定，无法编辑'); return; }
+  bannerFile.click();
+};
+
+function readSelectedMedia(file, image, video, fileName){
+  if(!file || (!file.type.startsWith('image/') && !file.type.startsWith('video/'))){
+    showToast('请选择图片、GIF 或视频');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async function(event){
+    const dataURL = event.target.result;
+    applyMedia(dataURL, image, video);
+    if(await saveImage(fileName, dataURL)) showToast('图片、GIF 或视频已保存');
+  };
+  reader.onerror = function(){ showToast('图片读取失败'); };
+  reader.readAsDataURL(file);
+}
+
+avatarFile.onchange = function(event){
+  readSelectedMedia(event.target.files && event.target.files[0], avatarImg, avatarVideo, AVATAR_FILE);
+  avatarFile.value = '';
+};
+
+bannerFile.onchange = function(event){
+  readSelectedMedia(event.target.files && event.target.files[0], bannerImg, bannerVideo, BANNER_FILE);
+  bannerFile.value = '';
+};
+
+const themeSeg = document.getElementById('themeSeg');
+function setTheme(mode){
+  document.documentElement.setAttribute('data-theme', mode);
+  [...themeSeg.children].forEach(b=>{
+    b.classList.toggle('active', b.dataset.theme === mode);
+  });
+}
+themeSeg.onclick = function(e){
+  const btn = e.target.closest('button');
+  if(!btn) return;
+  setTheme(btn.dataset.theme);
+  saveSettings();
+};
+
+function openPanel(){
+  if(locked){ showToast('已锁定，无法编辑'); return; }
+  panel.classList.add('open');
+}
+function closePanel(){
+  panel.classList.remove('open');
+}
+bellBtn.onclick = openPanel;
+panelClose.onclick = closePanel;
+
+followBtn.onclick = function(){
+  locked = !locked;
+  card.classList.toggle('locked', locked);
+  followBtn.textContent = locked ? '正在关注' : '关注';
+  if(locked){
+    panel.classList.remove('open');
+    showToast('已锁定，全部不可编辑');
+  } else {
+    showToast('已解锁，可继续编辑');
+  }
+};
+
+document.querySelectorAll('.editable').forEach(el=>{
+  el.addEventListener('focus', ()=>{ if(locked) el.blur(); });
+  el.addEventListener('keydown', e=>{
+    if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); el.blur(); }
+  });
+  el.addEventListener('blur', saveSettings);
+});
+
+const avatarRange = document.getElementById('avatarRange');
+const avatarVal = document.getElementById('avatarVal');
+avatarRange.oninput = function(){
+  document.documentElement.style.setProperty('--avatar-size', avatarRange.value + 'px');
+  avatarVal.textContent = avatarRange.value + 'px';
+  saveSettings();
+};
+
+const nameRange = document.getElementById('nameRange');
+const nameVal = document.getElementById('nameVal');
+nameRange.oninput = function(){
+  document.documentElement.style.setProperty('--name-size', nameRange.value + 'px');
+  nameVal.textContent = nameRange.value + 'px';
+  saveSettings();
+};
+
+const userRange = document.getElementById('userRange');
+const userVal = document.getElementById('userVal');
+userRange.oninput = function(){
+  document.documentElement.style.setProperty('--user-size', userRange.value + 'px');
+  userVal.textContent = userRange.value + 'px';
+  saveSettings();
+};
+
+const bioRange = document.getElementById('bioRange');
+const bioVal = document.getElementById('bioVal');
+bioRange.oninput = function(){
+  document.documentElement.style.setProperty('--bio-size', bioRange.value + 'px');
+  bioVal.textContent = bioRange.value + 'px';
+  saveSettings();
+};
+
+const metaRange = document.getElementById('metaRange');
+const metaVal = document.getElementById('metaVal');
+metaRange.oninput = function(){
+  document.documentElement.style.setProperty('--meta-size', metaRange.value + 'px');
+  metaVal.textContent = metaRange.value + 'px';
+  saveSettings();
+};
+
+function bindSizeRange(id, valueID, cssName, suffix, transform){
+  const range = document.getElementById(id);
+  const value = document.getElementById(valueID);
+  range.oninput = function(){
+    const raw = range.value;
+    document.documentElement.style.setProperty(cssName, transform ? transform(raw) : raw + suffix);
+    value.textContent = raw + suffix;
+    saveSettings();
+  };
+}
+bindSizeRange('scaleRange', 'scaleVal', '--profile-scale', '%', value => (Number(value) / 100).toFixed(2));
+bindSizeRange('bannerRange', 'bannerVal', '--banner-height', 'px');
+bindSizeRange('paddingRange', 'paddingVal', '--content-padding', 'px');
+bindSizeRange('radiusRange', 'radiusVal', '--card-radius', 'px');
+bindSizeRange('actionRange', 'actionVal', '--action-size', 'px');
+
+[['textColorInput', '--text'], ['subColorInput', '--text-sub'], ['accentColorInput', '--accent-color']].forEach(function(field){
+  document.getElementById(field[0]).oninput = function(){
+    document.documentElement.style.setProperty(field[1], this.value);
+    saveSettings();
+  };
+});
+
+async function initialize(){
+  setTheme('auto');
+  const hasNewSettings = !!localStorage.getItem(LS_KEY);
+  const saved = loadSettings();
+  if(!saved) applyDefaultInfo();
+
+  const [hasAvatar, hasBanner] = await Promise.all([
+    loadMedia(AVATAR_FILE, avatarImg, avatarVideo),
+    loadMedia(BANNER_FILE, bannerImg, bannerVideo)
+  ]);
+
+  if(saved && !hasNewSettings && (saved.avatarImg || saved.bannerImg)) {
+    const migrations = [];
+    if(!hasAvatar && saved.avatarImg) {
+      applyMedia(saved.avatarImg, avatarImg, avatarVideo);
+      migrations.push(saveImage(AVATAR_FILE, saved.avatarImg));
+    }
+    if(!hasBanner && saved.bannerImg) {
+      applyMedia(saved.bannerImg, bannerImg, bannerVideo);
+      migrations.push(saveImage(BANNER_FILE, saved.bannerImg));
+    }
+    const results = await Promise.all(migrations);
+    if(results.every(Boolean)) localStorage.removeItem(LEGACY_LS_KEY);
+  }
+
+  if(!avatarImg.getAttribute('src') && avatarVideo.style.display !== 'block') avatarImg.src = MY_AVATAR_URL;
+  saveSettings();
+}
+
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden') saveSettings();
+});
+window.addEventListener('pagehide', saveSettings);
+
+document.addEventListener('dblclick', function(event){
+  event.preventDefault();
+}, { passive: false });
+document.addEventListener('selectstart', function(event){
+  if(!event.target.closest('[contenteditable="true"], input, textarea')) event.preventDefault();
+});
+document.addEventListener('copy', function(event){
+  event.preventDefault();
+});
+document.addEventListener('contextmenu', function(event){
+  event.preventDefault();
+});
+document.addEventListener('dragstart', function(event){
+  event.preventDefault();
+});
+
+initialize();
+</script>
+</body>
+</html>
