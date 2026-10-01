@@ -19,7 +19,6 @@ struct ProfileView: View {
     @AppStorage("beans.pauseHomeRendering") private var homeRenderingPaused = false
 
     @State private var showHistory = false
-    @AppStorage("beans.hideDonation") private var hideDonation = false
 
     /// 统一账号登录面板（网易云 + QQ 音乐整合）
     @State private var showAccountHub = false
@@ -196,10 +195,6 @@ struct ProfileView: View {
                     }
                     // 更新入口固定放在“我的”页面最底部，避免被板块排序隐藏。
                     updateLinkCard
-                    communityCard
-                    if !hideDonation {
-                        donationCard
-                    }
                     profileVersionFooter
                 }
                 .padding(.horizontal, isNativeClean ? 24 : 16)
@@ -409,24 +404,21 @@ struct ProfileView: View {
     private var platformStatusRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             if platformPrefs.isEnabled(SearchProvider.netease), auth.isLoggedIn {
-                platformChip(imageName: "BrandNetease", name: "网易云音乐", status: auth.user?.nickname ?? "已登录", badge: auth.user?.vipBadge)
+                platformChip(provider: .netease, name: "网易云音乐", status: auth.user?.nickname ?? "已登录", badge: auth.user?.vipBadge)
             }
             if platformPrefs.isEnabled(SearchProvider.qq), qqAuth.isLoggedIn {
-                platformChip(imageName: "BrandQQ", name: "QQ 音乐", status: qqAuth.nickname.isEmpty ? "已登录" : qqAuth.nickname, badge: qqAuth.vipBadge)
+                platformChip(provider: .qq, name: "QQ 音乐", status: qqAuth.nickname.isEmpty ? "已登录" : qqAuth.nickname, badge: qqAuth.vipBadge)
             }
             if platformPrefs.isEnabled(SearchProvider.kugou), kugouAuth.isLoggedIn {
-                platformChip(imageName: "BrandKugou", name: "酷狗音乐", status: kugouAuth.nickname.isEmpty ? "已登录" : kugouAuth.nickname, badge: kugouAuth.vipBadge)
+                platformChip(provider: .kugou, name: "酷狗音乐", status: kugouAuth.nickname.isEmpty ? "已登录" : kugouAuth.nickname, badge: kugouAuth.vipBadge)
             }
         }
         .padding(.top, 2)
     }
 
-    private func platformChip(imageName: String, name: String, status: String, badge: String?) -> some View {
+    private func platformChip(provider: SearchProvider, name: String, status: String, badge: String?) -> some View {
         HStack(spacing: 6) {
-            Image(imageName)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 16, height: 16)
+            PlatformMark(provider: provider, size: 16)
             Text(name)
                 .font(BeansFont.appFont(12, .semibold))
                 .foregroundStyle(Color.beansLabel)
@@ -658,41 +650,6 @@ struct ProfileView: View {
         .beansCardShadow(radius: 9, y: 3)
     }
 
-    /// 我的页底部交流群入口
-    private var communityCard: some View {
-        Button {
-            BeansHaptics.tap()
-            if let url = URL(string: "https://t.me/+k8oYhsIU4sgzOTM1") {
-                UIApplication.shared.open(url)
-            }
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Color.beansHighlight)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("交流群")
-                        .font(BeansFont.appFont(14, .semibold))
-                        .foregroundStyle(Color.beansLabel)
-                    Text("点击跳转 Telegram")
-                        .font(BeansFont.appFont(11))
-                        .foregroundStyle(Color.beansComment)
-                }
-                Spacer()
-                Image(systemName: "arrow.up.forward.app")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.beansComment)
-            }
-            .padding(16)
-            .background {
-                BeansGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            }
-        }
-        .buttonStyle(GlassPressButtonStyle(scale: 0.98))
-        .beansCardShadow(radius: 9, y: 3)
-    }
-
     private var profileVersionFooter: some View {
         Text(appVersionText)
             .font(BeansFont.appFont(11))
@@ -702,178 +659,7 @@ struct ProfileView: View {
             .padding(.top, 2)
     }
 
-    /// 我的页底部赞助入口与赞助排行榜
-    private var donationCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Button {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                    donationExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "heart.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(Color.beansAmber)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("自愿赞助")
-                            .font(BeansFont.appFont(16, .bold))
-                            .foregroundStyle(Color.beansLabel)
-                        Text(donationExpanded ? "点击收起赞助信息" : "点击展开赞助信息")
-                            .font(BeansFont.appFont(11))
-                            .foregroundStyle(Color.beansComment)
-                    }
-                    Spacer()
-                    Image(systemName: donationExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.beansComment)
-                }
-            }
-            .buttonStyle(.plain)
 
-            if donationExpanded {
-                Image("DonationQR")
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: 300)
-                .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Color.beansComment.opacity(0.14), lineWidth: 0.8)
-                }
-
-                Button {
-                    openWeChatPayment()
-                } label: {
-                    Label("打开微信", systemImage: "arrow.up.forward.app")
-                        .font(BeansFont.appFont(13, .semibold))
-                        .foregroundStyle(Color.beansAmber)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(Color.beansAmber.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(GlassPressButtonStyle(scale: 0.98))
-
-                VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("赞助人员")
-                        .font(BeansFont.appFont(15, .semibold))
-                        .foregroundStyle(Color.beansLabel)
-                    Spacer()
-                    Text("按金额排序")
-                        .font(BeansFont.appFont(11))
-                        .foregroundStyle(Color.beansComment)
-                }
-
-                ForEach(displayedDonors.indices, id: \.self) { index in
-                    let donor = displayedDonors[index]
-                    HStack(spacing: 10) {
-                        Text("\(index + 1)")
-                            .font(BeansFont.appFont(13, .bold))
-                            .foregroundStyle(index == 0 ? Color.beansAmber : Color.beansComment)
-                            .frame(width: 24, height: 24)
-                            .background(
-                                (index == 0 ? Color.beansAmber : Color.beansComment).opacity(index == 0 ? 0.16 : 0.08),
-                                in: Circle()
-                            )
-                        Text(donor.name)
-                            .font(BeansFont.appFont(13, .medium))
-                            .foregroundStyle(Color.beansLabel)
-                        Spacer()
-                        Text(String(format: "¥ %.2f", donor.amount))
-                            .font(BeansFont.appFont(13, .semibold))
-                            .foregroundStyle(index == 0 ? Color.beansAmber : Color.beansLabel)
-                    }
-                    if index < displayedDonors.count - 1 {
-                        Divider().overlay(Color.beansComment.opacity(0.12))
-                    }
-                }
-                }
-            }
-        }
-        .padding(16)
-        .background {
-            BeansGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        }
-        .beansCardShadow(radius: 9, y: 3)
-    }
-
-    private func openWeChatPayment() {
-        guard let paymentURL = URL(string: "wxp://f2f03Cvy7dWnLLRbIhQJqY-MxVACiIS4JBNSui8VmUk3_Qg") else {
-            showWeChatOpenError = true
-            return
-        }
-
-        UIApplication.shared.open(paymentURL, options: [:]) { opened in
-            guard !opened, let weChatURL = URL(string: "weixin://") else { return }
-            UIApplication.shared.open(weChatURL, options: [:]) { openedWeChat in
-                if !openedWeChat {
-                    showWeChatOpenError = true
-                }
-            }
-        }
-    }
-
-    private var displayedDonors: [Donor] {
-        Self.donors
-    }
-
-    private struct Donor {
-        let name: String
-        let amount: Double
-    }
-
-    private static let donors: [Donor] = [
-        Donor(name: "WeChat", amount: 26.66),
-        Donor(name: "Aert", amount: 8.88),
-        Donor(name: "wxx", amount: 5),
-        Donor(name: "！", amount: 3),
-    ]
-}
-
-// MARK: - 交流群二维码
-
-struct CommunityQRSheet: View {
-    @EnvironmentObject private var theme: ThemeStore
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        BeansNavigationStack {
-            ZStack {
-                GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
-                VStack(spacing: 18) {
-                    Image("CommunityQR")
-                        .resizable()
-                        .interpolation(.none)
-                        .scaledToFit()
-                        .padding(12)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .strokeBorder(Color.beansComment.opacity(0.16), lineWidth: 0.8)
-                        }
-                        .padding(.horizontal, 24)
-                    Text("扫码加入交流群")
-                        .font(BeansFont.appFont(15, .semibold))
-                        .foregroundStyle(Color.beansLabel)
-                    Text("如二维码过期，可在 GitHub 或更新说明中获取最新入口")
-                        .font(BeansFont.appFont(11))
-                        .foregroundStyle(Color.beansComment)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 30)
-                }
-                .padding(.vertical, 22)
-            }
-            .navigationTitle("交流群")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
-        }
-        .modifier(BeansSheetModifier(detents: [.medium, .large]))
-    }
 }
 
 // MARK: - 统一账号登录面板（网易云 + QQ 音乐整合）
@@ -986,11 +772,7 @@ struct AccountHubSheet: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(.white.opacity(0.06))
                         .frame(width: 48, height: 48)
-                    Image("BrandNetease")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 48, height: 48)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    PlatformMark(provider: .netease, size: 48)
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text("网易云音乐")
@@ -1041,11 +823,7 @@ struct AccountHubSheet: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(.white.opacity(0.06))
                         .frame(width: 48, height: 48)
-                    Image("BrandQQ")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 48, height: 48)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    PlatformMark(provider: .qq, size: 48)
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text("QQ 音乐")
@@ -1091,11 +869,7 @@ struct AccountHubSheet: View {
             if kugouAuth.isLoggedIn { confirmKugouLogout = true } else { showKugouLogin = true }
         } label: {
             HStack(spacing: 14) {
-                Image("BrandKugou")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 48, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                PlatformMark(provider: .kugou, size: 48)
                     .shadow(color: Color(red: 0.08, green: 0.43, blue: 1.0).opacity(0.22), radius: 10, y: 4)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("酷狗音乐")
@@ -1376,7 +1150,6 @@ struct SettingsView: View {
     }
 
     @State private var settingsQuery = ""
-    @AppStorage("beans.hideDonation") private var hideDonationFlag = false
     @AppStorage("beans.settings.category") private var settingsCategoryRaw = SettingsCategory.accounts.rawValue
     @State private var showSettingsAccountHub = false
 
@@ -1462,11 +1235,7 @@ struct SettingsView: View {
         switch section {
         case .accounts: settingsAccountsSection
         case .platforms: settingsPlatformsSection
-        case .theme:
-            VStack(alignment: .leading, spacing: 16) {
-                themeSection
-                hideDonationCard
-            }
+        case .theme: themeSection
         case .dynamicWallpaper:
             VStack(alignment: .leading, spacing: 16) {
                 DynamicWallpaperSettingsSection()
@@ -1479,20 +1248,6 @@ struct SettingsView: View {
         case .support: supportSection
         case .log: logSection
         }
-    }
-
-    private var hideDonationCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle(isOn: $hideDonationFlag) {
-                Text("隐藏自愿赞助")
-                    .font(BeansFont.appFont(15))
-                    .foregroundStyle(Color.beansLabel)
-            }
-            .toggleStyle(.switch)
-            .tint(Color.beansAmber)
-        }
-        .padding(14)
-        .background { BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
     }
 
     private var settingsAccountsSection: some View {

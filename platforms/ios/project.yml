@@ -88,7 +88,6 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UIBackgroundModes: [audio]
         UILaunchScreen:
-          UIImageName: LaunchBackground
           UIColorName: LaunchBackgroundColor
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
