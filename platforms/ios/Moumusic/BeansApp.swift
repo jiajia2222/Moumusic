@@ -8,7 +8,7 @@ struct BeansApp: App {
     #endif
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var auth = AuthStore()
-    @StateObject private var player = PlayerManager()
+    @StateObject private var player = PlayerManager.shared
     @StateObject private var theme = ThemeStore.shared
     @StateObject private var favorites = FavoritesStore.shared
     /// 免责声明确认状态：未确认前主界面在模糊层下方可见，确认后移除门禁
