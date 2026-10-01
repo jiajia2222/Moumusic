@@ -119,6 +119,7 @@ struct RootView: View {
             // iOS 26 用系统 tab accessory，把迷你播放器缩进底栏槽位；旧系统走自绘胶囊底栏。
             if #available(iOS 26.0, *) {
                 rootTabs
+                    .tabBarMinimizeBehavior(.onScrollDown)
                     .modifier(
                         MiniPlayerAccessoryModifier(
                             isActive: player.currentSong != nil,
