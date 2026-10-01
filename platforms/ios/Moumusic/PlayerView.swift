@@ -18,6 +18,9 @@ struct PlayerView: View {
     @State private var showQueue = false
     @State private var showSleepTimer = false
     @State private var showAddToPlaylist = false
+    @State private var showCustomCoverPicker = false
+    @ObservedObject private var customCovers = CustomSongCoverStore.shared
+    @AppStorage(CustomCoverKeys.sound) private var customCoverVideoSound = false
     @State private var showComments = false
     @State private var showDownloadPicker = false
     @State private var showMoreActions = false
@@ -597,6 +600,15 @@ struct PlayerView: View {
             if let song {
                 AddToPlaylistSheet(song: song)
                     .environmentObject(auth)
+                    .environmentObject(theme)
+            }
+        }
+        .sheet(isPresented: $showCustomCoverPicker) {
+            FeedbackMediaPicker(limit: 1) { urls in
+                if let song, let url = urls.first {
+                    customCovers.set(for: song, from: url)
+                    try? FileManager.default.removeItem(at: url)
+                }
             }
         }
         .sheet(isPresented: $showComments) {
@@ -1037,6 +1049,14 @@ struct PlayerView: View {
             Menu {
                 Button("定时关闭") { showSleepTimer = true }
                 Button("添加到本地歌单") { showAddToLocalPlaylist = true }
+                Button("官方歌单收藏") { showAddToPlaylist = true }
+                Button(customCovers.hasCover(for: song) ? "更换自定义封面" : "添加自定义封面") { showCustomCoverPicker = true }
+                if customCovers.hasCover(for: song) {
+                    Button("恢复默认封面") { if let song { customCovers.remove(for: song) } }
+                    if customCovers.entry(for: song)?.isVideo == true {
+                        Button(customCoverVideoSound ? "关闭视频封面声音" : "播放视频封面声音") { customCoverVideoSound.toggle() }
+                    }
+                }
                 if downloadFeatureUnlocked {
                     Button("下载歌曲") { showDownloadPicker = true }
                 }
@@ -1229,6 +1249,14 @@ struct PlayerView: View {
             Menu {
                 Button("定时关闭") { showSleepTimer = true }
                 Button("添加到本地歌单") { showAddToLocalPlaylist = true }
+                Button("官方歌单收藏") { showAddToPlaylist = true }
+                Button(customCovers.hasCover(for: song) ? "更换自定义封面" : "添加自定义封面") { showCustomCoverPicker = true }
+                if customCovers.hasCover(for: song) {
+                    Button("恢复默认封面") { if let song { customCovers.remove(for: song) } }
+                    if customCovers.entry(for: song)?.isVideo == true {
+                        Button(customCoverVideoSound ? "关闭视频封面声音" : "播放视频封面声音") { customCoverVideoSound.toggle() }
+                    }
+                }
                 if downloadFeatureUnlocked {
                     Button("下载歌曲") { showDownloadPicker = true }
                 }
@@ -1437,7 +1465,7 @@ struct PlayerView: View {
                     .allowsHitTesting(false)
 
                     // 封面（静态）
-                    CoverImage(url: song?.coverURL, size: size, cornerRadius: coverRadius, emptyHint: player.isBuffering ? "等待开始播放…" : nil)
+                    SongCoverView(song: song, size: size, cornerRadius: coverRadius, emptyHint: player.isBuffering ? "等待开始播放…" : nil)
                         .matchedGeometryEffect(id: "playerCover", in: coverNS)
                         .id(song?.identityKey ?? "empty-cover")
                         .modifier(CoverSpin(enabled: circularCover && circularCoverSpin, isPlaying: playerVisualsActive))

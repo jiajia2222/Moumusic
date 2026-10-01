@@ -1708,6 +1708,7 @@ final class PlayerManager: NSObject, ObservableObject {
         } else {
             lastNowPlayingArtworkKey = nil
         }
+        BeansLockScreenArtwork.apply(to: &info, song: song)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 

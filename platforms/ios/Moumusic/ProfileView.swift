@@ -1360,7 +1360,7 @@ struct SettingsView: View {
             case .accounts: return "账号与平台 账号 登录 账号登录 网易云 QQ 酷狗 account login"
             case .platforms: return "账号与平台 平台 平台显示 网易云 QQ 酷狗 酷我 咪咕 哔哩哔哩 platform"
             case .theme: return "外观与界面 外观 主题 主题模式 界面 字体 静态壁纸 壁纸 背景 底栏 颜色 赞助 语言 关闭液态模式 全局漂浮特效 用户名 沉浸详情界面 锁屏沉浸封面 问候语 appearance theme"
-            case .dynamicWallpaper: return "外观与界面 动态壁纸 Fractal Clouds Ink Smoke Liquid Chrome Neuro Noise Simplex Noise Metaballs Water Star Nest Dot Orbit Dots Grain Gradient 分形云层 墨水扩散 液态金属 神经噪声 单纯形噪声 融合球 水面 星云 圆点 点阵 颗粒渐变"
+            case .dynamicWallpaper: return "外观与界面 动态壁纸 锁屏沉浸封面 自定义封面 Fractal Clouds Ink Smoke Liquid Chrome Neuro Noise Simplex Noise Metaballs Water Star Nest Dot Orbit Dots Grain Gradient 分形云层 墨水扩散 液态金属 神经噪声 单纯形噪声 融合球 水面 星云 圆点 点阵 颗粒渐变"
             case .playback: return "播放与音效 播放 音源与音质 播放来源 播放音质 第三方音源 Wi-Fi 蜂窝数据 触感反馈 显示锁屏与灵动岛播放器 与其他音频同时播放 启动时自动播放上次歌曲 第三方播放会员歌提醒 playback quality"
             case .equalizer: return "播放与音效 均衡器 音效 equalizer"
             case .backup: return "数据管理 备份与恢复 导出备份 导入恢复 backup restore"
@@ -1458,7 +1458,11 @@ struct SettingsView: View {
         case .accounts: settingsAccountsSection
         case .platforms: settingsPlatformsSection
         case .theme: themeSection
-        case .dynamicWallpaper: DynamicWallpaperSettingsSection()
+        case .dynamicWallpaper:
+            VStack(alignment: .leading, spacing: 16) {
+                DynamicWallpaperSettingsSection()
+                LockScreenArtworkToggleCard()
+            }
         case .playback: playbackSection
         case .equalizer: equalizerSection
         case .backup: backupSection
