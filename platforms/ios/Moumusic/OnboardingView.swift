@@ -279,25 +279,22 @@ struct OnboardingView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(LinearGradient.beansAccent)
 
-            Text(isEnglish ? "Three platforms, one app for all your music" : "三平台聚合，一个 App 全听遍")
-                .font(BeansFont.appFont(26, .bold))
+            Text(isEnglish ? "Music and video platforms, managed in one place" : "音乐与视频平台，一处统一管理")
+                .font(BeansFont.appFont(24, .bold))
                 .foregroundStyle(Color.beansLabel)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
 
-            Text(isEnglish ? "Sync playlists from NetEase Cloud Music, QQ Music, and Kugou" : "网易云 + QQ 音乐 + 酷狗歌单同步")
+            Text(isEnglish ? "Choose the platforms to show. You can change this later in Settings." : "选择要显示的平台，之后也可随时在设置中更改")
                 .font(BeansFont.appFont(14))
                 .foregroundStyle(Color.beansSecondary)
+                .multilineTextAlignment(.center)
 
-            VStack(spacing: 12) {
-                platformRow(imageName: "BrandNetease", tint: Color(red: 0.87, green: 0.23, blue: 0.23),
-                            title: isEnglish ? "NetEase Cloud Music" : "网易云音乐",
-                            detail: isEnglish ? "Scan or sign in on the web to sync playlists, favorites, charts, and VIP status" : "扫码 / 网页登录，同步歌单、收藏、听歌排行、VIP")
-                platformRow(imageName: "BrandQQ", tint: Color(red: 0.13, green: 0.51, blue: 0.95),
-                            title: isEnglish ? "QQ Music" : "QQ 音乐",
-                            detail: isEnglish ? "Scan, sign in on the web, or use a Cookie to sync playlists and VIP status" : "扫码 / 网页 / Cookie 登录，同步歌单与 VIP")
-                platformRow(imageName: "BrandKugou", tint: Color(red: 0.12, green: 0.55, blue: 1.0),
-                            title: isEnglish ? "Kugou Music" : "酷狗音乐",
-                            detail: isEnglish ? "Sign in to sync cloud playlists and search Kugou songs" : "登录同步云端歌单，并支持酷狗歌曲搜索")
+            ScrollView(.vertical, showsIndicators: false) {
+                PlatformPreferencePicker()
+                    .padding(.horizontal, 4)
             }
+            .frame(maxHeight: 380)
             .padding(.horizontal, 28)
 
             Spacer()

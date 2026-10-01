@@ -240,6 +240,7 @@ struct ProfileView: View {
             SettingsView()
                 .environmentObject(theme)
                 .environmentObject(player)
+                .environmentObject(auth)
                 .ignoresSafeArea(.all)
         }
         .sheet(isPresented: $showSectionSort) {
@@ -1137,6 +1138,7 @@ struct AccountHubSheet: View {
 
 struct SettingsView: View {
     @EnvironmentObject private var theme: ThemeStore
+    @EnvironmentObject private var auth: AuthStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("beans.themeMode") private var themeModeRaw = BeansThemeMode.system.rawValue
@@ -1328,6 +1330,180 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - 设置分类与搜索（账号与平台 / 外观与界面 / 播放与音效 / 数据管理 / 关于与支持）
+
+    fileprivate enum SettingsCategory: String, CaseIterable, Identifiable {
+        case accounts = "账号与平台"
+        case appearance = "外观与界面"
+        case playback = "播放与音效"
+        case data = "数据管理"
+        case about = "关于与支持"
+        var id: String { rawValue }
+    }
+
+    fileprivate enum SettingsSectionID: CaseIterable {
+        case accounts, platforms, theme, dynamicWallpaper, playback, equalizer, backup, changelog, support, log
+
+        var category: SettingsCategory {
+            switch self {
+            case .accounts, .platforms: return .accounts
+            case .theme, .dynamicWallpaper: return .appearance
+            case .playback, .equalizer: return .playback
+            case .backup: return .data
+            case .changelog, .support, .log: return .about
+            }
+        }
+
+        /// 搜索关键词：包含分类名、区块标题与区块内常用设置项。
+        var keywords: String {
+            switch self {
+            case .accounts: return "账号与平台 账号 登录 账号登录 网易云 QQ 酷狗 account login"
+            case .platforms: return "账号与平台 平台 平台显示 网易云 QQ 酷狗 酷我 咪咕 哔哩哔哩 platform"
+            case .theme: return "外观与界面 外观 主题 主题模式 界面 字体 静态壁纸 壁纸 背景 底栏 颜色 赞助 语言 关闭液态模式 全局漂浮特效 用户名 沉浸详情界面 锁屏沉浸封面 问候语 appearance theme"
+            case .dynamicWallpaper: return "外观与界面 动态壁纸 Fractal Clouds Ink Smoke Liquid Chrome Neuro Noise Simplex Noise Metaballs Water Star Nest Dot Orbit Dots Grain Gradient 分形云层 墨水扩散 液态金属 神经噪声 单纯形噪声 融合球 水面 星云 圆点 点阵 颗粒渐变"
+            case .playback: return "播放与音效 播放 音源与音质 播放来源 播放音质 第三方音源 Wi-Fi 蜂窝数据 触感反馈 显示锁屏与灵动岛播放器 与其他音频同时播放 启动时自动播放上次歌曲 第三方播放会员歌提醒 playback quality"
+            case .equalizer: return "播放与音效 均衡器 音效 equalizer"
+            case .backup: return "数据管理 备份与恢复 导出备份 导入恢复 backup restore"
+            case .changelog: return "关于与支持 更新日志 版本 changelog"
+            case .support: return "关于与支持 帮助 问题反馈 反馈 免责声明 检查更新 诊断 崩溃 卡死 缓存清理 清理缓存 运行环境 开发者工具 help feedback cache"
+            case .log: return "关于与支持 诊断与日志 日志 log"
+            }
+        }
+    }
+
+    @State private var settingsQuery = ""
+    @AppStorage("beans.settings.category") private var settingsCategoryRaw = SettingsCategory.accounts.rawValue
+    @State private var showSettingsAccountHub = false
+
+    private var settingsCategory: SettingsCategory {
+        SettingsCategory(rawValue: settingsCategoryRaw) ?? .accounts
+    }
+
+    private var settingsSearchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(Color.beansComment)
+            TextField("搜索设置", text: $settingsQuery)
+                .font(BeansFont.appFont(14))
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+            if !settingsQuery.isEmpty {
+                Button {
+                    settingsQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(Color.beansComment)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("清除设置搜索")
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .background { BeansGlass(shape: Capsule()) }
+    }
+
+    private var settingsCategoryPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(SettingsCategory.allCases) { category in
+                    let selected = settingsCategory == category
+                    Button {
+                        BeansHaptics.select()
+                        settingsCategoryRaw = category.rawValue
+                    } label: {
+                        Text(category.rawValue)
+                            .font(BeansFont.appFont(13, selected ? .semibold : .medium))
+                            .foregroundStyle(selected ? Color.beansAmber : Color.beansLabel)
+                            .padding(.horizontal, 14).frame(height: 34)
+                            .background(selected ? Color.beansAmber.opacity(0.14) : Color.beansLabel.opacity(0.055), in: Capsule())
+                            .overlay(Capsule().strokeBorder(selected ? Color.beansAmber.opacity(0.42) : Color.beansLabel.opacity(0.08), lineWidth: 0.8))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 1)
+        }
+    }
+
+    private var visibleSettingsSections: [SettingsSectionID] {
+        let query = settingsQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        if query.isEmpty {
+            return SettingsSectionID.allCases.filter { $0.category == settingsCategory }
+        }
+        let terms = query.split(separator: " ").map(String.init)
+        return SettingsSectionID.allCases.filter { section in
+            let haystack = section.keywords.lowercased()
+            return terms.allSatisfy { haystack.contains($0) }
+        }
+    }
+
+    @ViewBuilder
+    private var settingsContent: some View {
+        let sections = visibleSettingsSections
+        if sections.isEmpty {
+            Text("没有找到相关设置")
+                .font(BeansFont.appFont(14))
+                .foregroundStyle(Color.beansComment)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 40)
+        } else {
+            ForEach(sections, id: \.self) { section in
+                settingsSection(section)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func settingsSection(_ section: SettingsSectionID) -> some View {
+        switch section {
+        case .accounts: settingsAccountsSection
+        case .platforms: settingsPlatformsSection
+        case .theme: themeSection
+        case .dynamicWallpaper: DynamicWallpaperSettingsSection()
+        case .playback: playbackSection
+        case .equalizer: equalizerSection
+        case .backup: backupSection
+        case .changelog: changelogSection
+        case .support: supportSection
+        case .log: logSection
+        }
+    }
+
+    private var settingsAccountsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "账号登录")
+            VStack(alignment: .leading, spacing: 10) {
+                Text("登录网易云音乐、QQ 音乐、酷狗音乐以同步歌单与收藏")
+                    .font(BeansFont.appFont(12))
+                    .foregroundStyle(Color.beansComment)
+                GlassButton(title: "账号登录", systemName: "person.crop.circle") {
+                    showSettingsAccountHub = true
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background { BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
+        }
+        .sheet(isPresented: $showSettingsAccountHub) {
+            AccountHubSheet()
+                .environmentObject(auth)
+                .environmentObject(theme)
+        }
+    }
+
+    private var settingsPlatformsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "平台显示")
+            VStack(alignment: .leading, spacing: 10) {
+                Text("选择要显示的平台，随时可以更改")
+                    .font(BeansFont.appFont(12))
+                    .foregroundStyle(Color.beansComment)
+                PlatformPreferencePicker()
+            }
+            .padding(14)
+            .background { BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
+        }
+    }
+
     private var homeGreetingLines: [String] {
         let custom = homeGreetingText.trimmingCharacters(in: .whitespacesAndNewlines)
         if custom.isEmpty { return ["自动问候"] }
@@ -1465,14 +1641,11 @@ struct SettingsView: View {
                 GlassBackdrop(customColor: theme.backgroundSyncAll ? theme.customBackground : nil)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
-                        themeSection
-                        DynamicWallpaperSettingsSection()
-                        playbackSection
-                        equalizerSection
-                        changelogSection
-                        backupSection
-                        supportSection
-                        logSection
+                        settingsSearchBar
+                        if settingsQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                            settingsCategoryPicker
+                        }
+                        settingsContent
                         footerNote
                     }
                     .padding(.horizontal, 16)
