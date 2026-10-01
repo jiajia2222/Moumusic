@@ -60,6 +60,9 @@ struct BeansApp: App {
                 FontManager.reinstallIfNeeded()
                 theme.restoreWallpapersIfNeeded()
                 ListeningStatsStore.shared.attach(player)
+                #if !MOUMUSIC_COMPAT
+                LiveActivityManager.shared.attach(player)
+                #endif
                 DeviceReporter.shared.start()
                 await RemoteControlStore.shared.refreshIfNeeded()
             }

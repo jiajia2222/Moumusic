@@ -1,4 +1,4 @@
-﻿# Moumusic — FULL-FEATURE variant (iOS 26+). Includes the CiliCili (Bilibili) framework and Metal wallpapers.
+# Moumusic — FULL-FEATURE variant (iOS 26+). Includes the CiliCili (Bilibili) framework and Metal wallpapers.
 # The compatibility variant (iOS 15-18) is project-compat.yml.
 name: Moumusic
 
@@ -31,6 +31,29 @@ targets:
         SKIP_INSTALL: YES
         ENABLE_USER_SCRIPT_SANDBOXING: NO
 
+  MoumusicLiveActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: MoumusicLiveActivity
+      - path: Moumusic/LiveActivity/MoumusicActivityAttributes.swift
+    settings:
+      base:
+        PRODUCT_NAME: MoumusicLiveActivity
+        PRODUCT_BUNDLE_IDENTIFIER: com.jiajia2222.moumusic.ios.liveactivity
+        MARKETING_VERSION: "3.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+    info:
+      path: MoumusicLiveActivity/Info.plist
+      properties:
+        CFBundleDisplayName: Moumusic
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
   Moumusic:
     type: application
     platform: iOS
@@ -47,6 +70,7 @@ targets:
     dependencies:
       - target: CiliCiliKit
         embed: true
+      - target: MoumusicLiveActivity
     settings:
       base:
         PRODUCT_NAME: Moumusic
@@ -73,6 +97,7 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         CADisableMinimumFrameDurationOnPhone: true
+        NSSupportsLiveActivities: true
         NSPhotoLibraryAddUsageDescription: 用于将图片和视频保存到系统照片图库。
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

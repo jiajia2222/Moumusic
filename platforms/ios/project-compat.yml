@@ -1,4 +1,4 @@
-﻿# Moumusic — COMPATIBILITY variant (iOS 15-18). No CiliCili / Bilibili, no Metal wallpapers.
+# Moumusic — COMPATIBILITY variant (iOS 15-18). No CiliCili / Bilibili, no Metal wallpapers.
 # Built with SWIFT_ACTIVE_COMPILATION_CONDITIONS=MOUMUSIC_COMPAT (see .github/workflows/ios-build.yml).
 name: Moumusic
 
@@ -21,6 +21,7 @@ targets:
           - "en.lproj"
           - "zh-Hans.lproj"
           - "Shaders/**"
+          - "LiveActivity/**"
     resources:
       - Moumusic/en.lproj
       - Moumusic/zh-Hans.lproj

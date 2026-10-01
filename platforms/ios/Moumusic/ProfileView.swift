@@ -1150,6 +1150,7 @@ struct SettingsView: View {
     @AppStorage("beans.audio.mixothers.v1") private var mixesWithOthers = false
     @AppStorage("beans.audioQuality") private var playbackAudioQualityRaw = BeansAudioQuality.hires.rawValue
     @AppStorage(BeansHaptics.enabledKey) private var hapticsEnabled = true
+    @AppStorage("beans.showLiveActivity") private var showLiveActivity = true
     @AppStorage("beans.playback.autoResumeLast") private var autoResumeLastPlayback = false
     @AppStorage("beans.labelColorHex") private var labelColorHex = ""
     @AppStorage("beans.homeGreetingText") private var homeGreetingText = ""
@@ -2410,6 +2411,24 @@ struct SettingsView: View {
                 playbackQualitySection
 
                 Divider().overlay(Color.beansComment.opacity(0.15))
+
+                #if !MOUMUSIC_COMPAT
+                Toggle(isOn: $showLiveActivity) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "platter.filled.top.iphone")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color.beansAmber)
+                            .frame(width: 28)
+                        Text("显示锁屏与灵动岛播放器")
+                            .font(BeansFont.appFont(15))
+                            .foregroundStyle(Color.beansLabel)
+                    }
+                }
+                .toggleStyle(.switch)
+                .tint(Color.beansAmber)
+
+                Divider().overlay(Color.beansComment.opacity(0.15))
+                #endif
 
                 Toggle(isOn: $hapticsEnabled) {
                     HStack(spacing: 12) {
