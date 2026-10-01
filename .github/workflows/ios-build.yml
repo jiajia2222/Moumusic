@@ -4,9 +4,7 @@ name: iOS unsigned IPAs
 #   full-ios26     : project.yml        - iOS 26+, all features (CiliCili/Bilibili, Metal wallpapers)
 #   compat-ios15-18: project-compat.yml - iOS 15+, MOUMUSIC_COMPAT defined, no Bilibili / Metal wallpapers
 on:
-  workflow_dispatch:
-  push:
-    branches: [refactor/beans-ui]   # temporary: first full build; remove after
+  workflow_dispatch:   # manual only
 
 permissions:
   contents: read
