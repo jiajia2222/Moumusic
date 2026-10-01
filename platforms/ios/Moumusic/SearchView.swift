@@ -125,6 +125,8 @@ struct SearchView: View {
     @AppStorage(PlatformPreferenceStore.hidePickerKey) private var hidePlatformPicker = false
 
     @State private var keyword = ""
+    /// 聚合搜索：同时搜索所有已启用平台；关闭后只搜索当前所选平台。
+    @AppStorage("beans.search.aggregated") private var aggregated = true
     @AppStorage("beans.search.provider") private var providerRaw = SearchProvider.netease.rawValue
     @State private var provider: SearchProvider = .netease
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
@@ -162,28 +164,47 @@ struct SearchView: View {
                 headerTitle
                     .padding(.horizontal, 20)
                     .padding(.top, 8)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 14)
 
-                searchField
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 10)
-
-                if !hidePlatformPicker {
-                    providerPicker
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 8)
+                HStack(spacing: 12) {
+                    searchField
+                    Button {
+                        BeansHaptics.tap()
+                        NotificationCenter.default.post(name: .beansOpenProfileTab, object: nil)
+                    } label: {
+                        ZStack {
+                            if let image = BeansAvatarStore.shared.image {
+                                Image(uiImage: image).resizable().scaledToFill().clipShape(Circle())
+                            } else {
+                                Image(systemName: "person.fill")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(Color.beansLabel)
+                            }
+                        }
+                        .frame(width: 52, height: 52)
+                        .background { BeansGlass(shape: Circle(), forceLiquid: true) }
+                        .clipShape(Circle())
+                    }
+                    .buttonStyle(GlassPressButtonStyle())
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
 
                 contentArea
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .task(id: provider) {
-            guard hotLoadedProvider != provider else { return }
+        .task(id: "\(provider.rawValue)|\(aggregated)") {
             hotLoadedProvider = provider
             hotWords = []
             await loadHotWords()
+        }
+        .onChange(of: aggregated) { _ in
+            let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            debounceTask?.cancel()
+            Task { await startSearch(trimmed) }
         }
         .onChange(of: keyword) { newValue in
             debounceTask?.cancel()
@@ -236,47 +257,10 @@ struct SearchView: View {
     // MARK: - 顶部标题
 
     private var headerTitle: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Text("搜索")
-                .font(BeansFont.appFont(32, .bold))
-                .foregroundStyle(Color.beansLabel)
-            Spacer(minLength: 0)
-            Menu {
-                ForEach(searchProviders) { candidate in
-                    Button {
-                        BeansHaptics.tap()
-                        if candidate.isVideoPlatform {
-                            BilibiliPresenter.shared.open()
-                        } else {
-                            provider = candidate
-                        }
-                    } label: {
-                        Label(LocalizedStringKey(candidate.rawValue), systemImage: candidate == provider ? "checkmark" : candidate.icon)
-                    }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    if let imageName = provider.brandImageName {
-                        Image(imageName)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 15, height: 15)
-                    } else {
-                        Image(systemName: provider.icon)
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    Text(LocalizedStringKey(provider.rawValue))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
-                }
-                .font(BeansFont.appFont(12, .semibold))
-                .foregroundStyle(Color.beansComment)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                .background { BeansGlass(shape: Capsule()) }
-            }
-            .disabled(searchProviders.count < 2)
-        }
+        Text("搜索")
+            .font(BeansFont.appFont(40, .bold))
+            .foregroundStyle(Color.beansLabel)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - 内容区（热搜 / 分类+结果 固定占满剩余高度，切换不引起布局跳动）
@@ -344,32 +328,13 @@ struct SearchView: View {
                 .disabled(keyword.isEmpty)
             }
             .frame(width: 20, height: 22)
-            Button {
-                // 先提交拼音再读取，避免组字中读到旧值或输入被清空
-                let text = searchController.commit()
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return }
-                debounceTask?.cancel()
-                historyStore.record(trimmed)
-                Task { await startSearch(trimmed) }
-            } label: {
-                Text("搜索")
-                    .font(BeansFont.appFont(13, .semibold))
-                    .foregroundStyle(Color.beansAmber)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 6)
-                    .background { BeansGlass(shape: Capsule()) }
-            }
-            .buttonStyle(GlassPressButtonStyle(scale: 0.9))
-            .frame(width: 54, height: 30)
         }
-        .padding(.horizontal, 15)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 18)
+        .frame(height: 58)
         .background {
-            BeansGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            BeansGlass(shape: Capsule(), forceLiquid: true)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .beansCardShadow(radius: 4, y: 2)
+        .clipShape(Capsule())
         .frame(maxWidth: .infinity)
     }
 
@@ -464,31 +429,90 @@ struct SearchView: View {
 
     // MARK: - 热搜（排名卡片）
 
+    private var scopeTitle: String {
+        aggregated ? "聚合" : beansPlatformName(provider)
+    }
+
+    private var scopeMenu: some View {
+        Menu {
+            Button {
+                aggregated = true
+            } label: {
+                Label("聚合", systemImage: aggregated ? "checkmark" : "square.stack.3d.up")
+            }
+            ForEach(searchProviders.filter { !$0.isVideoPlatform }) { candidate in
+                Button {
+                    aggregated = false
+                    provider = candidate
+                } label: {
+                    Label(LocalizedStringKey(candidate.rawValue), systemImage: (!aggregated && provider == candidate) ? "checkmark" : candidate.icon)
+                }
+            }
+        } label: {
+            Text(scopeTitle)
+                .font(BeansFont.appFont(15, .medium))
+                .foregroundStyle(Color.beansComment)
+        }
+    }
+
     private var hotSection: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                SearchHistorySection { word in
-                    keyword = word
-                    searchController.dismissKeyboard()
-                    debounceTask?.cancel()
-                    historyStore.record(word)
-                    Task { await startSearch(word) }
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 64, weight: .light))
+                        .foregroundStyle(Color.beansComment)
+                    Text("搜索歌曲、歌手、专辑或歌单")
+                        .font(BeansFont.appFont(22, .bold))
+                        .foregroundStyle(Color.beansLabel)
+                    Text("使用搜索框开始，聚合搜索也可以切换到单个平台。")
+                        .font(BeansFont.appFont(15))
+                        .foregroundStyle(Color.beansComment)
+                        .multilineTextAlignment(.center)
                 }
-                SectionHeader(title: provider == .netease ? "网易云音乐热搜" : provider == .qq ? "QQ音乐热搜" : "酷狗音乐热搜")
-                if hotWords.isEmpty {
-                    LoadingStateView()
-                } else {
-                    if #available(iOS 16, *) {
-                        FlowLayout(spacing: 10) {
-                            ForEach(Array(hotWords.enumerated()), id: \.offset) { index, word in
-                                hotTag(index: index, word: word)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 36)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Label("热门搜索", systemImage: "flame.fill")
+                            .font(BeansFont.appFont(22, .bold))
+                            .foregroundStyle(Color.beansLabel)
+                            .labelStyle(.titleAndIcon)
+                        Spacer()
+                        scopeMenu
+                    }
+                    if hotWords.isEmpty {
+                        LoadingStateView()
+                    } else {
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                            ForEach(Array(hotWords.prefix(8).enumerated()), id: \.offset) { _, word in
+                                hotPill(word)
                             }
                         }
-                    } else {
-                        // iOS 15 降级：自适应网格实现流式标签
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], alignment: .leading, spacing: 10) {
-                            ForEach(Array(hotWords.enumerated()), id: \.offset) { index, word in
-                                hotTag(index: index, word: word)
+                    }
+                }
+
+                if !historyStore.history.isEmpty {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            Label("搜索历史", systemImage: "clock.arrow.circlepath")
+                                .font(BeansFont.appFont(22, .bold))
+                                .foregroundStyle(Color.beansLabel)
+                            Spacer()
+                            Button {
+                                BeansHaptics.tap()
+                                historyStore.clear()
+                            } label: {
+                                Text("清空")
+                                    .font(BeansFont.appFont(15, .medium))
+                                    .foregroundStyle(Color.beansComment)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], alignment: .leading, spacing: 10) {
+                            ForEach(historyStore.history, id: \.self) { word in
+                                historyPill(word)
                             }
                         }
                     }
@@ -499,6 +523,65 @@ struct SearchView: View {
         }
         .beansScrollIndicatorsHidden()
         .beansScrollDismissesKeyboard()
+    }
+
+    private func hotPill(_ word: String) -> some View {
+        Button {
+            BeansHaptics.tap()
+            keyword = word
+            searchController.dismissKeyboard()
+            debounceTask?.cancel()
+            historyStore.record(word)
+            Task { await startSearch(word) }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.beansAmber)
+                Text(word)
+                    .font(BeansFont.appFont(18, .medium))
+                    .foregroundStyle(Color.beansLabel)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 62)
+            .background { BeansGlass(shape: Capsule(), forceLiquid: true) }
+            .clipShape(Capsule())
+        }
+        .buttonStyle(GlassPressButtonStyle(scale: 0.96))
+    }
+
+    private func historyPill(_ word: String) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                BeansHaptics.tap()
+                keyword = word
+                searchController.dismissKeyboard()
+                debounceTask?.cancel()
+                historyStore.record(word)
+                Task { await startSearch(word) }
+            } label: {
+                Text(word)
+                    .font(BeansFont.appFont(17, .medium))
+                    .foregroundStyle(Color.beansLabel)
+                    .lineLimit(1)
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 0)
+            Button {
+                historyStore.remove(word)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.beansComment)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 52)
+        .background { BeansGlass(shape: Capsule(), forceLiquid: true) }
+        .clipShape(Capsule())
     }
 
     /// 热搜前三名渐变配色（更亮眼：橙红 / 金黄 / 冰蓝）
@@ -585,7 +668,7 @@ struct SearchView: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         HStack(spacing: 8) {
-                            Text(beansLocalized("找到 \(songResults.count) 首 · \(provider.rawValue)", "Found \(songResults.count) songs · \(beansPlatformName(provider))"))
+                            Text(beansLocalized("找到 \(songResults.count) 首 · \(aggregated ? "全平台" : provider.rawValue)", "Found \(songResults.count) songs · \(aggregated ? "All platforms" : beansPlatformName(provider))"))
                                 .font(BeansFont.appFont(12))
                                 .foregroundStyle(Color.beansComment)
                                 .lineLimit(1)
@@ -798,6 +881,40 @@ struct SearchView: View {
     }
 
     /// 点击歌手 / 专辑：以其名称搜索歌曲
+    /// 聚合搜索：各平台并发取前若干条，按平台轮流交错，并按「歌名 + 歌手」去重。
+    nonisolated private static func aggregatedSongs(keyword: String, providers: [SearchProvider]) async -> [Song] {
+        await withTaskGroup(of: (Int, [Song]).self) { group in
+            for (index, provider) in providers.enumerated() {
+                group.addTask {
+                    let songs: [Song]
+                    switch provider {
+                    case .netease: songs = (try? await NetEaseAPI.shared.search(keyword: keyword, limit: 15)) ?? []
+                    case .qq: songs = (try? await QQMusicAPI.shared.searchSongs(keyword: keyword, limit: 15)) ?? []
+                    case .kugou: songs = (try? await KugouMusicAPI.shared.searchSongs(keyword: keyword, limit: 15)) ?? []
+                    case .kuwo: songs = (try? await ExtraPlatforms.search(.kuwo, keyword: keyword, limit: 15)) ?? []
+                    case .migu: songs = (try? await ExtraPlatforms.search(.migu, keyword: keyword, limit: 15)) ?? []
+                    case .bilibili: songs = []
+                    }
+                    return (index, songs)
+                }
+            }
+            var buckets = [[Song]](repeating: [], count: providers.count)
+            for await (index, songs) in group { buckets[index] = songs }
+            var result: [Song] = []
+            var seen = Set<String>()
+            var round = 0
+            while result.count < 60, buckets.contains(where: { round < $0.count }) {
+                for bucket in buckets where round < bucket.count {
+                    let song = bucket[round]
+                    let key = song.name.lowercased() + "|" + song.artists.lowercased()
+                    if seen.insert(key).inserted { result.append(song) }
+                }
+                round += 1
+            }
+            return result
+        }
+    }
+
     private func searchBy(_ name: String) {
         BeansHaptics.tap()
         keyword = name
@@ -809,6 +926,10 @@ struct SearchView: View {
     }
 
     private func loadHotWords() async {
+        if aggregated {
+            if let words = try? await NetEaseAPI.shared.hotSearch() { hotWords = words }
+            return
+        }
         if provider == .qq {
             if let words = try? await QQMusicAPI.shared.hotKeys() {
                 hotWords = words
@@ -826,8 +947,12 @@ struct SearchView: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         searchTask?.cancel()
-        let selectedProvider = provider
         let selectedType = resultType
+        let selectedProvider: SearchProvider = (aggregated && selectedType != .song)
+            ? (searchProviders.first(where: { !$0.isVideoPlatform }) ?? .netease)
+            : provider
+        let useAggregated = aggregated && selectedType == .song
+        let aggregatedProviders = searchProviders.filter { !$0.isVideoPlatform }
         searchTask = Task {
             await MainActor.run {
                 searching = true
@@ -840,6 +965,16 @@ struct SearchView: View {
                 }
             }
             do {
+                if useAggregated {
+                    let songs = await Self.aggregatedSongs(keyword: trimmed, providers: aggregatedProviders)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        songResults = songs
+                        if !songs.isEmpty { BeansHaptics.success() }
+                    }
+                    BeansLogger.shared.log("聚合搜索完成：\(trimmed) 结果=\(songs.count)", level: .info)
+                    return
+                }
                 switch (selectedProvider, selectedType) {
                 case (.netease, .song):
                     let songs = try await NetEaseAPI.shared.search(keyword: trimmed, limit: 40)
