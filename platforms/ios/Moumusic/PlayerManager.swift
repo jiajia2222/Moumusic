@@ -527,6 +527,13 @@ final class PlayerManager: NSObject, ObservableObject {
                         strict: strictUnlock
                     )
                 }
+            } else if song.source.usesExternalID {
+                // 酷我 / 咪咕：没有官方播放地址，只走用户启用的 LX 音源，失败后匹配网易云同名歌曲。
+                resolvedThirdParty = await extraPlatformFallback(
+                    song: song,
+                    thirdPartyQuality: thirdPartyQuality,
+                    enableUnblock: enableUnblock
+                )
             } else {
                 (urlString, resolvedThirdParty) = await neteaseResolve(
                     song: song,
@@ -690,6 +697,47 @@ final class PlayerManager: NSObject, ObservableObject {
         }
 
         BeansLogger.shared.log("酷狗兜底：\(song.name) 第三方=未命中", level: .debug)
+        return nil
+    }
+
+    /// 酷我 / 咪咕：用平台原生 id 交给 LX 音源；未命中时按歌名歌手匹配网易云再解析。
+    private func extraPlatformFallback(
+        song: Song,
+        thirdPartyQuality: ThirdPartyAudioQuality = .current,
+        enableUnblock: Bool
+    ) async -> UnblockService.Resolved? {
+        guard enableUnblock else { return nil }
+        if let extID = song.extID, !extID.isEmpty {
+            let resolved = await UnblockService.resolve(
+                name: song.name,
+                artists: song.artists,
+                neteaseID: 0,
+                songSource: song.source,
+                kugouID: extID,
+                quality: thirdPartyQuality
+            )
+            if let resolved {
+                BeansLogger.shared.log("\(song.source.rawValue)音源命中：\(song.name)", level: .debug)
+                return resolved
+            }
+        }
+        if let matched = await matchNetEaseSong(
+            name: song.name,
+            artists: song.artists,
+            durationMS: Int(song.duration * 1000),
+            strict: false
+        ) {
+            let resolved = await UnblockService.resolve(
+                name: matched.name,
+                artists: matched.artists,
+                neteaseID: matched.id,
+                songSource: .netease,
+                quality: thirdPartyQuality,
+                strict: false
+            )
+            BeansLogger.shared.log("\(song.source.rawValue)转网易云音源：\(song.name) -> \(matched.name) 第三方=\(resolved != nil ? "命中" : "未命中")", level: .debug)
+            return resolved
+        }
         return nil
     }
 
@@ -1262,6 +1310,17 @@ final class PlayerManager: NSObject, ObservableObject {
                 quality: quality,
                 excludedHosts: excludedHosts
             )
+        case .kuwo, .migu:
+            guard let extID = song.extID, !extID.isEmpty else { return nil }
+            return await UnblockService.resolve(
+                name: song.name,
+                artists: song.artists,
+                neteaseID: 0,
+                songSource: song.source,
+                kugouID: extID,
+                quality: quality,
+                excludedHosts: excludedHosts
+            )
         }
     }
 
@@ -1430,6 +1489,8 @@ final class PlayerManager: NSObject, ObservableObject {
             return QQMusicAuth.shared.vipBadge != nil
         case .kugou:
             return KugouMusicAuth.shared.vipBadge != nil
+        case .kuwo, .migu:
+            return false
         case .netease:
             guard let data = defaults.data(forKey: "beans.user"),
                   let user = try? JSONDecoder().decode(NetEaseUser.self, from: data) else {

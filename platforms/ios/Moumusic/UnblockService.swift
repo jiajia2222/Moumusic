@@ -135,7 +135,7 @@ enum UnblockService {
         if songSource == .qq {
             return qqMid?.isEmpty == false
         }
-        if songSource == .kugou {
+        if songSource == .kugou || songSource == .kuwo || songSource == .migu {
             return kugouID?.isEmpty == false
         }
         return neteaseID > 0
@@ -170,7 +170,7 @@ enum UnblockService {
         case .qq:
             guard let qqMid, !qqMid.isEmpty else { return nil }
             songIDs = qqIDCandidates(songID: neteaseID, songMid: qqMid, mediaMid: qqMediaMid)
-        case .kugou:
+        case .kugou, .kuwo, .migu:
             guard let kugouID, !kugouID.isEmpty else { return nil }
             songIDs = [kugouID]
         default:
@@ -283,7 +283,7 @@ enum UnblockService {
             }
             var seen = Set<String>()
             songIDs = candidates.filter { seen.insert($0).inserted }
-        case .kugou:
+        case .kugou, .kuwo, .migu:
             guard let kugouID, !kugouID.isEmpty else { return nil }
             songIDs = [kugouID]
         default:
@@ -464,7 +464,7 @@ enum UnblockService {
         let sourceDefault = ThirdPartyAudioQuality(sourceValue: source.quality)
         let platformDefault: ThirdPartyAudioQuality = {
             switch songSource {
-            case .netease, .qq, .kugou:
+            case .netease, .qq, .kugou, .kuwo, .migu:
                 return .kb320
             }
         }()
@@ -587,6 +587,8 @@ enum UnblockService {
         case .netease: return "wy"
         case .qq: return "tx"
         case .kugou: return "kg"
+        case .kuwo: return "kw"
+        case .migu: return "mg"
         }
     }
 

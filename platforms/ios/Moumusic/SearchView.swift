@@ -42,8 +42,19 @@ enum SearchProvider: String, CaseIterable, Identifiable, Hashable {
     case netease = "网易云音乐"
     case qq = "QQ音乐"
     case kugou = "酷狗音乐"
+    case kuwo = "酷我音乐"
+    case migu = "咪咕音乐"
 
     var id: String { rawValue }
+
+    /// 酷我 / 咪咕 对应的歌曲来源；官方三平台返回 nil。
+    var extraSongSource: SongSource? {
+        switch self {
+        case .kuwo: return .kuwo
+        case .migu: return .migu
+        default: return nil
+        }
+    }
 
     /// 主题色渐变：网易云红 / QQ 绿
     var tint: LinearGradient {
@@ -57,6 +68,12 @@ enum SearchProvider: String, CaseIterable, Identifiable, Hashable {
         case .kugou: return LinearGradient(
             colors: [Color(red: 0.12, green: 0.58, blue: 0.95), Color(red: 0.02, green: 0.32, blue: 0.72)],
             startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .kuwo: return LinearGradient(
+            colors: [Color(red: 1.0, green: 0.62, blue: 0.10), Color(red: 0.92, green: 0.42, blue: 0.02)],
+            startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .migu: return LinearGradient(
+            colors: [Color(red: 0.90, green: 0.20, blue: 0.55), Color(red: 0.70, green: 0.10, blue: 0.40)],
+            startPoint: .topLeading, endPoint: .bottomTrailing)
         }
     }
 
@@ -65,6 +82,8 @@ enum SearchProvider: String, CaseIterable, Identifiable, Hashable {
         case .netease: return "cloud.fill"
         case .qq: return "play.rectangle.fill"
         case .kugou: return "music.note"
+        case .kuwo: return "music.quarternote.3"
+        case .migu: return "waveform.circle.fill"
         }
     }
 
@@ -73,6 +92,7 @@ enum SearchProvider: String, CaseIterable, Identifiable, Hashable {
         case .netease: return "BrandNetease"
         case .qq: return "BrandQQ"
         case .kugou: return "BrandKugou"
+        case .kuwo, .migu: return nil
         }
     }
 }
@@ -778,6 +798,8 @@ struct SearchView: View {
             }
         } else if provider == .kugou {
             hotWords = await KugouMusicAPI.shared.hotWords()
+        } else if let extra = provider.extraSongSource {
+            hotWords = await ExtraPlatforms.hotKeywords(for: extra)
         } else if let words = try? await NetEaseAPI.shared.hotSearch() {
             hotWords = words
         }
@@ -847,6 +869,17 @@ struct SearchView: View {
                     let albums = try await KugouMusicAPI.shared.searchAlbums(keyword: trimmed)
                     guard !Task.isCancelled else { return }
                     await MainActor.run { albumResults = albums }
+                case (.kuwo, .song), (.migu, .song):
+                    let songs = try await ExtraPlatforms.search(selectedProvider.extraSongSource ?? .kuwo, keyword: trimmed, limit: 30)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        songResults = songs
+                        if !songs.isEmpty { BeansHaptics.success() }
+                    }
+                case (.kuwo, .artist), (.migu, .artist):
+                    await MainActor.run { artistResults = [] }
+                case (.kuwo, .album), (.migu, .album):
+                    await MainActor.run { albumResults = [] }
                 }
                 let count = await MainActor.run {
                     selectedType == .song ? songResults.count : (selectedType == .artist ? artistResults.count : albumResults.count)
@@ -978,6 +1011,13 @@ struct AlbumDetailView: View {
                     queries: [albumSearchQuery, album.name],
                     search: { query in
                         (try? await KugouMusicAPI.shared.searchSongs(keyword: query, limit: 100)) ?? []
+                    }
+                )
+            case .kuwo, .migu:
+                result = await searchFallbackSongs(
+                    queries: [albumSearchQuery, album.name],
+                    search: { query in
+                        (try? await ExtraPlatforms.search(album.source, keyword: query, limit: 30)) ?? []
                     }
                 )
             }

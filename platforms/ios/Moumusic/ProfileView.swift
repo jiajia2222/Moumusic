@@ -64,6 +64,8 @@ struct ProfileView: View {
             case .netease: return "NetEase Cloud Music"
             case .qq: return "QQ Music"
             case .kugou: return "Kugou Music"
+            case .kuwo: return "Kuwo Music"
+            case .migu: return "Migu Music"
             }
         }.joined(separator: " / ")
     }
@@ -895,6 +897,8 @@ struct AccountHubSheet: View {
             case .netease: return "NetEase Cloud Music"
             case .qq: return "QQ Music"
             case .kugou: return "Kugou Music"
+            case .kuwo: return "Kuwo Music"
+            case .migu: return "Migu Music"
             }
         }.joined(separator: " / ")
     }

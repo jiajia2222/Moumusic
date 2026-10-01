@@ -11,16 +11,20 @@ final class FavoritesStore: ObservableObject {
     @Published private(set) var neteaseFavoriteSongs: [Song] = []
     /// 酷狗红心收藏（本地持久化，酷狗暂无稳定云端红心写入接口）
     @Published private(set) var kugouFavoriteSongs: [Song] = []
+    /// 酷我 / 咪咕红心收藏（仅本地持久化）
+    @Published private(set) var extraFavoriteSongs: [Song] = []
 
     private let defaults = UserDefaults.standard
     private let neteaseKey = "beans.fav.netease.v1"
     private let qqKey = "beans.fav.qq.v1"
     private let kugouKey = "beans.fav.kugou.v1"
+    private let extraKey = "beans.fav.extra.v1"
 
     private init() {
         qqFavoriteSongs = Self.loadSongs(qqKey)
         neteaseFavoriteSongs = Self.loadSongs(neteaseKey)
         kugouFavoriteSongs = Self.loadSongs(kugouKey)
+        extraFavoriteSongs = Self.loadSongs(extraKey)
     }
 
     /// 该歌曲是否已收藏
@@ -36,6 +40,8 @@ final class FavoritesStore: ObservableObject {
             return qqFavoriteSongs.contains { $0.identityKey == song.identityKey }
         case .kugou:
             return kugouFavoriteSongs.contains { $0.identityKey == song.identityKey }
+        case .kuwo, .migu:
+            return extraFavoriteSongs.contains { $0.identityKey == song.identityKey }
         }
     }
 
@@ -74,6 +80,10 @@ final class FavoritesStore: ObservableObject {
         case .kugou:
             let liked = !isLiked(song)
             updateKugou(song, liked: liked)
+            return true
+        case .kuwo, .migu:
+            let liked = !isLiked(song)
+            updateExtra(song, liked: liked)
             return true
         }
     }
@@ -117,6 +127,12 @@ final class FavoritesStore: ObservableObject {
             }
         }
         saveSongs(qqFavoriteSongs, key: qqKey)
+    }
+
+    private func updateExtra(_ song: Song, liked: Bool) {
+        extraFavoriteSongs.removeAll { $0.identityKey == song.identityKey }
+        if liked { extraFavoriteSongs.insert(song, at: 0) }
+        saveSongs(extraFavoriteSongs, key: extraKey)
     }
 
     private func updateKugou(_ song: Song, liked: Bool) {

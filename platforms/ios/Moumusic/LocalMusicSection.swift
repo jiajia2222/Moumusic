@@ -712,6 +712,10 @@ struct LocalSearchAddSheet: View {
                     songs = try await QQMusicAPI.shared.searchSongs(keyword: trimmed)
                 case .kugou:
                     songs = try await KugouMusicAPI.shared.searchSongs(keyword: trimmed)
+                case .kuwo:
+                    songs = try await ExtraPlatforms.search(.kuwo, keyword: trimmed, limit: 30)
+                case .migu:
+                    songs = try await ExtraPlatforms.search(.migu, keyword: trimmed, limit: 30)
                 }
                 guard !Task.isCancelled else { return }
                 results = songs

@@ -129,6 +129,10 @@ struct DiscoverView: View {
                             }
                         } else if loading {
                             LoadingStateView()
+                        } else if let extraSource = source.extraSongSource {
+                            // 酷我 / 咪咕：榜单、热搜与推荐歌单
+                            ExtraPlatformHomeSection(provider: extraSource)
+                                .sectionEntrance(delay: 0)
                         } else {
                             // 板块按用户自定义顺序渲染（可拖拽排序）
                             ForEach(homeOrder.filter { availableSections.contains($0) }, id: \.self) { key in
@@ -467,6 +471,7 @@ struct DiscoverView: View {
         case .netease: return neteaseTopLists.count
         case .qq: return qqTopLists.count
         case .kugou: return kugouTopLists.count
+        case .kuwo, .migu: return 0
         }
     }
 
@@ -480,6 +485,7 @@ struct DiscoverView: View {
         case .netease: return !topLists.isEmpty
         case .qq: return !qqTopLists.isEmpty
         case .kugou: return !kugouTopLists.isEmpty
+        case .kuwo, .migu: return false
         }
     }
 
@@ -1147,6 +1153,7 @@ struct DiscoverView: View {
         case .netease: return "推荐歌单"
         case .qq: return "QQ音乐热门歌单"
         case .kugou: return "歌单广场"
+        case .kuwo, .migu: return "推荐歌单"
         }
     }
 
@@ -1155,6 +1162,7 @@ struct DiscoverView: View {
         case .netease: return "推荐歌单暂时没有内容"
         case .qq: return "QQ音乐热门歌单暂未加载成功\n下拉刷新可重新获取"
         case .kugou: return "歌单广场暂时没有内容"
+        case .kuwo, .migu: return "推荐歌单暂时没有内容"
         }
     }
 
@@ -1352,6 +1360,9 @@ struct DiscoverView: View {
             snapshot.dailySongs = daily
             snapshot.kugouTopLists = top
             snapshot.personalized = pp
+        case .kuwo, .migu:
+            // 内容由 ExtraPlatformHomeSection 自行加载
+            break
         }
         return snapshot
     }
@@ -2168,6 +2179,10 @@ private struct HomeUnifiedSearchSheet: View {
             return (try? await QQMusicAPI.shared.searchSongs(keyword: keyword, limit: 30)) ?? []
         case .kugou:
             return (try? await KugouMusicAPI.shared.searchSongs(keyword: keyword, limit: 30)) ?? []
+        case .kuwo:
+            return (try? await ExtraPlatforms.search(.kuwo, keyword: keyword, limit: 30)) ?? []
+        case .migu:
+            return (try? await ExtraPlatforms.search(.migu, keyword: keyword, limit: 30)) ?? []
         }
     }
 

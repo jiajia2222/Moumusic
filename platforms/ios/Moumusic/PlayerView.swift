@@ -2791,6 +2791,10 @@ struct PlayerView: View {
         case .kugou:
             let encoded = song.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? song.name
             return URL(string: "https://www.kugou.com/yy/html/search.html#searchType=song&searchKeyWord=\(encoded)")
+        case .kuwo:
+            return URL(string: "https://www.kuwo.cn/play_detail/\(song.extID ?? String(song.id))")
+        case .migu:
+            return URL(string: "https://music.migu.cn/v3/music/song/\(song.extID ?? String(song.id))")
         }
     }
 
@@ -2926,6 +2930,10 @@ struct PlayerView: View {
             apply(LyricParser.parse(raw))
         } else if song.source == .qq, let mid = song.qqMid {
             if let raw = try? await QQMusicAPI.shared.lyric(songmid: mid) {
+                apply(LyricParser.parse(raw))
+            }
+        } else if song.source.usesExternalID {
+            if let raw = await ExtraPlatforms.lyric(for: song) {
                 apply(LyricParser.parse(raw))
             }
         } else {

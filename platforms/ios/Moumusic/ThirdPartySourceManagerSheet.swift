@@ -517,6 +517,8 @@ private enum ThirdPartySourcePlatform: String, CaseIterable, Identifiable {
     case netease
     case qq
     case kugou
+    case kuwo
+    case migu
 
     var id: String { rawValue }
 
@@ -526,6 +528,8 @@ private enum ThirdPartySourcePlatform: String, CaseIterable, Identifiable {
         case .netease: return beansLocalized("网易云音乐", "NetEase Cloud Music")
         case .qq: return beansLocalized("QQ音乐", "QQ Music")
         case .kugou: return beansLocalized("酷狗音乐", "Kugou Music")
+        case .kuwo: return beansLocalized("酷我音乐", "Kuwo Music")
+        case .migu: return beansLocalized("咪咕音乐", "Migu Music")
         }
     }
 
@@ -535,6 +539,8 @@ private enum ThirdPartySourcePlatform: String, CaseIterable, Identifiable {
         case .netease: return "wy"
         case .qq: return "tx"
         case .kugou: return "kg"
+        case .kuwo: return "kw"
+        case .migu: return "mg"
         }
     }
 
@@ -546,6 +552,10 @@ private enum ThirdPartySourcePlatform: String, CaseIterable, Identifiable {
             self = .qq
         case "kg", "kugou":
             self = .kugou
+        case "kw", "kuwo":
+            self = .kuwo
+        case "mg", "migu":
+            self = .migu
         default:
             self = .all
         }

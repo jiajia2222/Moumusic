@@ -167,6 +167,8 @@ struct MiniPlayerView: View {
             raw = await KugouMusicAPI.shared.lyric(hash: hash, duration: song.duration)
         } else if song.source == .qq, let mid = song.qqMid {
             raw = try? await QQMusicAPI.shared.lyric(songmid: mid)
+        } else if song.source.usesExternalID {
+            raw = await ExtraPlatforms.lyric(for: song)
         } else {
             raw = try? await NetEaseAPI.shared.lyric(id: song.id)
         }
