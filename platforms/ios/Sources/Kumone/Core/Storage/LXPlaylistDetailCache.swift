@@ -35,6 +35,10 @@ final class LXPlaylistDetailCache {
         now.timeIntervalSince(entry.savedAt) < ttl
     }
 
+    func clear() {
+        entries.removeAll(keepingCapacity: false)
+    }
+
     private func key(source: LXCatalogPlatform, id: String) -> String {
         "\(source.rawValue)|\(id)"
     }

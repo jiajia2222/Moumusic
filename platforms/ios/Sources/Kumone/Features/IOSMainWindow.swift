@@ -207,34 +207,6 @@ public struct IOSMainWindow: View {
             tabInterface
                 .background(Color.clear)
 
-            // Beans 2.0 uses the iOS 26/27 edge treatment: the content stays
-            // readable while the top and bottom transition softly into the
-            // system chrome.  Material keeps this correct for both light and
-            // dark appearances and also works over a user wallpaper.
-            if #available(iOS 26.0, *) {
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(.ultraThinMaterial)
-                        .mask(LinearGradient(
-                            colors: [.black, .black.opacity(0.72), .clear],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ))
-                        .frame(height: 52)
-                    Spacer(minLength: 0)
-                    Rectangle()
-                        .fill(.ultraThinMaterial)
-                        .mask(LinearGradient(
-                            colors: [.clear, .black.opacity(0.72), .black],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ))
-                        .frame(height: 78)
-                }
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
         }
         .animation(AppAnimation.smooth, value: backgroundStore.image != nil)
     }

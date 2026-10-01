@@ -34,6 +34,8 @@ final class MoumusicServerStore: ObservableObject {
         var nickname: String
         var avatarURL: String?
         var signature: String?
+        /// Optional public profile artwork. Older server responses may omit it.
+        var backgroundURL: String?
         let createdAt: String?
         let updatedAt: String?
         var disabled: Bool?
@@ -92,6 +94,7 @@ final class MoumusicServerStore: ObservableObject {
         let nickname: String?
         let avatarURL: String?
         let signature: String?
+        let backgroundURL: String?
         let publicID: String?
     }
 
@@ -100,6 +103,7 @@ final class MoumusicServerStore: ObservableObject {
         let nickname: String?
         let avatarURL: String?
         let signature: String?
+        let backgroundURL: String?
         let disabled: Bool?
     }
 
@@ -115,15 +119,15 @@ final class MoumusicServerStore: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .invalidURL:
-                return "The Moumusic server URL is invalid."
+                return "个人资料服务地址无效"
             case .invalidResponse:
-                return "The Moumusic server returned invalid data."
+                return "个人资料服务返回的数据无效"
             case .rejected(let message, let code):
                 if code == "PUBLIC_ID_CONFLICT" {
-                    return "This ID is already in use. Please choose another."
+                    return "这个 ID 已被占用，请换一个"
                 }
                 if code == "INVALID_PUBLIC_ID" {
-                    return "ID must be 3-32 characters using letters, numbers, dot, underscore, or hyphen."
+                    return "ID 需要使用 3-32 位字母、数字、点、下划线或连字符"
                 }
                 return message
             }
@@ -134,6 +138,7 @@ final class MoumusicServerStore: ObservableObject {
     private let baseURL: URL
     private let deviceID: String
     private let sessionService = "com.moumusic.account.session"
+    private let localBackgroundKey = "moumusic.profile.backgroundURL"
 
     private init() {
         let configured = Bundle.main.object(forInfoDictionaryKey: "MOUMUSIC_SERVER_URL") as? String
@@ -151,15 +156,26 @@ final class MoumusicServerStore: ObservableObject {
 
     var isReady: Bool { config != nil && profile != nil }
     var isAdmin: Bool { profile?.isAdmin == true }
-    var displayID: String { profile?.id ?? "Not registered" }
+    var displayID: String {
+        if let id = profile?.id, !id.isEmpty { return id }
+        return lastError == nil ? "待分配" : "服务器暂不可用"
+    }
 
     var statusText: String {
-        if isChecking { return "Connecting" }
-        if let lastError, !lastError.isEmpty { return lastError }
+        if isChecking { return "正在连接个人资料服务…" }
+        if let lastError, !lastError.isEmpty { return "个人资料服务暂不可用" }
         if let config {
-            return config.downloadsEnabled ? "Online · Downloads on" : "Online · Downloads off"
+            return config.downloadsEnabled ? "在线 · 下载已开启" : "在线 · 下载已关闭"
         }
-        return "Not connected"
+        return "未连接个人资料服务"
+    }
+
+    private func applyingLocalOverrides(to remote: Profile) -> Profile {
+        var value = remote
+        if let background = defaults.string(forKey: localBackgroundKey), !background.isEmpty {
+            value.backgroundURL = background
+        }
+        return value
     }
 
     /// Called during app warm-up. It never blocks the music UI indefinitely.
@@ -186,11 +202,11 @@ final class MoumusicServerStore: ObservableObject {
                 body: body
             )
             try ProviderSessionSupport.writeCookie(response.accessToken, service: sessionService)
-            profile = response.profile
+            profile = applyingLocalOverrides(to: response.profile)
             config = response.server
             return true
         } catch {
-            lastError = "Server unavailable"
+            lastError = "个人资料服务暂不可用"
             return false
         }
     }
@@ -202,18 +218,33 @@ final class MoumusicServerStore: ObservableObject {
             config = response.config
             return response.config.configured
         } catch {
-            lastError = "Cannot connect to Moumusic server"
+            lastError = "个人资料服务暂不可用"
             return false
         }
     }
 
-    func updateProfile(nickname: String? = nil, avatarURL: String? = nil, signature: String? = nil, publicID: String? = nil) async {
+    func updateProfile(
+        nickname: String? = nil,
+        avatarURL: String? = nil,
+        signature: String? = nil,
+        backgroundURL: String? = nil,
+        publicID: String? = nil
+    ) async {
         guard let token = ProviderSessionSupport.readCookie(service: sessionService), !token.isEmpty else { return }
+        if let backgroundURL {
+            let value = backgroundURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            if value.isEmpty {
+                defaults.removeObject(forKey: localBackgroundKey)
+            } else {
+                defaults.set(value, forKey: localBackgroundKey)
+            }
+        }
         do {
             let body = try JSONEncoder().encode(ProfilePatch(
                 nickname: nickname,
                 avatarURL: avatarURL,
                 signature: signature,
+                backgroundURL: backgroundURL,
                 publicID: publicID
             ))
             let response: ProfileResponse = try await request(
@@ -222,7 +253,7 @@ final class MoumusicServerStore: ObservableObject {
                 body: body,
                 token: token
             )
-            profile = response.profile
+            profile = applyingLocalOverrides(to: response.profile)
         } catch {
             lastError = "Profile could not be saved"
         }
@@ -237,7 +268,7 @@ final class MoumusicServerStore: ObservableObject {
                 body: body
             )
             try ProviderSessionSupport.writeCookie(response.accessToken, service: sessionService)
-            profile = response.profile
+            profile = applyingLocalOverrides(to: response.profile)
             config = response.server
             lastError = nil
             return true
@@ -283,6 +314,7 @@ final class MoumusicServerStore: ObservableObject {
         nickname: String? = nil,
         avatarURL: String? = nil,
         signature: String? = nil,
+        backgroundURL: String? = nil,
         disabled: Bool? = nil
     ) async -> Bool {
         guard isAdmin, let token = ProviderSessionSupport.readCookie(service: sessionService) else { return false }
@@ -292,6 +324,7 @@ final class MoumusicServerStore: ObservableObject {
                 nickname: nickname,
                 avatarURL: avatarURL,
                 signature: signature,
+                backgroundURL: backgroundURL,
                 disabled: disabled
             ))
             let pathID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
@@ -320,7 +353,7 @@ final class MoumusicServerStore: ObservableObject {
     private func loadMe(token: String) async -> Bool {
         do {
             let response: ProfileWithServerResponse = try await request("/api/moumusic/me", token: token)
-            profile = response.profile
+            profile = applyingLocalOverrides(to: response.profile)
             config = response.server
             return true
         } catch {

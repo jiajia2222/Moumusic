@@ -22,7 +22,7 @@ CODE_SIGN_STYLE = Automatic
 // ==========================================
 // Platform Configuration
 // ==========================================
-IPHONEOS_DEPLOYMENT_TARGET = 16.0
+IPHONEOS_DEPLOYMENT_TARGET = 26.0
 MOUMUSIC_SERVER_URL = https://music.nadev.xyz
 
 // (1 == iPhone, 2 == iPad)

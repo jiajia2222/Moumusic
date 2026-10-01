@@ -56,6 +56,10 @@ final class HomeRecommendationCache {
         entries[key] = nil
     }
 
+    func clear() {
+        entries.removeAll(keepingCapacity: false)
+    }
+
     func isFresh(_ snapshot: Snapshot, now: Date = Date()) -> Bool {
         now.timeIntervalSince(snapshot.savedAt) < ttl
     }

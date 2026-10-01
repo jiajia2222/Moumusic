@@ -212,7 +212,6 @@ struct BilibiliContentView: View {
             Color(uiColor: .systemBackground).ignoresSafeArea()
             if surface == .live {
                 VStack(spacing: 0) {
-                    surfacePicker
                     // Keep live browsing inside the Bilibili surface instead
                     // of presenting a second, unrelated sheet. This is the
                     // native equivalent of PiliPlus's video/live switch.
@@ -231,6 +230,30 @@ struct BilibiliContentView: View {
         .navigationTitle("哔哩哔哩")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Menu {
+                    ForEach(Surface.allCases) { value in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                surface = value
+                            }
+                        } label: {
+                            Label(value.rawValue, systemImage: surfaceIcon(value))
+                        }
+                    }
+                } label: {
+                    ZStack {
+                        Circle().fill(Color(red: 0.08, green: 0.62, blue: 0.86).opacity(0.18))
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(Color(red: 0.08, green: 0.62, blue: 0.86))
+                    }
+                    .frame(width: 40, height: 40)
+                    .background(.regularMaterial, in: Circle())
+                    .overlay(Circle().strokeBorder(.white.opacity(0.2), lineWidth: 0.8))
+                }
+                .accessibilityLabel("切换哔哩哔哩内容")
+            }
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     showSearch = true
@@ -306,7 +329,6 @@ struct BilibiliContentView: View {
     private var dynamicSurface: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 14) {
-                surfacePicker
                 if !bilibili.isLoggedIn {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("动态需要登录", systemImage: "person.crop.circle.badge.exclamationmark")
@@ -375,7 +397,6 @@ struct BilibiliContentView: View {
     private var accountSurface: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
-                surfacePicker
                 if bilibili.isLoggedIn {
                     accountIdentityCard
                 }
@@ -683,7 +704,6 @@ struct BilibiliContentView: View {
     private var videoSurface: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
-                surfacePicker
                 feedPicker
                 if model.feed == .recommend { recommendationSourcePicker }
                 model.feed == .ranking ? AnyView(rankingTabs) : AnyView(categoryTabs)
@@ -706,17 +726,6 @@ struct BilibiliContentView: View {
             .padding(.top, 12)
         }
         .scrollIndicators(.hidden)
-    }
-
-    private var surfacePicker: some View {
-        Picker("B 站内容", selection: $surface) {
-            ForEach(Surface.allCases) { value in
-                Label(value.rawValue, systemImage: surfaceIcon(value))
-                    .tag(value)
-            }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, Theme.Layout.contentInset)
     }
 
     private func surfaceIcon(_ value: Surface) -> String {
@@ -746,49 +755,42 @@ struct BilibiliContentView: View {
     }
 
     private var recommendationSourcePicker: some View {
-        VStack(alignment: .leading, spacing: 4) {
-        HStack(spacing: 12) {
-            Label("推荐客户端", systemImage: "sparkles.tv")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-            Spacer(minLength: 8)
-            Menu {
-                ForEach(BilibiliRecommendationSource.allCases) { source in
-                    Button {
-                        settings.bilibiliRecommendationSource = source
-                        model.selectRecommendationSource(source, cookie: bilibili.cookie)
-                    } label: {
-                        Label {
-                            Text(source.displayName)
-                        } icon: {
-                            Image(systemName: source == model.recommendationSource
-                                  ? "checkmark.circle.fill" : "circle")
-                        }
+        Menu {
+            ForEach(BilibiliRecommendationSource.allCases) { source in
+                Button {
+                    settings.bilibiliRecommendationSource = source
+                    model.selectRecommendationSource(source, cookie: bilibili.cookie)
+                } label: {
+                    Label {
+                        Text(source.displayName)
+                    } icon: {
+                        Image(systemName: source == model.recommendationSource
+                              ? "checkmark.circle.fill" : "circle")
                     }
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(model.recommendationSource.displayName)
-                        .lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption.weight(.bold))
-                }
-                .font(.subheadline)
-                .foregroundStyle(Theme.accent)
-                .padding(.horizontal, 12)
-                .frame(minHeight: 44)
-                .background(Theme.accent.opacity(0.12), in: Capsule())
             }
-            .accessibilityLabel("选择 B 站推荐客户端")
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles.tv")
+                    .foregroundStyle(Theme.accent)
+                Text("推荐")
+                    .font(.subheadline.weight(.semibold))
+                Text(model.recommendationSource.displayName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 38)
+            .compatGlass(interactive: true, in: Capsule())
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, Theme.Layout.contentInset)
-        .padding(.vertical, 2)
-        Text(model.recommendationSource.explanation)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, Theme.Layout.contentInset)
-        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityLabel("选择 B 站推荐客户端")
     }
 
     private var categoryTabs: some View {

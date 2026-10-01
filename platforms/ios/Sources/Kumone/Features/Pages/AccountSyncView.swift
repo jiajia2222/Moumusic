@@ -410,7 +410,7 @@ struct AccountSyncView: View {
             Button {
                 showPlaylistPicker = true
             } label: {
-                Label("选择要加入的歌单", systemImage: "checklist")
+                Label("选择要加入的歌单（支持全选）", systemImage: "checklist")
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
             .buttonStyle(.borderedProminent)
@@ -538,10 +538,6 @@ struct RemotePlaylistPickerView: View {
                 }
                 .padding(.horizontal, 4)
 
-                playlistSection("我喜欢的音乐", playlists: likedPlaylists)
-                playlistSection("我的歌单", playlists: createdPlaylists)
-                playlistSection("收藏的歌单", playlists: subscribedPlaylists)
-
                 HStack(spacing: 12) {
                     Text("已选择 \(selectedIDs.count) / \(visiblePlaylists.count)")
                         .font(.caption.weight(.semibold))
@@ -553,6 +549,10 @@ struct RemotePlaylistPickerView: View {
                     .font(.subheadline.weight(.semibold))
                     .disabled(visiblePlaylists.isEmpty || isImporting)
                 }
+
+                playlistSection("我喜欢的音乐", playlists: likedPlaylists)
+                playlistSection("我的歌单", playlists: createdPlaylists)
+                playlistSection("收藏的歌单", playlists: subscribedPlaylists)
 
                 if account.userPlaylists.isEmpty {
                     EmptyStateView(

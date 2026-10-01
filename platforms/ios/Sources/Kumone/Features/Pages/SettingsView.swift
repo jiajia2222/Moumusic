@@ -8,11 +8,7 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
 #if os(iOS)
     @EnvironmentObject private var player: PlayerService
-    @EnvironmentObject private var account: AccountStore
     @StateObject private var lxStore = LXSourceStore.shared
-    @StateObject private var qqMusic = QQMusicSessionStore.shared
-    @StateObject private var kugou = KugouSessionStore.shared
-    @StateObject private var bilibili = BilibiliSessionStore.shared
     @StateObject private var updateLog = IOSUpdateLogStore.shared
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
     @ObservedObject private var dynamicWallpaper = DynamicWallpaperStore.shared
@@ -23,20 +19,22 @@ struct SettingsView: View {
     @State private var isClearingCache = false
     @State private var cacheProgress: Double?
     @State private var cacheClearMessage: String?
+    @State private var cacheSummaries: [String: AppCacheManager.Summary] = [:]
     @State private var showEqualizer = false
     @ObservedObject private var equalizer = MoumusicEqualizer.shared
 #if os(iOS)
     @State private var showSourceManager = false
     @State private var showDownloads = false
-    @State private var showQQMusicLogin = false
-    @State private var showKugouLogin = false
-    @State private var showBilibiliLogin = false
     @State private var showPlayerLayoutEditor = false
+    @State private var isImportingBackgroundFile = false
 #endif
     @StateObject private var backupStore = AppDataBackupManager.shared
     @State private var isExportingBackup = false
     @State private var isImportingBackup = false
     @State private var exportDocument: MoumusicBackupFileDocument?
+    @State private var collapsedSettings: Set<String> = [
+        "播放器氛围", "图片背景", "歌词显示", "存储与下载", "数据备份与恢复", "更新", "关于", "赞赏与支持"
+    ]
 
     var body: some View {
         ScrollView {
@@ -59,36 +57,6 @@ struct SettingsView: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
 
-#if os(iOS)
-                HStack(spacing: 8) {
-                    Image(systemName: account.isLoggedIn ? "checkmark.circle.fill" : "person.crop.circle.badge.xmark")
-                        .foregroundStyle(account.isLoggedIn ? .green : .secondary)
-                    Text(account.isLoggedIn
-                         ? "网易云账号已登录；对应歌曲可使用官方账号音源"
-                         : "未登录网易云账号，对应歌曲将使用 LX 音源")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if account.isLoggedIn && !account.hasActiveVIP {
-                    Label(
-                        "警告：当前网易云账号不是 VIP。网易云官方账号音源不会把全景声、杜比、环绕声或 Hi-Res 当作账号权限；选择这些档位时会自动降级，或按设置切换到第三方音源。",
-                        systemImage: "exclamationmark.triangle.fill"
-                    )
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-                } else if account.hasAuthCookie && !account.vipStatusKnown {
-                    Label(
-                        "警告：网易云账号资料还未同步完成，VIP 状态尚未确认。确认前不会按 VIP 请求高级音质。",
-                        systemImage: "exclamationmark.triangle.fill"
-                    )
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-                }
-#endif
-
                 Picker("默认播放音质", selection: $settings.audioQuality) {
                     ForEach(AudioQuality.allCases) { quality in
                         Text("\(quality.displayName) · \(quality.sourceDisplayName)")
@@ -103,84 +71,9 @@ struct SettingsView: View {
 #if os(iOS)
             settingsGroup("账号与同步") {
                 NavigationLink(value: Destination.accountSync) {
-                    Label("账号同步", systemImage: "person.crop.circle.badge.checkmark")
+                    Label("账号登录与同步", systemImage: "person.crop.circle.badge.checkmark")
                 }
-                Text("网易云、QQ 音乐和酷狗登录后，可在对应平台歌曲上使用官方账号音源；自动模式优先尝试账号音源，失败后才按顺序回退到已启用的 LX 音源。哔哩哔哩当前用于账号同步和视频内容。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button { showQQMusicLogin = true } label: {
-                    HStack {
-                        Label("QQ 音乐账号播放与同步", systemImage: qqMusic.isLoggedIn
-                              ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
-                        Spacer()
-                        Text(qqMusic.isLoggedIn ? (qqMusic.profileName ?? "已登录") : "未登录")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .frame(minHeight: 44)
-
-                if qqMusic.isLoggedIn {
-                    Button(role: .destructive) { qqMusic.signOut() } label: {
-                        Label("退出 QQ 音乐登录", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    .frame(minHeight: 44)
-                }
-
-                Button { showKugouLogin = true } label: {
-                    HStack {
-                        Label("酷狗音乐账号播放与同步", systemImage: kugou.isLoggedIn
-                              ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
-                        Spacer()
-                        Text(kugou.isLoggedIn ? (kugou.profileName ?? "已登录") : "未登录")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .frame(minHeight: 44)
-
-                if kugou.isLoggedIn {
-                    Button(role: .destructive) { kugou.signOut() } label: {
-                        Label("退出酷狗音乐登录", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    .frame(minHeight: 44)
-                }
-
-                if bilibili.isLoggedIn {
-                    HStack {
-                        Label("哔哩哔哩账号已同步", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Spacer()
-                        Text(bilibili.profileName ?? "已登录")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .frame(minHeight: 44)
-                } else {
-                    Button { showBilibiliLogin = true } label: {
-                        HStack {
-                            Label("哔哩哔哩账号同步", systemImage: "person.crop.circle.badge.plus")
-                            Spacer()
-                            Text("扫码或网页登录")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    .frame(minHeight: 44)
-                }
-
-                if bilibili.isLoggedIn {
-                    Button(role: .destructive) { bilibili.signOut() } label: {
-                        Label("退出哔哩哔哩登录", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    .frame(minHeight: 44)
-                }
-
-                Text("网易云、QQ 音乐和酷狗支持对应平台歌曲的官方账号音源；哔哩哔哩登录仅用于资料同步和视频服务。登录成功后会保留本机钥匙串会话，不会重复要求登录。")
+                Text("网易云、QQ 音乐、酷狗和哔哩哔哩的登录入口统一放在“我的 → 账号登录与同步”。这里不重复显示平台登录卡片。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -277,7 +170,15 @@ struct SettingsView: View {
             }
 
             settingsGroup("动态壁纸") {
-                Toggle("启用动态壁纸", isOn: $dynamicWallpaper.isEnabled)
+                Toggle("启用动态壁纸", isOn: Binding(
+                    get: { dynamicWallpaper.isEnabled },
+                    set: { enabled in
+                        dynamicWallpaper.isEnabled = enabled
+                        if enabled {
+                            dynamicWallpaper.syncToApp = true
+                        }
+                    }
+                ))
                 Picker("动态样式", selection: $dynamicWallpaper.kind) {
                     ForEach(DynamicWallpaperKind.allCases) { kind in
                         Text(kind.displayName).tag(kind)
@@ -377,7 +278,7 @@ struct SettingsView: View {
                             .accessibilityHidden(true)
                     }
 
-                    HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 10) {
                         PhotosPicker(selection: $backgroundStore.photoSelection,
                                      matching: .images,
                                      photoLibrary: .shared()) {
@@ -385,6 +286,17 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .frame(minHeight: 44)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .disabled(backgroundStore.isImporting)
+
+                        Button {
+                            isImportingBackgroundFile = true
+                        } label: {
+                            Label("从文件选择", systemImage: "folder.badge.plus")
+                        }
+                        .buttonStyle(.bordered)
+                        .frame(minHeight: 44)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .disabled(backgroundStore.isImporting)
 
                         if backgroundStore.image != nil {
@@ -394,6 +306,7 @@ struct SettingsView: View {
                                 Label("移除", systemImage: "trash")
                             }
                             .frame(minHeight: 44)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
 
@@ -412,6 +325,27 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Picker("歌词样式", selection: $settings.lyricsDisplayStyle) {
+                    ForEach(LyricsDisplayStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                Toggle("显示逐字歌词", isOn: $settings.verbatimLyrics)
+                Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
+                Picker("日文歌词注音", selection: $settings.lyricsAnnotation) {
+                    ForEach(LyricsAnnotation.allCases) { annotation in
+                        Text(annotation.displayName).tag(annotation)
+                    }
+                }
+                HStack {
+                    Text("歌词同步")
+                    Spacer()
+                    Text(String(format: "%+.2f 秒", settings.lyricsOffset))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $settings.lyricsOffset, in: -2...2, step: 0.05)
 #if os(macOS)
                 Toggle("桌面歌词", isOn: $settings.showDesktopLyrics)
                 Toggle("桌面歌词水平居中", isOn: $settings.desktopLyricsCentered)
@@ -423,6 +357,25 @@ struct SettingsView: View {
 
             settingsGroup("存储与下载") {
                 LabeledContent("图片缓存", value: cacheSize)
+                ForEach(AppCacheManager.CacheCategory.allCases) { category in
+                    Button {
+                        clearCache(category)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Label(category.displayName, systemImage: category.symbolName)
+                            Spacer(minLength: 8)
+                            if let summary = cacheSummaries[category.rawValue] {
+                                Text("\(summary.fileCount) · \(ByteCountFormatter.string(fromByteCount: summary.byteCount, countStyle: .file))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Image(systemName: "trash")
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    .disabled(isClearingCache)
+                    .frame(minHeight: 44)
+                }
                 Button("清除缓存") { clearCache() }
 #if os(iOS)
                 if let cacheProgress {
@@ -500,6 +453,11 @@ struct SettingsView: View {
                 } label: {
                     Label("查看更新日志", systemImage: "doc.text.magnifyingglass")
                 }
+                NavigationLink {
+                    DiagnosticLogView()
+                } label: {
+                    Label("诊断日志", systemImage: "waveform.path.ecg")
+                }
 #endif
             }
 
@@ -575,12 +533,6 @@ struct SettingsView: View {
         .task {
             updateCacheSize()
             backupStore.startAutomaticBackup()
-#if os(iOS)
-            // A stale Keychain cookie must not make the login row look
-            // permanently authenticated and prevent the user from scanning a
-            // fresh QR code.
-            await bilibili.refreshProfile()
-#endif
         }
         .fileExporter(
             isPresented: $isExportingBackup,
@@ -615,6 +567,30 @@ struct SettingsView: View {
                 backupStore.setStatusMessage("备份导入失败：\(error.localizedDescription)")
             }
         }
+#if os(iOS)
+        .fileImporter(
+            isPresented: $isImportingBackgroundFile,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result, let url = urls.first else { return }
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessed { url.stopAccessingSecurityScopedResource() }
+            }
+            do {
+                guard backgroundStore.save(data: Data(contentsOf: url)) else {
+                    ToastCenter.shared.show("背景图片导入失败")
+                    return
+                }
+                backgroundStore.syncToApp = true
+                backgroundStore.syncToPlayer = true
+                ToastCenter.shared.show("背景图片已导入")
+            } catch {
+                ToastCenter.shared.show("背景图片导入失败")
+            }
+        }
+#endif
         .sheet(isPresented: $showEqualizer) {
             EqualizerView()
         }
@@ -627,18 +603,6 @@ struct SettingsView: View {
         .sheet(isPresented: $showDownloads) {
             DownloadsView()
                 .environmentObject(player)
-        }
-        .sheet(isPresented: $showQQMusicLogin) {
-            QQMusicLoginSheet()
-                .environmentObject(qqMusic)
-        }
-        .sheet(isPresented: $showKugouLogin) {
-            KugouLoginSheet()
-                .environmentObject(kugou)
-        }
-        .sheet(isPresented: $showBilibiliLogin) {
-            BilibiliLoginSheet()
-                .environmentObject(bilibili)
         }
         .sheet(isPresented: $showPlayerLayoutEditor) {
             PlayerLayoutEditorView()
@@ -654,22 +618,46 @@ struct SettingsView: View {
         _ title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text(title)
-                .font(.headline.weight(.semibold))
-                .padding(.horizontal, 5)
+        let isExpanded = !collapsedSettings.contains(title)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if isExpanded {
+                        collapsedSettings.insert(title)
+                    } else {
+                        collapsedSettings.remove(title)
+                    }
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Text(title)
+                        .font(.headline.weight(.semibold))
+                    Spacer(minLength: 0)
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(minHeight: 54)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: 10) {
-                content()
+            if isExpanded {
+                Divider()
+                    .padding(.horizontal, 2)
+                VStack(alignment: .leading, spacing: 10) {
+                    content()
+                }
+                .padding(.top, 12)
             }
-            .padding(14)
-            .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(.primary.opacity(0.08), lineWidth: 0.8)
-            }
-            .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
         }
+        .padding(16)
+        .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(.primary.opacity(0.1), lineWidth: 0.8)
+        }
+        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
     }
 
     private var appVersion: String {
@@ -739,24 +727,39 @@ struct SettingsView: View {
         Task { @MainActor in
             let summary = await AppCacheManager.shared.summary()
             cacheSize = ByteCountFormatter.string(fromByteCount: summary.byteCount, countStyle: .file)
+            var values: [String: AppCacheManager.Summary] = [:]
+            for category in AppCacheManager.CacheCategory.allCases {
+                values[category.rawValue] = await AppCacheManager.shared.summary(for: category)
+            }
+            cacheSummaries = values
         }
     }
 
-    private func clearCache() {
+    private func clearCache(_ category: AppCacheManager.CacheCategory? = nil) {
         guard !isClearingCache else { return }
         isClearingCache = true
         cacheProgress = 0
         cacheClearMessage = nil
         Task { @MainActor in
-            let result = await AppCacheManager.shared.clearAll { value in
-                await MainActor.run {
-                    cacheProgress = value
+            let result: AppCacheManager.ClearResult
+            if let category {
+                result = await AppCacheManager.shared.clear(category) { value in
+                    await MainActor.run {
+                        cacheProgress = value
+                    }
+                }
+            } else {
+                result = await AppCacheManager.shared.clearAll { value in
+                    await MainActor.run {
+                        cacheProgress = value
+                    }
                 }
             }
-            cacheSize = ByteCountFormatter.string(fromByteCount: 0, countStyle: .file)
+            updateCacheSize()
             cacheProgress = nil
             isClearingCache = false
-            cacheClearMessage = "已清理 \(result.fileCount) 个缓存文件"
+            cacheClearMessage = category.map { "已清理 \($0.displayName) · \(result.fileCount) 个文件" }
+                ?? "已清理全部缓存 · \(result.fileCount) 个文件"
             ToastCenter.shared.show("缓存已清除")
         }
     }

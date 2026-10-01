@@ -386,6 +386,12 @@ struct SearchView: View {
     @StateObject private var model: SearchViewModel
     @StateObject private var history = SearchHistoryStore.shared
     @State private var searchText: String = ""
+#if os(iOS)
+    @EnvironmentObject private var bilibili: BilibiliSessionStore
+    @EnvironmentObject private var settings: SettingsManager
+    @FocusState private var searchFieldFocused: Bool
+    @State private var showBilibiliSearch = false
+#endif
     init(query: String) {
         _model = StateObject(wrappedValue: SearchViewModel(query: query))
         _searchText = State(initialValue: query)
@@ -394,6 +400,7 @@ struct SearchView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                searchBar
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     platformPicker
                     musicSearchContent
@@ -404,20 +411,11 @@ struct SearchView: View {
             }
             .padding(.top, 8)
         }
-        // iOS owns the search-tab accessory and its Liquid Glass placement.
-        // A second safe-area field here was being composited over the tab bar
-        // until the first scroll gesture caused a layout pass.
-        #if os(iOS)
+        #if os(macOS)
         .searchable(text: $searchText, prompt: "Search songs, artists, albums, or playlists")
         .onSubmit(of: .search) {
             submitSearchAfterInputMethodCommits()
         }
-        #if os(Linux)
-        .searchable(text: $searchText, prompt: "搜索歌曲、歌手、专辑、歌单")
-        .onSubmit(of: .search) {
-            submitSearchAfterInputMethodCommits()
-        }
-        #endif
         #endif
         .onChange(of: searchText) { newValue in
             model.setQuery(newValue)
@@ -435,7 +433,8 @@ struct SearchView: View {
             }
             #endif
         }
-        .navigationTitle(searchText.isEmpty ? "搜索" : searchText)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
         .task(id: "\(model.tab.rawValue)-\(model.platform.rawValue)-\(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)") {
             if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 await model.loadHotKeywords()
@@ -446,7 +445,50 @@ struct SearchView: View {
         .onDisappear {
             resignSearchInput()
         }
+#if os(iOS)
+        .fullScreenCover(isPresented: $showBilibiliSearch) {
+            NavigationStack {
+                BilibiliSearchView()
+                    .environmentObject(bilibili)
+                    .environmentObject(settings)
+            }
+        }
+#endif
     }
+
+#if os(iOS)
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(.secondary)
+            TextField("搜索歌曲、歌手、专辑或歌单", text: $searchText)
+                .focused($searchFieldFocused)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit { submitSearchAfterInputMethodCommits() }
+            if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    performSearch()
+                } label: {
+                    Image(systemName: "arrow.right.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("开始搜索")
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 52)
+        .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(.horizontal, Theme.Layout.contentInset)
+        .padding(.top, 4)
+    }
+#else
+    private var searchBar: some View { EmptyView() }
+#endif
 
     @ViewBuilder
     private var musicSearchContent: some View {
@@ -533,6 +575,24 @@ struct SearchView: View {
                         .buttonStyle(.plain)
                         .frame(minHeight: 44)
                     }
+#if os(iOS)
+                    Button {
+                        showBilibiliSearch = true
+                        searchFieldFocused = false
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "play.rectangle.fill")
+                            Text("哔哩哔哩")
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(minHeight: 44)
+#endif
                 }
                 .padding(.horizontal, Theme.Layout.contentInset)
             }
@@ -569,12 +629,26 @@ struct SearchView: View {
                 Text("搜索歌曲、歌手、专辑或歌单")
                     .font(.headline)
                     .foregroundStyle(.secondary)
-                Text("使用底部搜索框开始，聚合搜索也可以切换到单个平台。")
+                Text("使用上方搜索框开始，聚合搜索也可以切换到单个平台或哔哩哔哩。")
                     .font(.subheadline)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
+
+#if os(iOS)
+            Button {
+                showBilibiliSearch = true
+                searchFieldFocused = false
+            } label: {
+                Label("搜索哔哩哔哩", systemImage: "play.rectangle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 46)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color(red: 0.08, green: 0.62, blue: 0.86))
+            .padding(.horizontal, Theme.Layout.contentInset)
+#endif
 
             if !model.hotKeywords.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {

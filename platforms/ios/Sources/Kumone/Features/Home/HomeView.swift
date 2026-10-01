@@ -330,7 +330,6 @@ struct HomeView: View {
 #if os(iOS)
     @EnvironmentObject private var bilibili: BilibiliSessionStore
     @State private var showBilibiliCenter = false
-    @State private var showHomePlatformMenu = false
 #endif
     @StateObject private var model = HomeViewModel.shared
 
@@ -347,18 +346,27 @@ struct HomeView: View {
         #if os(iOS)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    showHomePlatformMenu = true
-                } label: {
-                    Image(systemName: "music.note.house")
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 40, height: 40)
-                        .background(.thinMaterial, in: Circle())
-                        .overlay {
-                            Circle().strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+                Menu {
+                    Section("首页推荐平台") {
+                        ForEach(homePlatforms) { platform in
+                            Button {
+                                selectHomePlatform(platform)
+                            } label: {
+                                Label(platform.displayName, systemImage: platformMenuIcon(platform))
+                            }
                         }
+                    }
+                    Section {
+                        Button {
+                            showBilibiliCenter = true
+                        } label: {
+                            Label("哔哩哔哩", systemImage: "play.rectangle.fill")
+                        }
+                    }
+                } label: {
+                    HomePlatformBadge(platform: selectedHomePlatform)
                 }
-                .accessibilityLabel("切换首页推荐平台")
+                .accessibilityLabel("当前首页平台：\(selectedHomePlatform.displayName)，点击切换")
                 .accessibilityHint("选择首页推荐平台或打开哔哩哔哩")
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -389,25 +397,6 @@ struct HomeView: View {
                 BilibiliContentView()
                     .environmentObject(bilibili)
             }
-        }
-        .sheet(isPresented: $showHomePlatformMenu) {
-            HomePlatformGlassMenu(
-                platforms: homePlatforms,
-                selectedPlatform: settings.homeRecommendationMode == .netease
-                    ? .wy
-                    : settings.homeRecommendationPlatform,
-                showBilibili: settings.bilibiliMode != .disabled,
-                onSelect: { platform in
-                    selectHomePlatform(platform)
-                    showHomePlatformMenu = false
-                },
-                onBilibili: {
-                    showHomePlatformMenu = false
-                    showBilibiliCenter = true
-                }
-            )
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
         }
 #endif
     }
@@ -559,6 +548,24 @@ struct HomeView: View {
     private var homePlatforms: [LXCatalogPlatform] {
         LXCatalogPlatform.catalogueCases.filter { $0 != .aggregate }
     }
+
+#if os(iOS)
+    private var selectedHomePlatform: LXCatalogPlatform {
+        settings.homeRecommendationMode == .netease ? .wy : settings.homeRecommendationPlatform
+    }
+
+    private func platformMenuIcon(_ platform: LXCatalogPlatform) -> String {
+        switch platform {
+        case .wy: return "cloud.fill"
+        case .kw: return "music.note"
+        case .kg: return "headphones"
+        case .tx: return "music.note.list"
+        case .mg: return "waveform"
+        case .sd: return "drop.fill"
+        case .aggregate: return "music.note.house.fill"
+        }
+    }
+#endif
 
     private func isHomePlatform(_ platform: LXCatalogPlatform) -> Bool {
         if platform == .wy { return settings.homeRecommendationMode == .netease }
@@ -894,91 +901,44 @@ struct FeatureCard: View {
 }
 
 #if os(iOS)
-/// The home header's circular switcher.  This keeps the recommendation
-/// platform and Bilibili entry discoverable without adding a second picker to
-/// the feed, while retaining a real glass surface on iOS.
-private struct HomePlatformGlassMenu: View {
-    let platforms: [LXCatalogPlatform]
-    let selectedPlatform: LXCatalogPlatform
-    let showBilibili: Bool
-    let onSelect: (LXCatalogPlatform) -> Void
-    let onBilibili: () -> Void
+struct HomePlatformBadge: View {
+    let platform: LXCatalogPlatform
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("首页内容")
-                    .font(.title3.weight(.bold))
-                    .padding(.horizontal, 4)
-
-                MouGlassCard(cornerRadius: 26, padding: 18) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("每日推荐平台", systemImage: "music.note.house.fill")
-                            .font(.headline)
-                            .foregroundStyle(Theme.accent)
-
-                        Text("选择后，首页推荐和每日推荐会使用同一平台；聚合搜索仍保持原来的搜索入口。")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
-                            ForEach(platforms) { platform in
-                                Button {
-                                    onSelect(platform)
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: platform == selectedPlatform ? "checkmark.circle.fill" : "circle")
-                                        Text(platform.displayName)
-                                            .lineLimit(1)
-                                    }
-                                    .font(.subheadline.weight(.medium))
-                                    .frame(maxWidth: .infinity, minHeight: 44)
-                                    .foregroundStyle(platform == selectedPlatform ? .white : .primary)
-                                    .background(
-                                        platform == selectedPlatform ? Theme.accent : Color.secondary.opacity(0.12),
-                                        in: Capsule()
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-
-                MouGlassCard(cornerRadius: 26, padding: 18) {
-                    Button(action: onBilibili) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "play.rectangle.fill")
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 40, height: 40)
-                                .background(Color(red: 0.08, green: 0.62, blue: 0.86), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("哔哩哔哩")
-                                    .font(.headline)
-                                Text(showBilibili ? "打开推荐、搜索、分区与播放" : "请先在设置中开启 B 站")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundStyle(.secondary)
-                        }
-                        .contentShape(Rectangle())
-                        .frame(minHeight: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!showBilibili)
-                    .opacity(showBilibili ? 1 : 0.55)
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 12)
-            .padding(.bottom, 24)
+        ZStack {
+            Circle()
+                .fill(tint.opacity(0.16))
+            Image(systemName: iconName)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(tint)
         }
-        .background(Color.clear)
-        .compatPresentationBackground(.ultraThinMaterial)
+        .frame(width: 40, height: 40)
+        .overlay(Circle().strokeBorder(.white.opacity(0.2), lineWidth: 0.8))
+        .background(.regularMaterial, in: Circle())
+    }
+
+    private var iconName: String {
+        switch platform {
+        case .wy: return "cloud.fill"
+        case .kw: return "waveform"
+        case .kg: return "headphones"
+        case .tx: return "music.note.list"
+        case .mg: return "music.note"
+        case .sd: return "drop.fill"
+        case .aggregate: return "square.stack.3d.up.fill"
+        }
+    }
+
+    private var tint: Color {
+        switch platform {
+        case .wy: return .red
+        case .kw: return .orange
+        case .kg: return .blue
+        case .tx: return .green
+        case .mg: return .purple
+        case .sd: return .pink
+        case .aggregate: return Theme.accent
+        }
     }
 }
 #endif

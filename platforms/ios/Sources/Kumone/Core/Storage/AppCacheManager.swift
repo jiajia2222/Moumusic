@@ -9,6 +9,33 @@ import Foundation
 actor AppCacheManager {
     static let shared = AppCacheManager()
 
+    enum CacheCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
+        case artwork
+        case catalogue
+        case media
+        case temporary
+
+        var id: String { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .artwork: return "封面与图片"
+            case .catalogue: return "推荐与目录"
+            case .media: return "音频与视频临时文件"
+            case .temporary: return "临时文件"
+            }
+        }
+
+        var symbolName: String {
+            switch self {
+            case .artwork: return "photo"
+            case .catalogue: return "rectangle.stack"
+            case .media: return "waveform"
+            case .temporary: return "clock.arrow.circlepath"
+            }
+        }
+    }
+
     struct Summary: Sendable {
         let fileCount: Int
         let byteCount: Int64
@@ -25,18 +52,44 @@ actor AppCacheManager {
 
     func summary() -> Summary {
         let files = cacheFiles()
-        let bytes = files.reduce(Int64.zero) { result, file in
-            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey]) else { return result }
-            return result + Int64(values.fileSize ?? 0)
-        }
-        return Summary(fileCount: files.count, byteCount: bytes)
+        return makeSummary(files)
+    }
+
+    func summary(for category: CacheCategory) -> Summary {
+        makeSummary(files(for: category))
     }
 
     func clearAll(progress: @escaping ProgressHandler) async -> ClearResult {
         // NSCache keeps images alive even after their disk files are gone.
         await ImageCache.shared.removeAll()
 
-        let files = cacheFiles()
+        await MainActor.run {
+            HomeRecommendationCache.shared.clear()
+            LXPlaylistDetailCache.shared.clear()
+        }
+
+        let result = await clearFiles(cacheFiles(), progress: progress)
+        await progress(1)
+        return result
+    }
+
+    func clear(_ category: CacheCategory, progress: @escaping ProgressHandler) async -> ClearResult {
+        if category == .artwork {
+            await ImageCache.shared.removeAll()
+        }
+        if category == .catalogue {
+            await MainActor.run {
+                HomeRecommendationCache.shared.clear()
+                LXPlaylistDetailCache.shared.clear()
+            }
+        }
+
+        let result = await clearFiles(files(for: category), progress: progress)
+        await progress(1)
+        return result
+    }
+
+    private func clearFiles(_ files: [URL], progress: @escaping ProgressHandler) async -> ClearResult {
         let total = max(files.count, 1)
         var removedFiles = 0
         var removedBytes: Int64 = 0
@@ -55,8 +108,15 @@ actor AppCacheManager {
         }
 
         removeEmptyDirectories()
-        await progress(1)
         return ClearResult(fileCount: removedFiles, byteCount: removedBytes)
+    }
+
+    private func makeSummary(_ files: [URL]) -> Summary {
+        let bytes = files.reduce(Int64.zero) { result, file in
+            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey]) else { return result }
+            return result + Int64(values.fileSize ?? 0)
+        }
+        return Summary(fileCount: files.count, byteCount: bytes)
     }
 
     private func cacheRoots() -> [URL] {
@@ -102,6 +162,26 @@ actor AppCacheManager {
             }
         }
         return result
+    }
+
+    private func files(for category: CacheCategory) -> [URL] {
+        cacheFiles().filter { classify($0) == category }
+    }
+
+    private func classify(_ file: URL) -> CacheCategory {
+        let path = file.path.lowercased()
+        if path.contains("/tmp/") || path.contains("\\tmp\\") || path.contains("/temporary/") {
+            return .temporary
+        }
+        if path.contains("/images/") || path.contains("\\images\\") ||
+            ["jpg", "jpeg", "png", "heic", "webp", "gif"].contains(file.pathExtension.lowercased()) {
+            return .artwork
+        }
+        if ["mp3", "m4a", "flac", "aac", "ogg", "wav", "mp4", "mkv", "mov"].contains(file.pathExtension.lowercased()) ||
+            path.contains("audio") || path.contains("video") {
+            return .media
+        }
+        return .catalogue
     }
 
     private func removeEmptyDirectories() {

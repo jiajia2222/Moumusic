@@ -103,7 +103,16 @@ enum LyricsParser {
         }
 
         merge(tlyric, into: \.translation)
-        merge(rlyric ?? lxlyric, into: \.romaji)
+        // `lxlyric` is usually the source's word-timed main lyric, not a
+        // romanization payload. Treating it as romaji makes the translation
+        // row show a second, Japanese-looking copy of the original lyric.
+        merge(rlyric, into: \.romaji)
+        for index in lines.indices {
+            lines[index].translation = sanitizedSecondaryText(
+                lines[index].translation,
+                main: lines[index].text
+            )
+        }
         lines = addFurigana(to: lines)
         result.lines = lines
         return result
@@ -328,6 +337,13 @@ enum LyricsParser {
             }
         }
 
+        for index in lines.indices {
+            lines[index].translation = sanitizedSecondaryText(
+                lines[index].translation,
+                main: lines[index].text
+            )
+        }
+
         out.lines = lines
         out.lines = addFurigana(to: out.lines)
         return out
@@ -340,6 +356,35 @@ enum LyricsParser {
             lines[index].furigana = Furigana.segments(for: lines[index].text)
         }
         return lines
+    }
+
+    /// A few providers put the original lyric (or an annotation body) in
+    /// `tlyric`. Do not render it as a translation. Japanese kana is also not
+    /// a translation for a non-Japanese main line; it is normally an accidental
+    /// romaji/furigana payload from an inconsistent endpoint.
+    private static func sanitizedSecondaryText(_ value: String?, main: String) -> String? {
+        guard let value else { return nil }
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+
+        let normalizedText = text.replacingOccurrences(of: " ", with: "")
+        let normalizedMain = main
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "")
+        guard normalizedText != normalizedMain else { return nil }
+
+        if containsJapaneseKana(text) && !containsJapaneseKana(main) {
+            return nil
+        }
+        return text
+    }
+
+    private static func containsJapaneseKana(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            let value = Int(scalar.value)
+            return (0x3040...0x30FF).contains(value)
+                || (0x31F0...0x31FF).contains(value)
+        }
     }
 
 }

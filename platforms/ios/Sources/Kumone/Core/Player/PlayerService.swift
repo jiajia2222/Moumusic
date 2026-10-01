@@ -1156,6 +1156,12 @@ final class PlayerService: ObservableObject {
             } catch {
                 guard !Task.isCancelled, generation == resolveGeneration else { return }
                 consecutiveFailures += 1
+                DiagnosticLogStore.shared.append(
+                    level: .error,
+                    category: "Playback",
+                    message: "播放失败",
+                    detail: error.localizedDescription
+                )
                 ToastCenter.shared.show("《\(track.name)》播放失败：\(error.localizedDescription)")
                 // A source-level error is not fixed by immediately trying five
                 // more queue entries. Keep the current song visible so the user
@@ -1549,6 +1555,7 @@ final class PlayerService: ObservableObject {
             "master", "jymaster", "master_quality", "master-quality",
             "atmos", "immersive", "dolby", "dolby-atmos", "dolbyatmos",
             "surround", "spatial", "spatial-audio",
+            "flac24bit", "flac24", "hires", "highres",
         ].contains(normalizedProvider ?? "")
 
         // A semantic tier such as Atmos or Master is not safe to display
@@ -1563,10 +1570,14 @@ final class PlayerService: ObservableObject {
             return requiresTechnicalVerification ? nil : providerQuality
         }
 
+        // CD-quality FLAC is commonly around 1.4 Mbps. Do not call that
+        // Hi-Res merely because it is lossless; use a higher conservative
+        // threshold so an account/source cannot advertise Hi-Res for a plain
+        // lossless URL. A source must provide a genuinely larger stream.
         switch Int(rate.rounded()) {
-        case 900_000...:
+        case 1_800_000...:
             return "flac24bit"
-        case 600_000..<900_000:
+        case 600_000..<1_800_000:
             return "flac"
         case 300_000..<600_000:
             return "320k"

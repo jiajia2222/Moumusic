@@ -20,6 +20,7 @@ struct MyProfileView: View {
     @State private var showQQMusicLogin = false
     @State private var showKugouLogin = false
     @State private var showBilibiliLogin = false
+    @State private var showMoumusicProfileEditor = false
 
     var body: some View {
         ScrollView {
@@ -68,6 +69,10 @@ struct MyProfileView: View {
         .sheet(isPresented: $showBilibiliLogin) {
             BilibiliLoginSheet()
                 .environmentObject(bilibili)
+        }
+        .sheet(isPresented: $showMoumusicProfileEditor) {
+            MoumusicProfileEditorView()
+                .environmentObject(moumusicServer)
         }
     }
 
@@ -168,7 +173,7 @@ struct MyProfileView: View {
 
                 Divider()
                 HStack {
-                    Label("Moumusic server", systemImage: "server.rack")
+                    Label("个人资料服务", systemImage: "server.rack")
                         .font(.subheadline.weight(.semibold))
                     Spacer()
                     Text(moumusicServer.statusText)
@@ -182,7 +187,7 @@ struct MyProfileView: View {
                         get: { moumusicServer.config?.downloadsEnabled ?? true },
                         set: { value in Task { await moumusicServer.setDownloadsEnabled(value) } }
                     )) {
-                        Label("Public downloads", systemImage: "arrow.down.circle")
+                        Label("允许公开下载", systemImage: "arrow.down.circle")
                             .font(.subheadline)
                     }
                     .tint(Theme.accent)
@@ -196,7 +201,23 @@ struct MyProfileView: View {
 
     private var moumusicIdentityCard: some View {
         MouGlassCard(cornerRadius: 28) {
-            VStack(alignment: .leading, spacing: 12) {
+            ZStack {
+                if let background = moumusicServer.profile?.backgroundURL,
+                   let url = URL(string: background), !background.isEmpty {
+                    AsyncImage(url: url) { phase in
+                        if case .success(let image) = phase {
+                            image.resizable().scaledToFill()
+                        } else {
+                            Color.clear
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 260)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .overlay(Color.black.opacity(0.26))
+                    .allowsHitTesting(false)
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 14) {
                     if let avatar = moumusicServer.profile?.avatarURL, let url = URL(string: avatar) {
                         AsyncImage(url: url) { phase in
@@ -227,6 +248,16 @@ struct MyProfileView: View {
                             .lineLimit(1)
                     }
                     Spacer()
+                    Button {
+                        showMoumusicProfileEditor = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(width: 36, height: 36)
+                            .background(.regularMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("编辑个人资料")
                     Image(systemName: moumusicServer.isAdmin ? "checkmark.seal.fill" : "person.crop.circle.badge.checkmark")
                         .font(.title2)
                         .foregroundStyle(moumusicServer.isAdmin ? .orange : Theme.accent)
@@ -282,6 +313,7 @@ struct MyProfileView: View {
                     }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.accent)
+                }
                 }
             }
         }
@@ -504,6 +536,87 @@ struct MyProfileView: View {
 
     private var divider: some View {
         Divider().padding(.leading, 40)
+    }
+}
+
+private struct MoumusicProfileEditorView: View {
+    @EnvironmentObject private var server: MoumusicServerStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var nickname = ""
+    @State private var backgroundURL = ""
+    @State private var signature = ""
+    @State private var isSaving = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("个人资料") {
+                    TextField("昵称", text: $nickname)
+                    TextField("个性签名", text: $signature, axis: .vertical)
+                        .lineLimit(2...4)
+                }
+
+                Section("个人卡片背景") {
+                    TextField("图片 URL", text: $backgroundURL)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+
+                    if let url = URL(string: backgroundURL), !backgroundURL.isEmpty {
+                        AsyncImage(url: url) { phase in
+                            if case .success(let image) = phase {
+                                image.resizable().scaledToFill()
+                            } else {
+                                Color.secondary.opacity(0.12)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 130)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+
+                    Text("保存后会用于 Moumusic 个人 ID 卡片。建议使用稳定的 HTTPS 图片地址。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("编辑个人卡片")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        isSaving = true
+                        Task {
+                            await server.updateProfile(
+                                nickname: nickname.trimmingCharacters(in: .whitespacesAndNewlines),
+                                signature: signature.trimmingCharacters(in: .whitespacesAndNewlines),
+                                backgroundURL: backgroundURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    ? nil
+                                    : backgroundURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                            )
+                            isSaving = false
+                            dismiss()
+                        }
+                    }
+                    .disabled(isSaving || nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .overlay {
+                if isSaving {
+                    ProgressView()
+                        .padding(20)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                }
+            }
+            .task {
+                guard let profile = server.profile else { return }
+                nickname = profile.nickname
+                signature = profile.signature ?? ""
+                backgroundURL = profile.backgroundURL ?? ""
+            }
+        }
     }
 }
 #endif

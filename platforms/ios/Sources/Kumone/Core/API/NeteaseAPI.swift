@@ -467,22 +467,9 @@ enum NeteaseAPI {
     /// was served. This deliberately prefers response metadata over the
     /// requested tier because VIP restrictions can downgrade a request.
     static func officialQuality(for data: SongURLData) -> AudioQuality? {
-        // NetEase can echo the requested `level` even when the account is
-        // downgraded.  `br` is the per-track value and must win whenever it is
-        // present; otherwise a 128 kbps URL can be labelled Master/Lossless.
-        if data.br > 0 {
-            switch data.br {
-            case 900_000...: return .hires
-            case 600_000..<900_000: return .lossless
-            case 300_000..<600_000: return .exhigh
-            // 192 kbps (and similar provider-specific bitrates) is not the
-            // 320 kbps “较高/极高” tier. Keep the safe standard tier instead
-            // of showing a quality badge that the returned URL does not have.
-            case 160_000..<300_000: return .standard
-            default: return .standard
-            }
-        }
-
+        // NetEase can echo the requested `level` and a 999K-ish bitrate even
+        // after downgrading an account. Prefer the returned format marker, and
+        // only use the bitrate as a conservative fallback.
         if let type = data.type?.lowercased() {
             if type.contains("24") || type.contains("hires") || type.contains("highres") {
                 return .hires
@@ -491,6 +478,19 @@ enum NeteaseAPI {
                 return .lossless
             }
         }
+
+        if data.br > 0 {
+            switch data.br {
+            case 1_800_000...: return .hires
+            case 600_000..<1_800_000: return .lossless
+            case 300_000..<600_000: return .exhigh
+            // 192 kbps (and similar provider-specific bitrates) is not the
+            // 320 kbps tier. Keep the safe standard tier instead.
+            case 160_000..<300_000: return .standard
+            default: return .standard
+            }
+        }
+
         // `level` alone is not proof of the returned stream. NetEase can echo
         // the requested level after downgrading an account, so leave the
         // result unknown instead of claiming Master/Atmos/Lossless.

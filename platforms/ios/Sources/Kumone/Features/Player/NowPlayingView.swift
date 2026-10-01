@@ -1140,26 +1140,17 @@ struct NowPlayingView: View {
             player.seek(to: line.time)
         } label: {
             VStack(alignment: .leading, spacing: 5) {
-                if settings.lyricsAnnotation == .romaji, let romaji = line.romaji {
-                    Text(romaji)
-                        .font(.system(size: isActive ? 15 : 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
-                }
                 LyricMainText(
                     line: line, isActive: isActive,
                     font: .system(size: isActive ? 26 : 20, weight: isActive ? .bold : .semibold),
                     verbatim: settings.verbatimLyrics
                 )
-                if settings.showLyricsTranslation, let translation = line.translation {
-                    Text(translation)
-                        .font(.system(size: isActive ? 16 : 14, weight: .medium))
-                        .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
-                }
+                LyricSupplementalText(line: line, isActive: isActive)
             }
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .blur(radius: isActive ? 0 : 0.6)
+            .blur(radius: settings.lyricsDisplayStyle == .amll ? 0 : (isActive ? 0 : 0.6))
             .scaleEffect(1, anchor: .leading)
         }
         .buttonStyle(.plain)
@@ -1298,10 +1289,13 @@ private struct AMLLyricText: View {
             }
         }
         .font(font.weight(isActive ? .bold : .semibold))
+        .lineSpacing(isActive ? 5 : 1)
+        .tracking(isActive ? 0.15 : 0)
         .minimumScaleFactor(0.64)
         .fixedSize(horizontal: false, vertical: true)
-        .scaleEffect(isActive ? 1 : 0.94, anchor: .leading)
-        .blur(radius: isActive ? 0 : 0.35)
+        .scaleEffect(isActive ? 1.06 : 0.90, anchor: .leading)
+        .opacity(isActive ? 1 : 0.56)
+        .blur(radius: isActive ? 0 : 0.55)
         .animation(.spring(response: 0.36, dampingFraction: 0.86), value: isActive)
     }
 
@@ -1316,6 +1310,36 @@ private struct AMLLyricText: View {
                 .foregroundColor(.white.opacity(opacity))
         }
         return output
+    }
+}
+
+/// Shared secondary lyric rows. Keeping this in one view prevents the full,
+/// immersive and compact player modes from drifting apart when the user
+/// changes translation or Japanese annotation settings.
+private struct LyricSupplementalText: View {
+    let line: LyricLine
+    let isActive: Bool
+
+    @EnvironmentObject private var settings: SettingsManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if settings.lyricsAnnotation == .romaji,
+               let romaji = line.romaji,
+               !romaji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(romaji)
+                    .font(.system(size: isActive ? 15 : 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
+            }
+            if settings.showLyricsTranslation,
+               let translation = line.translation,
+               !translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(translation)
+                    .font(.system(size: isActive ? 16 : 14, weight: .medium))
+                    .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
@@ -1726,23 +1750,12 @@ private struct IOSImmersiveLyricsColumn: View {
             player.seek(to: line.time)
         } label: {
             VStack(alignment: .leading, spacing: 5) {
-                if settings.lyricsAnnotation == .romaji, let romaji = line.romaji {
-                    Text(romaji)
-                        .font(.system(size: isActive ? 15 : 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
-                }
-
                 LyricMainText(
                     line: line, isActive: isActive,
                     font: .system(size: 27, weight: isActive ? .bold : .semibold),
                     verbatim: settings.verbatimLyrics
                 )
-
-                if settings.showLyricsTranslation, let translation = line.translation {
-                    Text(translation)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
-                }
+                LyricSupplementalText(line: line, isActive: isActive)
             }
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2621,14 +2634,6 @@ private struct IOSMinimalLyricsColumn: View {
     ) -> some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 3) {
-                if settings.lyricsAnnotation == .romaji, let romaji = line.romaji {
-                    Text(romaji)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .scaleEffect(isActive ? 1 : 12.0 / 13.0, anchor: .leading)
-                }
-
                 LyricMainText(
                     line: line, isActive: isActive,
                     font: .system(size: 17, weight: .bold),
@@ -2636,14 +2641,7 @@ private struct IOSMinimalLyricsColumn: View {
                 )
                     .fixedSize(horizontal: false, vertical: true)
                     .scaleEffect(isActive ? 1 : 16.0 / 17.0, anchor: .leading)
-
-                if settings.showLyricsTranslation, let translation = line.translation {
-                    Text(translation)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(isActive ? 0.7 : 0.35))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .scaleEffect(isActive ? 1 : 12.0 / 13.0, anchor: .leading)
-                }
+                LyricSupplementalText(line: line, isActive: isActive)
             }
             .multilineTextAlignment(.leading)
             .padding(.horizontal, 12)

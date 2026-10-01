@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "KumoneIOSFeature",
     defaultLocalization: "zh-Hans",
-    platforms: [.iOS(.v16)],
+    platforms: [.iOS("26.0")],
     products: [
         .library(
             name: "KumoneIOSFeature",
