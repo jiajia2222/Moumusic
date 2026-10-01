@@ -74,6 +74,7 @@ struct PlaylistView: View {
             }
             .navigationTitle(playlist.name)
             .navigationBarTitleDisplayMode(.inline)
+            .batchDownloadToolbar(songs: displayedTracks, title: playlist.name)
         .task { await load() }
     }
 

@@ -1470,6 +1470,7 @@ struct QQTopListDetailView: View {
             }
             .navigationTitle(beansChartName(name))
             .navigationBarTitleDisplayMode(.inline)
+            .batchDownloadToolbar(songs: tracks, title: beansChartName(name))
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: beansLocalized("搜索榜单歌曲", "Search chart songs"))
         .task { await load() }
     }
@@ -1579,6 +1580,7 @@ struct QQPlaylistSongsSheet: View {
             }
             .navigationTitle(playlist.name)
             .navigationBarTitleDisplayMode(.inline)
+            .batchDownloadToolbar(songs: tracks, title: playlist.name)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: beansLocalized("搜索歌单内歌曲", "Search playlist songs"))
         .task { await load() }
     }
@@ -1660,6 +1662,7 @@ struct DailySongsSheet: View {
             }
             .navigationTitle("今日推荐")
             .navigationBarTitleDisplayMode(.inline)
+            .batchDownloadToolbar(songs: songs, title: "每日推荐")
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: beansLocalized("搜索每日推荐", "Search daily recommendations"))
     }
 
@@ -1737,6 +1740,7 @@ struct TopListDetailView: View {
             }
             .navigationTitle(beansChartName(topList.name))
             .navigationBarTitleDisplayMode(.inline)
+            .batchDownloadToolbar(songs: tracks, title: beansChartName(topList.name))
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: beansLocalized("搜索榜单歌曲", "Search chart songs"))
         .task { await load() }
     }
@@ -1879,6 +1883,7 @@ struct KugouTopListDetailView: View {
             }
             .navigationTitle(beansChartName(topList.name))
             .navigationBarTitleDisplayMode(.inline)
+            .batchDownloadToolbar(songs: tracks, title: beansChartName(topList.name))
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: beansLocalized("搜索榜单歌曲", "Search chart songs"))
         .task { await load() }
     }

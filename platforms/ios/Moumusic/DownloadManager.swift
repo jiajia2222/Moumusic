@@ -158,7 +158,7 @@ final class DownloadManager {
     private func resolveURL(song: Song, quality: DownloadQuality) async -> ResolvedDownloadURL? {
         // 下载优先复用已配置的第三方音源，避免播放能用第三方而下载仍走官方地址。
         let thirdPartyID = song.source == .netease ? song.id : 0
-        let thirdPartyKugouID = song.kugouHash ?? song.kugouAlbumAudioId
+        let thirdPartyKugouID = song.source.usesExternalID ? song.extID : (song.kugouHash ?? song.kugouAlbumAudioId)
         if let resolved = await UnblockService.resolve(
             name: song.name,
             artists: song.artists,
@@ -196,6 +196,9 @@ final class DownloadManager {
             guard let urlString = try? await KugouMusicAPI.shared.songURL(song: song, quality: quality.beansQuality),
                   let url = URL(string: urlString) else { return nil }
             return ResolvedDownloadURL(url: url, actualQuality: quality, sourceName: nil)
+        } else if song.source.usesExternalID {
+            // 酷我 / 咪咕没有官方下载地址，只使用第三方音源。
+            return nil
         } else {
             let urls = try? await NetEaseAPI.shared.songURLs(ids: [song.id], level: quality.neteaseLevel)
             guard let urlString = urls?[song.id], let url = URL(string: urlString) else { return nil }

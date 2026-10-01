@@ -25,6 +25,7 @@ struct LocalMusicSection: View {
     @State private var syncing = false
     @State private var syncMessage = ""
     @State private var showSyncPicker = false
+    @State private var showImport = false
     @State private var selectedSyncTargets: Set<SyncTarget> = []
 
     private var emptyLocalPlaylistText: String {
@@ -75,6 +76,10 @@ struct LocalMusicSection: View {
                 Text("选择两个或三个平台，合并同步到一个本地歌单")
                     .font(BeansFont.appFont(11))
                     .foregroundStyle(Color.beansComment)
+                GlassButton(title: "粘贴或导入歌单", systemName: "square.and.arrow.down") {
+                    showImport = true
+                }
+                .padding(.top, 4)
             }
             if !syncMessage.isEmpty {
                 Text(syncMessage)
@@ -176,6 +181,10 @@ struct LocalMusicSection: View {
         }
         .sheet(isPresented: $showPlaylistOrder) {
             LocalPlaylistOrderSheet()
+                .environmentObject(theme)
+        }
+        .sheet(isPresented: $showImport) {
+            PlaylistImportSheet()
                 .environmentObject(theme)
         }
         .sheet(item: $selected) { playlist in

@@ -167,6 +167,7 @@ struct ExtraSongListSheet: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+            .batchDownloadToolbar(songs: songs, title: title)
         }
         .task {
             do {
