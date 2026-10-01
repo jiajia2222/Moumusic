@@ -19,6 +19,7 @@ struct ProfileView: View {
     @AppStorage("beans.pauseHomeRendering") private var homeRenderingPaused = false
 
     @State private var showHistory = false
+    @AppStorage("beans.hideDonation") private var hideDonation = false
 
     /// 统一账号登录面板（网易云 + QQ 音乐整合）
     @State private var showAccountHub = false
@@ -196,7 +197,9 @@ struct ProfileView: View {
                     // 更新入口固定放在“我的”页面最底部，避免被板块排序隐藏。
                     updateLinkCard
                     communityCard
-                    donationCard
+                    if !hideDonation {
+                        donationCard
+                    }
                     profileVersionFooter
                 }
                 .padding(.horizontal, isNativeClean ? 24 : 16)
@@ -1373,6 +1376,7 @@ struct SettingsView: View {
     }
 
     @State private var settingsQuery = ""
+    @AppStorage("beans.hideDonation") private var hideDonationFlag = false
     @AppStorage("beans.settings.category") private var settingsCategoryRaw = SettingsCategory.accounts.rawValue
     @State private var showSettingsAccountHub = false
 
@@ -1458,7 +1462,11 @@ struct SettingsView: View {
         switch section {
         case .accounts: settingsAccountsSection
         case .platforms: settingsPlatformsSection
-        case .theme: themeSection
+        case .theme:
+            VStack(alignment: .leading, spacing: 16) {
+                themeSection
+                hideDonationCard
+            }
         case .dynamicWallpaper:
             VStack(alignment: .leading, spacing: 16) {
                 DynamicWallpaperSettingsSection()
@@ -1471,6 +1479,20 @@ struct SettingsView: View {
         case .support: supportSection
         case .log: logSection
         }
+    }
+
+    private var hideDonationCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: $hideDonationFlag) {
+                Text("隐藏自愿赞助")
+                    .font(BeansFont.appFont(15))
+                    .foregroundStyle(Color.beansLabel)
+            }
+            .toggleStyle(.switch)
+            .tint(Color.beansAmber)
+        }
+        .padding(14)
+        .background { BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
     }
 
     private var settingsAccountsSection: some View {
