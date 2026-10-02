@@ -252,6 +252,11 @@ struct BilibiliContentView: View {
         .navigationBarTitleDisplayMode(embedded ? .automatic : .large)
         .toolbar {
             if embedded {
+                // Bilibili-only search, right next to the account entry.
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
+                        .accessibilityLabel("搜索哔哩哔哩")
+                }
                 // Account entry next to the platform switcher (like Beans' avatar button).
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -1009,6 +1014,8 @@ struct BilibiliSearchView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = BilibiliContentViewModel()
     @State private var selectedVideo: BilibiliAPI.Video?
+    @State private var selectedUser: BilibiliAPI.User?
+    @EnvironmentObject private var player: PlayerService
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -1054,6 +1061,14 @@ struct BilibiliSearchView: View {
         }
         .task {
             searchFocused = true
+        }
+        .sheet(item: $selectedUser) { user in
+            NavigationStack {
+                BilibiliUserVideosView(user: user)
+                    .environmentObject(bilibili)
+                    .environmentObject(settings)
+                    .environmentObject(player)
+            }
         }
         .sheet(item: $selectedVideo) { video in
             NavigationStack {
@@ -1134,7 +1149,8 @@ struct BilibiliSearchView: View {
             } else {
                 LazyVStack(spacing: 10) {
                     ForEach(model.users) { user in
-                        BilibiliUserRow(user: user)
+                        Button { selectedUser = user } label: { BilibiliUserRow(user: user).contentShape(Rectangle()) }
+                            .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, Theme.Layout.contentInset)

@@ -1187,6 +1187,10 @@ final class PlayerService: ObservableObject {
                 resolvedURL = resolved.url
                 servedByLXQuality = resolved.quality
                 servedBySourceLabel = "LX 第三方音源"
+                if (track.fee == 1 || track.fee == 4),
+                   UserDefaults.standard.object(forKey: "moumusic.vipReminder") as? Bool ?? true {
+                    ToastCenter.shared.show("会员歌曲，已通过第三方音源播放")
+                }
             } catch {
                 guard !Task.isCancelled, generation == resolveGeneration else { return }
                 consecutiveFailures += 1

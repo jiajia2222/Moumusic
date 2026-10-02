@@ -929,6 +929,26 @@ actor BilibiliAPI {
         )
     }
 
+    /// Videos uploaded by one user (WBI-free archive list).
+    func userVideos(user: User, page: Int = 1, cookie: String? = nil) async throws -> [Video] {
+        var components = URLComponents(string: "https://api.bilibili.com/x/series/recArchivesByKeywords")!
+        components.queryItems = [
+            URLQueryItem(name: "mid", value: "\(user.mid)"),
+            URLQueryItem(name: "keywords", value: ""),
+            URLQueryItem(name: "ps", value: "30"),
+            URLQueryItem(name: "pn", value: "\(max(1, page))")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie, referer: "https://space.bilibili.com/\(user.mid)")
+        let rows = ((root["data"] as? [String: Any])?["archives"] as? [[String: Any]]) ?? []
+        return rows.compactMap { raw in
+            var normalized = raw
+            normalized["owner"] = ["name": user.name, "mid": user.mid, "face": user.avatarURL ?? ""]
+            if normalized["pic"] == nil { normalized["pic"] = raw["cover"] }
+            if normalized["pubdate"] == nil { normalized["pubdate"] = raw["ctime"] }
+            return Self.video(normalized)
+        }
+    }
+
     func searchUsers(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> [User] {
         var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/search/type")!
         components.queryItems = [
