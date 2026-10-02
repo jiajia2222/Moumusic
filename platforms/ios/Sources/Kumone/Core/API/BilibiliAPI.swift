@@ -473,6 +473,12 @@ actor BilibiliAPI {
         }
 
         let code = Self.integer(payload["code"]) ?? Self.integer(root["code"])
+        if code != 86101 {
+            let seen = code.map(String.init) ?? "nil"
+            Task { @MainActor in
+                DiagnosticLogStore.shared.append(level: .info, category: "哔哩哔哩登录", message: "扫码状态 \(seen)", detail: "")
+            }
+        }
         switch code {
         case 86101:
             return .waiting

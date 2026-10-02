@@ -1006,6 +1006,9 @@ struct CoverCardBody: View {
             }
         }
         .frame(maxWidth: flexibleWidth ? .infinity : size, alignment: .leading)
+        // Pin every card to the top of its shelf row; cards with a one-line title
+        // used to sit lower than cards with a two-line title.
+        .frame(maxHeight: flexibleWidth ? nil : .infinity, alignment: .top)
         .contentShape(Rectangle())
         #if os(macOS)
         .onHover { isHovering = $0 }

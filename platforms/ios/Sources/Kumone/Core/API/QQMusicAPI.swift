@@ -240,6 +240,12 @@ actor QQMusicAPI {
 
         guard let parsed = Self.parsePTUI(body) else { throw APIError.invalidResponse }
         let status = parsed.code
+        if status != "66" {
+            let preview = String(body.prefix(160))
+            Task { @MainActor in
+                DiagnosticLogStore.shared.append(level: .info, category: "QQ 音乐登录", message: "扫码状态 \(status)", detail: preview)
+            }
+        }
         switch status {
         case "66": return .waiting
         case "67": return .scanned

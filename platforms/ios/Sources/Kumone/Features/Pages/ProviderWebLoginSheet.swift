@@ -219,6 +219,7 @@ private struct ProviderWebView: UIViewRepresentable {
         configuration.websiteDataStore = .default()
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.allowsBackForwardNavigationGestures = true
+        view.navigationDelegate = context.coordinator
         // y.qq.com serves a mobile page without a login entry; ask for the desktop site.
         if url.host?.contains("y.qq.com") == true {
             view.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
@@ -229,7 +230,24 @@ private struct ProviderWebView: UIViewRepresentable {
         return view
     }
 
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func updateUIView(_ view: WKWebView, context: Context) {}
+
+    /// iOS may kill the web content process while the app is in the background (for
+    /// example while checking a verification code elsewhere). Reload the page the
+    /// user was on instead of leaving a blank view.
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var lastURL: URL?
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            if let url = webView.url { lastURL = url }
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            if let url = lastURL ?? webView.url { webView.load(URLRequest(url: url)) } else { webView.reload() }
+        }
+    }
 }
 
 private enum ProviderLoginError: LocalizedError {
