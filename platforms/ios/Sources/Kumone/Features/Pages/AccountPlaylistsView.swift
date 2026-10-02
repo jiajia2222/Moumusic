@@ -1,4 +1,4 @@
-#if os(iOS)
+﻿#if os(iOS)
 import SwiftUI
 
 /// Playlists of the signed-in Kugou and QQ Music accounts.
@@ -172,52 +172,80 @@ struct PlatformAccountPlaylists: View {
     @EnvironmentObject private var kugou: KugouSessionStore
     @State private var kugouLists: [KugouAPI.CloudPlaylist] = []
     @State private var qqLists: [QQMusicAPI.AccountPlaylist] = []
+    @State private var showAll = false
 
     private var isLoggedIn: Bool {
         (platform == .kg && kugou.isLoggedIn) || (platform == .tx && qqMusic.isLoggedIn)
     }
 
+    private var platformTitle: String { platform == .kg ? "酷狗音乐" : "QQ 音乐" }
+
     var body: some View {
         Group {
             if isLoggedIn, !(kugouLists.isEmpty && qqLists.isEmpty) {
-                Shelf(title: "我的歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+                Shelf(title: "我的歌单", seeAll: { showAll = true }, rowHeight: Theme.Layout.coverShelfHeight) {
                     if platform == .kg {
-                        ForEach(kugouLists) { list in
-                            NavigationLink {
-                                AccountPlaylistTracksView(title: list.name) {
-                                    let rows = try await KugouAPI.shared.cloudPlaylistSongs(
-                                        id: list.id, cookie: kugou.cookie ?? "")
-                                    return rows.compactMap { AccountPlaylistsView.kugouTrack($0) }
-                                }
-                            } label: {
-                                CoverCardBody(coverURL: list.coverURL?.resizedImageURL(384),
-                                              title: list.name, subtitle: "\(list.count) 首")
-                            }
-                            .buttonStyle(.plain)
-                        }
+                        ForEach(kugouLists) { list in kugouCard(list) }
                     } else {
-                        ForEach(qqLists) { list in
-                            NavigationLink {
-                                AccountPlaylistTracksView(title: list.name) {
-                                    try await LXCatalogService.playlistDetail(source: .tx, id: list.id).tracks
-                                }
-                            } label: {
-                                CoverCardBody(coverURL: list.coverURL?.resizedImageURL(384),
-                                              title: list.name, subtitle: "\(list.count) 首")
-                            }
-                            .buttonStyle(.plain)
-                        }
+                        ForEach(qqLists) { list in qqCard(list) }
                     }
                 }
             }
         }
+        .navigationDestination(isPresented: $showAll) {
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 16, alignment: .top)], spacing: 18) {
+                    if platform == .kg {
+                        ForEach(kugouLists) { list in kugouCard(list) }
+                    } else {
+                        ForEach(qqLists) { list in qqCard(list) }
+                    }
+                }
+                .padding(.horizontal, Theme.Layout.contentInset)
+                .padding(.top, 8)
+                PlayerClearanceSpacer()
+            }
+            .navigationTitle("\(platformTitle)歌单")
+            .navigationBarTitleDisplayMode(.inline)
+        }
         .task(id: "\(platform.rawValue)-\(kugou.sessionRevision)-\(qqMusic.sessionRevision)") {
             if platform == .kg, kugou.isLoggedIn, let cookie = await kugou.cookieWithDevice() {
-                kugouLists = (try? await KugouAPI.shared.userPlaylists(cookie: cookie)) ?? []
+                kugouLists = Self.unique((try? await KugouAPI.shared.userPlaylists(cookie: cookie)) ?? [], by: \.id)
             } else if platform == .tx, qqMusic.isLoggedIn, let cookie = qqMusic.cookie {
-                qqLists = (try? await QQMusicAPI.shared.userPlaylists(cookie: cookie)) ?? []
+                qqLists = Self.unique((try? await QQMusicAPI.shared.userPlaylists(cookie: cookie)) ?? [], by: \.id)
             }
         }
     }
-}
-#endif
+
+    /// Duplicate ids make lazy SwiftUI containers misbehave; keep the first of each.
+    private static func unique<T>(_ items: [T], by key: KeyPath<T, String>) -> [T] {
+        var seen = Set<String>()
+        return items.filter { seen.insert($0[keyPath: key]).inserted }
+    }
+
+    private func kugouCard(_ list: KugouAPI.CloudPlaylist) -> some View {
+        NavigationLink {
+            AccountPlaylistTracksView(title: list.name) {
+                let rows = try await KugouAPI.shared.cloudPlaylistSongs(
+                    id: list.id, cookie: kugou.cookie ?? "")
+                return rows.compactMap { AccountPlaylistsView.kugouTrack($0) }
+            }
+        } label: {
+            CoverCardBody(coverURL: list.coverURL?.resizedImageURL(384),
+                          title: list.name, subtitle: "\(list.count) 首")
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func qqCard(_ list: QQMusicAPI.AccountPlaylist) -> some View {
+        NavigationLink {
+            AccountPlaylistTracksView(title: list.name) {
+                try await LXCatalogService.playlistDetail(source: .tx, id: list.id).tracks
+            }
+        } label: {
+            CoverCardBody(coverURL: list.coverURL?.resizedImageURL(384),
+                          title: list.name, subtitle: "\(list.count) 首")
+        }
+        .buttonStyle(.plain)
+    }
+}#endif

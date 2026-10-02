@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import Combine
 
 #if os(iOS) || os(macOS)
@@ -22,6 +22,8 @@ final class QQMusicSessionStore: ObservableObject {
 
     @Published private(set) var isLoggedIn = false
     @Published private(set) var profileName: String?
+    /// nil until the membership lookup finishes (or when QQ does not answer).
+    @Published private(set) var isVIP: Bool?
     @Published private(set) var sessionRevision = 0
 
     var cookie: String? { storedCookie }
@@ -89,6 +91,14 @@ final class QQMusicSessionStore: ObservableObject {
         profileName = profile?.name ?? "QQ 音乐用户"
         isLoggedIn = true
         sessionRevision &+= 1
+        refreshVIP()
+    }
+
+    private func refreshVIP() {
+        guard let cookie = storedCookie else { return }
+        Task { @MainActor [weak self] in
+            self?.isVIP = await QQMusicAPI.shared.vipStatus(cookie: cookie)
+        }
     }
 
     func refreshProfile() async {
@@ -105,11 +115,13 @@ final class QQMusicSessionStore: ObservableObject {
             profileName = profileName ?? "QQ 音乐用户"
             isLoggedIn = true
             sessionRevision &+= 1
+            refreshVIP()
             return
         }
         profileName = profile.name
         isLoggedIn = true
         sessionRevision &+= 1
+        refreshVIP()
         if let refreshedCookie = profile.refreshedCookie {
             try? ProviderSessionSupport.writeCookie(refreshedCookie, service: keychainService)
             self.storedCookie = refreshedCookie
@@ -120,6 +132,7 @@ final class QQMusicSessionStore: ObservableObject {
         ProviderSessionSupport.deleteCookie(service: keychainService)
         storedCookie = nil
         profileName = nil
+        isVIP = nil
         isLoggedIn = false
         sessionRevision &+= 1
     }

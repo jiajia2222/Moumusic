@@ -144,7 +144,50 @@ actor KugouAPI {
         }
     }
 
+    /// Signed Android-gateway profile (needs the registered device `dfid`); falls back to the
+    /// legacy usercenter call when the gateway does not return a nickname.
     func profile(cookie: String) async throws -> Profile {
+        if let signed = await androidProfile(cookie: cookie) { return signed }
+        return try await legacyProfile(cookie: cookie)
+    }
+
+    private func androidProfile(cookie: String) async -> Profile? {
+        let fields = Self.cookieFields(cookie)
+        guard let token = fields["token"] ?? fields["login_token"] ?? fields["kugou_token"] ?? fields["kg_token"],
+              let userID = fields["userid"] ?? fields["user_id"] ?? fields["kugooid"],
+              !token.isEmpty, !userID.isEmpty else { return nil }
+        let visitTime = Int(Date().timeIntervalSince1970)
+        let secret = "{\"token\":\"\(Self.jsonEscaped(token))\",\"clienttime\":\(visitTime)}"
+        guard let signature = Self.rawRSAHex(Data(secret.utf8)) else { return nil }
+        let body = "{\"visit_time\":\(visitTime),\"usertype\":1,\"p\":\"\(signature)\",\"userid\":\(Int(userID) ?? 0)}"
+        guard let root = try? await androidRequest(
+            path: "/v3/get_my_info", method: "POST", query: ["plat": "1"], body: body,
+            router: "usercenter.kugou.com", fields: fields) else { return nil }
+        guard let info = root["data"] as? [String: Any] else {
+            let code = Self.text(root["error_code"]) ?? "-"
+            Task { @MainActor in
+                DiagnosticLogStore.shared.append(level: .info, category: "Kugou", message: "网关账号资料失败", detail: "error_code=\(code) keys=\(root.keys.sorted().joined(separator: ","))")
+            }
+            return nil
+        }
+        guard let name = Self.text(in: info, keys: ["nickname", "nick_name", "username", "name", "nick"]),
+              !name.isEmpty else {
+            Task { @MainActor in
+                DiagnosticLogStore.shared.append(level: .info, category: "Kugou", message: "网关账号资料无昵称", detail: info.keys.sorted().joined(separator: ","))
+            }
+            return nil
+        }
+        let vip = Self.integer(in: info, keys: ["is_vip", "vip_type", "svip_level", "vip", "m_type", "su_vip", "svip"]) ?? 0
+        return Profile(
+            id: Self.text(in: info, keys: ["userid", "user_id", "uid"]) ?? userID,
+            name: name,
+            avatarURL: Self.text(in: info, keys: ["pic", "avatar", "avatar_url", "avatarUrl", "headurl"]),
+            refreshedCookie: nil,
+            isVIP: vip > 0
+        )
+    }
+
+    private func legacyProfile(cookie: String) async throws -> Profile {
         let fields = Self.cookieFields(cookie)
         guard let token = fields["token"] ?? fields["login_token"] ?? fields["kugou_token"] ?? fields["kg_token"],
               let userID = fields["userid"] ?? fields["user_id"] ?? fields["kugooid"]

@@ -75,6 +75,54 @@ actor QQMusicAPI {
         let coverURL: String?
     }
 
+    /// Whether the signed-in QQ account holds a Music membership (best effort; nil = unknown).
+    func vipStatus(cookie: String) async -> Bool? {
+        let fields = Self.cookieFields(cookie)
+        let rawUin = fields["uin"] ?? fields["p_uin"] ?? fields["wxuin"] ?? ""
+        let uin = String(rawUin.drop { !$0.isNumber })
+        guard !uin.isEmpty else { return nil }
+        let credential = fields["qqmusic_key"] ?? fields["qm_keyst"] ?? fields["p_skey"] ?? fields["skey"] ?? ""
+        let payload: [String: Any] = [
+            "comm": ["g_tk": Self.hash5381(credential), "uin": uin, "format": "json", "ct": 24, "cv": 0],
+            "req": ["module": "userInfo.VipQueryServer", "method": "SRFVipQuery_V2", "param": ["uin_list": [uin]]]
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+        var request = URLRequest(url: URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.httpBody = body
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let req = root["req"] as? [String: Any] else { return nil }
+        let result = req["data"] ?? req
+        let preview = String(data: (try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])) ?? Data(), encoding: .utf8) ?? ""
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .info, category: "QQ 音乐", message: "会员状态", detail: String(preview.prefix(360)))
+        }
+        guard (Self.integer(in: req, keys: ["code"]) ?? 0) == 0 else { return nil }
+        return Self.containsVIPFlag(result)
+    }
+
+    private static func containsVIPFlag(_ value: Any) -> Bool {
+        let names: Set<String> = ["isvip", "is_vip", "vip", "svip", "isgreen", "green", "greenvip", "is_green_vip",
+                                  "isgreenvip", "musicvip", "issvip", "is_svip", "vipflag", "vip_flag"]
+        if let dictionary = value as? [String: Any] {
+            for (key, item) in dictionary {
+                if names.contains(key.lowercased()) {
+                    if let number = item as? NSNumber, number.intValue > 0 { return true }
+                    if let text = item as? String, let number = Int(text), number > 0 { return true }
+                }
+                if containsVIPFlag(item) { return true }
+            }
+        } else if let array = value as? [Any] {
+            return array.contains { containsVIPFlag($0) }
+        }
+        return false
+    }
+
     /// Playlists created by the signed-in QQ account (`fcg_user_created_diss`).
     func userPlaylists(cookie: String) async throws -> [AccountPlaylist] {
         var fields: [String: String] = [:]
@@ -86,9 +134,8 @@ actor QQMusicAPI {
         let uin = rawUin.drop { !$0.isNumber }
         guard !uin.isEmpty else { throw APIError.invalidResponse }
         let credential = fields["qqmusic_key"] ?? fields["p_skey"] ?? fields["skey"] ?? ""
-        var hash = 5381
-        for scalar in credential.unicodeScalars { hash += (hash << 5) + Int(scalar.value) }
-        let gtk = hash & 0x7fffffff
+        // Overflow-safe: a plain Int `+=` traps on long keys and crashed the playlist page.
+        let gtk = Self.hash5381(credential)
 
         var components = URLComponents(string: "https://c.y.qq.com/rsc/fcgi-bin/fcg_user_created_diss")!
         components.queryItems = [

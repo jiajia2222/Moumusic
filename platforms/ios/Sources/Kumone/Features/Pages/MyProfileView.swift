@@ -545,7 +545,7 @@ struct MyProfileView: View {
 
                 accountSourceRow(
                     title: "QQ 音乐",
-                    subtitle: qqMusic.isLoggedIn ? (qqMusic.profileName ?? "已登录") : "未登录 · 扫码同步账号资料",
+                    subtitle: qqMusic.isLoggedIn ? ((qqMusic.profileName ?? "已登录") + (qqMusic.isVIP == nil ? "" : (qqMusic.isVIP == true ? " · 会员" : " · 非会员"))) : "未登录 · 扫码同步账号资料",
                     icon: "music.quarternote.3",
                     isLoggedIn: qqMusic.isLoggedIn
                 ) {

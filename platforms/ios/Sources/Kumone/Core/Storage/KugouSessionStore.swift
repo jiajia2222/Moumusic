@@ -89,7 +89,9 @@ final class KugouSessionStore: ObservableObject {
     }
 
     func refreshProfile() async {
-        guard let storedCookie else { return }
+        guard storedCookie != nil else { return }
+        // The signed gateway needs the registered device id, so register first.
+        let storedCookie = (await cookieWithDevice()) ?? self.storedCookie ?? ""
         guard let profile = try? await KugouAPI.shared.profile(cookie: storedCookie) else {
             // The login endpoints can return a valid playback token before
             // usercenter exposes nickname/avatar. Keep the account session and
