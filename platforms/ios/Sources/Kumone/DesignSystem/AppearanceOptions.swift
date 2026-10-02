@@ -61,16 +61,20 @@ struct FloatingEffectOverlay: View {
         let phase: Double
     }
 
-    private let orbs: [Orb] = (0..<9).map { index in
-        Orb(
-            id: index,
-            x: Double((index * 37) % 100) / 100,
-            y: Double((index * 53) % 100) / 100,
-            size: 70 + Double((index * 29) % 90),
-            speed: 0.10 + Double(index % 4) * 0.04,
-            phase: Double(index) * 0.9)
+    private static func makeOrbs() -> [Orb] {
+        var result: [Orb] = []
+        for index in 0..<9 {
+            let x: Double = Double((index * 37) % 100) / 100.0
+            let y: Double = Double((index * 53) % 100) / 100.0
+            let size: Double = 70.0 + Double((index * 29) % 90)
+            let speed: Double = 0.10 + Double(index % 4) * 0.04
+            let phase: Double = Double(index) * 0.9
+            result.append(Orb(id: index, x: x, y: y, size: size, speed: speed, phase: phase))
+        }
+        return result
     }
 
+    private let orbs: [Orb] = FloatingEffectOverlay.makeOrbs()
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
             let time = timeline.date.timeIntervalSinceReferenceDate
@@ -80,13 +84,17 @@ struct FloatingEffectOverlay: View {
                         .fill(Theme.accent.opacity(0.10))
                         .frame(width: orb.size, height: orb.size)
                         .blur(radius: 18)
-                        .position(
-                            x: proxy.size.width * (orb.x + 0.06 * sin(time * orb.speed + orb.phase)),
-                            y: proxy.size.height * (orb.y + 0.08 * cos(time * orb.speed * 0.8 + orb.phase)))
+                        .position(position(for: orb, in: proxy.size, time: time))
                 }
             }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+    }
+
+    private func position(for orb: Orb, in size: CGSize, time: TimeInterval) -> CGPoint {
+        let dx: Double = 0.06 * sin(time * orb.speed + orb.phase)
+        let dy: Double = 0.08 * cos(time * orb.speed * 0.8 + orb.phase)
+        return CGPoint(x: Double(size.width) * (orb.x + dx), y: Double(size.height) * (orb.y + dy))
     }
 }
