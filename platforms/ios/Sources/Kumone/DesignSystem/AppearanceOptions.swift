@@ -114,3 +114,40 @@ enum Haptics {
     }
 }
 #endif
+
+#if os(iOS)
+/// Makes every UIKit container above this view transparent (hosting views,
+/// navigation / tab controllers) so the wallpaper layer behind the tab
+/// interface can show through. SwiftUI pages draw no background of their own.
+struct ClearAncestorBackgrounds: UIViewRepresentable {
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        uiView.scheduleClear()
+    }
+
+    final class ProbeView: UIView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            scheduleClear()
+        }
+
+        func scheduleClear() {
+            DispatchQueue.main.async { [weak self] in self?.clearAncestors() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.clearAncestors() }
+        }
+
+        private func clearAncestors() {
+            var current: UIView? = superview
+            while let view = current, !(view is UIWindow) {
+                view.backgroundColor = .clear
+                current = view.superview
+            }
+        }
+    }
+}
+#endif

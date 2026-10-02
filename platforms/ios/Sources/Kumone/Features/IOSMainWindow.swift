@@ -391,6 +391,7 @@ public struct IOSMainWindow: View {
             content()
                 .appDestinations()
                 .containerBackground(.clear, for: .navigation)
+                .background(ClearAncestorBackgrounds())
         }
         .toolbarBackground(.hidden, for: .navigationBar)
         .background(Color.clear)

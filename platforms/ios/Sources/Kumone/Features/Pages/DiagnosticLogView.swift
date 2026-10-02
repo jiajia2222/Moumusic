@@ -86,8 +86,12 @@ struct DiagnosticLogView: View {
                     Label("本机诊断", systemImage: "waveform.path.ecg")
                         .font(.headline.weight(.semibold))
                     Spacer()
+                    ShareLink(item: String(data: store.exportData(), encoding: .utf8) ?? "[]") {
+                        Label("分享", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.bordered)
                     Button { isExporting = true } label: {
-                        Label("导出", systemImage: "square.and.arrow.up")
+                        Label("导出", systemImage: "doc")
                     }
                     .buttonStyle(.bordered)
                 }
