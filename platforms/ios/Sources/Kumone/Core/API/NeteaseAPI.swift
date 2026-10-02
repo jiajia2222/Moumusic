@@ -470,8 +470,17 @@ enum NeteaseAPI {
         let probeTasks = probes.map { requested in
             Task { await qualityProbeURL(id: id, level: requested.neteaseLevel) }
         }
-        for (_, task) in zip(probes, probeTasks) {
-            guard let response = await task.value,
+        for (probe, task) in zip(probes, probeTasks) {
+            let probed = await task.value
+            // Evidence for the quality picker: what NetEase really returned per requested tier.
+            if let first = probed?.first {
+                let ext = URL(string: first.url ?? "")?.pathExtension ?? "-"
+                let line = "请求=\(probe.neteaseLevel) 返回level=\(first.level ?? "-") type=\(first.type ?? "-") ext=\(ext) br=\(first.br) size=\(first.size) fee=\(first.fee) trial=\(first.freeTrialInfo != nil) hasURL=\(first.url != nil)"
+                Task { @MainActor in
+                    DiagnosticLogStore.shared.append(level: .info, category: "网易云音质", message: "探测 \(probe.neteaseLevel)", detail: line)
+                }
+            }
+            guard let response = probed,
                   let data = response.first,
                   let rawURL = data.url,
                   let url = URL(string: rawURL),
