@@ -1,4 +1,4 @@
-#if os(iOS)
+﻿#if os(iOS)
 import SwiftUI
 
 /// Beans-style 闂傚倸鍊烽懗鍫曞磻閵娾晛纾块柤纰卞墮閸ㄦ繄鈧箍鍎遍ˇ顖炲垂閸屾稓绡€濠电姴鍊绘晶娑㈡煕鎼达紕效闁哄本鐩鏉懳熼崫鍕庛劑姊?surface.  It is intentionally a real navigation hub,
@@ -49,6 +49,7 @@ struct MyProfileView: View {
         .scrollIndicators(.hidden)
         .task {
             _ = await moumusicServer.start()
+            await DeviceReporter.shared.reportHeartbeat()
         }
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showDownloads) {
@@ -172,8 +173,16 @@ struct MyProfileView: View {
                 }
             }
             .overlay {
-                if exclusive { Capsule().strokeBorder(gold.opacity(0.9), lineWidth: 1) }
+                if exclusive {
+                    Capsule().strokeBorder(
+                        LinearGradient(colors: [gold, .white.opacity(0.9), gold], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: 1.2)
+                }
             }
+            .overlay {
+                if exclusive { GoldShimmer().clipShape(Capsule()).allowsHitTesting(false) }
+            }
+            .shadow(color: exclusive ? gold.opacity(0.55) : .clear, radius: exclusive ? 8 : 0)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(exclusive ? "专属 ID \(id)，点击复制" : "用户 ID \(id)，点击复制")
@@ -793,3 +802,21 @@ private struct MoumusicProfileEditorView: View {
     }
 }
 #endif
+
+/// Moving highlight sweep across the exclusive-ID capsule (Beans-style shine).
+private struct GoldShimmer: View {
+    @State private var phase: CGFloat = -1
+
+    var body: some View {
+        GeometryReader { geo in
+            LinearGradient(colors: [.clear, .white.opacity(0.55), .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: geo.size.width * 0.55)
+                .offset(x: phase * geo.size.width)
+                .blendMode(.plusLighter)
+        }
+        .onAppear {
+            phase = -0.6
+            withAnimation(.linear(duration: 2.2).repeatForever(autoreverses: false)) { phase = 1.1 }
+        }
+    }
+}
