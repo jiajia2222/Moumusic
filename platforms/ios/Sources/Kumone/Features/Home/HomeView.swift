@@ -1058,19 +1058,19 @@ struct CoverCardBody: View {
                 }
             }
 
+            // Fixed-height text block: every card is exactly the same height, so cards
+            // line up on the shelf no matter how many title lines or whether there is a subtitle.
             Text(title)
                 .font(.system(size: 13, weight: .medium))
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .foregroundStyle(.primary)
-                .frame(maxWidth: flexibleWidth ? .infinity : size, alignment: .leading)
-            if let subtitle, !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .lineLimit(1)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: flexibleWidth ? .infinity : size, alignment: .leading)
-            }
+                .frame(maxWidth: flexibleWidth ? .infinity : size, minHeight: 34, maxHeight: 34, alignment: .topLeading)
+            Text((subtitle?.isEmpty == false) ? subtitle! : " ")
+                .font(.system(size: 11))
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: flexibleWidth ? .infinity : size, minHeight: 14, maxHeight: 14, alignment: .topLeading)
         }
         .frame(maxWidth: flexibleWidth ? .infinity : size, alignment: .leading)
         // Pin every card to the top of its shelf row; cards with a one-line title
