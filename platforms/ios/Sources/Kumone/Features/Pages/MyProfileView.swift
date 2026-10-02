@@ -23,6 +23,9 @@ struct MyProfileView: View {
     @State private var showMoumusicProfileEditor = false
     @ObservedObject private var deviceReporter = DeviceReporter.shared
     @State private var showDeviceCode = false
+    @State private var showCustomize = false
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var appearance = ProfileAppearanceStore.shared
     @State private var signedInTarget: SignedInTarget?
     @State private var showAccountPlaylists = false
     private enum SignedInTarget: String, Identifiable { case qq, kugou, bilibili; var id: String { rawValue } }
@@ -74,6 +77,9 @@ struct MyProfileView: View {
         .sheet(isPresented: $showBilibiliLogin) {
             BilibiliLoginSheet()
                 .environmentObject(bilibili)
+        }
+        .sheet(isPresented: $showCustomize) {
+            ProfileCustomizeSheet()
         }
         .sheet(isPresented: $showDeviceCode) {
             DeviceCodeSheet()
@@ -134,11 +140,14 @@ struct MyProfileView: View {
     }
 
     private var compactIdentity: some View {
-        MouGlassCard(cornerRadius: 24, padding: 14) {
+        let hasBackground = appearance.background != nil
+        return MouGlassCard(cornerRadius: 24, padding: 14) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
                     Group {
-                        if let profile = account.profile {
+                        if let custom = appearance.avatar {
+                            Image(uiImage: custom).resizable().scaledToFill()
+                        } else if let profile = account.profile {
                             CachedAsyncImage(url: profile.avatarUrl?.resizedImageURL(160)) {
                                 Image(systemName: "person.crop.circle.fill")
                                     .resizable().scaledToFit().foregroundStyle(.secondary)
@@ -165,6 +174,17 @@ struct MyProfileView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    Spacer(minLength: 8)
+                    Button {
+                        showCustomize = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 40, height: 40)
+                            .background(.thinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("自定义头像和背景")
                 }
                 HStack(spacing: 10) {
                     metric(title: "本机听歌时长", value: stats.formattedDuration)
@@ -173,6 +193,16 @@ struct MyProfileView: View {
                 }
             }
         }
+        .background {
+            if let image = appearance.background {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .overlay(Color.black.opacity(0.38))
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            }
+        }
+        .environment(\.colorScheme, hasBackground ? .dark : colorScheme)
     }
     private var accountCard: some View {
         MouGlassCard(cornerRadius: 28) {
