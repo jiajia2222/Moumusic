@@ -13,6 +13,7 @@ public struct IOSMainWindow: View {
     @StateObject private var updateLog = IOSUpdateLogStore.shared
     @StateObject private var startup = IOSStartupCoordinator.shared
     @StateObject private var backupStore = AppDataBackupManager.shared
+    @ObservedObject private var deviceReporter = DeviceReporter.shared
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
     @ObservedObject private var dynamicWallpaper = DynamicWallpaperStore.shared
     @Namespace private var nowPlayingTransition
@@ -58,6 +59,7 @@ public struct IOSMainWindow: View {
             .task {
                 backupStore.startAutomaticBackup()
                 ListeningStatsStore.shared.attach(player)
+                HighRefreshController.shared.apply()
                 DeviceReporter.shared.start()
                 await RemoteControlStore.shared.refreshIfNeeded()
                 await startup.start(
@@ -81,6 +83,11 @@ public struct IOSMainWindow: View {
             .onOpenURL { url in
                 guard url.scheme?.lowercased() == "moumusic" else { return }
                 player.showNowPlaying = true
+            }
+            .alert("当前设备已被禁止使用 Moumusic。", isPresented: .constant(deviceReporter.isBlocked)) {
+                Button("退出应用", role: .destructive) { exit(0) }
+            } message: {
+                Text("如有疑问请通过反馈联系开发者。")
             }
             .sheet(isPresented: $updater.showSheet) {
                 IOSUpdaterSheet()

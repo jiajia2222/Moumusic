@@ -1409,6 +1409,17 @@ private struct LyricPresentationSheet: View {
                                     .monospacedDigit()
                             }
                             Slider(value: $settings.lyricsOffset, in: -2...2, step: 0.05)
+                            HStack(spacing: 10) {
+                                Button("歌词提前 0.1 秒") {
+                                    settings.lyricsOffset = min(2, settings.lyricsOffset + 0.1)
+                                }
+                                Button("歌词延后 0.1 秒") {
+                                    settings.lyricsOffset = max(-2, settings.lyricsOffset - 0.1)
+                                }
+                                Button("重置") { settings.lyricsOffset = 0 }
+                            }
+                            .font(.footnote)
+                            .buttonStyle(.bordered)
                             Text("正值提前，负值延后。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

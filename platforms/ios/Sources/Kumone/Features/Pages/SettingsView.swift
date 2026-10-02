@@ -27,6 +27,11 @@ struct SettingsView: View {
     @State private var showDownloads = false
     @State private var showPlayerLayoutEditor = false
     @State private var isImportingBackgroundFile = false
+    @State private var showFeedback = false
+    @State private var showDeveloperTools = false
+    @ObservedObject private var deviceReporter = DeviceReporter.shared
+    @ObservedObject private var highRefresh = HighRefreshController.shared
+    @AppStorage("moumusic.showDeveloperTools") private var showDeveloperToolsEntry = true
 #endif
     @StateObject private var backupStore = AppDataBackupManager.shared
     @State private var isExportingBackup = false
@@ -461,6 +466,33 @@ struct SettingsView: View {
 #endif
             }
 
+#if os(iOS)
+            settingsGroup("显示与性能") {
+                Toggle("强制 120Hz", isOn: $highRefresh.isForced)
+                Text("默认跟随系统；开启后保持最高刷新率，耗电会增加。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            settingsGroup("反馈与支持") {
+                Button {
+                    showFeedback = true
+                } label: {
+                    Label("提交反馈", systemImage: "bubble.left.and.text.bubble.right")
+                }
+                if deviceReporter.isDeveloper {
+                    Toggle("显示开发者工具", isOn: $showDeveloperToolsEntry)
+                    if showDeveloperToolsEntry {
+                        Button {
+                            showDeveloperTools = true
+                        } label: {
+                            Label("开发者工具", systemImage: "hammer")
+                        }
+                    }
+                }
+            }
+#endif
+
             settingsGroup("关于") {
                 LabeledContent("Moumusic", value: appVersion)
                 Text("播放、歌词和封面支持用户导入的 LX User API 音源。")
@@ -596,6 +628,12 @@ struct SettingsView: View {
             EqualizerView()
         }
 #if os(iOS)
+        .sheet(isPresented: $showFeedback) {
+            FeedbackSheet()
+        }
+        .sheet(isPresented: $showDeveloperTools) {
+            DeveloperToolsView()
+        }
         .sheet(isPresented: $showSourceManager) {
             NavigationStack {
                 LXSourceManagerView()
