@@ -256,6 +256,7 @@ struct NowPlayingView: View {
 
     private var backdrop: some View {
         ZStack {
+            Color.black
 #if os(iOS)
             if dynamicWallpaper.isEnabled, dynamicWallpaper.syncToPlayer {
                 MoumusicDynamicWallpaperView(

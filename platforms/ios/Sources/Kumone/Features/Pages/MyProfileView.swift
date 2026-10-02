@@ -22,6 +22,10 @@ struct MyProfileView: View {
     @State private var showBilibiliLogin = false
     @State private var showMoumusicProfileEditor = false
     @ObservedObject private var deviceReporter = DeviceReporter.shared
+    @State private var showDeviceCode = false
+    @State private var signedInTarget: SignedInTarget?
+    @State private var showAccountPlaylists = false
+    private enum SignedInTarget: String, Identifiable { case qq, kugou, bilibili; var id: String { rawValue } }
     @ObservedObject private var stats = ListeningStatsStore.shared
 
     var body: some View {
@@ -30,25 +34,6 @@ struct MyProfileView: View {
                 header
                 compactIdentity
                 accountSourcesCard
-                NavigationLink {
-                    AccountPlaylistsView()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "music.note.list")
-                            .font(.title3)
-                            .foregroundStyle(Theme.accent)
-                            .frame(width: 30)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("账号歌单").font(.body.weight(.semibold)).foregroundStyle(.primary)
-                            Text("酷狗音乐、QQ 音乐账号里的歌单").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 8)
-                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                    }
-                    .padding(14)
-                    .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                }
-                .buttonStyle(.plain)
                 listeningCard
                 quickLinks
                 appearanceCard
@@ -90,6 +75,30 @@ struct MyProfileView: View {
             BilibiliLoginSheet()
                 .environmentObject(bilibili)
         }
+        .sheet(isPresented: $showDeviceCode) {
+            DeviceCodeSheet()
+        }
+        .navigationDestination(isPresented: $showAccountPlaylists) {
+            AccountPlaylistsView()
+        }
+        .confirmationDialog(
+            signedInTarget.map { "\(signedInTitle($0)) 已登录" } ?? "",
+            isPresented: Binding(get: { signedInTarget != nil }, set: { if !$0 { signedInTarget = nil } }),
+            titleVisibility: .visible
+        ) {
+            if signedInTarget == .qq || signedInTarget == .kugou {
+                Button("查看账号歌单") { showAccountPlaylists = true }
+            }
+            Button("退出登录", role: .destructive) {
+                switch signedInTarget {
+                case .qq: qqMusic.signOut()
+                case .kugou: kugou.signOut()
+                case .bilibili: bilibili.signOut()
+                case nil: break
+                }
+            }
+            Button("取消", role: .cancel) {}
+        }
         .sheet(isPresented: $showMoumusicProfileEditor) {
             MoumusicProfileEditorView()
                 .environmentObject(moumusicServer)
@@ -116,6 +125,14 @@ struct MyProfileView: View {
 
     /// One compact card: who you are, account state and listening totals. The
     /// large profile card lives behind the "名片" button.
+    private func signedInTitle(_ target: SignedInTarget) -> String {
+        switch target {
+        case .qq: return "QQ 音乐"
+        case .kugou: return "酷狗音乐"
+        case .bilibili: return "哔哩哔哩"
+        }
+    }
+
     private var compactIdentity: some View {
         MouGlassCard(cornerRadius: 24, padding: 14) {
             VStack(alignment: .leading, spacing: 12) {
@@ -138,10 +155,15 @@ struct MyProfileView: View {
                         Text(account.profile?.nickname ?? "Moumusic 用户")
                             .font(.headline)
                             .lineLimit(1)
-                        Text(deviceReporter.displayID.isEmpty ? "ID 获取中…" : "ID \(String(deviceReporter.displayID.prefix(14)))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        Button {
+                            showDeviceCode = true
+                        } label: {
+                            Text("ID \(String(deviceReporter.displayID.prefix(14))) · 设备码")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 HStack(spacing: 10) {
@@ -422,7 +444,7 @@ struct MyProfileView: View {
                     icon: "music.quarternote.3",
                     isLoggedIn: qqMusic.isLoggedIn
                 ) {
-                    showQQMusicLogin = true
+                    if qqMusic.isLoggedIn { signedInTarget = .qq } else { showQQMusicLogin = true }
                 }
                 Divider().padding(.leading, 48)
 
@@ -432,7 +454,7 @@ struct MyProfileView: View {
                     icon: "headphones",
                     isLoggedIn: kugou.isLoggedIn
                 ) {
-                    showKugouLogin = true
+                    if kugou.isLoggedIn { signedInTarget = .kugou } else { showKugouLogin = true }
                 }
                 Divider().padding(.leading, 48)
 
@@ -442,7 +464,7 @@ struct MyProfileView: View {
                     icon: "play.rectangle.fill",
                     isLoggedIn: bilibili.isLoggedIn
                 ) {
-                    showBilibiliLogin = true
+                    if bilibili.isLoggedIn { signedInTarget = .bilibili } else { showBilibiliLogin = true }
                 }
 
                 Text("账号登录只用于同步资料、歌单和播放记录；播放继续使用账号能力或已导入的 LX 音源。")

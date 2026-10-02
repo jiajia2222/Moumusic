@@ -113,7 +113,7 @@ struct AccountPlaylistsView: View {
     }
 
     /// Cloud-playlist rows name the song "歌手 - 歌名"; split it for the shared track parser.
-    private static func kugouTrack(_ raw: [String: Any]) -> Track? {
+    static func kugouTrack(_ raw: [String: Any]) -> Track? {
         var item = raw
         if item["songname"] == nil, let full = (raw["name"] ?? raw["filename"]) as? String {
             let parts = full.components(separatedBy: " - ")
@@ -129,7 +129,7 @@ struct AccountPlaylistsView: View {
     }
 }
 
-private struct AccountPlaylistTracksView: View {
+struct AccountPlaylistTracksView: View {
     let title: String
     let load: () async throws -> [Track]
 
@@ -160,6 +160,63 @@ private struct AccountPlaylistTracksView: View {
                 errorMessage = "读取失败：\(error.localizedDescription)"
             }
             isLoading = false
+        }
+    }
+}
+
+/// "我的歌单" shelf shown at the top of a platform's own home page (Kugou / QQ Music).
+struct PlatformAccountPlaylists: View {
+    let platform: LXCatalogPlatform
+
+    @EnvironmentObject private var qqMusic: QQMusicSessionStore
+    @EnvironmentObject private var kugou: KugouSessionStore
+    @State private var kugouLists: [KugouAPI.CloudPlaylist] = []
+    @State private var qqLists: [QQMusicAPI.AccountPlaylist] = []
+
+    private var isLoggedIn: Bool {
+        (platform == .kg && kugou.isLoggedIn) || (platform == .tx && qqMusic.isLoggedIn)
+    }
+
+    var body: some View {
+        Group {
+            if isLoggedIn, !(kugouLists.isEmpty && qqLists.isEmpty) {
+                Shelf(title: "我的歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+                    if platform == .kg {
+                        ForEach(kugouLists) { list in
+                            NavigationLink {
+                                AccountPlaylistTracksView(title: list.name) {
+                                    let rows = try await KugouAPI.shared.cloudPlaylistSongs(
+                                        id: list.id, cookie: kugou.cookie ?? "")
+                                    return rows.compactMap { AccountPlaylistsView.kugouTrack($0) }
+                                }
+                            } label: {
+                                CoverCardBody(coverURL: list.coverURL?.resizedImageURL(384),
+                                              title: list.name, subtitle: "\(list.count) 首")
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } else {
+                        ForEach(qqLists) { list in
+                            NavigationLink {
+                                AccountPlaylistTracksView(title: list.name) {
+                                    try await LXCatalogService.playlistDetail(source: .tx, id: list.id).tracks
+                                }
+                            } label: {
+                                CoverCardBody(coverURL: list.coverURL?.resizedImageURL(384),
+                                              title: list.name, subtitle: "\(list.count) 首")
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+        .task(id: "\(platform.rawValue)-\(kugou.sessionRevision)-\(qqMusic.sessionRevision)") {
+            if platform == .kg, kugou.isLoggedIn, let cookie = kugou.cookie {
+                kugouLists = (try? await KugouAPI.shared.userPlaylists(cookie: cookie)) ?? []
+            } else if platform == .tx, qqMusic.isLoggedIn, let cookie = qqMusic.cookie {
+                qqLists = (try? await QQMusicAPI.shared.userPlaylists(cookie: cookie)) ?? []
+            }
         }
     }
 }

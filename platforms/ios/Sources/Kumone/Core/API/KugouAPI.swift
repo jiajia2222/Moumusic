@@ -339,7 +339,6 @@ actor KugouAPI {
             "appid": "1005",
             "clientver": "20489",
             "clienttime": String(clientTime),
-            "srcappid": "2919",
         ]
         for (key, value) in query { params[key] = value }
         let salt = "OIlwieks28dk2k092lksi2UIkp"
@@ -348,6 +347,7 @@ actor KugouAPI {
 
         var request = try Self.request(endpoint: URL(string: "https://gateway.kugou.com\(path)")!, parameters: params)
         request.httpMethod = method
+        request.setValue("Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi", forHTTPHeaderField: "User-Agent")
         if let router { request.setValue(router, forHTTPHeaderField: "x-router") }
         if let body {
             request.httpBody = Data(body.utf8)

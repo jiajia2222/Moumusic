@@ -38,16 +38,49 @@ enum StableDeviceID {
     private static let account = "stable-public-id"
     private static let defaultsKey = "beans.stablePublicID"
 
+    /// The device code. It is stored in four places (Keychain, UserDefaults, and two
+    /// files) so reinstalling or installing over the top keeps the same ID; a code
+    /// from a previous install can also be restored by hand (see `restore`).
     static var value: String {
-        if let v = readKeychain(), isValid(v) { return v }
-        if let v = UserDefaults.standard.string(forKey: defaultsKey), isValid(v) {
-            writeKeychain(v)
-            return v
+        if let v = readKeychain(), isValid(v) { remember(v); return v }
+        if let v = UserDefaults.standard.string(forKey: defaultsKey), isValid(v) { remember(v); return v }
+        for url in backupFiles() {
+            if let text = try? String(contentsOf: url, encoding: .utf8) {
+                let v = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if isValid(v) { remember(v); return v }
+            }
         }
         let fresh = UUID().uuidString.lowercased()
-        UserDefaults.standard.set(fresh, forKey: defaultsKey)
-        writeKeychain(fresh)
+        remember(fresh)
         return fresh
+    }
+
+    /// Replaces the device code with one copied from a previous install.
+    @discardableResult
+    static func restore(_ code: String) -> Bool {
+        let v = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard isValid(v) else { return false }
+        remember(v)
+        return true
+    }
+
+    private static func remember(_ v: String) {
+        UserDefaults.standard.set(v, forKey: defaultsKey)
+        writeKeychain(v)
+        for url in backupFiles() { try? v.write(to: url, atomically: true, encoding: .utf8) }
+    }
+
+    /// Application Support survives an over-the-top install; Documents is also kept
+    /// by some sideloading tools when the app is replaced.
+    private static func backupFiles() -> [URL] {
+        let fm = FileManager.default
+        var urls: [URL] = []
+        for directory in [FileManager.SearchPathDirectory.applicationSupportDirectory, .documentDirectory] {
+            guard let base = fm.urls(for: directory, in: .userDomainMask).first else { continue }
+            try? fm.createDirectory(at: base, withIntermediateDirectories: true)
+            urls.append(base.appendingPathComponent(".moumusic-device-code"))
+        }
+        return urls
     }
 
     private static func isValid(_ s: String) -> Bool {
@@ -137,6 +170,15 @@ final class DeviceReporter: ObservableObject {
         var hash: UInt64 = 1469598103934665603
         for byte in StableDeviceID.value.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
         return String(100000 + Int(hash % 900000))
+    }
+
+    /// Re-reads the identity after the device code was replaced.
+    func adoptRestoredDeviceCode() {
+        publicUserID = ""
+        exclusiveID = ""
+        defaults.removeObject(forKey: Key.publicID)
+        defaults.removeObject(forKey: Key.exclusiveID)
+        start()
     }
 
     func start() {

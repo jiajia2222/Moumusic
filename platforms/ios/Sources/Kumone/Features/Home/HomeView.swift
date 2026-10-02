@@ -519,6 +519,10 @@ struct HomeView: View {
             }
             .padding(.horizontal, Theme.Layout.contentInset)
 
+            #if os(iOS)
+            PlatformAccountPlaylists(platform: model.activePlatform)
+            #endif
+
             if !model.lxRecommendPlaylists.isEmpty {
                 Shelf(title: model.activePlatform == .wy ? "推荐歌单" : "官方推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
                     ForEach(model.lxRecommendPlaylists.prefix(12)) { playlist in

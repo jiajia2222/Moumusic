@@ -147,6 +147,8 @@ struct ProviderWebLoginSheet: View {
 
             Task { @MainActor in
                 guard provider.looksLoggedIn(header) else {
+                    let names = header.split(separator: ";").compactMap { $0.split(separator: "=").first.map { String($0).trimmingCharacters(in: .whitespaces) } }.joined(separator: ",")
+                    DiagnosticLogStore.shared.append(level: .warning, category: "\(provider.title)登录", message: "网页登录未检测到登录状态", detail: "cookies=\(names)")
                     isReadingCookies = false
                     errorMessage = "还没有检测到\(provider.title)登录状态，请先完成手机号/网页登录后再点“登录完成”"
                     return
@@ -198,6 +200,7 @@ struct ProviderWebLoginSheet: View {
             dismiss()
         } catch {
             isReadingCookies = false
+            DiagnosticLogStore.shared.append(level: .error, category: "\(provider.title)登录", message: "网页登录会话保存失败", detail: "\(error)")
             errorMessage = error.localizedDescription
         }
     }
