@@ -1686,7 +1686,7 @@ actor BilibiliAPI {
         let type = integer(raw["type"]) ?? 0
         let aiStatus = integer(raw["ai_status"]) ?? 0
         let aiType = integer(raw["ai_type"]) ?? 0
-        let aiGenerated = aiStatus > 0 || aiType > 0 || type == 1
+        let aiGenerated = aiStatus > 0 || aiType > 0 || type == 1 || language.lowercased().hasPrefix("ai-")
         let translated = type == 2 || rawTitle.localizedCaseInsensitiveContains("translate")
             || rawTitle.contains("翻译") || rawTitle.contains("译")
         let format = normalizedURL.localizedCaseInsensitiveContains(".bcc") ? "bcc" : "json"

@@ -1683,7 +1683,10 @@ final class PlayerService: ObservableObject {
             if let video = try? await BilibiliAPI.shared.videoDetail(bvid: track.sourceMetadata["bvid"] ?? "", cookie: cookie),
                let cid = video.cid,
                let tracks = try? await BilibiliAPI.shared.subtitleTracks(bvid: video.bvid, aid: video.aid, cid: cid, cookie: cookie),
-               let chosen = tracks.first(where: { $0.language.lowercased().hasPrefix("zh") }) ?? tracks.first,
+               let chosen = tracks.first(where: { $0.language.lowercased().contains("zh") && !$0.isAIGenerated && !$0.isTranslated })
+                    ?? tracks.first(where: { $0.language.lowercased().contains("zh") && !$0.isTranslated })
+                    ?? tracks.first(where: { !$0.isTranslated })
+                    ?? tracks.first,
                let cues = try? await BilibiliAPI.shared.subtitleCues(for: chosen, cookie: cookie), !cues.isEmpty {
                 guard !Task.isCancelled, generation == resolveGeneration else { return }
                 var parsed = ParsedLyrics()

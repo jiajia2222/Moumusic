@@ -1411,6 +1411,13 @@ struct BilibiliVideoDetailView: View {
     @State private var playbackAudioURL: URL?
     @State private var triedMuxedFallback = false
     @State private var qualityFallbackDepth = 0
+    /// Tracks from the player endpoint (includes AI subtitles when signed in).
+    @State private var extraSubtitles: [BilibiliAPI.Subtitle] = []
+
+    private var allSubtitles: [BilibiliAPI.Subtitle] {
+        var seen = Set<String>()
+        return (activeVideo.subtitles + extraSubtitles).filter { seen.insert($0.url.absoluteString).inserted }
+    }
     @State private var audioPlaybackURL: URL?
     @State private var audioQualities: [BilibiliAPI.BilibiliAudioQuality] = []
     @State private var selectedAudioQuality: Int?
@@ -1458,7 +1465,7 @@ struct BilibiliVideoDetailView: View {
                             cues: subtitleCues,
                             danmaku: danmakuCues,
                             danmakuEnabled: settings.bilibiliDanmakuEnabled,
-                            subtitles: activeVideo.subtitles,
+                            subtitles: allSubtitles,
                             selectedSubtitleID: selectedSubtitle?.id,
                             onSelectSubtitle: { subtitle in
                                 if let subtitle {
@@ -1521,7 +1528,7 @@ struct BilibiliVideoDetailView: View {
                 cues: subtitleCues,
                 danmaku: danmakuCues,
                 danmakuEnabled: settings.bilibiliDanmakuEnabled,
-                subtitles: activeVideo.subtitles,
+                subtitles: allSubtitles,
                 selectedSubtitleID: selectedSubtitle?.id,
                 onSelectSubtitle: { subtitle in
                     if let subtitle {
@@ -1616,11 +1623,11 @@ struct BilibiliVideoDetailView: View {
                     } label: { Label(currentQualityTitle, systemImage: "rectangle.inset.filled") }
                         .buttonStyle(.bordered)
                 }
-                if !activeVideo.subtitles.isEmpty {
+                if !allSubtitles.isEmpty {
                     Menu {
                         Button("关闭字幕") { selectedSubtitle = nil; subtitleCues = [] }
                         Divider()
-                        ForEach(activeVideo.subtitles) { subtitle in
+                        ForEach(allSubtitles) { subtitle in
                             Button {
                                 Task { await loadSubtitle(subtitle) }
                             } label: {
@@ -1728,8 +1735,8 @@ struct BilibiliVideoDetailView: View {
                 Text(activeVideo.description).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             interactionBar
-            if !activeVideo.subtitles.isEmpty {
-                Label("已发现 \(activeVideo.subtitles.count) 条字幕轨道，可选择普通、翻译或 AI 字幕", systemImage: "captions.bubble")
+            if !allSubtitles.isEmpty {
+                Label("已发现 \(allSubtitles.count) 条字幕轨道（含中文与 AI 字幕），可在播放器里选择", systemImage: "captions.bubble")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }.padding(.horizontal, 18)
@@ -1785,7 +1792,11 @@ struct BilibiliVideoDetailView: View {
             }
             await loadInteractionState()
             await loadDanmaku()
-            if let subtitle = preferredSubtitle(in: loaded.subtitles) {
+            if let cid = loaded.cid {
+                extraSubtitles = (try? await BilibiliAPI.shared.subtitleTracks(
+                    bvid: loaded.bvid, aid: loaded.aid, cid: cid, cookie: bilibili.cookie)) ?? []
+            }
+            if let subtitle = preferredSubtitle(in: allSubtitles) {
                 await loadSubtitle(subtitle)
             }
         } catch {
@@ -1794,10 +1805,16 @@ struct BilibiliVideoDetailView: View {
         }
     }
 
+    /// Chinese first (uploaded, then AI), then any uploaded track, then AI, then translations.
     private func preferredSubtitle(in subtitles: [BilibiliAPI.Subtitle]) -> BilibiliAPI.Subtitle? {
-        subtitles.first(where: { !$0.isAIGenerated && !$0.isTranslated })
+        func isChinese(_ item: BilibiliAPI.Subtitle) -> Bool {
+            item.language.lowercased().contains("zh") || item.title.contains("中文") || item.title.contains("简体")
+        }
+        return subtitles.first(where: { isChinese($0) && !$0.isAIGenerated && !$0.isTranslated })
+            ?? subtitles.first(where: { isChinese($0) && $0.isAIGenerated && !$0.isTranslated })
+            ?? subtitles.first(where: { !$0.isAIGenerated && !$0.isTranslated })
             ?? subtitles.first(where: { $0.isAIGenerated && !$0.isTranslated })
-            ?? subtitles.first(where: { $0.isTranslated })
+            ?? subtitles.first(where: { isChinese($0) })
             ?? subtitles.first
     }
 
