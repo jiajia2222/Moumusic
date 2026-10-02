@@ -94,7 +94,7 @@ struct BilibiliLiveView: View {
 
     var body: some View {
         ZStack {
-            Color(uiColor: .systemBackground).ignoresSafeArea()
+            if !embedded { Color(uiColor: .systemBackground).ignoresSafeArea() }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     header
@@ -272,11 +272,13 @@ private struct BilibiliLiveRoomCard: View {
             .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .clipped()
+            // Fixed-height text rows so every live card is the same height and the covers align.
             Text(room.title)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40, alignment: .topLeading)
             HStack(spacing: 5) {
                 Text(room.userName).lineLimit(1)
                 Spacer(minLength: 0)
@@ -286,14 +288,14 @@ private struct BilibiliLiveRoomCard: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
-            if !room.areaName.isEmpty {
-                Text(room.areaName)
-                    .font(.caption2)
-                    .foregroundStyle(Theme.accent)
-                    .lineLimit(1)
-            }
+            .frame(height: 16)
+            Text(room.areaName.isEmpty ? " " : room.areaName)
+                .font(.caption2)
+                .foregroundStyle(Theme.accent)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: 14, maxHeight: 14, alignment: .topLeading)
         }
-        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 

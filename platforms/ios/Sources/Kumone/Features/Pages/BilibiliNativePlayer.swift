@@ -1,4 +1,4 @@
-#if os(iOS)
+﻿#if os(iOS)
 import AVFoundation
 import AVKit
 import SwiftUI
@@ -32,6 +32,8 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
 
     let player = AVPlayer()
     var onError: ((String) -> Void)?
+    /// Catalogue length of the video; keeps the seek bar usable while the stream reports no duration.
+    var fallbackDuration: Double = 0
 
     private var pipController: AVPictureInPictureController?
     private weak var inlineLayer: AVPlayerLayer?
@@ -73,7 +75,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         loadTask?.cancel()
         isReady = false
         currentTime = 0
-        duration = 0
+        duration = fallbackDuration
         guard let video else {
             player.replaceCurrentItem(with: nil)
             isPreparing = false
@@ -155,6 +157,8 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         if let item = player.currentItem, item.duration.isNumeric {
             let value = item.duration.seconds
             if value.isFinite, value > 0, abs(value - duration) > 0.5 { duration = value }
+        } else if duration <= 0, fallbackDuration > 0 {
+            duration = fallbackDuration
         }
     }
 
@@ -453,7 +457,12 @@ struct BiliNativePlayer: View {
             }
             gestureLayer
             if controlsVisible {
+                // Full screen runs under the home indicator / rounded corners: keep the buttons
+                // and the progress slider well inside the screen so they are easy to hit.
                 controls
+                    .padding(.horizontal, isFullscreen ? 56 : 0)
+                    .padding(.bottom, isFullscreen ? 26 : 0)
+                    .padding(.top, isFullscreen ? 10 : 0)
                     .transition(.opacity)
             }
         }
@@ -496,7 +505,7 @@ struct BiliNativePlayer: View {
         let player = model.player
         let fullscreen = isFullscreen
         let controlsShown = controlsVisible
-        return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !model.isPlaying)) { _ in
+        return TimelineView(.animation(paused: !model.isPlaying)) { _ in
             Canvas { context, size in
                 let time = player.currentTime().seconds
                 guard time.isFinite else { return }

@@ -1379,14 +1379,8 @@ final class PlayerService: ObservableObject {
         operation: @escaping @Sendable () async -> T?
     ) async -> T? {
         await withTaskGroup(of: T?.self) { group in
+            // No timeout: quality detection simply waits for the source to answer.
             group.addTask { await operation() }
-            group.addTask {
-                // Quality discovery is only a UI hint. Return the safe
-                // baseline quickly when an account/source endpoint stalls;
-                // playback itself keeps its longer resolver timeout.
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
-                return nil
-            }
             let result = await group.next() ?? nil
             group.cancelAll()
             return result

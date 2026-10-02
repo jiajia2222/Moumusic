@@ -1549,6 +1549,7 @@ struct BilibiliVideoDetailView: View {
             .background(Color.black.ignoresSafeArea())
         }
         .task(id: playerSourceKey) {
+            playerModel.fallbackDuration = activeVideo.duration
             playerModel.load(
                 video: activePlaybackURL,
                 audio: listenOnly ? nil : playbackAudioURL,
