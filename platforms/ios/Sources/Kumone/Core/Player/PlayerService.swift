@@ -1621,6 +1621,26 @@ final class PlayerService: ObservableObject {
         // word-timed payload.  The latter is what AMLL needs; a line-only LRC
         // must never be split into invented per-character timings.
         var lineTimedFallback: ParsedLyrics?
+
+        // Word-by-word lyrics come from QQ Music first (QRC), whatever platform the song is from.
+        if SettingsManager.shared.verbatimLyrics {
+            var qqID: String? = sourceKey == "tx" || sourceKey == "qq" ? track.sourceMetadata["id"] : nil
+            if qqID == nil, let matched = await LXCatalogService.matchingTrack(track, on: "tx") {
+                qqID = matched.sourceMetadata["id"]
+            }
+            guard !Task.isCancelled, generation == resolveGeneration else { return }
+            if let qqID, !qqID.isEmpty {
+                let qrcLines = await QQQRCLyrics.lyricLines(musicID: qqID)
+                guard !Task.isCancelled, generation == resolveGeneration else { return }
+                if !qrcLines.isEmpty {
+                    var parsed = ParsedLyrics()
+                    parsed.lines = qrcLines
+                    publishLyrics(parsed, for: track, generation: generation)
+                    return
+                }
+            }
+        }
+
         if ["wy", "netease", "163"].contains(sourceKey),
            let response = try? await NeteaseAPI.lyric(id: track.id) {
             guard !Task.isCancelled, generation == resolveGeneration else { return }
