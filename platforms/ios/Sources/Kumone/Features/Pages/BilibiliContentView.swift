@@ -1385,6 +1385,7 @@ struct BilibiliVideoDetailView: View {
     @StateObject private var playerModel = BiliPlayerModel()
     @State private var playbackURL: URL?
     @State private var playbackAudioURL: URL?
+    @State private var triedMuxedFallback = false
     @State private var audioPlaybackURL: URL?
     @State private var audioQualities: [BilibiliAPI.BilibiliAudioQuality] = []
     @State private var selectedAudioQuality: Int?
@@ -1524,6 +1525,13 @@ struct BilibiliVideoDetailView: View {
         }
         .onAppear {
             playerModel.onError = { message in
+                // DASH (separate video/audio) can fail on odd streams: retry once with the
+                // muxed MP4 before reporting an error.
+                if !listenOnly, !triedMuxedFallback {
+                    triedMuxedFallback = true
+                    Task { await loadPlayback(quality: selectedQuality, muxed: true) }
+                    return
+                }
                 isLoading = false
                 errorMessage = message
             }
@@ -1913,10 +1921,10 @@ struct BilibiliVideoDetailView: View {
             interactionMessage = "评论发送失败，请稍后重试"
         }
     }
-    @MainActor private func loadPlayback(quality: Int?, video: BilibiliAPI.Video? = nil) async {
+    @MainActor private func loadPlayback(quality: Int?, video: BilibiliAPI.Video? = nil, muxed: Bool = false) async {
         isLoading = true
         do {
-            let playback = try await BilibiliAPI.shared.playback(for: video ?? activeVideo, quality: quality, cookie: bilibili.cookie)
+            let playback = try await BilibiliAPI.shared.playback(for: video ?? activeVideo, quality: quality, muxed: muxed, cookie: bilibili.cookie)
             qualities = playback.qualities
             selectedQuality = playback.quality > 0 ? playback.quality : nil
             playbackURL = playback.url

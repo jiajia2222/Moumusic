@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import MediaPlayer
 
 /// System Now Playing integration: media keys, Control Center, lock-screen metadata.
@@ -105,8 +105,18 @@ final class NowPlayingManager {
                 url = await Self.fallbackArtworkURL(for: track, size: artworkSize)
             }
             guard let url,
-                  let image = await ImageCache.shared.image(for: url),
+                  let loaded = await ImageCache.shared.image(for: url),
                   let self, !Task.isCancelled else { return }
+            // Video covers (16:9) are center-cropped so the system player shows a square cover.
+            let image: UIImage = {
+                let w = loaded.size.width, h = loaded.size.height
+                guard w > 0, h > 0, abs(w - h) / max(w, h) > 0.03, let cg = loaded.cgImage else { return loaded }
+                let s = loaded.scale
+                let side = min(w, h) * s
+                let rect = CGRect(x: (w * s - side) / 2, y: (h * s - side) / 2, width: side, height: side)
+                guard let cropped = cg.cropping(to: rect) else { return loaded }
+                return UIImage(cgImage: cropped, scale: s, orientation: loaded.imageOrientation)
+            }()
             let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
             self.info[MPMediaItemPropertyArtwork] = artwork
             MPNowPlayingInfoCenter.default().nowPlayingInfo = self.info
