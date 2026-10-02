@@ -720,7 +720,6 @@ final class PlayerService: ObservableObject {
         // into the lyric/artist field).
         let snapshotLyric = index.flatMap { lyrics?.lines[$0].text }
             ?? lyrics?.lines.first?.text
-        WidgetSnapshotStore.update(track: currentTrack, lyric: snapshotLyric)
         #if os(iOS)
         NowPlayingManager.shared.updateCurrentLyric(snapshotLyric)
         #endif
@@ -1023,7 +1022,6 @@ final class PlayerService: ObservableObject {
         }
         scrobbleIfNeeded(completed: false)
         currentTrack = track
-        WidgetSnapshotStore.update(track: track, lyric: nil)
         progress = resumeAt ?? 0
         pendingSeek = resumeAt
         duration = track.duration
