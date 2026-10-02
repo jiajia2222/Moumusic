@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Bilibili public-content and account client.
@@ -434,22 +435,42 @@ actor BilibiliAPI {
         session = URLSession(configuration: configuration)
     }
 
+    // MARK: - TV (HD) QR login, the flow PiliPlus uses
+
+    private static let tvAppKey = "dfca71928277209b"
+    private static let tvAppSec = "b5475a8825547a4fc26c7d518eaaa02e"
+    private static let tvUserAgent =
+        "Mozilla/5.0 BiliDroid/2.0.1 (bbcallen@gmail.com) os/android model/android_hd mobi_app/android_hd build/2001100 channel/master innerVer/2001100 osVer/15 network/2"
+
+    private func tvPost(_ path: String, _ params: [String: String]) async throws -> [String: Any] {
+        var all = params
+        all["appkey"] = Self.tvAppKey
+        all["ts"] = String(Int(Date().timeIntervalSince1970))
+        let query = all.sorted { $0.key < $1.key }
+            .map { "\($0.key)=\(Self.formEncode($0.value))" }
+            .joined(separator: "&")
+        let sign = Insecure.MD5.hash(data: Data((query + Self.tvAppSec).utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        var request = URLRequest(url: URL(string: "https://passport.bilibili.com\(path)?\(query)&sign=\(sign)")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue(Self.tvUserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard let root = Self.object(data) else { throw APIError.invalidResponse }
+        return root
+    }
+
+    private static func formEncode(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")) ?? value
+    }
+
     func qrCode() async throws -> QRCodePayload {
-        let endpoint = URL(string: "https://passport.bilibili.com/x/passport-login/web/qrcode/generate")!
-        var request = URLRequest(url: endpoint.appending(queryItems: [
-            URLQueryItem(name: "source", value: "main_web")
-        ]))
-        applyHeaders(to: &request, referer: "https://www.bilibili.com/")
-        let (data, response) = try await session.data(for: request)
-        // Keep any visitor/session cookies returned by passport in the same
-        // jar used by the poll request. URLSession normally does this, but
-        // the QR endpoint can redirect across passport hosts on iOS.
-        collectCookies(from: response)
-        guard Self.isSuccess(response),
-              let root = Self.object(data),
+        let root = try await tvPost("/x/passport-tv-login/qrcode/auth_code",
+                                    ["local_id": "0", "platform": "android", "mobi_app": "android_hd"])
+        guard Self.integer(root["code"]) == 0,
               let payload = root["data"] as? [String: Any],
-              let url = Self.text(payload["url"]),
-              let key = Self.text(payload["qrcode_key"]),
+              let url = Self.text(payload["url"]), let key = Self.text(payload["auth_code"]),
               !url.isEmpty, !key.isEmpty else {
             throw APIError.invalidResponse
         }
@@ -457,50 +478,39 @@ actor BilibiliAPI {
     }
 
     func poll(key: String) async throws -> QRStatus {
-        var components = URLComponents(string: "https://passport.bilibili.com/x/passport-login/web/qrcode/poll")!
-        components.queryItems = [
-            URLQueryItem(name: "qrcode_key", value: key),
-            URLQueryItem(name: "source", value: "main_web")
-        ]
-        var request = URLRequest(url: components.url!)
-        applyHeaders(to: &request, referer: "https://www.bilibili.com/")
-        let (data, response) = try await session.data(for: request)
-        collectCookies(from: response)
-        guard Self.isSuccess(response),
-              let root = Self.object(data),
-              let payload = root["data"] as? [String: Any] else {
-            throw APIError.requestFailed
-        }
-
-        let code = Self.integer(payload["code"]) ?? Self.integer(root["code"])
-        if code != 86101 {
-            let seen = code.map(String.init) ?? "nil"
-            Task { @MainActor in
-                DiagnosticLogStore.shared.append(level: .info, category: "哔哩哔哩登录", message: "扫码状态 \(seen)", detail: "")
-            }
-        }
+        let root = try await tvPost("/x/passport-tv-login/qrcode/poll", ["auth_code": key, "local_id": "0"])
+        let code = Self.integer(root["code"])
         switch code {
-        case 86101:
+        case 86039:
             return .waiting
         case 86090:
             return .scanned
         case 86038:
             return .expired
         case 0:
-            let stored = cookieHeader()
-            let fromURL = Self.cookieHeader(fromLoginURL: Self.text(payload["url"]) ?? Self.text(root["url"]))
-            let cookies = Self.mergedCookieHeaders(stored, fromURL)
-            guard !cookies.isEmpty else { throw APIError.unavailable }
-            return .success(cookie: cookies)
+            let payload = root["data"] as? [String: Any]
+            let info = payload?["cookie_info"] as? [String: Any]
+            let rows = info?["cookies"] as? [[String: Any]] ?? []
+            let cookie = rows.compactMap { row -> String? in
+                guard let name = Self.text(row["name"]), let value = Self.text(row["value"]) else { return nil }
+                return "\(name)=\(value)"
+            }.joined(separator: "; ")
+            guard !cookie.isEmpty else {
+                Task { @MainActor in
+                    DiagnosticLogStore.shared.append(level: .error, category: "哔哩哔哩登录", message: "TV 登录成功但没有 cookie", detail: "keys=\((payload ?? [:]).keys.sorted().joined(separator: ","))")
+                }
+                throw APIError.unavailable
+            }
+            return .success(cookie: cookie)
         default:
-            let unexpected = code.map(String.init) ?? "nil"
+            let seen = code.map(String.init) ?? "nil"
+            let message = Self.text(root["message"]) ?? ""
             Task { @MainActor in
-                DiagnosticLogStore.shared.append(level: .error, category: "哔哩哔哩登录", message: "扫码轮询返回未知状态", detail: "code=\(unexpected)")
+                DiagnosticLogStore.shared.append(level: .error, category: "哔哩哔哩登录", message: "扫码轮询返回未知状态", detail: "code=\(seen) \(message)")
             }
             throw APIError.unavailable
         }
     }
-
     func profile(cookie: String) async throws -> Profile {
         await ensureVisitorCookies()
         let endpoint = URL(string: "https://api.bilibili.com/x/web-interface/nav")!

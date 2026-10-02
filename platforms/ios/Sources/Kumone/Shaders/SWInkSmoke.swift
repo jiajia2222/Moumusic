@@ -144,7 +144,7 @@ private struct SWInkSmokeRenderer: View {
     @State private var start: Date = .now
 
     var body: some View {
-        TimelineView(.animation) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let elapsed = Float(ctx.date.timeIntervalSince(start))
             // The base layer is `ink1` — the shader overwrites every pixel,
             // so the choice is cosmetic, but `ink1` keeps the first frame

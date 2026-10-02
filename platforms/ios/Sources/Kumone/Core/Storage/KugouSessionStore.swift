@@ -113,6 +113,18 @@ final class KugouSessionStore: ObservableObject {
         }
     }
 
+    /// Registers this device with Kugou (needed for the account playlist APIs) and keeps
+    /// the resulting `dfid` with the session. Returns the cookie to use for requests.
+    func cookieWithDevice() async -> String? {
+        guard let cookie = storedCookie else { return nil }
+        if cookie.contains("dfid=") && !cookie.contains("dfid=-") { return cookie }
+        guard let registered = await KugouAPI.shared.registerDevice(cookie: cookie) else { return cookie }
+        let updated = cookie + "; dfid=\(registered.dfid); kugou_api_guid=\(registered.guid)"
+        try? ProviderSessionSupport.writeCookie(updated, service: keychainService)
+        storedCookie = updated
+        return updated
+    }
+
     func signOut() {
         ProviderSessionSupport.deleteCookie(service: keychainService)
         storedCookie = nil

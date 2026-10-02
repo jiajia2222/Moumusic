@@ -147,7 +147,7 @@ private struct SWStarNestRenderer: View {
     @State private var start: Date = .now
 
     var body: some View {
-        TimelineView(.animation) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let elapsed = Float(ctx.date.timeIntervalSince(start))
             // Black is the natural first-frame base for a deep-space nebula —
             // the shader fills it before the first frame is visible.

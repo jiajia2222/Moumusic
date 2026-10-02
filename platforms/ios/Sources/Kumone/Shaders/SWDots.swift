@@ -214,7 +214,7 @@ private struct SWDotsRenderer: View {
     @State private var start: Date = .now
 
     var body: some View {
-        TimelineView(.animation) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let elapsed = Float(ctx.date.timeIntervalSince(start))
             background
                 .colorEffect(

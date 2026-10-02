@@ -160,6 +160,18 @@ actor QQMusicAPI {
         // a new image; otherwise cookie storage can send two signatures and
         // QQ may report a freshly scanned code as expired.
         deleteCookies(named: "qrsig")
+        // The login page hands out pt_login_sig; ptqrlogin must echo it back as
+        // login_sig, otherwise a scanned code is reported as already expired.
+        if let xlogin = URL(string: "https://xui.ptlogin2.qq.com/cgi-bin/xlogin?appid=716027609&daid=383&style=33&login_text=%E7%99%BB%E5%BD%95&hide_title_bar=1&hide_border=1&target=self&s_url=https%3A%2F%2Fgraph.qq.com%2Foauth2.0%2Flogin_jump&pt_3rd_aid=100497308&theme=2&verify_theme=") {
+            var loginPage = URLRequest(url: xlogin)
+            loginPage.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            if let (_, pageResponse) = try? await redirectSession.data(for: loginPage) {
+                collectCookies(from: pageResponse)
+                if let sig = Self.cookieValue("pt_login_sig", from: pageResponse) {
+                    setCookieValue(sig, for: "pt_login_sig")
+                }
+            }
+        }
         var components = URLComponents(string: "https://ssl.ptlogin2.qq.com/ptqrshow")!
         components.queryItems = [
             URLQueryItem(name: "appid", value: "716027609"),
@@ -217,7 +229,7 @@ actor QQMusicAPI {
             URLQueryItem(name: "action", value: "0-0-\(Int(Date().timeIntervalSince1970 * 1000))"),
             URLQueryItem(name: "js_ver", value: "22080914"),
             URLQueryItem(name: "js_type", value: "1"),
-            URLQueryItem(name: "login_sig", value: ""),
+            URLQueryItem(name: "login_sig", value: cookieValue("pt_login_sig") ?? ""),
             URLQueryItem(name: "pt_uistyle", value: "40"),
             URLQueryItem(name: "aid", value: "716027609"),
             URLQueryItem(name: "daid", value: "383"),
@@ -229,7 +241,9 @@ actor QQMusicAPI {
             URLQueryItem(name: "o1vId", value: "49283d5cbb01a744d46314da4608d929")
         ]
         var request = URLRequest(url: components.url!)
-        request.setValue("qrsig=\(qrsig)", forHTTPHeaderField: "Cookie")
+        var pollCookie = "qrsig=\(qrsig)"
+        if let sig = cookieValue("pt_login_sig") { pollCookie += "; pt_login_sig=\(sig)" }
+        request.setValue(pollCookie, forHTTPHeaderField: "Cookie")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("https://xui.ptlogin2.qq.com/", forHTTPHeaderField: "Referer")
         let (data, response) = try await redirectSession.data(for: request)

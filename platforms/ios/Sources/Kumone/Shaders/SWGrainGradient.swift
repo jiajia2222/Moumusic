@@ -127,7 +127,7 @@ private struct SWGrainGradientRenderer: View {
     @State private var start: Date = .now
 
     var body: some View {
-        TimelineView(.animation) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let elapsed = Float(ctx.date.timeIntervalSince(start))
             // Base layer is `color1` so the first frame matches the gradient
             // tone before the shader runs — avoids any black flash.

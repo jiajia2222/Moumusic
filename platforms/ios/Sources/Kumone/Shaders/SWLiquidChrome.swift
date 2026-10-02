@@ -150,7 +150,7 @@ private struct SWLiquidChromeRenderer: View {
     @State private var start: Date = .now
 
     var body: some View {
-        TimelineView(.animation) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let elapsed = Float(ctx.date.timeIntervalSince(start))
             // First-frame base color before the shader runs — using `silver`
             // (mid-tone metallic) avoids a black flash on initial layout.

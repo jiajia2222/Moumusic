@@ -92,7 +92,7 @@ struct AccountPlaylistsView: View {
     private func load() async {
         isLoading = true
         defer { isLoading = false }
-        if kugou.isLoggedIn, let cookie = kugou.cookie {
+        if kugou.isLoggedIn, let cookie = await kugou.cookieWithDevice() {
             do {
                 kugouLists = try await KugouAPI.shared.userPlaylists(cookie: cookie)
                 kugouError = kugouLists.isEmpty ? "没有读取到歌单，详情见 设置 → 诊断日志" : nil
@@ -212,7 +212,7 @@ struct PlatformAccountPlaylists: View {
             }
         }
         .task(id: "\(platform.rawValue)-\(kugou.sessionRevision)-\(qqMusic.sessionRevision)") {
-            if platform == .kg, kugou.isLoggedIn, let cookie = kugou.cookie {
+            if platform == .kg, kugou.isLoggedIn, let cookie = await kugou.cookieWithDevice() {
                 kugouLists = (try? await KugouAPI.shared.userPlaylists(cookie: cookie)) ?? []
             } else if platform == .tx, qqMusic.isLoggedIn, let cookie = qqMusic.cookie {
                 qqLists = (try? await QQMusicAPI.shared.userPlaylists(cookie: cookie)) ?? []

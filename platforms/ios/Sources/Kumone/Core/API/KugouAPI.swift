@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import CommonCrypto
 import CryptoKit
 
 /// KuGou account client for native QR login, session validation, and
@@ -327,6 +328,88 @@ actor KugouAPI {
         return (auth, openTime)
     }
 
+    // MARK: - Device registration (gives the account a device fingerprint, `dfid`)
+
+    private static let registerPublicKey = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDIAG7QOELSYoIJvTFJhMpe1s/gbjDJX51HBNnEl5HXqTW6lQ7LC8jr9fWZTwusknp+sVGzwd40MwP6U5yDE27M/X1+UR4tvOGOqp94TJtQ1EPnWGWXngpeIW5GxoQGao1rmYWAu6oi1z9XkChrsUdC6DJE5E221wf/4WLFxwAtRQIDAQAB"
+
+    private static func aesCBC(_ data: Data, key: [UInt8], iv: [UInt8], encrypt: Bool) -> Data? {
+        var out = Data(count: data.count + kCCBlockSizeAES128)
+        var written = 0
+        let capacity = out.count
+        let status = out.withUnsafeMutableBytes { outPtr in
+            data.withUnsafeBytes { inPtr in
+                CCCrypt(CCOperation(encrypt ? kCCEncrypt : kCCDecrypt), CCAlgorithm(kCCAlgorithmAES),
+                        CCOptions(kCCOptionPKCS7Padding), key, key.count, iv,
+                        inPtr.baseAddress, data.count, outPtr.baseAddress, capacity, &written)
+            }
+        }
+        guard status == kCCSuccess else { return nil }
+        return out.prefix(written)
+    }
+
+    private static func rsaEncryptHex(_ plain: Data) -> String? {
+        guard let spki = Data(base64Encoded: registerPublicKey), spki.count > 22 else { return nil }
+        let pkcs1 = spki.dropFirst(22)
+        let attributes: [CFString: Any] = [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeyClass: kSecAttrKeyClassPublic]
+        guard let key = SecKeyCreateWithData(Data(pkcs1) as CFData, attributes as CFDictionary, nil),
+              let cipher = SecKeyCreateEncryptedData(key, .rsaEncryptionPKCS1, plain as CFData, nil) as Data? else { return nil }
+        return cipher.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Registers this device with Kugou and returns `dfid` (and the guid used), or nil.
+    func registerDevice(cookie: String) async -> (dfid: String, guid: String)? {
+        let fields = Self.cookieFields(cookie)
+        let userID = Int(fields["userid"] ?? "0") ?? 0
+        let token = fields["token"] ?? ""
+        let guid = fields["kugou_api_guid"] ?? Self.md5(UUID().uuidString)
+        let info: [String: Any] = [
+            "availableRamSize": 4_983_533_568, "availableRomSize": 48_114_719, "availableSDSize": 48_114_717,
+            "basebandVer": "", "batteryLevel": 100, "batteryStatus": 3, "brand": "Redmi", "buildSerial": "unknown",
+            "device": "marble", "imei": guid, "imsi": "", "manufacturer": "Xiaomi", "uuid": guid,
+            "accelerometer": false, "accelerometerValue": "", "gravity": false, "gravityValue": "",
+            "gyroscope": false, "gyroscopeValue": "", "light": false, "lightValue": "", "magnetic": false,
+            "magneticValue": "", "orientation": false, "orientationValue": "", "pressure": false,
+            "pressureValue": "", "step_counter": false, "step_counterValue": "", "temperature": false,
+            "temperatureValue": "",
+        ]
+        guard let infoJSON = try? JSONSerialization.data(withJSONObject: info) else { return nil }
+        let alphabet = Array("abcdefghijklmnopqrstuvwxyz0123456789")
+        let keyText = String((0..<6).map { _ in alphabet[Int.random(in: 0..<alphabet.count)] })
+        let digest = Self.md5(keyText)
+        let aesKey = Array(digest.prefix(16).utf8)
+        let aesIV = Array(digest.suffix(16).utf8)
+        guard let encrypted = Self.aesCBC(infoJSON, key: aesKey, iv: aesIV, encrypt: true) else { return nil }
+        let body = encrypted.base64EncodedString()
+        let rsaPayload = "{\"aes\":\"\(keyText)\",\"uid\":\(userID),\"token\":\"\(Self.jsonEscaped(token))\"}"
+        guard let p = Self.rsaEncryptHex(Data(rsaPayload.utf8)) else { return nil }
+
+        let clientTime = String(Int(Date().timeIntervalSince1970))
+        var params: [String: String] = [
+            "dfid": "-", "mid": deviceMid, "uuid": "-", "appid": "1005", "clientver": "20489",
+            "clienttime": clientTime, "part": "1", "platid": "1", "p": p,
+        ]
+        let salt = "OIlwieks28dk2k092lksi2UIkp"
+        params["signature"] = Self.md5(salt + params.map { "\($0.key)=\($0.value)" }.sorted().joined() + body + salt)
+        guard var request = try? Self.request(
+            endpoint: URL(string: "https://userservice.kugou.com/risk/v2/r_register_dev")!, parameters: params) else { return nil }
+        request.httpMethod = "POST"
+        request.httpBody = Data(body.utf8)
+        request.setValue("Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi", forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await session.data(for: request),
+              let plain = Self.aesCBC(data, key: aesKey, iv: aesIV, encrypt: false),
+              let root = try? JSONSerialization.jsonObject(with: plain) as? [String: Any] else {
+            Task { @MainActor in
+                DiagnosticLogStore.shared.append(level: .error, category: "Kugou", message: "设备注册失败", detail: "无法解析响应")
+            }
+            return nil
+        }
+        let status = Self.text(root["status"]) ?? "?"
+        let dfid = ((root["data"] as? [String: Any]).flatMap { Self.text($0["dfid"]) }) ?? ""
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: dfid.isEmpty ? .error : .info, category: "Kugou", message: "设备注册", detail: "status=\(status) dfid=\(dfid.isEmpty ? "无" : "已获取")")
+        }
+        return dfid.isEmpty ? nil : (dfid, guid)
+    }
     // MARK: - Account (cloud) playlists
 
     struct CloudPlaylist: Identifiable, Hashable, Sendable {

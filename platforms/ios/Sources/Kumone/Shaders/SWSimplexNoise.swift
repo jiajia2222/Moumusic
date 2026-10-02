@@ -107,7 +107,7 @@ private struct SWSimplexNoiseRenderer: View {
         let slots = paddedSlots(colors)
         let colorsCount = Float(max(min(colors.count, 10), 1))
 
-        TimelineView(.animation) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let elapsed = Float(ctx.date.timeIntervalSince(start)) * speed
             // Base layer must be opaque — `Color.clear` skips rendering
             // and the shader never gets called. Use the first palette

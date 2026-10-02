@@ -157,7 +157,7 @@ private struct SWMetaballsRenderer: View {
     @State private var start: Date = .now
 
     var body: some View {
-        TimelineView(.animation) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let elapsed = Float(ctx.date.timeIntervalSince(start))
             // Pack colors into 8 fixed slots; pad with `.clear` so unused
             // slots don't contribute (they're never indexed when

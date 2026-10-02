@@ -141,7 +141,7 @@ private struct SWWaterRenderer<Content: View>: View {
     @State private var start: Date = .now
 
     var body: some View {
-        TimelineView(.animation) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let elapsed = Float(ctx.date.timeIntervalSince(start))
             // `maxSampleOffset` covers the largest UV shift our distortion
             // can produce — caustic max ~0.02 of the layer + waves up to

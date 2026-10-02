@@ -105,7 +105,7 @@ private struct SWDotOrbitRenderer: View {
     @State private var start: Date = .now
 
     var body: some View {
-        TimelineView(.animation) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
             let elapsed = Float(ctx.date.timeIntervalSince(start))
             let slots = paddedSlots(initial.colors)
             let colorsCount = Float(max(min(initial.colors.count, 10), 1))
