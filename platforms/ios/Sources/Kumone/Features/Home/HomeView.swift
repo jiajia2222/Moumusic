@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 @MainActor
 final class HomeViewModel: ObservableObject {
@@ -344,6 +344,11 @@ struct HomeView: View {
     @AppStorage("moumusic.home.bilibiliActive") private var bilibiliActive = false
 #endif
     @StateObject private var model = HomeViewModel.shared
+#if os(iOS)
+    @ObservedObject private var remoteControl = RemoteControlStore.shared
+    @AppStorage("moumusic.announcement.lastShown") private var lastShownAnnouncement = ""
+    @State private var showAnnouncementPopup = false
+#endif
 
     var body: some View {
         Group {
@@ -423,7 +428,27 @@ struct HomeView: View {
         .refreshable {
             await loadCurrentHome(force: true)
         }
+        #if os(iOS)
+        .task { await RemoteControlStore.shared.refreshIfNeeded() }
+        .onChange(of: remoteControl.announcementText) { _ in presentAnnouncementIfNew() }
+        .onChange(of: remoteControl.announcementEnabled) { _ in presentAnnouncementIfNew() }
+        .onAppear { presentAnnouncementIfNew() }
+        .alert("公告", isPresented: $showAnnouncementPopup) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(remoteControl.announcementText)
+        }
+        #endif
     }
+
+    #if os(iOS)
+    private func presentAnnouncementIfNew() {
+        guard remoteControl.announcementEnabled, !remoteControl.announcementText.isEmpty,
+              lastShownAnnouncement != remoteControl.announcementText else { return }
+        lastShownAnnouncement = remoteControl.announcementText
+        showAnnouncementPopup = true
+    }
+    #endif
 
     private var homeTaskID: String {
         return "music-\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)"
@@ -463,7 +488,22 @@ struct HomeView: View {
         }
     }
 
+    @ViewBuilder
     private var communityAnnouncement: some View {
+        #if os(iOS)
+        if remoteControl.announcementEnabled, !remoteControl.announcementText.isEmpty {
+            RemoteAnnouncementCard(text: remoteControl.announcementText,
+                                   imageURL: remoteControl.announcementImageURL,
+                                   colorHex: remoteControl.announcementTextColorHex)
+        } else {
+            staticAnnouncement
+        }
+        #else
+        staticAnnouncement
+        #endif
+    }
+
+    private var staticAnnouncement: some View {
         HStack(spacing: 12) {
             Image(systemName: "megaphone.fill")
                 .font(.system(size: 18, weight: .semibold))
@@ -505,7 +545,6 @@ struct HomeView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("公告：Moumusic QQ 群 945130957，欢迎加入交流群，反馈问题和获取更新通知")
     }
-
     private var lxLoadedBody: some View {
         LazyVStack(alignment: .leading, spacing: 22) {
 #if os(macOS)
@@ -1035,3 +1074,48 @@ struct CoverCardBody: View {
         }
     }
 }
+
+#if os(iOS)
+/// Remote announcement set from the developer tools; long text wraps instead of overflowing.
+private struct RemoteAnnouncementCard: View {
+    let text: String
+    let imageURL: URL?
+    let colorHex: String
+
+    private var textColor: Color {
+        let hex = colorHex.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return .primary }
+        return Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "megaphone.fill").foregroundStyle(Theme.accent)
+                Text("公告").font(.caption.weight(.semibold)).foregroundStyle(Theme.accent)
+            }
+            if let imageURL {
+                AsyncImage(url: imageURL) { image in
+                    image.resizable().scaledToFit()
+                } placeholder: { Color.clear.frame(height: 1) }
+                .frame(maxWidth: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(textColor)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(Theme.accent.opacity(0.16), lineWidth: 1)
+        }
+        .padding(.horizontal, Theme.Layout.contentInset)
+        .padding(.top, 8)
+    }
+}
+#endif

@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import Combine
 
 #if os(iOS) || os(macOS)
@@ -117,9 +117,15 @@ final class KugouSessionStore: ObservableObject {
     /// the resulting `dfid` with the session. Returns the cookie to use for requests.
     func cookieWithDevice() async -> String? {
         guard let cookie = storedCookie else { return nil }
-        if cookie.contains("dfid=") && !cookie.contains("dfid=-") { return cookie }
+        // Only our own registration counts: web cookies also carry `dfid`/`kg_dfid`,
+        // but those belong to a browser device and the Android gateway rejects them (20010).
+        if cookie.contains("kugou_api_guid=") { return cookie }
         guard let registered = await KugouAPI.shared.registerDevice(cookie: cookie) else { return cookie }
-        let updated = cookie + "; dfid=\(registered.dfid); kugou_api_guid=\(registered.guid)"
+        let kept = cookie.split(separator: ";")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.lowercased().hasPrefix("dfid=") && !$0.lowercased().hasPrefix("kg_dfid=") }
+            .joined(separator: "; ")
+        let updated = kept + "; dfid=\(registered.dfid); kugou_api_guid=\(registered.guid)"
         try? ProviderSessionSupport.writeCookie(updated, service: keychainService)
         storedCookie = updated
         return updated

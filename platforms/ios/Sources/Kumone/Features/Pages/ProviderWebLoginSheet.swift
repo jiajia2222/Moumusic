@@ -47,7 +47,7 @@ enum ProviderWebLoginKind: String, Identifiable {
             if pair.count == 2 { values[pair[0].lowercased()] = pair[1] }
         }
         var result = header
-        if values["token"] == nil, let t = values["t"], t.count >= 8 { result += "; token=\(t)" }
+        if values["token"] == nil, let t = values["t"], t.count >= 24 { result += "; token=\(t)" }
         if values["userid"] == nil, let id = values["kugooid"] { result += "; userid=\(id)" }
         return result
     }
@@ -71,7 +71,7 @@ enum ProviderWebLoginKind: String, Identifiable {
                 (!credential.isEmpty && !openID.isEmpty)
         case .kugou:
             // The web page keeps the login token in the short cookie 	 (next to KugooID).
-            let webToken = (values["t"] ?? "").count >= 8 ? (values["t"] ?? "") : ""
+            let webToken = (values["t"] ?? "").count >= 24 ? (values["t"] ?? "") : ""
             let token = values["token"] ?? values["login_token"] ?? values["kugou_token"] ?? values["kg_token"] ?? webToken
             let identity = values["userid"] ?? values["user_id"] ?? values["kugooid"]
                 ?? values["kugoo_id"] ?? values["kg_mid"] ?? values["mid"] ?? ""

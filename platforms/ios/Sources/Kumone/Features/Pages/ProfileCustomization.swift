@@ -1,4 +1,4 @@
-#if os(iOS)
+﻿#if os(iOS)
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -10,6 +10,9 @@ final class ProfileAppearanceStore: ObservableObject {
 
     @Published private(set) var avatar: UIImage?
     @Published private(set) var background: UIImage?
+    @Published var nickname: String = UserDefaults.standard.string(forKey: "moumusic.profile.nickname") ?? "" {
+        didSet { UserDefaults.standard.set(nickname.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "moumusic.profile.nickname") }
+    }
 
     private init() {
         avatar = UIImage(contentsOfFile: Self.url("avatar").path)
@@ -67,6 +70,11 @@ struct ProfileCustomizeSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("昵称") {
+                    TextField("自定义昵称（留空使用账号昵称）", text: $store.nickname)
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.done)
+                }
                 Section("头像") {
                     PhotosPicker(selection: $avatarItem, matching: .images) {
                         Label("选择头像", systemImage: "person.crop.circle")

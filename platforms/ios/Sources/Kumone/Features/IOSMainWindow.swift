@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 #if os(iOS)
 public struct IOSMainWindow: View {
@@ -388,7 +388,10 @@ public struct IOSMainWindow: View {
         @ViewBuilder _ content: () -> Content
     ) -> some View {
         NavigationStack(path: binding(for: tab)) {
-            content().appDestinations()
+            content()
+                .appDestinations()
+                .containerBackground(.clear, for: .navigation)
+                .background(ClearAncestorBackgrounds())
         }
         .toolbarBackground(.hidden, for: .navigationBar)
         .background(Color.clear)

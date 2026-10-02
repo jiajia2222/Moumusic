@@ -127,7 +127,10 @@ actor QQMusicAPI {
 
     private init() {
         let configuration = URLSessionConfiguration.ephemeral
-        cookieStorage = HTTPCookieStorage()
+        // A bare `HTTPCookieStorage()` silently drops every cookie on iOS; use a
+        // real (group-container) storage so the ptlogin session can be kept.
+        cookieStorage = HTTPCookieStorage.sharedCookieStorage(forGroupContainerIdentifier: "moumusic.qqlogin")
+        cookieStorage.cookieAcceptPolicy = .always
         configuration.httpCookieStorage = cookieStorage
         // Keep cookie ownership in this actor.  URLSession's automatic jar
         // handling can retain both a host-scoped qrsig and the replacement
@@ -159,6 +162,7 @@ actor QQMusicAPI {
         // A qrsig is single-use. Remove the previous value before requesting
         // a new image; otherwise cookie storage can send two signatures and
         // QQ may report a freshly scanned code as expired.
+        for stale in cookieStorage.cookies ?? [] { cookieStorage.deleteCookie(stale) }
         deleteCookies(named: "qrsig")
         // The login page hands out pt_login_sig; ptqrlogin must echo it back as
         // login_sig, otherwise a scanned code is reported as already expired.
@@ -302,11 +306,13 @@ actor QQMusicAPI {
             var request = URLRequest(url: currentURL)
             request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
             request.setValue("https://xui.ptlogin2.qq.com/", forHTTPHeaderField: "Referer")
-            request.setValue(cookieHeader(includeQRSig: true), forHTTPHeaderField: "Cookie")
+            // check_sig needs every ptlogin cookie from the poll response
+            // (supertoken, pt_oauth_token, ...), not only the account keys.
+            request.setValue(fullCookieHeader(), forHTTPHeaderField: "Cookie")
             let (_, response) = try await redirectSession.data(for: request)
             collectCookies(from: response)
             if let h = response as? HTTPURLResponse {
-                Self.oauthLog("check_sig 跳转", "host=\(currentURL.host ?? "-") http=\(h.statusCode) next=\(h.value(forHTTPHeaderField: "Location").flatMap { URL(string: $0)?.host } ?? "-")")
+                Self.oauthLog("check_sig 跳转", "host=\(currentURL.host ?? "-") http=\(h.statusCode) setcookie=\((h.allHeaderFields["Set-Cookie"] as? String ?? "").split(separator: ",").compactMap { $0.split(separator: "=").first.map { String($0).trimmingCharacters(in: .whitespaces) } }.filter { !$0.contains(" ") }.joined(separator: "/")) sent=\(fullCookieHeader().split(separator: ";").count) next=\(h.value(forHTTPHeaderField: "Location").flatMap { URL(string: $0)?.host } ?? "-")")
             }
 
             guard let http = response as? HTTPURLResponse,
@@ -874,6 +880,15 @@ actor QQMusicAPI {
             .value: value
         ]) else { return }
         cookieStorage.setCookie(cookie)
+    }
+
+    private func fullCookieHeader() -> String {
+        var byName: [String: HTTPCookie] = [:]
+        for cookie in cookieStorage.cookies ?? [] {
+            if let current = byName[cookie.name], !Self.preferCookie(cookie, over: current) { continue }
+            byName[cookie.name] = cookie
+        }
+        return byName.values.map { "\($0.name)=\($0.value)" }.sorted().joined(separator: "; ")
     }
 
     private func cookieHeader(includeQRSig: Bool = false) -> String {

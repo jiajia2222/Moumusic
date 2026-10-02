@@ -222,7 +222,7 @@ struct MyProfileView: View {
                     .clipShape(Circle())
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(account.profile?.nickname ?? "Moumusic 用户")
+                        Text(appearance.nickname.trimmingCharacters(in: .whitespaces).isEmpty ? (account.profile?.nickname ?? "Moumusic 用户") : appearance.nickname)
                             .font(.headline)
                             .lineLimit(1)
                         HStack(spacing: 8) {

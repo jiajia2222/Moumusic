@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import Security
 import CommonCrypto
 import CryptoKit
@@ -362,6 +362,9 @@ actor KugouAPI {
         let userID = Int(fields["userid"] ?? "0") ?? 0
         let token = fields["token"] ?? ""
         let guid = fields["kugou_api_guid"] ?? Self.md5(UUID().uuidString)
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .info, category: "Kugou", message: "开始设备注册", detail: "uid=\(userID) token.len=\(token.count)")
+        }
         let info: [String: Any] = [
             "availableRamSize": 4_983_533_568, "availableRomSize": 48_114_719, "availableSDSize": 48_114_717,
             "basebandVer": "", "batteryLevel": 100, "batteryStatus": 3, "brand": "Redmi", "buildSerial": "unknown",
@@ -395,11 +398,17 @@ actor KugouAPI {
         request.httpMethod = "POST"
         request.httpBody = Data(body.utf8)
         request.setValue("Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi", forHTTPHeaderField: "User-Agent")
-        guard let (data, _) = try? await session.data(for: request),
-              let plain = Self.aesCBC(data, key: aesKey, iv: aesIV, encrypt: false),
+        guard let (data, _) = try? await session.data(for: request) else {
+            Task { @MainActor in
+                DiagnosticLogStore.shared.append(level: .error, category: "Kugou", message: "设备注册失败", detail: "网络请求失败")
+            }
+            return nil
+        }
+        let rawPreview = String(data: data.prefix(160), encoding: .utf8) ?? "(\(data.count) bytes binary)"
+        guard let plain = Self.aesCBC(data, key: aesKey, iv: aesIV, encrypt: false),
               let root = try? JSONSerialization.jsonObject(with: plain) as? [String: Any] else {
             Task { @MainActor in
-                DiagnosticLogStore.shared.append(level: .error, category: "Kugou", message: "设备注册失败", detail: "无法解析响应")
+                DiagnosticLogStore.shared.append(level: .error, category: "Kugou", message: "设备注册失败", detail: "无法解析响应: \(rawPreview)")
             }
             return nil
         }
