@@ -316,6 +316,7 @@ actor QQMusicAPI {
             ?? cookieValue("p_skey")
             ?? cookieValue("skey")
             ?? ""
+        Self.oauthLog("check_sig 完成", "credential=\(credential.isEmpty ? "无" : "有") cookies=\(cookieHeader(includeQRSig: true).split(separator: ";").compactMap { $0.split(separator: "=").first.map { String($0).trimmingCharacters(in: .whitespaces) } }.joined(separator: ","))")
         guard !credential.isEmpty else { throw APIError.oauthFailed }
 
         let fields: [String: String] = [
@@ -344,9 +345,12 @@ actor QQMusicAPI {
         let (authData, authResponse) = try await redirectSession.data(for: authRequest)
         collectCookies(from: authResponse)
 
+        let authStatus = (authResponse as? HTTPURLResponse)?.statusCode ?? -1
+        let authLocation = ((authResponse as? HTTPURLResponse)?.value(forHTTPHeaderField: "Location") ?? "").components(separatedBy: "code=").first ?? ""
         guard let authHTTP = authResponse as? HTTPURLResponse,
               let code = Self.extractCode(from: authData, response: authHTTP),
               !code.isEmpty else {
+            Self.oauthLog("authorize 未取得 code", "http=\(authStatus) location=\(authLocation) body=\(String(data: authData.prefix(160), encoding: .utf8) ?? "")")
             throw APIError.oauthFailed
         }
 
@@ -371,9 +375,18 @@ actor QQMusicAPI {
         let (loginData, loginResponse) = try await session.data(for: loginRequest)
         collectCookies(from: loginResponse)
 
-        guard Self.isSuccess(loginResponse) else { throw APIError.oauthFailed }
-        guard let root = try? JSONSerialization.jsonObject(with: loginData) as? [String: Any] else {
+        guard Self.isSuccess(loginResponse) else {
+            Self.oauthLog("musicu 登录 HTTP 失败", "http=\((loginResponse as? HTTPURLResponse)?.statusCode ?? -1)")
             throw APIError.oauthFailed
+        }
+        guard let root = try? JSONSerialization.jsonObject(with: loginData) as? [String: Any] else {
+            Self.oauthLog("musicu 响应不是 JSON", "")
+            throw APIError.oauthFailed
+        }
+        do {
+            let req = root["req"] as? [String: Any]
+            let dataKeys = ((req?["data"] as? [String: Any]) ?? [:]).keys.sorted().joined(separator: ",")
+            Self.oauthLog("musicu 登录响应", "top=\(root.keys.sorted().joined(separator: ",")) req.code=\(String(describing: req?["code"] ?? "-")) data=\(dataKeys)")
         }
 
         let responseContainers: [[String: Any]] = [
@@ -786,6 +799,12 @@ actor QQMusicAPI {
             result += Double(toInt32Shift(result)) + Double(unit)
         }
         return Int(toInt32(result) & 0x7FFF_FFFF)
+    }
+
+    private static func oauthLog(_ message: String, _ detail: String) {
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .warning, category: "QQ 音乐登录", message: message, detail: detail)
+        }
     }
 
     private static func hash5381(_ value: String) -> Int {

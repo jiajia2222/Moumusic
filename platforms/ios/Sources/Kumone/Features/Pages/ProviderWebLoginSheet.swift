@@ -37,6 +37,21 @@ enum ProviderWebLoginKind: String, Identifiable {
         }
     }
 
+    /// Adds the 	oken / userid fields the Kugou client code expects when the web page
+    /// only provided 	 / KugooID.
+    func normalized(_ header: String) -> String {
+        guard self == .kugou else { return header }
+        var values: [String: String] = [:]
+        for item in header.split(separator: ";") {
+            let pair = item.split(separator: "=", maxSplits: 1).map { String($0).trimmingCharacters(in: .whitespaces) }
+            if pair.count == 2 { values[pair[0].lowercased()] = pair[1] }
+        }
+        var result = header
+        if values["token"] == nil, let t = values["t"], t.count >= 24 { result += "; token=\(t)" }
+        if values["userid"] == nil, let id = values["kugooid"] { result += "; userid=\(id)" }
+        return result
+    }
+
     func looksLoggedIn(_ header: String) -> Bool {
         let values = header.split(separator: ";").reduce(into: [String: String]()) { result, item in
             let pair = item.split(separator: "=", maxSplits: 1).map(String.init)
@@ -55,7 +70,9 @@ enum ProviderWebLoginKind: String, Identifiable {
             return (!uin.isEmpty && uin != "0" && !credential.isEmpty) ||
                 (!credential.isEmpty && !openID.isEmpty)
         case .kugou:
-            let token = values["token"] ?? values["login_token"] ?? values["kugou_token"] ?? values["kg_token"] ?? ""
+            // The web page keeps the login token in the short cookie 	 (next to KugooID).
+            let webToken = (values["t"] ?? "").count >= 24 ? (values["t"] ?? "") : ""
+            let token = values["token"] ?? values["login_token"] ?? values["kugou_token"] ?? values["kg_token"] ?? webToken
             let identity = values["userid"] ?? values["user_id"] ?? values["kugooid"]
                 ?? values["kugoo_id"] ?? values["kg_mid"] ?? values["mid"] ?? ""
             return !token.isEmpty && !identity.isEmpty
@@ -153,7 +170,7 @@ struct ProviderWebLoginSheet: View {
                     errorMessage = "还没有检测到\(provider.title)登录状态，请先完成手机号/网页登录后再点“登录完成”"
                     return
                 }
-                await signIn(cookie: header)
+                await signIn(cookie: provider.normalized(header))
             }
         }
     }
@@ -168,7 +185,7 @@ struct ProviderWebLoginSheet: View {
             }
             let header = await cookieHeader(from: store)
             if provider.looksLoggedIn(header) {
-                await signIn(cookie: header)
+                await signIn(cookie: provider.normalized(header))
                 return
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
