@@ -21,13 +21,15 @@ struct MyProfileView: View {
     @State private var showKugouLogin = false
     @State private var showBilibiliLogin = false
     @State private var showMoumusicProfileEditor = false
+    @State private var showProfileCard = false
+    @ObservedObject private var deviceReporter = DeviceReporter.shared
+    @ObservedObject private var stats = ListeningStatsStore.shared
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
-                accountCard
-                XProfileCardView()
+                compactIdentity
                 accountSourcesCard
                 listeningCard
                 quickLinks
@@ -70,6 +72,21 @@ struct MyProfileView: View {
             BilibiliLoginSheet()
                 .environmentObject(bilibili)
         }
+        .sheet(isPresented: $showProfileCard) {
+            NavigationStack {
+                ScrollView {
+                    XProfileCardView()
+                        .padding(16)
+                }
+                .navigationTitle("个人名片")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { showProfileCard = false }
+                    }
+                }
+            }
+        }
         .sheet(isPresented: $showMoumusicProfileEditor) {
             MoumusicProfileEditorView()
                 .environmentObject(moumusicServer)
@@ -94,6 +111,52 @@ struct MyProfileView: View {
         }
     }
 
+    /// One compact card: who you are, account state and listening totals. The
+    /// large profile card lives behind the "名片" button.
+    private var compactIdentity: some View {
+        MouGlassCard(cornerRadius: 24, padding: 14) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Group {
+                        if let profile = account.profile {
+                            CachedAsyncImage(url: profile.avatarUrl?.resizedImageURL(160)) {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .resizable().scaledToFit().foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Image(systemName: "person.crop.circle.fill")
+                                .resizable().scaledToFit().foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(width: 54, height: 54)
+                    .clipShape(Circle())
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(account.profile?.nickname ?? "Moumusic 用户")
+                            .font(.headline)
+                            .lineLimit(1)
+                        Text(deviceReporter.displayID.isEmpty ? "ID 获取中…" : "ID \(String(deviceReporter.displayID.prefix(14)))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Button {
+                        showProfileCard = true
+                    } label: {
+                        Label("名片", systemImage: "person.text.rectangle")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                }
+                HStack(spacing: 10) {
+                    metric(title: "本机听歌时长", value: stats.formattedDuration)
+                    metric(title: "播放歌曲", value: "\(stats.totalPlayCount) 首")
+                    metric(title: "连续听歌", value: "\(stats.streakDays) 天")
+                }
+            }
+        }
+    }
     private var accountCard: some View {
         MouGlassCard(cornerRadius: 28) {
             HStack(spacing: 14) {
@@ -398,6 +461,25 @@ struct MyProfileView: View {
     }
 
     @ViewBuilder
+    private func accountMark(title: String, icon: String, isLoggedIn: Bool) -> some View {
+        let brand: String? = {
+            if title.contains("网易") { return "BrandNetease" }
+            if title.contains("QQ") { return "BrandQQ" }
+            if title.contains("酷狗") { return "BrandKugou" }
+            if title.contains("哔哩") { return "BrandBilibili" }
+            return nil
+        }()
+        if let brand {
+            BrandIconView(name: brand).frame(width: 30, height: 30)
+        } else {
+            Image(systemName: icon)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(isLoggedIn ? .green : Theme.accent)
+                .frame(width: 30)
+        }
+    }
+
+    @ViewBuilder
     private func accountSourceRow(
         title: String,
         subtitle: String,
@@ -407,10 +489,7 @@ struct MyProfileView: View {
         destination: Destination? = nil
     ) -> some View {
         let row = HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(isLoggedIn ? .green : Theme.accent)
-                .frame(width: 28)
+            accountMark(title: title, icon: icon, isLoggedIn: isLoggedIn)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.body.weight(.semibold))
