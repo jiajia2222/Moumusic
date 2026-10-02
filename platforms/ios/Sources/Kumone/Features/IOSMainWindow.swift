@@ -325,7 +325,6 @@ public struct IOSMainWindow: View {
             }
         }
         .toolbarBackground(.hidden, for: .tabBar)
-        .containerBackground(.clear, for: .tabView)
         .background(Color.clear)
     }
 
