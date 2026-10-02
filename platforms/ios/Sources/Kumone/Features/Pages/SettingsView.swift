@@ -615,6 +615,7 @@ struct SettingsView: View {
 #endif
     }
 
+    @ViewBuilder
     private func settingsGroup<Content: View>(
         _ title: String,
         @ViewBuilder content: () -> Content
