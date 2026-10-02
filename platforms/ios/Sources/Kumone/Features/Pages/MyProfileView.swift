@@ -554,6 +554,7 @@ struct MyProfileView: View {
                 ) {
                     if kugou.isLoggedIn { signedInTarget = .kugou } else { showKugouLogin = true }
                 }
+                if settings.bilibiliMode != .disabled {
                 Divider().padding(.leading, 48)
 
                 accountSourceRow(
@@ -563,6 +564,7 @@ struct MyProfileView: View {
                     isLoggedIn: bilibili.isLoggedIn
                 ) {
                     if bilibili.isLoggedIn { signedInTarget = .bilibili } else { showBilibiliLogin = true }
+                }
                 }
 
                 Text("点已登录的平台可退出登录或同步歌单；也可以在首页切换到对应平台后点右上角的账号按钮。")

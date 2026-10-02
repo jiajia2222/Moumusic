@@ -345,6 +345,8 @@ struct HomeView: View {
     @EnvironmentObject private var qqMusic: QQMusicSessionStore
     @EnvironmentObject private var kugou: KugouSessionStore
     @State private var showPlatformAccount = false
+    /// The Bilibili entry honours the 关闭 mode: nothing Bilibili is shown while it is off.
+    private var bilibiliShown: Bool { bilibiliActive && settings.bilibiliMode != .disabled }
 #endif
     @StateObject private var model = HomeViewModel.shared
 #if os(iOS)
@@ -355,7 +357,7 @@ struct HomeView: View {
 
     var body: some View {
         Group {
-            if bilibiliActive {
+            if bilibiliShown {
                 BilibiliContentView(embedded: true)
                     .environmentObject(bilibili)
             } else {
@@ -391,15 +393,17 @@ struct HomeView: View {
                             }
                         }
                     }
-                    Section {
-                        Button {
-                            bilibiliActive = true
-                        } label: {
-                            Label("哔哩哔哩", systemImage: "play.rectangle.fill")
+                    if settings.bilibiliMode != .disabled {
+                        Section {
+                            Button {
+                                bilibiliActive = true
+                            } label: {
+                                Label("哔哩哔哩", systemImage: "play.rectangle.fill")
+                            }
                         }
                     }
                 } label: {
-                    if bilibiliActive {
+                    if bilibiliShown {
                         BrandIconView(name: "BrandBilibili")
                             .frame(width: 26, height: 26)
                     } else {
@@ -409,7 +413,7 @@ struct HomeView: View {
                 .accessibilityLabel("当前首页平台：\(selectedHomePlatform.displayName)，点击切换")
                 .accessibilityHint("选择首页推荐平台或打开哔哩哔哩")
             }
-            if !bilibiliActive, selectedHomePlatform == .tx || selectedHomePlatform == .kg {
+            if !bilibiliShown, selectedHomePlatform == .tx || selectedHomePlatform == .kg {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showPlatformAccount = true

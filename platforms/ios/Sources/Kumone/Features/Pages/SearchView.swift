@@ -404,7 +404,7 @@ struct SearchView: View {
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     platformPicker
                     #if os(iOS)
-                    if biliSelected {
+                    if biliSelected, settings.bilibiliMode != .disabled {
                         BilibiliSearchResults(keyword: searchText)
                     } else {
                         musicSearchContent
@@ -590,6 +590,7 @@ struct SearchView: View {
                         .frame(minHeight: 44)
                     }
 #if os(iOS)
+                    if settings.bilibiliMode != .disabled {
                     Button {
                         biliSelected = true
                         searchFieldFocused = false
@@ -611,6 +612,7 @@ struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .frame(minHeight: 44)
+                    }
 #endif
                 }
                 .padding(.horizontal, Theme.Layout.contentInset)
