@@ -1333,18 +1333,21 @@ struct BilibiliVideoCard: View {
             .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .clipped()
+            // Fixed-height text block so every card in a row (and column) is the same height
+            // and the covers line up regardless of title length.
             Text(video.title)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40, alignment: .topLeading)
             Text(video.author)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 16, maxHeight: 16, alignment: .topLeading)
         }
-        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
