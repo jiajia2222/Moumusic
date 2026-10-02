@@ -31,7 +31,9 @@ final class AccountStore: ObservableObject {
 
     var isLoggedIn: Bool { NeteaseClient.shared.isLoggedIn && profile != nil }
     var hasAuthCookie: Bool { NeteaseClient.shared.isLoggedIn }
-    var vipType: Int { profile?.vipType ?? 0 }
+    /// Profile `vipType`, raised to a VIP value when the membership endpoint says it is active
+    /// (the profile field is 0 for some SVIP accounts, which blocked VIP songs).
+    var vipType: Int { max(profile?.vipType ?? 0, (vipInfo?.isActive ?? false) ? 11 : 0) }
     var vipStatusKnown: Bool { profile != nil }
     @Published private(set) var vipInfo: NeteaseAPI.VIPInfo?
     var hasActiveVIP: Bool { (profile?.hasActiveVIP ?? false) || (vipInfo?.isActive ?? false) }

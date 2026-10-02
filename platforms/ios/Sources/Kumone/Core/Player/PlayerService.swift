@@ -1129,7 +1129,22 @@ final class PlayerService: ObservableObject {
                 servedBySourceLabel = official.sourceLabel
             }
 
-            if resolvedURL == nil, playbackMode != .official, hasLXSource {
+            // Account-only mode normally never leaves the account. A free account playing a
+            // VIP song may opt in (Settings) to a third-party source, with a notice.
+            let isVIPSong = track.fee == 1 || track.fee == 4
+            let accountIsVIP = isNativeNetease ? AccountStore.shared.hasActiveVIP
+                : (isQQMusic ? (QQMusicSessionStore.shared.isVIP == true)
+                   : (isKugou ? KugouSessionStore.shared.isVIP : false))
+            let vipFallbackAllowed = playbackMode == .official && resolvedURL == nil && isVIPSong
+                && !accountIsVIP && hasLXSource
+                && UserDefaults.standard.bool(forKey: "moumusic.vipThirdPartyFallback")
+            if vipFallbackAllowed {
+                ToastCenter.shared.show("当前账号不是会员，正在使用第三方音源播放会员歌曲")
+            } else if resolvedURL == nil, playbackMode == .official, isVIPSong, !accountIsVIP {
+                ToastCenter.shared.show("会员歌曲需要会员账号；可在设置里开启「账号模式下用第三方音源播放会员歌曲」")
+            }
+
+            if resolvedURL == nil, playbackMode != .official || vipFallbackAllowed, hasLXSource {
             do {
                 var resolved: LXUserAPIService.ResolvedURL?
                 var lastError: Error?

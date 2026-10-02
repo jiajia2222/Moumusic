@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 // MARK: - Skeletons
 
@@ -72,8 +72,9 @@ struct StaggeredAppearanceModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // Fade only: a vertical offset left cards at different heights when the
+            // animation was interrupted (e.g. with a live wallpaper behind the page).
             .opacity(isVisible ? 1 : 0)
-            .offset(y: isVisible ? 0 : 16)
             .onAppear {
                 if Platform.isReduceMotionEnabled
                     || AnimationCache.hasAnimated(itemID) {

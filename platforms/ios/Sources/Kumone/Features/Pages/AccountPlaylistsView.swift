@@ -211,11 +211,12 @@ struct PlatformAccountPlaylists: View {
                         ForEach(qqLists) { list in qqCard(list) }
                     }
                 }
-                PlatformCloudPlaylistsCard(source: cloudSource.key, sourceName: cloudSource.name, items: cloudItems)
             }
         }
         .navigationDestination(isPresented: $showAll) {
             ScrollView {
+                PlatformCloudPlaylistsCard(source: cloudSource.key, sourceName: cloudSource.name, items: cloudItems)
+                    .padding(.top, 8)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 16, alignment: .top)], spacing: 18) {
                     if platform == .kg {
                         ForEach(kugouLists) { list in kugouCard(list) }

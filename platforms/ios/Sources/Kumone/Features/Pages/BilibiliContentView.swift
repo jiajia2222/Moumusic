@@ -228,7 +228,8 @@ struct BilibiliContentView: View {
             .padding(.vertical, 8)
         }
         ZStack {
-            Color(uiColor: .systemBackground).ignoresSafeArea()
+            // Embedded in the home tab the page background (wallpaper) must show through.
+            if !embedded { Color(uiColor: .systemBackground).ignoresSafeArea() }
             if surface == .live {
                 VStack(spacing: 0) {
                     // Keep live browsing inside the Bilibili surface instead
