@@ -1315,13 +1315,14 @@ final class PlayerService: ObservableObject {
                         toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, generation == self.resolveGeneration else { return }
-                    self.engine.play()
-                    self.engine.rate = self.playbackRate
+                    self.engine.playImmediately(atRate: self.playbackRate)
                 }
             }
         } else {
-            engine.play()
-            engine.rate = playbackRate
+            // Pure online streaming: start as soon as the first data arrives instead of
+            // waiting for AVPlayer to buffer ahead; nothing is written to disk.
+            engine.automaticallyWaitsToMinimizeStalling = false
+            engine.playImmediately(atRate: playbackRate)
         }
         isPlaying = true
 
