@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 /// Optional account page. Login is deliberately isolated from LX source
 /// management: it synchronises account metadata and listening history only.
@@ -27,8 +27,6 @@ struct AccountSyncView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 sourceOnlyNotice
-                platformAccountsCard
-                platformSyncCapabilitiesCard
 
                 if account.isLoggedIn, let profile = account.profile {
                     profileCard(profile)
@@ -246,10 +244,10 @@ struct AccountSyncView: View {
     }
     private var sourceOnlyNotice: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("账号音源与同步", systemImage: "lock.shield.fill")
+            Label("网易云账号与同步", systemImage: "lock.shield.fill")
                 .font(.headline)
                 .foregroundStyle(Theme.accent)
-            Text("登录后可以同步账号资料、每日推荐、播放记录和听歌时长。播放设置为“自动”或“账号音源”时，会优先尝试对应平台账号能提供的完整音频；失败后才按设置回退到 LX 音源。")
+            Text("登录网易云后可以同步账号资料、每日推荐、云端歌单、播放记录和听歌时长。QQ 音乐、酷狗音乐、哔哩哔哩的账号在各自平台页面里登录和管理。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -273,26 +271,10 @@ struct AccountSyncView: View {
             Text("不会强制改变音源；是否优先使用账号音源由设置中的播放来源控制。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("选择要同步的账号平台")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
             VStack(spacing: 10) {
                 accountLoginButton("网易云音乐", systemImage: "music.note", isPrimary: true) {
                     showLogin = true
                 }
-                accountLoginButton("QQ 音乐", systemImage: "music.note.list") {
-                    showQQMusicLogin = true
-                }
-                accountLoginButton("酷狗音乐", systemImage: "headphones") {
-                    showKugouLogin = true
-                }
-#if os(iOS)
-                accountLoginButton("哔哩哔哩", systemImage: "play.rectangle.fill") {
-                    showBilibiliLogin = true
-                }
-#endif
             }
         }
         .frame(maxWidth: .infinity)

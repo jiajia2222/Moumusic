@@ -506,6 +506,10 @@ struct BilibiliContentView: View {
                 },
             ])
 
+            BilibiliCloudPlaylistsCard()
+                .environmentObject(bilibili)
+                .padding(.horizontal, -Theme.Layout.contentInset)
+
             BilibiliRowCard(title: "设置", titleIcon: "slider.horizontal.3", rows: [
                 .init(icon: "paintpalette", title: "界面显示", subtitle: "强调色跟随 Moumusic") {
                     showSettings = true

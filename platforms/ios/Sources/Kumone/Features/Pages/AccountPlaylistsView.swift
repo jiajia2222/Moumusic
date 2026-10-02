@@ -180,8 +180,29 @@ struct PlatformAccountPlaylists: View {
 
     private var platformTitle: String { platform == .kg ? "酷狗音乐" : "QQ 音乐" }
 
+    private var cloudSource: (key: String, name: String) {
+        platform == .kg ? ("kugou", "酷狗音乐") : ("qq", "QQ 音乐")
+    }
+
+    private var cloudItems: [CloudPlaylistItem] {
+        if platform == .kg {
+            let cookie = kugou.cookie ?? ""
+            return kugouLists.map { list in
+                CloudPlaylistItem(id: list.id, name: list.name, coverURL: list.coverURL, count: list.count) {
+                    let rows = try await KugouAPI.shared.cloudPlaylistSongs(id: list.id, cookie: cookie)
+                    return rows.compactMap { AccountPlaylistsView.kugouTrack($0) }
+                }
+            }
+        }
+        return qqLists.map { list in
+            CloudPlaylistItem(id: list.id, name: list.name, coverURL: list.coverURL, count: list.count) {
+                try await LXCatalogService.playlistDetail(source: .tx, id: list.id).tracks
+            }
+        }
+    }
+
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 22) {
             if isLoggedIn, !(kugouLists.isEmpty && qqLists.isEmpty) {
                 Shelf(title: "我的歌单", seeAll: { showAll = true }, rowHeight: Theme.Layout.coverShelfHeight) {
                     if platform == .kg {
@@ -190,6 +211,7 @@ struct PlatformAccountPlaylists: View {
                         ForEach(qqLists) { list in qqCard(list) }
                     }
                 }
+                PlatformCloudPlaylistsCard(source: cloudSource.key, sourceName: cloudSource.name, items: cloudItems)
             }
         }
         .navigationDestination(isPresented: $showAll) {
@@ -214,6 +236,8 @@ struct PlatformAccountPlaylists: View {
             } else if platform == .tx, qqMusic.isLoggedIn, let cookie = qqMusic.cookie {
                 qqLists = Self.unique((try? await QQMusicAPI.shared.userPlaylists(cookie: cookie)) ?? [], by: \.id)
             }
+            // Keep playlists the user already added up to date every time the page opens.
+            await CloudPlaylistSync.refreshMirrored(source: cloudSource.key, sourceName: cloudSource.name, items: cloudItems)
         }
     }
 

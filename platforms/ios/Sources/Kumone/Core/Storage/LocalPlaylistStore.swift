@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import Combine
 
 struct LocalPlaylist: Codable, Hashable, Identifiable {
@@ -79,8 +79,12 @@ final class LocalPlaylistStore: ObservableObject {
     }
 
     func containsRemotePlaylist(source: String, id: Int) -> Bool {
+        containsRemotePlaylist(source: source, key: String(id))
+    }
+
+    func containsRemotePlaylist(source: String, key: String) -> Bool {
         playlists.contains {
-            $0.remoteSource == source && $0.remotePlaylistID == String(id)
+            $0.remoteSource == source && $0.remotePlaylistID == key
         }
     }
 
@@ -97,9 +101,24 @@ final class LocalPlaylistStore: ObservableObject {
         revision: Int,
         tracks: [Track]
     ) -> (id: UUID, inserted: Bool, changed: Bool) {
+        upsertRemotePlaylist(source: source, remoteKey: String(remoteID), name: name, coverURL: coverURL,
+                             sourceName: sourceName, revision: revision, tracks: tracks)
+    }
+
+    /// Same as the Int-id variant for providers whose playlist ids are strings.
+    @discardableResult
+    func upsertRemotePlaylist(
+        source: String,
+        remoteKey: String,
+        name: String,
+        coverURL: String?,
+        sourceName: String,
+        revision: Int,
+        tracks: [Track]
+    ) -> (id: UUID, inserted: Bool, changed: Bool) {
         let normalizedTracks = tracks.map { $0.normalizedForLXPlayback() }
         if let index = playlists.firstIndex(where: {
-            $0.remoteSource == source && $0.remotePlaylistID == String(remoteID)
+            $0.remoteSource == source && $0.remotePlaylistID == remoteKey
         }) {
             let old = playlists[index]
             let changed = old.name != name
@@ -124,7 +143,7 @@ final class LocalPlaylistStore: ObservableObject {
             sourceName: sourceName,
             tracks: normalizedTracks,
             remoteSource: source,
-            remotePlaylistID: String(remoteID),
+            remotePlaylistID: remoteKey,
             remoteRevision: revision
         )
         playlists.insert(playlist, at: 0)

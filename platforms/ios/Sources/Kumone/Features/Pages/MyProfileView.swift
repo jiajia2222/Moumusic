@@ -535,7 +535,7 @@ struct MyProfileView: View {
 
                 accountSourceRow(
                     title: "网易云音乐",
-                    subtitle: account.isLoggedIn ? (account.profile?.nickname ?? "已登录") : "未登录 · 同步歌单与播放记录",
+                    subtitle: account.isLoggedIn ? ((account.profile?.nickname ?? "已登录") + ((account.profile?.vipType ?? 0) > 0 ? " · 会员" : " · 非会员")) : "未登录 · 同步歌单与播放记录",
                     icon: "music.note",
                     isLoggedIn: account.isLoggedIn,
                     action: { openLogin() },
@@ -565,7 +565,7 @@ struct MyProfileView: View {
 
                 accountSourceRow(
                     title: "哔哩哔哩",
-                    subtitle: bilibili.isLoggedIn ? (bilibili.profileName ?? "已登录") : "未登录 · 同步账号资料与视频服务",
+                    subtitle: bilibili.isLoggedIn ? ((bilibili.profileName ?? "已登录") + " · " + (bilibili.membershipTitle ?? "非会员")) : "未登录 · 同步账号资料与视频服务",
                     icon: "play.rectangle.fill",
                     isLoggedIn: bilibili.isLoggedIn
                 ) {
