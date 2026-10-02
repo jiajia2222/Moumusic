@@ -1384,7 +1384,7 @@ final class PlayerService: ObservableObject {
                 // Quality discovery is only a UI hint. Return the safe
                 // baseline quickly when an account/source endpoint stalls;
                 // playback itself keeps its longer resolver timeout.
-                try? await Task.sleep(nanoseconds: 1_800_000_000)
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
                 return nil
             }
             let result = await group.next() ?? nil
@@ -1904,7 +1904,7 @@ final class PlayerService: ObservableObject {
                 return seconds.isFinite && seconds > 0 ? seconds : nil
             }
             group.addTask {
-                try? await Task.sleep(for: .seconds(1.5))
+                try? await Task.sleep(for: .seconds(4))
                 return nil
             }
             let first = await group.next() ?? nil

@@ -444,7 +444,7 @@ enum NeteaseAPI {
                 try? await songURL(ids: [id], level: level)
             }
             group.addTask {
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
                 return nil
             }
             let result = await group.next() ?? nil
