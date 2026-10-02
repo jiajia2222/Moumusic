@@ -34,9 +34,11 @@ struct IOSUpdateLogSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private let items: [(String, String, String)] = [
-        ("arrow.triangle.2.circlepath", "版本自检", "启动后先进入主界面，再在后台查询 GitHub 最新版本；检查失败不会挡住播放。"),
-        ("waveform", "播放与音质", "优先使用已登录账号的可用音质，失败后按当前设置回退到已启用的 LX 音源。"),
-        ("text.bubble", "歌词与体验", "继续优化歌词、封面和播放切换，并保留设置中手动查看更新日志的入口。"),
+        ("person.crop.circle", "个人资料卡", "每台设备拥有独立的 Moumusic ID，资料卡片可自定义头像与背景，并显示听歌时长。"),
+        ("gearshape", "设置重新整理", "设置分为外观与界面、播放与音效、账号与平台、关于与支持四类，并支持搜索。"),
+        ("bubble.left.and.text.bubble.right", "问题反馈", "新增反馈工单，可附带图片、视频或文件，并查看开发者回复。"),
+        ("gauge.with.dots.needle.67percent", "显示与性能", "新增强制 120Hz 开关，默认跟随系统。"),
+        ("text.bubble", "歌词体验", "歌词同步新增提前、延后 0.1 秒与重置，并继续支持逐字歌词。"),
     ]
 
     var body: some View {
