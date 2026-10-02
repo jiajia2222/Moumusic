@@ -234,12 +234,11 @@ struct PlatformGlyph: View {
     var body: some View {
         switch platform {
         case .wy:
-            SVGPathShape(data: Self.neteasePath)
-                .fill(Color(red: 0.90, green: 0.0, blue: 0.15))
+            brandImage("BrandNetease")
         case .tx:
-            letterMark("Q", Color(red: 0.19, green: 0.76, blue: 0.49))
+            brandImage("BrandQQ")
         case .kg:
-            letterMark("K", Color(red: 0.18, green: 0.55, blue: 1.0))
+            brandImage("BrandKugou")
         case .kw:
             letterMark("K", Color(red: 1.0, green: 0.55, blue: 0.0))
         case .mg:
@@ -252,6 +251,13 @@ struct PlatformGlyph: View {
                 .scaledToFit()
                 .foregroundStyle(Theme.accent)
         }
+    }
+
+    /// Brand artwork taken from the Beans 2.0.3 asset catalog.
+    private func brandImage(_ name: String) -> some View {
+        Image(name, bundle: .module)
+            .resizable()
+            .scaledToFit()
     }
 
     private func letterMark(_ letter: String, _ color: Color) -> some View {
