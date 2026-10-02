@@ -59,6 +59,13 @@ final class AccountStore: ObservableObject {
 
     private init() {}
 
+    /// Membership is fetched after the profile; make sure it is known before premium tiers are
+    /// requested or probed, otherwise a VIP account is treated as free and only sees basic tiers.
+    func ensureVIPInfo() async {
+        guard hasAuthCookie, vipInfo == nil else { return }
+        vipInfo = await NeteaseAPI.vipInfo()
+    }
+
     /// Called at launch and after login succeeds.
     func bootstrap() async {
         defer { isBootstrapped = true }
@@ -522,6 +529,13 @@ final class ToastCenter: ObservableObject {
     private var dismissTask: Task<Void, Never>?
 
     private init() {}
+
+    /// Membership is fetched after the profile; make sure it is known before premium tiers are
+    /// requested or probed, otherwise a VIP account is treated as free and only sees basic tiers.
+    func ensureVIPInfo() async {
+        guard hasAuthCookie, vipInfo == nil else { return }
+        vipInfo = await NeteaseAPI.vipInfo()
+    }
 
     func show(_ message: String) {
         current = Toast(message: message)

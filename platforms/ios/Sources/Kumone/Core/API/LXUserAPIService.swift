@@ -1,4 +1,4 @@
-#if os(iOS)
+﻿#if os(iOS)
 import CommonCrypto
 import Combine
 import Foundation
@@ -1050,6 +1050,7 @@ final class LXUserAPIService: ObservableObject {
         var available = Set<String>()
         if SettingsManager.shared.playbackSourceMode != .thirdParty {
             if primaryPlatform == "wy", NeteaseClient.shared.isLoggedIn {
+                await AccountStore.shared.ensureVIPInfo()
                 available.formUnion(await NeteaseAPI.officialQualityNames(
                     for: track.id,
                     duration: track.duration,

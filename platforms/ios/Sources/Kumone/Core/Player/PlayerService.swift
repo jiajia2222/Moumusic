@@ -1397,6 +1397,7 @@ final class PlayerService: ObservableObject {
 
         if source.isEmpty || ["wy", "163", "netease", "neteasecloudmusic", "cloudmusic"].contains(source),
            NeteaseClient.shared.isLoggedIn {
+            await AccountStore.shared.ensureVIPInfo()
             let hasActiveNeteaseVIP = AccountStore.shared.hasActiveVIP
             let neteaseCandidates = hasActiveNeteaseVIP
                 ? requestedCandidates

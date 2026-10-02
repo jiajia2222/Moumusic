@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 enum AudioQuality: String, CaseIterable, Identifiable, Sendable {
     // allCases is used by the player and download pickers. Keep the order
@@ -17,10 +17,10 @@ enum AudioQuality: String, CaseIterable, Identifiable, Sendable {
 
     var displayName: String {
         switch self {
-        case .master: return "母带"
-        case .atmos: return "全景声"
+        case .master: return "超清母带"
+        case .atmos: return "高清环绕声"
         case .dolby: return "杜比全景声"
-        case .surround: return "环绕声"
+        case .surround: return "沉浸环绕声"
         case .hires: return "Hi-Res"
         case .lossless: return "无损"
         case .exhigh: return "极高"
@@ -31,10 +31,10 @@ enum AudioQuality: String, CaseIterable, Identifiable, Sendable {
 
     var badge: String {
         switch self {
-        case .master: return "母带"
-        case .atmos: return "全景声"
+        case .master: return "超清母带"
+        case .atmos: return "高清环绕声"
         case .dolby: return "杜比全景声"
-        case .surround: return "环绕声"
+        case .surround: return "沉浸环绕声"
         case .hires: return "高解析"
         case .lossless: return "无损"
         case .exhigh: return "极高"
@@ -60,10 +60,10 @@ enum AudioQuality: String, CaseIterable, Identifiable, Sendable {
     /// active source did not advertise.
     var sourceDisplayName: String {
         switch self {
-        case .master: return "母带 / Master"
-        case .atmos: return "全景声 / Atmos"
-        case .dolby: return "杜比全景声 / Dolby"
-        case .surround: return "环绕声 / Surround"
+        case .master: return "超清母带 / Master"
+        case .atmos: return "高清环绕声 / Spatial"
+        case .dolby: return "杜比全景声 / Dolby Atmos"
+        case .surround: return "沉浸环绕声 / Surround"
         case .hires: return "Hi-Res / FLAC 24-bit"
         case .lossless: return "无损 FLAC"
         case .exhigh, .higher: return "320 kbps"
