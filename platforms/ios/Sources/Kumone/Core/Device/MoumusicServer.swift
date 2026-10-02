@@ -41,7 +41,21 @@ enum StableDeviceID {
     /// The device code. It is stored in four places (Keychain, UserDefaults, and two
     /// files) so reinstalling or installing over the top keeps the same ID; a code
     /// from a previous install can also be restored by hand (see `restore`).
+    private static let cacheLock = NSLock()
+    nonisolated(unsafe) private static var cachedValue: String?
+
     static var value: String {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        // Cached: this is read while views render, and writing UserDefaults on every read
+        // re-triggers @AppStorage observers (an endless render loop).
+        if let cachedValue { return cachedValue }
+        let resolved = resolve()
+        cachedValue = resolved
+        return resolved
+    }
+
+    private static func resolve() -> String {
         if let v = readKeychain(), isValid(v) { remember(v); return v }
         if let v = UserDefaults.standard.string(forKey: defaultsKey), isValid(v) { remember(v); return v }
         for url in backupFiles() {
@@ -54,12 +68,14 @@ enum StableDeviceID {
         remember(fresh)
         return fresh
     }
-
     /// Replaces the device code with one copied from a previous install.
     @discardableResult
     static func restore(_ code: String) -> Bool {
         let v = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard isValid(v) else { return false }
+        cacheLock.lock()
+        cachedValue = v
+        cacheLock.unlock()
         remember(v)
         return true
     }
