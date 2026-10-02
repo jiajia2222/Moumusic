@@ -120,7 +120,25 @@ final class NowPlayingManager {
             let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
             self.info[MPMediaItemPropertyArtwork] = artwork
             MPNowPlayingInfoCenter.default().nowPlayingInfo = self.info
+            await self.applyAnimatedArtwork(image: image, track: track)
         }
+    }
+
+    /// iOS 26 immersive lock-screen cover (looping video behind the controls).
+    private func applyAnimatedArtwork(image: UIImage, track: Track) async {
+        guard #available(iOS 26.0, *) else { return }
+        let keys = MPNowPlayingInfoCenter.supportedAnimatedArtworkKeys
+        for key in keys { info[key] = nil }
+        guard SettingsManager.shared.lockScreenImmersiveArtwork else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+            return
+        }
+        let artworks = await LockScreenAnimatedArtwork.artworks(for: image, key: track.playbackKey)
+        guard !Task.isCancelled, currentTrack?.playbackKey == track.playbackKey else { return }
+        for (name, artwork) in artworks {
+            if let key = keys.first(where: { $0.lowercased().contains(name) }) { info[key] = artwork }
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
     #if os(iOS)
