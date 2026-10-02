@@ -173,7 +173,7 @@ struct AfdianSupportView: View {
 
     /// History, newest first, grouped by the year of the last support.
     private var sponsorsByYear: [(year: Int, items: [AfdianSponsorService.Sponsor])] {
-        let sorted = store.sponsors.sorted { (.lastSupportTime ?? 0) > (.lastSupportTime ?? 0) }
+        let sorted = store.sponsors.sorted { ($0.lastSupportTime ?? 0) > ($1.lastSupportTime ?? 0) }
         let grouped = Dictionary(grouping: sorted) { sponsor -> Int in
             guard let time = sponsor.lastSupportTime else { return 0 }
             return Calendar.current.component(.year, from: Date(timeIntervalSince1970: TimeInterval(time)))
