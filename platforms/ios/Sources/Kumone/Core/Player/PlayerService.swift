@@ -1,4 +1,4 @@
-import AVFoundation
+﻿import AVFoundation
 import Foundation
 
 enum RepeatMode: String, CaseIterable {
@@ -507,7 +507,7 @@ final class PlayerService: ObservableObject {
         #endif
 
         timeObserver = engine.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.2, preferredTimescale: 600), queue: .main
+            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
             MainActor.assumeIsolated {
                 guard let self, !self.isScrubbing else { return }
@@ -710,7 +710,7 @@ final class PlayerService: ObservableObject {
     /// Recomputes the current lyric line, publishing only on a change.
     /// The lead makes a line light up just before it is sung.
     private func updateLyricsCursor(at seconds: TimeInterval) {
-        let index = lyrics?.activeIndex(at: seconds + SettingsManager.shared.lyricsOffset)
+        let index = lyrics?.activeIndex(at: seconds + SettingsManager.shared.effectiveLyricsOffset)
         let previousIndex = lyricsCursor.activeIndex
         if index != lyricsCursor.activeIndex {
             lyricsCursor.activeIndex = index

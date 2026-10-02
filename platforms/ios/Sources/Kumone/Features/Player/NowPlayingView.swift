@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 #if os(iOS)
 import MediaPlayer
 import UIKit
@@ -1298,7 +1298,7 @@ struct LyricMainText: View {
                     size: rubySize,
                     weight: .bold,
                     color: .white,
-                    alphas: karaokeAlphas(words, at: player.livePlaybackTime + settings.lyricsOffset)
+                    alphas: karaokeAlphas(words, at: player.livePlaybackTime + settings.effectiveLyricsOffset)
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -1312,7 +1312,7 @@ struct LyricMainText: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if isActive, verbatim, line.hasVerbatimTimings, let words = line.words {
             TimelineView(.animation(paused: !player.isPlaying)) { _ in
-                karaoke(words, at: player.livePlaybackTime + settings.lyricsOffset).font(font)
+                karaoke(words, at: player.livePlaybackTime + settings.effectiveLyricsOffset).font(font)
                     .minimumScaleFactor(0.72)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1377,7 +1377,7 @@ private struct AMLLyricText: View {
                     ZStack(alignment: .leading) {
                         Text(line.text)
                             .foregroundStyle(.white.opacity(0.28))
-                        timedText(words, at: player.livePlaybackTime + settings.lyricsOffset)
+                        timedText(words, at: player.livePlaybackTime + settings.effectiveLyricsOffset)
                     }
                 }
             } else {

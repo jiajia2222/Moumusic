@@ -85,7 +85,8 @@ public struct IOSMainWindow: View {
             .onChange(of: selectedTab) { _ in Haptics.tap() }
             .onChange(of: player.currentTrack?.playbackKey) { _ in
                 guard UserDefaults.standard.object(forKey: "moumusic.vipReminder") as? Bool ?? true,
-                      let track = player.currentTrack, track.fee == 1 else { return }
+                      let track = player.currentTrack, track.fee == 1,
+                      !AccountStore.shared.hasActiveVIP else { return }
                 ToastCenter.shared.show("会员歌曲，将通过第三方音源播放")
             }
             .onChange(of: scenePhase) { phase in
