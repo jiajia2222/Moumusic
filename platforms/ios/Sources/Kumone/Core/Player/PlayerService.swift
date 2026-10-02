@@ -1082,6 +1082,23 @@ final class PlayerService: ObservableObject {
             resolvedURL = local.fileURL
             servedByLXQuality = local.quality
             servedBySourceLabel = "本地下载"
+        } else if (track.source ?? "").lowercased() == "bili" {
+            // Bilibili "listen" mode: the video's audio stream plays through the
+            // same player as every other song.
+            do {
+                let cookie = BilibiliSessionStore.shared.cookie
+                let video = try await BilibiliAPI.shared.videoDetail(
+                    bvid: track.sourceMetadata["bvid"] ?? "", cookie: cookie)
+                let audio = try await BilibiliAPI.shared.audioPlayback(for: video, cookie: cookie)
+                resolvedURL = audio.url
+                servedByLXQuality = audio.quality.title
+                servedBySourceLabel = "哔哩哔哩"
+            } catch {
+                guard !Task.isCancelled, generation == resolveGeneration else { return }
+                ToastCenter.shared.show("《\(track.name)》音频读取失败：\(error.localizedDescription)")
+                isPlaying = false
+                return
+            }
         } else {
             let sourceValue = (track.source ?? track.sourceMetadata["source"] ?? "")
                 .lowercased()
@@ -1234,7 +1251,15 @@ final class PlayerService: ObservableObject {
         // has to be spliced in here or not at all. Sources that refuse byte-range
         // requests never resolve a track — those play untapped and the UI falls
         // back to its decorative animation.
-        let asset = AVURLAsset(url: url)
+        let asset: AVURLAsset
+        if (track.source ?? "").lowercased() == "bili" {
+            asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": [
+                "Referer": "https://www.bilibili.com/",
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+            ]])
+        } else {
+            asset = AVURLAsset(url: url)
+        }
         let assetTrack = await loadAudioTrack(from: asset, timeout: 2)
         guard generation == resolveGeneration else { return }
 

@@ -329,18 +329,26 @@ struct HomeView: View {
     @EnvironmentObject private var settings: SettingsManager
 #if os(iOS)
     @EnvironmentObject private var bilibili: BilibiliSessionStore
-    @State private var showBilibiliCenter = false
+    /// Bilibili is one more home platform: it replaces the feed in place.
+    @AppStorage("moumusic.home.bilibiliActive") private var bilibiliActive = false
 #endif
     @StateObject private var model = HomeViewModel.shared
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                communityAnnouncement
+        Group {
+            if bilibiliActive {
+                BilibiliContentView(embedded: true)
+                    .environmentObject(bilibili)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        communityAnnouncement
 
-                standardHomeBody
+                        standardHomeBody
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle("推荐")
         #if os(iOS)
@@ -358,13 +366,18 @@ struct HomeView: View {
                     }
                     Section {
                         Button {
-                            showBilibiliCenter = true
+                            bilibiliActive = true
                         } label: {
                             Label("哔哩哔哩", systemImage: "play.rectangle.fill")
                         }
                     }
                 } label: {
-                    HomePlatformBadge(platform: selectedHomePlatform)
+                    if bilibiliActive {
+                        BrandIconView(name: "BrandBilibili")
+                            .frame(width: 26, height: 26)
+                    } else {
+                        HomePlatformBadge(platform: selectedHomePlatform)
+                    }
                 }
                 .accessibilityLabel("当前首页平台：\(selectedHomePlatform.displayName)，点击切换")
                 .accessibilityHint("选择首页推荐平台或打开哔哩哔哩")
@@ -391,14 +404,6 @@ struct HomeView: View {
         .refreshable {
             await loadCurrentHome(force: true)
         }
-#if os(iOS)
-        .fullScreenCover(isPresented: $showBilibiliCenter) {
-            NavigationStack {
-                BilibiliContentView()
-                    .environmentObject(bilibili)
-            }
-        }
-#endif
     }
 
     private var homeTaskID: String {
@@ -574,6 +579,7 @@ struct HomeView: View {
     }
 
     private func selectHomePlatform(_ platform: LXCatalogPlatform) {
+        bilibiliActive = false
         settings.homeRecommendationPlatform = platform
         settings.homeRecommendationMode = platform == .wy ? .netease : .lx
     }

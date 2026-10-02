@@ -211,8 +211,21 @@ struct BilibiliContentView: View {
     @State private var showFilter = false
     @State private var showAppSettings = false
     @Environment(\.dismiss) private var dismiss
+    /// Embedded in the Home tab (platform switcher) instead of presented on its own.
+    var embedded = false
 
     var body: some View {
+        VStack(spacing: 0) {
+        if embedded {
+            Picker("哔哩哔哩", selection: $surface) {
+                ForEach(Surface.allCases.filter { $0 != .account }) { value in
+                    Text(value.rawValue).tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, Theme.Layout.contentInset)
+            .padding(.vertical, 8)
+        }
         ZStack {
             Color(uiColor: .systemBackground).ignoresSafeArea()
             if surface == .live {
@@ -232,9 +245,11 @@ struct BilibiliContentView: View {
                 videoSurface
             }
         }
-        .navigationTitle("哔哩哔哩")
-        .navigationBarTitleDisplayMode(.large)
+        }
+        .navigationTitle(embedded ? "推荐" : "哔哩哔哩")
+        .navigationBarTitleDisplayMode(embedded ? .automatic : .large)
         .toolbar {
+            if !embedded {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
                     dismiss()
@@ -288,6 +303,7 @@ struct BilibiliContentView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Bilibili account")
+            }
             }
         }
         .task {

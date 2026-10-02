@@ -390,7 +390,8 @@ struct SearchView: View {
     @EnvironmentObject private var bilibili: BilibiliSessionStore
     @EnvironmentObject private var settings: SettingsManager
     @FocusState private var searchFieldFocused: Bool
-    @State private var showBilibiliSearch = false
+    @State private var biliSelected = false
+    @EnvironmentObject private var player: PlayerService
 #endif
     init(query: String) {
         _model = StateObject(wrappedValue: SearchViewModel(query: query))
@@ -400,10 +401,17 @@ struct SearchView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                searchBar
                 if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     platformPicker
+                    #if os(iOS)
+                    if biliSelected {
+                        BilibiliSearchResults(keyword: searchText)
+                    } else {
+                        musicSearchContent
+                    }
+                    #else
                     musicSearchContent
+                    #endif
                 } else {
                     emptySearchPrompt
                 }
@@ -411,7 +419,19 @@ struct SearchView: View {
             }
             .padding(.top, 8)
         }
-        #if os(macOS)
+        #if os(iOS)
+        // Native hidden search field: it stays tucked away until the list is
+        // pulled down, and shows the small clear (x) button while typing.
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .automatic),
+            prompt: "搜索歌曲、歌手、专辑或歌单"
+        )
+        .searchFocused($searchFieldFocused)
+        .onSubmit(of: .search) {
+            submitSearchAfterInputMethodCommits()
+        }
+        #else
         .searchable(text: $searchText, prompt: "Search songs, artists, albums, or playlists")
         .onSubmit(of: .search) {
             submitSearchAfterInputMethodCommits()
@@ -445,15 +465,6 @@ struct SearchView: View {
         .onDisappear {
             resignSearchInput()
         }
-#if os(iOS)
-        .fullScreenCover(isPresented: $showBilibiliSearch) {
-            NavigationStack {
-                BilibiliSearchView()
-                    .environmentObject(bilibili)
-                    .environmentObject(settings)
-            }
-        }
-#endif
     }
 
 #if os(iOS)
@@ -551,6 +562,9 @@ struct SearchView: View {
                 HStack(spacing: 10) {
                     ForEach(LXCatalogPlatform.catalogueCases) { platform in
                         Button {
+                            #if os(iOS)
+                            biliSelected = false
+                            #endif
                             model.setPlatform(platform)
                             resignSearchInput()
                         } label: {
@@ -577,18 +591,23 @@ struct SearchView: View {
                     }
 #if os(iOS)
                     Button {
-                        showBilibiliSearch = true
+                        biliSelected = true
                         searchFieldFocused = false
                     } label: {
                         HStack(spacing: 5) {
-                            Image(systemName: "play.rectangle.fill")
+                            if biliSelected {
+                                Image(systemName: "checkmark")
+                                    .font(.caption2.weight(.bold))
+                            }
+                            BrandIconView(name: "BrandBilibili")
+                                .frame(width: 16, height: 16)
                             Text("哔哩哔哩")
                         }
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(biliSelected ? .white : .primary)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
-                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                        .background(biliSelected ? Theme.accent : Color.secondary.opacity(0.12), in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .frame(minHeight: 44)
@@ -636,19 +655,6 @@ struct SearchView: View {
             }
             .frame(maxWidth: .infinity)
 
-#if os(iOS)
-            Button {
-                showBilibiliSearch = true
-                searchFieldFocused = false
-            } label: {
-                Label("搜索哔哩哔哩", systemImage: "play.rectangle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 46)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Color(red: 0.08, green: 0.62, blue: 0.86))
-            .padding(.horizontal, Theme.Layout.contentInset)
-#endif
 
             if !model.hotKeywords.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
