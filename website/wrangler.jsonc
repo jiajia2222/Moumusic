@@ -26,6 +26,6 @@
     "CHATWAY_WIDGET_ID": "qfybc7qkscn3ptkgxwrv",
     "SHOW_SPONSOR_AMOUNT": "true",
     "IOS_DOWNLOAD_URL": "https://music.nadev.xyz/download/ios",
-    "ANDROID_DOWNLOAD_URL": "https://music.nadev.xyz/download/android"
+    "IOS15_DOWNLOAD_URL": "https://music.nadev.xyz/download/ios15"
   }
 }

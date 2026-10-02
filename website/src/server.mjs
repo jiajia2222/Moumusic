@@ -19,8 +19,8 @@ const githubReleasesUrl = 'https://api.github.com/repos/jiajia2222/Moumusic/rele
 const githubReleasesPage = 'https://github.com/jiajia2222/Moumusic/releases'
 const githubReleaseDownloadBase = 'https://github.com/jiajia2222/Moumusic/releases/latest/download'
 const releaseAssetNames = {
-  ios: ['Moumusic-unsigned.ipa'],
-  android: ['Moumusic-android-unsigned.apk', 'moumusic-mobile-v1.0.2-universal.apk'],
+  ios: ['Moumusic-full-ios26-unsigned.ipa', 'Moumusic-unsigned.ipa'],
+  ios15: ['Moumusic-compat-ios15-18-unsigned.ipa'],
 }
 const defaultAfdianUrl = 'https://www.ifdian.net/a/moumou2026'
 const defaultAfdianPlanUrl = 'https://ifdian.net/a/moumou2026/plan'
@@ -72,7 +72,7 @@ function getPublicConfig(baseUrl = `http://localhost:${port}`) {
     afdianPlanUrl: deriveAfdianPlanUrl(process.env.AFDIAN_PLAN_URL || afdianUrl),
     showAmount: envBoolean(process.env.SHOW_SPONSOR_AMOUNT),
     iosDownloadUrl: safeHttpUrl(process.env.IOS_DOWNLOAD_URL) || `${siteOrigin}/download/ios`,
-    androidDownloadUrl: safeHttpUrl(process.env.ANDROID_DOWNLOAD_URL) || `${siteOrigin}/download/android`,
+    ios15DownloadUrl: safeHttpUrl(process.env.IOS15_DOWNLOAD_URL) || `${siteOrigin}/download/ios15`,
     chatwayScriptId: String(process.env.CHATWAY_SCRIPT_ID || defaultChatwayScriptId).trim(),
     chatwayWidgetId: String(process.env.CHATWAY_WIDGET_ID || defaultChatwayWidgetId).trim(),
   }
@@ -120,6 +120,17 @@ async function getLatestTaggedAsset(platform) {
   return null
 }
 
+function pickReleaseAsset(assets, platform) {
+  const list = Array.isArray(assets) ? assets : []
+  if (platform === 'ios15') return list.find(item => /compat.*\.ipa$/i.test(item?.name || ''))
+  return list.find(item => RELEASE_ASSET_NAMES.ios.includes(item?.name))
+    || list.find(item => /\.ipa$/i.test(item?.name || '') && !/compat/i.test(item?.name || ''))
+}
+
+function assetMatchesPlatform(assets, platform) {
+  return Boolean(pickReleaseAsset(assets, platform))
+}
+
 async function getLatestReleaseAsset(platform) {
   const cached = latestReleaseCache.get(platform)
   if (cached && cached.expiresAt > Date.now()) return cached.value
@@ -138,15 +149,11 @@ async function getLatestReleaseAsset(platform) {
       const releases = await response.json()
       const release = Array.isArray(releases)
         ? releases.find(item => item?.draft !== true && item?.prerelease !== true && Array.isArray(item?.assets) && (
-          platform === 'ios'
-            ? item.assets.some(asset => asset?.name === 'Moumusic-unsigned.ipa' || /\.ipa$/i.test(asset?.name || ''))
-            : item.assets.some(asset => /universal\.apk$/i.test(asset?.name || '') || /\.apk$/i.test(asset?.name || ''))
+          assetMatchesPlatform(item.assets, platform)
         ))
         : null
       const assets = Array.isArray(release?.assets) ? release.assets : []
-      const asset = platform === 'ios'
-        ? assets.find(item => item?.name === 'Moumusic-unsigned.ipa') || assets.find(item => /\.ipa$/i.test(item?.name || ''))
-        : assets.find(item => /universal\.apk$/i.test(item?.name || '')) || assets.find(item => /\.apk$/i.test(item?.name || ''))
+      const asset = pickReleaseAsset(assets, platform)
       const url = safeHttpUrl(asset?.browser_download_url)
       if (url) {
         const value = { url, version: String(release.tag_name || '') }
@@ -174,12 +181,12 @@ async function getLatestReleaseAsset(platform) {
 async function getLatestReleaseInfo() {
   const results = await Promise.allSettled([
     getLatestReleaseAsset('ios'),
-    getLatestReleaseAsset('android'),
+    getLatestReleaseAsset('ios15'),
   ])
   const ios = results[0].status === 'fulfilled' ? results[0].value : { url: null, version: '' }
-  const android = results[1].status === 'fulfilled' ? results[1].value : { url: null, version: '' }
-  const version = [ios.version, android.version].find(value => value && value !== 'latest') || 'latest'
-  return { version, ios, android }
+  const ios15 = results[1].status === 'fulfilled' ? results[1].value : { url: null, version: '' }
+  const version = [ios.version, ios15.version].find(value => value && value !== 'latest') || 'latest'
+  return { version, ios, ios15 }
 }
 
 function assertAfdianConfig(config) {
@@ -605,8 +612,8 @@ async function handleRequest(request, response) {
     await sendLatestReleaseRedirect(response, 'ios')
     return
   }
-  if (pathname === '/download/android') {
-    await sendLatestReleaseRedirect(response, 'android')
+  if (pathname === '/download/ios15') {
+    await sendLatestReleaseRedirect(response, 'ios15')
     return
   }
   if (pathname === '/health') {

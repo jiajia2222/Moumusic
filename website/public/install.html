@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#f6f3ef" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#121519" media="(prefers-color-scheme: dark)" />
-    <meta name="description" data-i18n-content="meta.installDescription" content="Moumusic iOS 与 Android 安装说明。" />
+    <meta name="description" data-i18n-content="meta.installDescription" content="Moumusic iOS 安装说明（iOS 26+ 完整版 / iOS 15–18 兼容版）。" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css?v=20260905-chat-payment" />
     <title data-i18n="meta.installTitle">安装说明 | Moumusic</title>
@@ -32,7 +32,7 @@
         <section class="install-hero reveal is-visible" aria-labelledby="install-title">
           <p class="section-kicker" data-i18n="install.kicker">GET STARTED</p>
           <h1 id="install-title" data-i18n="install.title">安装 Moumusic</h1>
-          <p data-i18n="install.intro">选择你的设备，几分钟内开始播放。iOS 与 Android 安装包均来自项目 Release。</p>
+          <p data-i18n="install.intro">按系统版本选择安装包，几分钟内开始播放。两个 IPA 均来自项目 Release。</p>
           <a class="install-support-callout" id="install-support-hero" href="#support" target="_blank" rel="noopener noreferrer"><span data-i18n="install.supportHero">在爱发电支持我，让我能够上架到 TestFlight！</span> <span aria-hidden="true">↗</span></a>
           <div class="install-hero__meta">
             <span class="release-dot" aria-hidden="true"></span>
@@ -45,7 +45,7 @@
         <section class="install-grid" id="downloads" aria-label="安装方式" data-i18n-aria-label="install.methods">
           <article class="install-card glass-card" id="ios">
             <div class="platform-line"><span class="platform-icon"></span><span>iPhone / iPad</span></div>
-            <h2 data-i18n="install.iosTitle">iOS 安装</h2>
+            <h2 data-i18n="install.iosTitle">iOS 26+ 完整版</h2>
             <p class="release-version" id="ios-release-version" aria-live="polite" data-i18n="install.versionLoading">正在获取最新版本…</p>
             <p class="install-lead" data-i18n="install.iosLead">下载未签名 IPA，再用自己的签名方式安装。</p>
             <ol class="steps">
@@ -58,18 +58,18 @@
             <p class="install-tool-link"><span data-i18n="install.sideloadly">使用 Sideloadly 自签：</span><a href="https://sideloadly.io/SideloadlySetup64.exe" target="_blank" rel="noopener noreferrer" data-i18n="install.windows">Windows 版 ↗</a><span aria-hidden="true"> · </span><a href="https://sideloadly.io/SideloadlySetup.dmg" target="_blank" rel="noopener noreferrer" data-i18n="install.macos">macOS 版 ↗</a></p>
           </article>
 
-          <article class="install-card glass-card" id="android">
-            <div class="platform-line"><span class="platform-icon platform-icon--android">◆</span><span>Android</span></div>
-            <h2 data-i18n="install.androidTitle">Android 安装</h2>
-            <p class="release-version" id="android-release-version" aria-live="polite" data-i18n="install.versionLoading">正在获取最新版本…</p>
-            <p class="install-lead" data-i18n="install.androidLead">下载 APK 后按系统提示完成安装。</p>
+          <article class="install-card glass-card" id="ios15">
+            <div class="platform-line"><span class="platform-icon"></span><span>iPhone / iPad</span></div>
+            <h2 data-i18n="install.androidTitle">iOS 15–18 兼容版</h2>
+            <p class="release-version" id="ios15-release-version" aria-live="polite" data-i18n="install.versionLoading">正在获取最新版本…</p>
+            <p class="install-lead" data-i18n="install.androidLead">适用于 iOS 15 至 18，功能精简（无动态壁纸等 iOS 26 专属效果）。</p>
             <ol class="steps">
-              <li><span>01</span><div data-i18n="install.androidStep1" data-i18n-html="true">下载最新的 <strong>Android APK</strong>。</div></li>
-              <li><span>02</span><div data-i18n="install.androidStep2">打开 APK；若系统提示，允许浏览器或文件管理器安装未知来源应用。</div></li>
-              <li><span>03</span><div data-i18n="install.androidStep3">安装完成后打开 Moumusic，并在应用内导入你有权使用的音源。</div></li>
+              <li><span>01</span><div data-i18n="install.androidStep1" data-i18n-html="true">下载最新的 <strong>兼容版 IPA</strong>。</div></li>
+              <li><span>02</span><div data-i18n="install.androidStep2">使用 AltStore、SideStore、Feather、Sideloadly 或你信任的签名工具导入。</div></li>
+              <li><span>03</span><div data-i18n="install.androidStep3">完成签名后安装，并在应用内导入你有权使用的音源。</div></li>
             </ol>
-            <a class="primary-button install-button" id="android-download" href="#download" target="_blank" rel="noopener noreferrer"><span data-i18n="install.androidDownload">下载 Android APK</span> <span aria-hidden="true">↗</span></a>
-            <p class="install-footnote" data-i18n="install.androidNote">建议从本项目 GitHub Release 下载，核对文件名和版本号。</p>
+            <a class="primary-button install-button" id="ios15-download" href="#download" target="_blank" rel="noopener noreferrer"><span data-i18n="install.androidDownload">下载兼容版 IPA</span> <span aria-hidden="true">↗</span></a>
+            <p class="install-footnote" data-i18n="install.androidNote">IPA 未签名；iOS 26 及以上请使用上方的完整版。</p>
           </article>
         </section>
 
