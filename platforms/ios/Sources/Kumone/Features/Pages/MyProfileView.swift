@@ -117,6 +117,12 @@ struct MyProfileView: View {
             Text("我的")
                 .font(.system(size: 38, weight: .bold, design: .rounded))
             Spacer()
+            ThemeRevealButton()
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 48, height: 48)
+                .background(.regularMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(.primary.opacity(0.10), lineWidth: 1))
             NavigationLink {
                 SettingsView()
             } label: {

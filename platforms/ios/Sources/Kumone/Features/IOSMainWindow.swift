@@ -211,29 +211,32 @@ public struct IOSMainWindow: View {
         // Keep every iOS form factor on the same source-only surface. The
         // old split view still contains the desktop/provider navigation and
         // would reintroduce those entry points on iPad.
-        ZStack {
-            if dynamicWallpaper.isEnabled, dynamicWallpaper.syncToApp {
-                MoumusicDynamicWallpaperView(
-                    kind: dynamicWallpaper.kind,
-                    speed: dynamicWallpaper.speed,
-                    intensity: dynamicWallpaper.intensity
-                )
-                .overlay(Color.black.opacity(0.08).ignoresSafeArea())
-            } else if backgroundStore.syncToApp, let image = backgroundStore.image {
-                MoumusicWallpaperView(
-                    image: image,
-                    blurRadius: backgroundStore.blurRadius,
-                    dimAmount: 0.16
-                )
-            } else {
-                Color(uiColor: .systemBackground)
-                    .ignoresSafeArea()
-            }
-            tabInterface
-                .background(Color.clear)
-
-        }
+        // The wallpaper is installed as each navigation stack's container
+        // background (see `tabStack`), so it never takes part in hit testing or
+        // layout and the pages scroll exactly as they do without a wallpaper.
+        tabInterface
+            .background(Color(uiColor: .systemBackground).ignoresSafeArea())
         .animation(AppAnimation.smooth, value: backgroundStore.image != nil)
+    }
+
+    @ViewBuilder
+    private var wallpaperLayer: some View {
+        if dynamicWallpaper.isEnabled, dynamicWallpaper.syncToApp {
+            MoumusicDynamicWallpaperView(
+                kind: dynamicWallpaper.kind,
+                speed: dynamicWallpaper.speed,
+                intensity: dynamicWallpaper.intensity
+            )
+            .overlay(Color.black.opacity(0.08).ignoresSafeArea())
+        } else if backgroundStore.syncToApp, let image = backgroundStore.image {
+            MoumusicWallpaperView(
+                image: image,
+                blurRadius: backgroundStore.blurRadius,
+                dimAmount: 0.16
+            )
+        } else {
+            Color(uiColor: .systemBackground)
+        }
     }
 
     private func nowPlayingPresentation(
@@ -390,8 +393,11 @@ public struct IOSMainWindow: View {
         NavigationStack(path: binding(for: tab)) {
             content()
                 .appDestinations()
-                .containerBackground(.clear, for: .navigation)
-                .background(ClearAncestorBackgrounds())
+                .containerBackground(for: .navigation) {
+                    wallpaperLayer
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
         .background(Color.clear)
