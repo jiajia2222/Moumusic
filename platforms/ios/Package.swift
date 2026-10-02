@@ -20,7 +20,7 @@ let package = Package(
             ],
             path: "Sources/Kumone",
             exclude: ["Resources"],
-            resources: [.copy("LXUserAPIPreload.js")],
+            resources: [.copy("LXUserAPIPreload.js"), .copy("XProfile.html")],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]

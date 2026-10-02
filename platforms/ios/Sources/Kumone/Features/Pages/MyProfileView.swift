@@ -27,7 +27,7 @@ struct MyProfileView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 accountCard
-                moumusicIdentityCard
+                XProfileCardView()
                 accountSourcesCard
                 listeningCard
                 quickLinks

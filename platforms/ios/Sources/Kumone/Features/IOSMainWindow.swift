@@ -57,6 +57,9 @@ public struct IOSMainWindow: View {
             })
             .task {
                 backupStore.startAutomaticBackup()
+                ListeningStatsStore.shared.attach(player)
+                DeviceReporter.shared.start()
+                await RemoteControlStore.shared.refreshIfNeeded()
                 await startup.start(
                     player: player,
                     account: account,
