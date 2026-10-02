@@ -216,11 +216,11 @@ actor KugouAPI {
             id: id,
             name: name,
             avatarURL: Self.text(in: info, keys: ["avatar", "avatar_url", "avatarUrl", "headurl"]),
-            isVIP: vipLevel > 0,
             refreshedCookie: Self.mergedCookie(
                 original: cookie,
                 response: response as? HTTPURLResponse
-            )
+            ),
+            isVIP: vipLevel > 0
         )
     }
 

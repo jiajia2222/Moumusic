@@ -250,6 +250,18 @@ struct BilibiliContentView: View {
         .navigationTitle(embedded ? "推荐" : "哔哩哔哩")
         .navigationBarTitleDisplayMode(embedded ? .automatic : .large)
         .toolbar {
+            if embedded {
+                // Account entry next to the platform switcher (like Beans' avatar button).
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.22)) { surface = .account }
+                    } label: {
+                        bilibiliAvatarButton
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("哔哩哔哩账号")
+                }
+            }
             if !embedded {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
