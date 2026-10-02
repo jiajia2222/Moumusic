@@ -432,8 +432,9 @@ actor BilibiliAPI {
         configuration.httpCookieStorage = cookieStorage
         configuration.httpShouldSetCookies = true
         configuration.httpCookieAcceptPolicy = .always
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 45
+        // Fail fast: a stalled Bilibili endpoint used to hold the UI for ~20 s per request.
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 15
         session = URLSession(configuration: configuration)
     }
 
@@ -455,7 +456,7 @@ actor BilibiliAPI {
             .map { String(format: "%02x", $0) }.joined()
         var request = URLRequest(url: URL(string: "https://passport.bilibili.com\(path)?\(query)&sign=\(sign)")!)
         request.httpMethod = "POST"
-        request.timeoutInterval = 15
+        request.timeoutInterval = 8
         request.setValue(Self.tvUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         let (data, _) = try await URLSession.shared.data(for: request)
@@ -2128,6 +2129,7 @@ actor BilibiliAPI {
                 try? await Task.sleep(for: .milliseconds(250))
             }
             var request = URLRequest(url: endpoint)
+            request.timeoutInterval = 4
             applyHeaders(to: &request, referer: "https://www.bilibili.com/")
             guard let (data, response) = try? await session.data(for: request),
                   Self.isSuccess(response),
