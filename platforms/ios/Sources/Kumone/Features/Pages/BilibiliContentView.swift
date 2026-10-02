@@ -1410,6 +1410,7 @@ struct BilibiliVideoDetailView: View {
     @State private var playbackURL: URL?
     @State private var playbackAudioURL: URL?
     @State private var triedMuxedFallback = false
+    @State private var qualityFallbackDepth = 0
     @State private var audioPlaybackURL: URL?
     @State private var audioQualities: [BilibiliAPI.BilibiliAudioQuality] = []
     @State private var selectedAudioQuality: Int?
@@ -1551,6 +1552,16 @@ struct BilibiliVideoDetailView: View {
             playerModel.onError = { message in
                 // DASH (separate video/audio) can fail on odd streams: retry once with the
                 // muxed MP4 before reporting an error.
+                // A tier this device cannot decode (8K, Dolby Vision, ...) fails to open: step down
+                // to the next lower quality first, and only then to the muxed MP4.
+                if !listenOnly, qualityFallbackDepth < 6,
+                   let current = selectedQuality,
+                   let lower = qualities.map(\.code).filter({ $0 < current }).max() {
+                    qualityFallbackDepth += 1
+                    ToastCenter.shared.show("当前画质无法在本机播放，已自动降到较低画质")
+                    Task { await loadPlayback(quality: lower) }
+                    return
+                }
                 if !listenOnly, !triedMuxedFallback {
                     triedMuxedFallback = true
                     Task { await loadPlayback(quality: selectedQuality, muxed: true) }
@@ -1593,6 +1604,8 @@ struct BilibiliVideoDetailView: View {
                     Menu {
                         ForEach(qualities) { quality in
                             Button {
+                                qualityFallbackDepth = 0
+                                triedMuxedFallback = false
                                 Task { await loadPlayback(quality: quality.code) }
                             } label: {
                                 quality.code == selectedQuality ? AnyView(Label(quality.displayTitle, systemImage: "checkmark")) : AnyView(Text(quality.displayTitle))
