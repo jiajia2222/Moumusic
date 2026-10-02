@@ -1638,21 +1638,7 @@ enum LXCatalogService {
             return LXPlaylistDetail(id: id, name: name, coverURL: cover, description: nil,
                                     author: nil, playCount: 0,
                                     tracks: tracks, source: .kg)
-        case .sd:
-            let resolution = try await QishuiAPI.shared.resolvePlaylist(id: id)
-            let tracks = resolution.tracks.map { item in
-                Track(id: Int(item.id) ?? stableNumericID(item.id),
-                      name: item.name,
-                      artists: [ArtistRef(id: 0, name: item.artistName)],
-                      album: AlbumRef(id: 0, name: item.albumName ?? "", picUrl: item.coverURL),
-                      durationMS: item.durationMS,
-                      source: "sd",
-                      sourceMetadata: ["songmid": item.id, "source": "sd"])
-            }
-            return LXPlaylistDetail(id: resolution.id, name: resolution.name,
-                                    coverURL: resolution.coverURL, description: nil,
-                                    author: "汽水音乐", playCount: 0,
-                                    tracks: tracks, source: .sd)
+        case .sd: throw LXCatalogError.unsupported
         case .aggregate: throw LXCatalogError.unsupported
         }
     }

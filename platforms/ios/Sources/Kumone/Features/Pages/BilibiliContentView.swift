@@ -208,6 +208,8 @@ struct BilibiliContentView: View {
     @State private var accountError: String?
     @State private var accountStats = BilibiliAccountStats()
     @State private var showAccountDetail = false
+    @State private var showFilter = false
+    @State private var showAppSettings = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -317,6 +319,14 @@ struct BilibiliContentView: View {
                     .environmentObject(settings)
             }
         }
+        .sheet(isPresented: $showFilter) {
+            BilibiliFilterView()
+        }
+        .sheet(isPresented: $showAppSettings) {
+            NavigationStack {
+                SettingsView()
+            }
+        }
         .sheet(isPresented: $showAccountDetail) {
             accountDetailSheet
                 .environmentObject(bilibili)
@@ -376,7 +386,7 @@ struct BilibiliContentView: View {
                         .disabled(dynamicLoading)
                     }
                     .padding(.horizontal, Theme.Layout.contentInset)
-                    ForEach(dynamics) { item in
+                    ForEach(BilibiliContentFilter.dynamics(dynamics)) { item in
                         BilibiliDynamicCard(item: item) {
                             if let video = item.video { selectedVideo = video }
                         }
@@ -479,10 +489,10 @@ struct BilibiliContentView: View {
                     showSettings = true
                 },
                 .init(icon: "line.3.horizontal.decrease.circle", title: "内容过滤", subtitle: "推荐与动态关键词过滤") {
-                    showSettings = true
+                    showFilter = true
                 },
                 .init(icon: "gearshape", title: "Moumusic 设置", subtitle: "Moumusic 软件设置") {
-                    showSettings = true
+                    showAppSettings = true
                 },
             ])
 
@@ -936,7 +946,7 @@ struct BilibiliContentView: View {
             alignment: .leading,
             spacing: 18
         ) {
-            ForEach(videos) { video in
+            ForEach(BilibiliContentFilter.videos(videos)) { video in
                 Button { selectedVideo = video } label: { BilibiliVideoCard(video: video) }
                     .buttonStyle(.plain)
                     .frame(maxWidth: .infinity, alignment: .topLeading)

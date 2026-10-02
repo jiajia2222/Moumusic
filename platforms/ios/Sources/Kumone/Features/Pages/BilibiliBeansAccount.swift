@@ -277,4 +277,55 @@ struct ThemeRevealButton: View {
         CATransaction.commit()
     }
 }
-#endif
+/// Keyword filter for Bilibili recommendations and dynamics (设置 → 内容过滤).
+enum BilibiliContentFilter {
+    static let key = "moumusic.bilibili.filterKeywords"
+
+    static var keywords: [String] {
+        let raw = UserDefaults.standard.string(forKey: key) ?? ""
+        return raw
+            .components(separatedBy: CharacterSet(charactersIn: ",，;；\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+    }
+
+    static func allows(_ texts: [String]) -> Bool {
+        let words = keywords
+        guard !words.isEmpty else { return true }
+        let haystack = texts.joined(separator: "\n").lowercased()
+        return !words.contains { haystack.contains($0) }
+    }
+
+    static func videos(_ videos: [BilibiliAPI.Video]) -> [BilibiliAPI.Video] {
+        videos.filter { allows([$0.title, $0.author]) }
+    }
+
+    static func dynamics(_ items: [BilibiliAPI.DynamicItem]) -> [BilibiliAPI.DynamicItem] {
+        items.filter { allows([$0.text, $0.author, $0.video?.title ?? ""]) }
+    }
+}
+
+struct BilibiliFilterView: View {
+    @AppStorage(BilibiliContentFilter.key) private var raw = ""
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextEditor(text: $raw)
+                        .frame(minHeight: 160)
+                } header: {
+                    Text("过滤关键词")
+                } footer: {
+                    Text("每行或用逗号分隔一个关键词。标题、UP 主或动态正文包含任意关键词的内容不会显示在推荐与动态中。")
+                }
+            }
+            .navigationTitle("内容过滤")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+            }
+        }
+    }
+}#endif
