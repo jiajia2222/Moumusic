@@ -41,9 +41,15 @@ struct SettingsView: View {
         "播放器氛围", "图片背景", "歌词显示", "存储与下载", "数据备份与恢复", "更新", "关于", "赞赏与支持"
     ]
 
+    @State private var settingsQuery = ""
+    @State private var settingsPage: SettingsCategory?
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+#if os(iOS)
+            settingsNavigator
+#endif
             settingsGroup("音源与音质") {
                 Picker("播放来源", selection: $settings.playbackSourceMode) {
                     ForEach(PlaybackSourceMode.allCases) { mode in
@@ -658,7 +664,8 @@ struct SettingsView: View {
         _ title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        let isExpanded = !collapsedSettings.contains(title)
+        let isExpanded = !collapsedSettings.contains(title) || !settingsQuery.isEmpty
+        if isSettingsGroupVisible(title) {
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -698,12 +705,159 @@ struct SettingsView: View {
                 .strokeBorder(.primary.opacity(0.1), lineWidth: 0.8)
         }
         .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+        }
     }
 
     private var appVersion: String {
         ReleaseChecker.currentDisplayVersion
     }
 
+    /// Beans-style two-level settings: category home -> category page, with
+    /// a search box that shows matching groups from every category.
+    enum SettingsCategory: String, CaseIterable, Identifiable {
+        case appearance = "外观与界面"
+        case playback = "播放与音效"
+        case accounts = "账号与平台"
+        case about = "关于与支持"
+
+        var id: String { rawValue }
+
+        var icon: String {
+            switch self {
+            case .appearance: return "paintbrush"
+            case .playback: return "speaker.wave.3"
+            case .accounts: return "person.2"
+            case .about: return "info.circle"
+            }
+        }
+
+        var summary: String {
+            switch self {
+            case .appearance: return "主题、播放器、动态壁纸、歌词显示、刷新率"
+            case .playback: return "音源与音质、播放设置、LX 音源"
+            case .accounts: return "账号登录、同步、哔哩哔哩"
+            case .about: return "缓存与备份、反馈、更新与诊断、关于"
+            }
+        }
+
+        var groups: [String] {
+            switch self {
+            case .appearance:
+                return ["主题模式", "播放器模式", "动态壁纸", "播放器氛围", "图片背景", "歌词显示", "显示与性能"]
+            case .playback:
+                return ["音源与音质", "播放设置", "LX 音源"]
+            case .accounts:
+                return ["账号与同步", "哔哩哔哩"]
+            case .about:
+                return ["存储与下载", "数据备份与恢复", "反馈与支持", "更新", "关于", "赞赏与支持"]
+            }
+        }
+    }
+
+    private static let settingsKeywords: [String: String] = [
+        "音源与音质": "播放来源 播放音质 第三方音源 网络 wifi 蜂窝 回退 切换平台",
+        "账号与同步": "登录 网易云 QQ 酷狗 平台显示 同步",
+        "播放设置": "触感 启动自动播放 均衡器 睡眠 定时 与其他音频同时播放",
+        "哔哩哔哩": "b站 bilibili 视频 登录",
+        "LX 音源": "lx user api 脚本 导入",
+        "主题模式": "深色 浅色 外观 颜色",
+        "播放器模式": "唱片 布局 封面",
+        "动态壁纸": "壁纸 metal 流体 云层",
+        "播放器氛围": "氛围 背景 光效",
+        "图片背景": "背景 自定义 同步",
+        "歌词显示": "逐字 偏移 注音 翻译 同步",
+        "存储与下载": "缓存 清理 下载 空间",
+        "数据备份与恢复": "备份 导入 导出 恢复",
+        "更新": "检查更新 更新日志 诊断 日志 崩溃 卡死",
+        "显示与性能": "高刷新率 120hz 帧率 性能",
+        "反馈与支持": "问题反馈 工单 开发者工具 帮助",
+        "关于": "版本 免责声明 运行环境",
+        "赞赏与支持": "赞助 爱发电 捐赠 支持"
+    ]
+
+    private func isSettingsGroupVisible(_ title: String) -> Bool {
+#if os(iOS)
+        let query = settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
+            let haystack = (title + " " + (Self.settingsKeywords[title] ?? "")).lowercased()
+            return haystack.contains(query)
+        }
+        guard let page = settingsPage else { return false }
+        return page.groups.contains(title)
+#else
+        return true
+#endif
+    }
+
+#if os(iOS)
+    @ViewBuilder
+    private var settingsNavigator: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("搜索设置", text: $settingsQuery)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            if !settingsQuery.isEmpty {
+                Button {
+                    settingsQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 46)
+        .compatGlass(interactive: true, in: Capsule())
+
+        if settingsQuery.isEmpty {
+            if let page = settingsPage {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { settingsPage = nil }
+                } label: {
+                    Label(page.rawValue, systemImage: "chevron.left")
+                        .font(.headline.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+            } else {
+                ForEach(SettingsCategory.allCases) { category in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { settingsPage = category }
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: category.icon)
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(Theme.accent)
+                                .frame(width: 34)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(category.rawValue)
+                                    .font(.headline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(category.summary)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(16)
+                        .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .strokeBorder(.primary.opacity(0.1), lineWidth: 0.8)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+#endif
 #if os(iOS)
     private var supportLink: some View {
         NavigationLink {
