@@ -106,8 +106,17 @@ actor BilibiliAPI {
         let commentCount: Int
         let publishedAt: Date?
         let subtitles: [Subtitle]
+        /// Display size after rotation; 0 when the API did not report it.
+        var videoWidth: Int = 0
+        var videoHeight: Int = 0
 
         var id: String { bvid }
+
+        /// width / height of the picture, 16:9 when unknown.
+        var displayAspectRatio: CGFloat {
+            guard videoWidth > 0, videoHeight > 0 else { return 16.0 / 9.0 }
+            return CGFloat(videoWidth) / CGFloat(videoHeight)
+        }
 
         func replacingSubtitles(_ subtitles: [Subtitle]) -> Video {
             Video(
@@ -125,7 +134,9 @@ actor BilibiliAPI {
                 playCount: playCount,
                 commentCount: commentCount,
                 publishedAt: publishedAt,
-                subtitles: subtitles
+                subtitles: subtitles,
+                videoWidth: videoWidth,
+                videoHeight: videoHeight
             )
         }
     }
@@ -948,26 +959,31 @@ actor BilibiliAPI {
     func comments(aid: Int, page: Int = 1, sort: CommentSort = .hot,
                   cookie: String? = nil) async throws -> CommentPage {
         var components = URLComponents(string: "https://api.bilibili.com/x/v2/reply")!
+        // The classic `pn`/`sort` endpoint still returns full pages; the newer
+        // cursor (`next`/`mode`) form answers with an empty list for guests.
         components.queryItems = [
             URLQueryItem(name: "type", value: "1"),
             URLQueryItem(name: "oid", value: "\(aid)"),
-            URLQueryItem(name: "mode", value: sort == .hot ? "3" : "2"),
-            URLQueryItem(name: "next", value: "\(max(1, page))"),
+            URLQueryItem(name: "sort", value: sort == .hot ? "1" : "0"),
+            URLQueryItem(name: "pn", value: "\(max(1, page))"),
             URLQueryItem(name: "ps", value: "20")
         ]
         let root = try await requestObject(components.url!, cookie: cookie)
         let data = root["data"] as? [String: Any]
-        let rows = data?["replies"] as? [[String: Any]] ?? []
+        var rows = data?["replies"] as? [[String: Any]] ?? []
+        if page <= 1, let top = (data?["top_replies"] as? [[String: Any]]), !top.isEmpty {
+            rows = top + rows
+        }
         let comments = rows.compactMap(Self.comment)
-        let cursor = data?["cursor"] as? [String: Any]
-        let isEnd = Self.bool(cursor?["is_end"]) ?? (comments.count < 20)
+        let pageInfo = data?["page"] as? [String: Any]
+        let total = Self.integer(pageInfo?["count"]) ?? comments.count
+        let size = Self.integer(pageInfo?["size"]) ?? 20
         return CommentPage(
             comments: comments,
-            total: Self.integer(data?["upper"]) ?? comments.count,
-            hasMore: !isEnd
+            total: total,
+            hasMore: max(1, page) * max(size, 1) < total
         )
     }
-
     /// Loads the account timeline used by Cilicili's Dynamic page.
     func dynamicFeed(cookie: String? = nil) async throws -> [DynamicItem] {
         guard let cookie, !cookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -1494,6 +1510,13 @@ actor BilibiliAPI {
         }
     }
 
+    /// Reads dimension (width, height, otate) and applies the rotation.
+    private static func displayDimensions(_ raw: [String: Any]?) -> (width: Int, height: Int) {
+        guard let raw, let width = integer(raw["width"]), let height = integer(raw["height"]),
+              width > 0, height > 0 else { return (0, 0) }
+        return integer(raw["rotate"]) == 1 ? (height, width) : (width, height)
+    }
+
     private static func video(_ raw: [String: Any]) -> Video? {
         let bvid = text(raw["bvid"]) ?? ""
         guard !bvid.isEmpty else { return nil }
@@ -1502,6 +1525,7 @@ actor BilibiliAPI {
         let firstPage = (raw["pages"] as? [[String: Any]])?.first
         let durationText = text(raw["duration"] ?? firstPage?["duration"]) ?? ""
         let subtitleRows = ((raw["subtitle"] as? [String: Any])?["list"] as? [[String: Any]]) ?? []
+        let dimensions = displayDimensions(raw["dimension"] as? [String: Any] ?? firstPage?["dimension"] as? [String: Any])
         return Video(
             bvid: bvid,
             aid: integer(raw["aid"] ?? raw["id"]) ?? 0,
@@ -1517,7 +1541,9 @@ actor BilibiliAPI {
             playCount: count(raw["play"] ?? stat?["view"] ?? raw["cover_left_text_1"]) ?? 0,
             commentCount: count(raw["review"] ?? stat?["reply"] ?? raw["cover_left_text_2"]) ?? 0,
             publishedAt: integer(raw["pubdate"]).map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            subtitles: subtitleRows.compactMap(Self.subtitle)
+            subtitles: subtitleRows.compactMap(Self.subtitle),
+            videoWidth: dimensions.width,
+            videoHeight: dimensions.height
         )
     }
 

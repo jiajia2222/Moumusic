@@ -207,9 +207,7 @@ struct AccountSyncView: View {
             return nil
         }()
         if let brand {
-            Image(brand, bundle: .module)
-                .resizable()
-                .scaledToFit()
+            BrandIconView(name: brand)
                 .frame(width: 34, height: 34)
         } else {
             Image(systemName: icon)

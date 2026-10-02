@@ -469,27 +469,6 @@ struct SettingsView: View {
                 }
             }
 
-            settingsGroup("更新") {
-                Toggle("启动时自动检查更新", isOn: $settings.autoCheckUpdates)
-#if os(iOS)
-                Button {
-                    IOSUpdater.shared.check(interactive: true)
-                } label: {
-                    Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
-                }
-                Button {
-                    updateLog.present()
-                } label: {
-                    Label("查看更新日志", systemImage: "doc.text.magnifyingglass")
-                }
-                NavigationLink {
-                    DiagnosticLogView()
-                } label: {
-                    Label("诊断日志", systemImage: "waveform.path.ecg")
-                }
-#endif
-            }
-
 #if os(iOS)
             settingsGroup("界面与颜色") {
                 VStack(alignment: .leading, spacing: 10) {
@@ -546,7 +525,27 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            settingsGroup("反馈与支持") {
+#endif
+
+            settingsGroup("关于与支持") {
+                LabeledContent("版本", value: appVersion)
+                Toggle("启动时自动检查更新", isOn: $settings.autoCheckUpdates)
+#if os(iOS)
+                Button {
+                    IOSUpdater.shared.check(interactive: true)
+                } label: {
+                    Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
+                }
+                Button {
+                    updateLog.present()
+                } label: {
+                    Label("更新日志", systemImage: "doc.text.magnifyingglass")
+                }
+                NavigationLink {
+                    DiagnosticLogView()
+                } label: {
+                    Label("诊断日志", systemImage: "waveform.path.ecg")
+                }
                 Button {
                     showFeedback = true
                 } label: {
@@ -562,60 +561,13 @@ struct SettingsView: View {
                         }
                     }
                 }
-            }
-#endif
-
-            settingsGroup("关于") {
-                LabeledContent("Moumusic", value: appVersion)
-                Text("播放、歌词和封面支持用户导入的 LX User API 音源。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            settingsGroup("赞赏与支持") {
-#if os(iOS)
                 supportLink
 #else
                 Link(destination: afdianURL) {
-                    HStack(spacing: 12) {
-                        CachedAsyncImage(
-                            url: URL(string: "https://afdian.com/favicon.ico"),
-                            animated: false
-                        ) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                    .fill(Color.orange.opacity(0.16))
-                                Image(systemName: "heart.fill")
-                                    .font(.title3.weight(.semibold))
-                                    .foregroundStyle(.orange)
-                            }
-                        }
-                        .frame(width: 48, height: 48)
-                        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("在爱发电支持 Moumusic")
-                                .font(.headline.weight(.semibold))
-                                .foregroundStyle(.primary)
-                            Text("每一份支持都会帮助我继续维护项目")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        Spacer(minLength: 8)
-                        Image(systemName: "arrow.up.right")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.orange)
-                    }
-                    .padding(.vertical, 6)
+                    Label("在爱发电支持 Moumusic", systemImage: "heart")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("在爱发电支持 Moumusic")
-                .accessibilityHint("打开爱发电支持页面")
 #endif
-            }
-#if os(iOS)
+            }#if os(iOS)
             // The floating player bar is rendered above this scroll view.
             // Keep the last settings group reachable instead of letting the
             // bar cover it on the smaller iPhone layouts.
@@ -815,7 +767,7 @@ struct SettingsView: View {
             case .accounts:
                 return ["账号与同步", "哔哩哔哩"]
             case .about:
-                return ["存储与下载", "数据备份与恢复", "反馈与支持", "更新", "关于", "赞赏与支持"]
+                return ["存储与下载", "数据备份与恢复", "关于与支持"]
             }
         }
     }
@@ -837,7 +789,7 @@ struct SettingsView: View {
         "更新": "检查更新 更新日志 诊断 日志 崩溃 卡死",
         "显示与性能": "高刷新率 120hz 帧率 性能",
         "界面与颜色": "强调色 颜色 液态 玻璃 漂浮 特效 底栏 语言",
-        "反馈与支持": "问题反馈 工单 开发者工具 帮助",
+        "关于与支持": "版本 更新 检查更新 日志 诊断 崩溃 卡死 反馈 工单 开发者工具 赞助 爱发电 支持 捐赠",
         "关于": "版本 免责声明 运行环境",
         "赞赏与支持": "赞助 爱发电 捐赠 支持"
     ]
@@ -849,8 +801,7 @@ struct SettingsView: View {
             let haystack = (title + " " + (Self.settingsKeywords[title] ?? "")).lowercased()
             return haystack.contains(query)
         }
-        guard let page = settingsPage else { return false }
-        return page.groups.contains(title)
+        return true
 #else
         return true
 #endif
@@ -877,52 +828,6 @@ struct SettingsView: View {
         .padding(.horizontal, 14)
         .frame(minHeight: 46)
         .compatGlass(interactive: true, in: Capsule())
-
-        if settingsQuery.isEmpty {
-            if let page = settingsPage {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { settingsPage = nil }
-                } label: {
-                    Label(page.rawValue, systemImage: "chevron.left")
-                        .font(.headline.weight(.semibold))
-                }
-                .buttonStyle(.plain)
-            } else {
-                ForEach(SettingsCategory.allCases) { category in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { settingsPage = category }
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: category.icon)
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(Theme.accent)
-                                .frame(width: 34)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(category.rawValue)
-                                    .font(.headline.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                Text(category.summary)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.leading)
-                            }
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(16)
-                        .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .strokeBorder(.primary.opacity(0.1), lineWidth: 0.8)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
     }
 #endif
 #if os(iOS)

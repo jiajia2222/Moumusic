@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Vector platform marks. They are drawn as SwiftUI shapes (no bitmap
 /// assets); the NetEase and Bilibili outlines come from Simple Icons (CC0).
@@ -240,9 +243,9 @@ struct PlatformGlyph: View {
         case .kg:
             brandImage("BrandKugou")
         case .kw:
-            letterMark("K", Color(red: 1.0, green: 0.55, blue: 0.0))
+            brandImage("BrandKuwo")
         case .mg:
-            letterMark("M", Color(red: 0.93, green: 0.2, blue: 0.55))
+            brandImage("BrandMigu")
         case .sd:
             letterMark("S", .pink)
         case .aggregate:
@@ -255,9 +258,7 @@ struct PlatformGlyph: View {
 
     /// Brand artwork taken from the Beans 2.0.3 asset catalog.
     private func brandImage(_ name: String) -> some View {
-        Image(name, bundle: .module)
-            .resizable()
-            .scaledToFit()
+        BrandIconView(name: name)
     }
 
     private func letterMark(_ letter: String, _ color: Color) -> some View {
@@ -269,5 +270,44 @@ struct PlatformGlyph: View {
                     .foregroundStyle(.white)
             }
         }
+    }
+}
+
+/// Official platform artwork bundled with the app (loaded from the package bundle).
+enum BrandIcon {
+    #if canImport(UIKit)
+    private static var cache: [String: UIImage] = [:]
+
+    static func image(_ name: String) -> UIImage? {
+        if let cached = cache[name] { return cached }
+        var image = UIImage(named: name, in: .module, compatibleWith: nil)
+        if image == nil, let url = Bundle.module.url(forResource: name, withExtension: "png"),
+           let data = try? Data(contentsOf: url) {
+            image = UIImage(data: data)
+        }
+        if let image { cache[name] = image }
+        return image
+    }
+    #endif
+}
+
+struct BrandIconView: View {
+    let name: String
+
+    var body: some View {
+        #if canImport(UIKit)
+        if let image = BrandIcon.image(name) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+        } else {
+            Image(systemName: "music.note")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.secondary)
+        }
+        #else
+        Image(systemName: "music.note")
+        #endif
     }
 }

@@ -1398,7 +1398,9 @@ struct BilibiliVideoDetailView: View {
                         }
                     }
                     .id(playerToken)
-                    .frame(height: 244)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(activeVideo.displayAspectRatio, contentMode: .fit)
+                    .frame(maxHeight: activeVideo.displayAspectRatio < 1 ? UIScreen.main.bounds.height * 0.6 : nil)
                     playerOptions
                     Picker("视频内容", selection: $selectedTab) {
                         Text("简介").tag(0)
