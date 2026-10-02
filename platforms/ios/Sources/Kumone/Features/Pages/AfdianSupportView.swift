@@ -126,8 +126,15 @@ struct AfdianSupportView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("赞助者名单").font(.headline)
+                if !store.sponsors.isEmpty {
+                    Text("\(store.sponsors.count) 位")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 if store.isLoading { ProgressView().controlSize(.small) }
+                Link("网页完整名单", destination: URL(string: "https://music.nadev.xyz/sponsors")!)
+                    .font(.subheadline)
             }
 
             if let errorMessage = store.errorMessage, store.sponsors.isEmpty {
@@ -149,13 +156,34 @@ struct AfdianSupportView: View {
                     .padding(28)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             } else {
-                LazyVStack(spacing: 10) {
-                    ForEach(store.sponsors) { sponsor in
-                        sponsorCard(sponsor)
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(sponsorsByYear, id: \.year) { group in
+                        Text(group.year == 0 ? "—" : "\(group.year) 年")
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(Theme.accent)
+                            .padding(.top, 8)
+                        ForEach(group.items) { sponsor in
+                            sponsorCard(sponsor)
+                        }
                     }
                 }
             }
         }
+    }
+
+    /// History, newest first, grouped by the year of the last support.
+    private var sponsorsByYear: [(year: Int, items: [AfdianSponsorService.Sponsor])] {
+        let sorted = store.sponsors.sorted { (.lastSupportTime ?? 0) > (.lastSupportTime ?? 0) }
+        let grouped = Dictionary(grouping: sorted) { sponsor -> Int in
+            guard let time = sponsor.lastSupportTime else { return 0 }
+            return Calendar.current.component(.year, from: Date(timeIntervalSince1970: TimeInterval(time)))
+        }
+        return grouped.keys.sorted(by: >).map { (year: $0, items: grouped[$0] ?? []) }
+    }
+
+    private func supportDate(_ sponsor: AfdianSponsorService.Sponsor) -> String {
+        guard let time = sponsor.lastSupportTime else { return "" }
+        return Date(timeIntervalSince1970: TimeInterval(time)).formatted(date: .numeric, time: .omitted)
     }
 
     private func sponsorCard(_ sponsor: AfdianSponsorService.Sponsor) -> some View {
@@ -174,7 +202,7 @@ struct AfdianSupportView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(sponsor.name).font(.subheadline.weight(.semibold))
-                Text(sponsor.plan ?? "持续支持中")
+                Text([sponsor.plan ?? "持续支持中", supportDate(sponsor)].filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

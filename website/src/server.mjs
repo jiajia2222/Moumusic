@@ -608,6 +608,14 @@ async function handleRequest(request, response) {
     response.end(html)
     return
   }
+  if (pathname === '/sponsors') {
+    const html = await renderPage('sponsors.html', url)
+    response.statusCode = 200
+    response.setHeader('content-type', 'text/html; charset=utf-8')
+    response.setHeader('cache-control', 'no-cache')
+    response.end(html)
+    return
+  }
   if (pathname === '/download/ios') {
     await sendLatestReleaseRedirect(response, 'ios')
     return

@@ -10,6 +10,8 @@ const i18n = window.MoumusicI18n || { language: () => 'zh', t: key => key }
 const links = {
   'ios-download': config.iosDownloadUrl,
   'ios15-download': config.ios15DownloadUrl,
+  'support-link': config.afdianPlanUrl || config.afdianUrl || 'https://ifdian.net/a/moumou2026/plan',
+  'footer-support-link': config.afdianPlanUrl || config.afdianUrl || 'https://ifdian.net/a/moumou2026/plan',
   'install-support': config.afdianPlanUrl || config.afdianUrl || 'https://ifdian.net/a/moumou2026/plan',
   'install-support-hero': config.afdianPlanUrl || config.afdianUrl || 'https://ifdian.net/a/moumou2026/plan',
 }

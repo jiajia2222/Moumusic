@@ -5,68 +5,49 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#f3f2ee" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0e1016" media="(prefers-color-scheme: dark)" />
-    <meta name="description" data-i18n-content="meta.homeDescription" content="Moumusic 安装指南与项目支持页。三步添加音源，开始播放。" />
+    <meta name="description" data-i18n-content="meta.homeDescription" content="Moumusic 的赞助者名单，与应用内赞助页面同步。" />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://music.nadev.xyz/" />
+    <meta property="og:url" content="https://music.nadev.xyz/sponsors" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/site.css?v=20261002" />
-    <title>Moumusic｜安装与支持</title>
+    <title>鸣谢名单｜Moumusic</title>
   </head>  <body>
       <header class="shell bar">
         <a class="wordmark" href="/" aria-label="Moumusic"><span>Moumusic</span></a>
         <nav aria-label="主导航" data-i18n-aria-label="profile.home">
           <a href="/install" data-i18n="nav.install">安装教程</a>
-          <a href="/sponsors" data-i18n="nav.credits">鸣谢</a>
+          <a href="/sponsors" aria-current="page" data-i18n="nav.credits">鸣谢</a>
           <button class="language-toggle" id="language-toggle" type="button" aria-label="切换到 English">EN</button>
           <button class="theme-toggle" id="theme-toggle" type="button" aria-label="切换到深色模式"><span class="theme-toggle__icon" aria-hidden="true">◐</span><span id="theme-toggle-label" data-i18n="theme.dark">深色</span></button>
         </nav>
       </header>
     <main class="shell">
-      <section class="hero" aria-labelledby="hero-title">
-        <div class="hero__grid">
-          <div>
-            <h1 id="hero-title"><span data-i18n="h.title1">先安装，</span><span data-i18n="h.title2">再开始听歌。</span></h1>
-            <p class="hero__lead" data-i18n="h.lead">下载应用，导入你有权使用的音源，然后播放。三步就够。</p>
-            <div class="hero__actions">
-              <a class="btn" id="ios-download" href="/download/ios" rel="noopener noreferrer"><span data-i18n="h.dlFull">iOS 26+ 完整版</span></a>
-              <a class="btn btn--ghost" id="ios15-download" href="/download/ios15" rel="noopener noreferrer"><span data-i18n="h.dlCompat">iOS 15–18 兼容版</span></a>
-            </div>
-            <div class="hero__meta">
-              <span id="hero-version" aria-live="polite" data-i18n="h.versionLoading">正在读取版本…</span>
-              <span data-i18n="h.dlNote">IPA 未签名，需要用你自己的工具签名后安装。</span>
-            </div>
-          </div>
-          <div class="record" aria-hidden="true">
-            <div class="record__disc"></div>
-            <div class="record__label">M</div>
-          </div>
+      <section class="page-head" aria-labelledby="credits-title">
+        <div>
+          <h1 id="credits-title" data-i18n="c.title">鸣谢名单</h1>
+          <p data-i18n="c.lead">Moumusic 的每一次更新，都有这些人的一份。名单与应用内“赞助”页面同步。</p>
+        </div>
+        <div class="page-head__stats" aria-live="polite">
+          <strong id="stat-count">—</strong>
+          <span id="stat-latest"></span>
+          <span id="stat-total"></span>
         </div>
       </section>
 
-      <section class="section" aria-labelledby="steps-title">
-        <h2 id="steps-title" data-i18n="h.stepsTitle">三步开始播放</h2>
-        <ol class="tracks">
-          <li class="track"><span class="track__no">A1</span><h3 data-i18n="h.step1">下载对应版本</h3><p data-i18n="h.step1Body">iOS 26 及以上用完整版，iOS 15–18 用兼容版。</p><a href="/install#downloads" data-i18n="h.step1Link">选择安装包</a></li>
-          <li class="track"><span class="track__no">A2</span><h3 data-i18n="h.step2">添加音源</h3><p data-i18n="h.step2Body">在应用里导入你信任的 LX 音源脚本或链接。</p><a href="/install#source" data-i18n="h.step2Link">查看添加方法</a></li>
-          <li class="track"><span class="track__no">A3</span><h3 data-i18n="h.step3">开始播放</h3><p data-i18n="h.step3Body">搜索歌曲、选择音质。</p><a href="/install#troubleshooting" data-i18n="h.step3Link">遇到问题</a></li>
-        </ol>
-      </section>
+      <div class="filter">
+        <label class="sr-only" for="search" data-i18n="c.search">搜索名字</label>
+        <input id="search" type="search" autocomplete="off" placeholder="搜索名字" data-i18n-placeholder="c.search" />
+        <a class="btn btn--small" id="support-link" data-support-action href="#support" target="_blank" rel="noopener noreferrer"><span data-i18n="c.support">支持 Moumusic</span></a>
+      </div>
 
-      <section class="section" aria-labelledby="thanks-title">
-        <div class="thanks">
-          <div>
-            <h2 id="thanks-title" data-i18n="h.thanksTitle">谢谢你们</h2>
-            <p data-i18n="h.thanksBody">每一份支持，都会回到维护、修复和新的播放体验里。</p>
-            <a class="btn" id="support-link" data-support-action href="#support" target="_blank" rel="noopener noreferrer"><span data-i18n="h.support">在爱发电支持</span></a>
-          </div>
-          <div>
-            <h3 class="sr-only" data-i18n="h.recent">最近的支持者</h3>
-            <ul class="credit-list" id="recent-list" aria-live="polite"></ul>
-            <p id="recent-empty" hidden data-i18n="h.noneYet">还没有公开的赞助记录，你可以成为第一位。</p>
-            <a class="thanks__more" href="/sponsors" data-i18n="h.viewAll">查看完整名单</a>
-          </div>
-        </div>
-      </section>
+      <div id="credits" aria-live="polite">
+        <div class="skeleton-row" aria-hidden="true"></div><div class="skeleton-row" aria-hidden="true"></div><div class="skeleton-row" aria-hidden="true"></div>
+      </div>
+      <div class="notice" id="state-box" hidden role="status">
+        <p id="state-text"></p>
+        <button class="btn btn--small" id="retry-button" type="button" hidden data-i18n="c.retry">重新加载</button>
+      </div>
+      <p class="sign-note" data-i18n="c.inApp">在应用内：我的 → 赞助与支持</p>
     </main>
       <footer class="shell foot">
         <span data-i18n="f.note">Moumusic 是个人开发的开源项目。</span>

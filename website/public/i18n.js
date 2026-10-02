@@ -326,6 +326,9 @@
     root.querySelectorAll('[data-i18n-content]').forEach(element => {
       element.setAttribute('content', translate(element.dataset.i18nContent))
     })
+    root.querySelectorAll('[data-i18n-placeholder]').forEach(element => {
+      element.setAttribute('placeholder', translate(element.dataset.i18nPlaceholder))
+    })
     root.querySelectorAll('[data-i18n-aria-label]').forEach(element => {
       element.setAttribute('aria-label', translate(element.dataset.i18nAriaLabel))
     })
@@ -353,7 +356,12 @@
     document.dispatchEvent(new CustomEvent('moumusic:languagechange', { detail: { language } }))
   }
 
-  window.MoumusicI18n = { apply, language: () => language, setLanguage, setTheme, t: translate }
+  function extend(extra) {
+    for (const code of ['zh', 'en']) Object.assign(messages[code], extra?.[code] || {})
+    apply()
+  }
+
+  window.MoumusicI18n = { apply, extend, language: () => language, setLanguage, setTheme, t: translate }
   apply()
   document.addEventListener('click', event => {
     const toggle = event.target.closest('#language-toggle')

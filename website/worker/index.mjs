@@ -480,6 +480,7 @@ async function handleRequest(request, env, ctx) {
 
   if (pathname === '/' || pathname === '/aifadian') return renderPage(request, env, 'index.html')
   if (pathname === '/install') return renderPage(request, env, 'install.html')
+  if (pathname === '/sponsors') return renderPage(request, env, 'sponsors.html')
   if (pathname === '/download/ios') return redirectToLatestRelease(request, ctx, 'ios')
   if (pathname === '/download/ios15') return redirectToLatestRelease(request, ctx, 'ios15')
   if (pathname === '/health') return jsonResponse(200, { status: 'ok' })
