@@ -328,8 +328,20 @@ struct NowPlayingView: View {
         guard let urlString, let url = urlString.resizedImageURL(768) else {
             return
         }
-        if let image = await ImageCache.shared.image(for: url) {
+        if let loaded = await ImageCache.shared.image(for: url) {
             guard player.currentTrack?.playbackKey == playbackKey else { return }
+            // Video covers (e.g. Bilibili 16:9) are center-cropped to a
+            // square so they never overflow the artwork slot.
+            let image: UIImage = {
+                let w = loaded.size.width, h = loaded.size.height
+                guard w > 0, h > 0, abs(w - h) / max(w, h) > 0.03,
+                      let cg = loaded.cgImage else { return loaded }
+                let s = loaded.scale
+                let side = min(w, h) * s
+                let rect = CGRect(x: (w * s - side) / 2, y: (h * s - side) / 2, width: side, height: side)
+                guard let cropped = cg.cropping(to: rect) else { return loaded }
+                return UIImage(cgImage: cropped, scale: s, orientation: loaded.imageOrientation)
+            }()
             artworkImage = image
             colors = ArtworkPalette.extract(from: image, cacheKey: urlString)
         }

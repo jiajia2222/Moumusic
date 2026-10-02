@@ -731,10 +731,13 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        // Non-interactive: an interactive glass container swallows taps meant
+        // for the header button inside it (intermittent missed taps).
+        .compatGlass(interactive: false, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(.primary.opacity(0.1), lineWidth: 0.8)
+                .allowsHitTesting(false)
         }
         .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
         }

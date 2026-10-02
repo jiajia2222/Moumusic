@@ -238,10 +238,11 @@ struct MouGlassCard<Content: View>: View {
     var body: some View {
         content()
             .padding(padding)
-            .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .compatGlass(interactive: false, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(.primary.opacity(0.08), lineWidth: 0.8)
+                    .allowsHitTesting(false)
             }
             .shadow(color: .black.opacity(0.10), radius: 12, y: 5)
     }

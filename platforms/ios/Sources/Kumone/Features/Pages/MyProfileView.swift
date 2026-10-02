@@ -236,11 +236,17 @@ struct MyProfileView: View {
         }
         .background {
             if let image = appearance.background {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
+                // Size the layer to the card first, then fill+clip inside it,
+                // otherwise a large photo overflows the screen.
+                Color.clear
+                    .overlay {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    }
                     .overlay(Color.black.opacity(0.38))
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .allowsHitTesting(false)
             }
         }
         .environment(\.colorScheme, hasBackground ? .dark : colorScheme)

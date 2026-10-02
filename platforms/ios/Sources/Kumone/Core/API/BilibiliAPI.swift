@@ -1205,9 +1205,13 @@ actor BilibiliAPI {
             URLQueryItem(name: "bvid", value: video.bvid),
             URLQueryItem(name: "cid", value: "\(cid)"),
             URLQueryItem(name: "qn", value: "\(requestedQuality)"),
-            URLQueryItem(name: "fnval", value: "4048"),
+            // fnval=1 -> muxed MP4 (video + audio in one stream). DASH video
+            // streams are silent because the audio is a separate track.
+            URLQueryItem(name: "fnval", value: "1"),
             URLQueryItem(name: "fnver", value: "0"),
-            URLQueryItem(name: "fourk", value: "1")
+            URLQueryItem(name: "fourk", value: "1"),
+            URLQueryItem(name: "platform", value: "html5"),
+            URLQueryItem(name: "high_quality", value: "1")
         ]
         let root = try await requestObject(components.url!, cookie: cookie,
                                            referer: "https://www.bilibili.com/video/\(video.bvid)")
