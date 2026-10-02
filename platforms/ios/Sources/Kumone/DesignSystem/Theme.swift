@@ -3,13 +3,15 @@ import SwiftUI
 /// Design tokens: color, radius, spacing, layout metrics.
 enum Theme {
     /// NetEase red, tuned slightly warmer for macOS.
-    static let accent = Color(red: 0.925, green: 0.286, blue: 0.286) // #EC4949
-    static let accentDeep = Color(red: 0.788, green: 0.161, blue: 0.161) // #C92929
+    static var accent: Color { AppAccent.current.color }
+    static var accentDeep: Color { AppAccent.current.deepColor }
 
-    static let accentGradient = LinearGradient(
-        colors: [Color(red: 0.973, green: 0.357, blue: 0.357), accentDeep],
-        startPoint: .topLeading, endPoint: .bottomTrailing
-    )
+    static var accentGradient: LinearGradient {
+        LinearGradient(
+            colors: [AppAccent.current.lightColor, accentDeep],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
+    }
 
     enum Radius {
         static let badge: CGFloat = 4
@@ -109,22 +111,43 @@ extension View {
     }
 
     /// Glass background with a graceful material fallback on macOS 15.
-    @ViewBuilder
     func compatGlass(interactive: Bool = false, in shape: some Shape) -> some View {
+        modifier(CompatGlassModifier(interactive: interactive, shape: AnyShape(shape)))
+    }
+}
+
+/// Glass background; "关闭液态模式" swaps it for a plain material.
+private struct CompatGlassModifier: ViewModifier {
+    let interactive: Bool
+    let shape: AnyShape
+    @AppStorage(AppAppearanceKeys.disableLiquid) private var disableLiquid = false
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if disableLiquid {
+            content.background(.ultraThinMaterial, in: shape)
+        } else {
+            glass(content)
+        }
+    }
+
+    @ViewBuilder
+    private func glass(_ self_: Content) -> some View {
+        let self__ = self_
         #if os(macOS)
         if #available(macOS 26.0, *) {
-            self.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+            self__.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
         } else {
-            self.background(.ultraThinMaterial, in: shape)
+            self__.background(.ultraThinMaterial, in: shape)
         }
         #elseif os(iOS)
         if #available(iOS 26.0, *) {
-            self.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+            self__.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
         } else {
-            self.background(.ultraThinMaterial, in: shape)
+            self__.background(.ultraThinMaterial, in: shape)
         }
         #else
-        self.background(.ultraThinMaterial, in: shape)
+        self__.background(.ultraThinMaterial, in: shape)
         #endif
     }
 }

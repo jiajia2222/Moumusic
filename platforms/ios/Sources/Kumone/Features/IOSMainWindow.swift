@@ -14,6 +14,8 @@ public struct IOSMainWindow: View {
     @StateObject private var startup = IOSStartupCoordinator.shared
     @StateObject private var backupStore = AppDataBackupManager.shared
     @ObservedObject private var deviceReporter = DeviceReporter.shared
+    @AppStorage("moumusic.tabBarMinimize") private var tabBarMinimizes = true
+    @AppStorage(AppAppearanceKeys.floatingEffects) private var floatingEffects = false
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
     @ObservedObject private var dynamicWallpaper = DynamicWallpaperStore.shared
     @Namespace private var nowPlayingTransition
@@ -47,6 +49,9 @@ public struct IOSMainWindow: View {
             .environmentObject(bilibili)
             .environmentObject(toasts)
             .tint(Theme.accent)
+            .overlay {
+                if floatingEffects { FloatingEffectOverlay() }
+            }
             .preferredColorScheme(settings.appearance.colorScheme)
             .animation(reduceMotion ? nil : AppAnimation.smooth, value: settings.appearance)
             // Login is exposed on a separate account page. It is metadata
@@ -274,7 +279,7 @@ public struct IOSMainWindow: View {
     @available(iOS 26.0, *)
     private var iOS26TabInterface: some View {
         iOS26TabView
-            .tabBarMinimizeBehavior(.onScrollDown)
+            .tabBarMinimizeBehavior(tabBarMinimizes ? .onScrollDown : .never)
             // Keep one TabView identity while the accessory appears/disappears.
             // This preserves the iOS 26 matched-transition zoom anchor.
             .modifier(MiniPlayerAccessoryModifier(

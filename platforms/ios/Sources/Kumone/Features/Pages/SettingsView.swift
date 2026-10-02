@@ -31,6 +31,11 @@ struct SettingsView: View {
     @State private var showDeveloperTools = false
     @ObservedObject private var deviceReporter = DeviceReporter.shared
     @ObservedObject private var highRefresh = HighRefreshController.shared
+    @AppStorage(AppAppearanceKeys.accent) private var accentRaw = AppAccent.red.rawValue
+    @AppStorage(AppAppearanceKeys.disableLiquid) private var disableLiquid = false
+    @AppStorage(AppAppearanceKeys.floatingEffects) private var floatingEffects = false
+    @AppStorage("moumusic.tabBarMinimize") private var tabBarMinimizes = true
+    @AppStorage("moumusic.appLanguage") private var appLanguage = "system"
     @AppStorage("moumusic.showDeveloperTools") private var showDeveloperToolsEntry = true
 #endif
     @StateObject private var backupStore = AppDataBackupManager.shared
@@ -473,6 +478,54 @@ struct SettingsView: View {
             }
 
 #if os(iOS)
+            settingsGroup("界面与颜色") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("强调色").font(.subheadline.weight(.semibold))
+                    HStack(spacing: 12) {
+                        ForEach(AppAccent.allCases) { accent in
+                            Button {
+                                accentRaw = accent.rawValue
+                                settings.objectWillChange.send()
+                            } label: {
+                                Circle()
+                                    .fill(accent.color)
+                                    .frame(width: 30, height: 30)
+                                    .overlay {
+                                        if accentRaw == accent.rawValue {
+                                            Image(systemName: "checkmark")
+                                                .font(.caption.weight(.bold))
+                                                .foregroundStyle(.white)
+                                        }
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(accent.displayName)
+                        }
+                    }
+                    Text("部分界面需重新打开页面后才会应用新颜色。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Toggle("关闭液态模式", isOn: $disableLiquid)
+                Text("关闭后卡片和按钮使用普通半透明材质，更省电。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("全局漂浮特效", isOn: $floatingEffects)
+                Toggle("滚动时收起底栏", isOn: $tabBarMinimizes)
+                Picker("语言", selection: $appLanguage) {
+                    Text("跟随系统").tag("system")
+                    Text("简体中文").tag("zh-Hans")
+                    Text("English").tag("en")
+                }
+                .onChange(of: appLanguage) { value in
+                    if value == "system" {
+                        UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+                    } else {
+                        UserDefaults.standard.set([value], forKey: "AppleLanguages")
+                    }
+                    ToastCenter.shared.show("语言将在重新打开 App 后生效")
+                }
+            }
             settingsGroup("显示与性能") {
                 Toggle("强制 120Hz", isOn: $highRefresh.isForced)
                 Text("默认跟随系统；开启后保持最高刷新率，耗电会增加。")
@@ -743,7 +796,7 @@ struct SettingsView: View {
         var groups: [String] {
             switch self {
             case .appearance:
-                return ["主题模式", "播放器模式", "动态壁纸", "播放器氛围", "图片背景", "歌词显示", "显示与性能"]
+                return ["界面与颜色", "主题模式", "播放器模式", "动态壁纸", "播放器氛围", "图片背景", "歌词显示", "显示与性能"]
             case .playback:
                 return ["音源与音质", "播放设置", "LX 音源"]
             case .accounts:
@@ -770,6 +823,7 @@ struct SettingsView: View {
         "数据备份与恢复": "备份 导入 导出 恢复",
         "更新": "检查更新 更新日志 诊断 日志 崩溃 卡死",
         "显示与性能": "高刷新率 120hz 帧率 性能",
+        "界面与颜色": "强调色 颜色 液态 玻璃 漂浮 特效 底栏 语言",
         "反馈与支持": "问题反馈 工单 开发者工具 帮助",
         "关于": "版本 免责声明 运行环境",
         "赞赏与支持": "赞助 爱发电 捐赠 支持"
