@@ -5,6 +5,8 @@ import SwiftUI
 struct BilibiliSettingsView: View {
     @EnvironmentObject private var settings: SettingsManager
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("moumusic.bili.preferredQuality") private var preferredQuality = 80
+    @AppStorage("moumusic.bili.autoplay") private var autoplay = true
 
     var body: some View {
         ScrollView {
@@ -25,6 +27,24 @@ struct BilibiliSettingsView: View {
                     Toggle("显示弹幕", isOn: $settings.bilibiliDanmakuEnabled)
 
                     Text("听与看是互斥模式；切换后只保留当前模式的入口，避免播放器同时出现两套能力。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                settingsCard("视频偏好") {
+                    Picker("默认清晰度", selection: $preferredQuality) {
+                        Text("1080P 高码率").tag(112)
+                        Text("1080P").tag(80)
+                        Text("720P").tag(64)
+                        Text("480P").tag(32)
+                        Text("360P").tag(16)
+                    }
+                    Text("实际清晰度取决于视频与账号权限（登录后通常最高 1080P）；播放页的「画质」菜单可临时切换。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Toggle("打开视频自动播放", isOn: $autoplay)
+                    Toggle("显示弹幕", isOn: $settings.bilibiliDanmakuEnabled)
+                    Label("解码：H.264（音画合一流，系统硬件解码）", systemImage: "cpu")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

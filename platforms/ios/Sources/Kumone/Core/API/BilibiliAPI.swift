@@ -1199,7 +1199,8 @@ actor BilibiliAPI {
     /// resolution.
     func playback(for video: Video, quality: Int? = nil, cookie: String? = nil) async throws -> Playback {
         guard let cid = video.cid else { throw APIError.invalidResponse }
-        let requestedQuality = quality ?? 120
+        let preferred = UserDefaults.standard.integer(forKey: "moumusic.bili.preferredQuality")
+        let requestedQuality = quality ?? (preferred > 0 ? preferred : 80)
         var components = URLComponents(string: "https://api.bilibili.com/x/player/playurl")!
         components.queryItems = [
             URLQueryItem(name: "bvid", value: video.bvid),

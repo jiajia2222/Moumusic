@@ -1427,7 +1427,7 @@ struct BilibiliVideoDetailView: View {
                             danmaku: danmakuCues,
                             posterURL: activeVideo.coverURL,
                             audioOnly: listenOnly,
-                            autoPlay: activePlaybackURL != nil,
+                            autoPlay: activePlaybackURL != nil && (UserDefaults.standard.object(forKey: "moumusic.bili.autoplay") as? Bool ?? true),
                             title: activeVideo.title,
                             author: activeVideo.author,
                             onError: {
