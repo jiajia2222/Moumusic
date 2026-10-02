@@ -579,7 +579,8 @@ struct SettingsView: View {
                 if accessed { url.stopAccessingSecurityScopedResource() }
             }
             do {
-                guard backgroundStore.save(data: Data(contentsOf: url)) else {
+                let imageData = try Data(contentsOf: url)
+                guard backgroundStore.save(data: imageData) else {
                     ToastCenter.shared.show("背景图片导入失败")
                     return
                 }
