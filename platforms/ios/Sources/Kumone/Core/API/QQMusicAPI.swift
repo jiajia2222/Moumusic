@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 
 /// QQ's QR flow must expose redirect responses so the app can collect the
 /// account cookies and exchange the OAuth code for a Music session.
@@ -269,8 +269,16 @@ actor QQMusicAPI {
         // treating 68 as waiting leaves the sheet stuck on an old QR code.
         case "65", "68": return .expired
         case "0":
-            guard let jumpURL = parsed.url else { throw APIError.oauthFailed }
-            try await completeOAuth(redirectURL: jumpURL)
+            guard let jumpURL = parsed.url else {
+                Self.oauthLog("ptui 缺少跳转地址", String(body.prefix(240)))
+                throw APIError.oauthFailed
+            }
+            do {
+                try await completeOAuth(redirectURL: jumpURL)
+            } catch {
+                Self.oauthLog("completeOAuth 抛出错误", "\(error) | \(error.localizedDescription)")
+                throw error
+            }
             let cookie = cookieHeader()
             guard !cookie.isEmpty else { throw APIError.unavailable }
             return .success(cookie: cookie)
@@ -297,6 +305,9 @@ actor QQMusicAPI {
             request.setValue(cookieHeader(includeQRSig: true), forHTTPHeaderField: "Cookie")
             let (_, response) = try await redirectSession.data(for: request)
             collectCookies(from: response)
+            if let h = response as? HTTPURLResponse {
+                Self.oauthLog("check_sig 跳转", "host=\(currentURL.host ?? "-") http=\(h.statusCode) next=\(h.value(forHTTPHeaderField: "Location").flatMap { URL(string: $0)?.host } ?? "-")")
+            }
 
             guard let http = response as? HTTPURLResponse,
                   (300...399).contains(http.statusCode),

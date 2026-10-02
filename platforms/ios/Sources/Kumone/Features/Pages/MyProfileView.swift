@@ -152,17 +152,29 @@ struct MyProfileView: View {
             UIPasteboard.general.string = id
             ToastCenter.shared.show("用户 ID 已复制")
         } label: {
-            HStack(spacing: 6) {
-                if exclusive { Image(systemName: "crown.fill") }
-                Text(exclusive ? "专属 ID · \(id)" : "ID \(id)")
-                Image(systemName: "doc.on.doc").font(.system(size: 10, weight: .semibold))
+            HStack(spacing: 8) {
+                if exclusive {
+                    Image(systemName: "crown.fill").font(.system(size: 17, weight: .bold))
+                } else {
+                    Image(systemName: "number")
+                        .font(.system(size: 9, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .frame(width: 18, height: 18)
+                        .background(Color.secondary.opacity(0.8), in: Circle())
+                }
+                Text(exclusive ? "专属 ID · \(id)" : "ID · \(id)")
+                Image(systemName: "doc.on.doc").font(.system(size: 13, weight: .semibold))
             }
-            .font(.system(size: 12, weight: .bold, design: .rounded))
+            .font(.system(size: exclusive ? 16 : 14, weight: exclusive ? .heavy : .medium, design: .rounded))
             .foregroundStyle(textColor)
             .lineLimit(1)
-            .padding(.horizontal, exclusive ? 11 : 0)
-            .padding(.vertical, exclusive ? 5 : 0)
+            .padding(.horizontal, 14)
+            .padding(.vertical, exclusive ? 8 : 6)
             .background {
+                if !exclusive {
+                    Capsule().fill(.thinMaterial)
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 0.8))
+                }
                 if exclusive {
                     Capsule().fill(
                         classic

@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 /// Design tokens: color, radius, spacing, layout metrics.
 enum Theme {
@@ -136,13 +136,13 @@ private struct CompatGlassModifier: ViewModifier {
         let self__ = self_
         #if os(macOS)
         if #available(macOS 26.0, *) {
-            self__.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+            self__.glassEffect(.regular, in: shape)
         } else {
             self__.background(.ultraThinMaterial, in: shape)
         }
         #elseif os(iOS)
         if #available(iOS 26.0, *) {
-            self__.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+            self__.glassEffect(.regular, in: shape)
         } else {
             self__.background(.ultraThinMaterial, in: shape)
         }

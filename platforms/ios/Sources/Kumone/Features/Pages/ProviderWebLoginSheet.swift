@@ -1,4 +1,4 @@
-#if os(iOS)
+﻿#if os(iOS)
 import SwiftUI
 import WebKit
 
@@ -47,7 +47,7 @@ enum ProviderWebLoginKind: String, Identifiable {
             if pair.count == 2 { values[pair[0].lowercased()] = pair[1] }
         }
         var result = header
-        if values["token"] == nil, let t = values["t"], t.count >= 24 { result += "; token=\(t)" }
+        if values["token"] == nil, let t = values["t"], t.count >= 8 { result += "; token=\(t)" }
         if values["userid"] == nil, let id = values["kugooid"] { result += "; userid=\(id)" }
         return result
     }
@@ -71,11 +71,11 @@ enum ProviderWebLoginKind: String, Identifiable {
                 (!credential.isEmpty && !openID.isEmpty)
         case .kugou:
             // The web page keeps the login token in the short cookie 	 (next to KugooID).
-            let webToken = (values["t"] ?? "").count >= 24 ? (values["t"] ?? "") : ""
+            let webToken = (values["t"] ?? "").count >= 8 ? (values["t"] ?? "") : ""
             let token = values["token"] ?? values["login_token"] ?? values["kugou_token"] ?? values["kg_token"] ?? webToken
             let identity = values["userid"] ?? values["user_id"] ?? values["kugooid"]
                 ?? values["kugoo_id"] ?? values["kg_mid"] ?? values["mid"] ?? ""
-            return !token.isEmpty && !identity.isEmpty
+            return !token.isEmpty && !identity.isEmpty && identity != "0"
         case .bilibili:
             return !(values["sessdata"] ?? "").isEmpty &&
                 !(values["dedeuserid"] ?? "").isEmpty
@@ -157,6 +157,7 @@ struct ProviderWebLoginSheet: View {
             for cookie in cookies where provider.accepts(domain: cookie.domain) {
                 values[cookie.name] = cookie.value
             }
+            let snapshot = values
             let header = values
                 .sorted { $0.key < $1.key }
                 .map { "\($0.key)=\($0.value)" }
@@ -165,7 +166,7 @@ struct ProviderWebLoginSheet: View {
             Task { @MainActor in
                 guard provider.looksLoggedIn(header) else {
                     let names = header.split(separator: ";").compactMap { $0.split(separator: "=").first.map { String($0).trimmingCharacters(in: .whitespaces) } }.joined(separator: ",")
-                    DiagnosticLogStore.shared.append(level: .warning, category: "\(provider.title)登录", message: "网页登录未检测到登录状态", detail: "cookies=\(names)")
+                    DiagnosticLogStore.shared.append(level: .warning, category: "\(provider.title)登录", message: "网页登录未检测到登录状态", detail: "cookies=\(names) | t.len=\(snapshot["t"]?.count ?? -1) KugooID=\(snapshot["KugooID"] ?? "-") kg_login=\(snapshot["kg_login"] ?? "-") UserName.len=\(snapshot["UserName"]?.count ?? -1)")
                     isReadingCookies = false
                     errorMessage = "还没有检测到\(provider.title)登录状态，请先完成手机号/网页登录后再点“登录完成”"
                     return

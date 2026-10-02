@@ -351,13 +351,21 @@ struct HomeView: View {
                 BilibiliContentView(embedded: true)
                     .environmentObject(bilibili)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        communityAnnouncement
+                GeometryReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            communityAnnouncement
 
-                        standardHomeBody
+                            standardHomeBody
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        // Blank space below short content belongs to the
+                        // scroll content too, so dragging there still scrolls
+                        // and pulls to refresh.
+                        .frame(minHeight: proxy.size.height, alignment: .top)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .scrollBounceBehavior(.always)
                 }
             }
         }
