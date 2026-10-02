@@ -88,23 +88,15 @@ struct MyProfileView: View {
         .navigationDestination(isPresented: $showAccountPlaylists) {
             AccountPlaylistsView()
         }
-        .confirmationDialog(
-            signedInTarget.map { "\(signedInTitle($0)) 已登录" } ?? "",
-            isPresented: Binding(get: { signedInTarget != nil }, set: { if !$0 { signedInTarget = nil } }),
-            titleVisibility: .visible
-        ) {
-            if signedInTarget == .qq || signedInTarget == .kugou {
-                Button("查看账号歌单") { showAccountPlaylists = true }
+        .sheet(item: $signedInTarget) { target in
+            switch target {
+            case .qq:
+                PlatformAccountPage(platform: .tx).environmentObject(qqMusic).environmentObject(kugou).environmentObject(player)
+            case .kugou:
+                PlatformAccountPage(platform: .kg).environmentObject(qqMusic).environmentObject(kugou).environmentObject(player)
+            case .bilibili:
+                BilibiliAccountPage().environmentObject(bilibili).environmentObject(player)
             }
-            Button("退出登录", role: .destructive) {
-                switch signedInTarget {
-                case .qq: qqMusic.signOut()
-                case .kugou: kugou.signOut()
-                case .bilibili: bilibili.signOut()
-                case nil: break
-                }
-            }
-            Button("取消", role: .cancel) {}
         }
         .sheet(isPresented: $showMoumusicProfileEditor) {
             MoumusicProfileEditorView()
@@ -528,7 +520,7 @@ struct MyProfileView: View {
     private var accountSourcesCard: some View {
         MouGlassCard(padding: 10) {
             VStack(alignment: .leading, spacing: 0) {
-                Label("网易云账号与同步", systemImage: "person.2.wave.2")
+                Label("账号音源与同步", systemImage: "person.2.wave.2")
                     .font(.headline.weight(.semibold))
                     .padding(.horizontal, 6)
                     .padding(.bottom, 6)
@@ -542,7 +534,38 @@ struct MyProfileView: View {
                     destination: .accountSync
                 )
 
-                Text("QQ 音乐、酷狗音乐、哔哩哔哩的账号在各自平台页面管理：在首页左上角切换到对应平台，点右上角的账号按钮。")
+                Divider().padding(.leading, 48)
+
+                accountSourceRow(
+                    title: "QQ 音乐",
+                    subtitle: qqMusic.isLoggedIn ? ((qqMusic.profileName ?? "已登录") + (qqMusic.isVIP == nil ? "" : (qqMusic.isVIP == true ? " · 会员" : " · 非会员"))) : "未登录 · 扫码同步账号资料",
+                    icon: "music.quarternote.3",
+                    isLoggedIn: qqMusic.isLoggedIn
+                ) {
+                    if qqMusic.isLoggedIn { signedInTarget = .qq } else { showQQMusicLogin = true }
+                }
+                Divider().padding(.leading, 48)
+
+                accountSourceRow(
+                    title: "酷狗音乐",
+                    subtitle: kugou.isLoggedIn ? ((kugou.profileName ?? "已登录") + (kugou.isVIP ? " · 会员" : " · 非会员")) : "未登录 · 扫码同步账号资料",
+                    icon: "headphones",
+                    isLoggedIn: kugou.isLoggedIn
+                ) {
+                    if kugou.isLoggedIn { signedInTarget = .kugou } else { showKugouLogin = true }
+                }
+                Divider().padding(.leading, 48)
+
+                accountSourceRow(
+                    title: "哔哩哔哩",
+                    subtitle: bilibili.isLoggedIn ? ((bilibili.profileName ?? "已登录") + " · " + (bilibili.membershipTitle ?? "非会员")) : "未登录 · 同步账号资料与视频服务",
+                    icon: "play.rectangle.fill",
+                    isLoggedIn: bilibili.isLoggedIn
+                ) {
+                    if bilibili.isLoggedIn { signedInTarget = .bilibili } else { showBilibiliLogin = true }
+                }
+
+                Text("点已登录的平台可退出登录或同步歌单；也可以在首页切换到对应平台后点右上角的账号按钮。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -91,4 +91,56 @@ struct PlatformAccountPage: View {
         }
     }
 }
+/// Bilibili account page: membership, sign-out and 收藏夹 sync.
+struct BilibiliAccountPage: View {
+    @EnvironmentObject private var bilibili: BilibiliSessionStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmSignOut = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    MouGlassCard {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(spacing: 14) {
+                                BrandIconView(name: "BrandBilibili").frame(width: 52, height: 52)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("哔哩哔哩").font(.title3.weight(.semibold))
+                                    Text((bilibili.profileName ?? "已登录") + " · " + (bilibili.membershipTitle ?? "非会员"))
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.title3)
+                            }
+                            Button(role: .destructive) { confirmSignOut = true } label: {
+                                Text("退出登录").frame(maxWidth: .infinity, minHeight: 40)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(.horizontal, Theme.Layout.contentInset)
+
+                    BilibiliCloudPlaylistsCard().environmentObject(bilibili)
+                    PlayerClearanceSpacer()
+                }
+                .padding(.top, 12)
+            }
+            .navigationTitle("哔哩哔哩账号")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+            }
+            .confirmationDialog("退出哔哩哔哩登录？", isPresented: $confirmSignOut, titleVisibility: .visible) {
+                Button("退出登录", role: .destructive) {
+                    bilibili.signOut()
+                    dismiss()
+                }
+                Button("取消", role: .cancel) {}
+            }
+        }
+    }
+}
 #endif

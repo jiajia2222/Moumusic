@@ -1237,7 +1237,8 @@ final class PlayerService: ObservableObject {
             let reason = track.playability(privilege: nil,
                                            isLoggedIn: AccountStore.shared.isLoggedIn,
                                            vipType: AccountStore.shared.vipType).reason
-            ToastCenter.shared.show(String(localized: "《\(track.name)》无法播放\(reason.map { "：\($0)" } ?? "")"))
+            let detail = reason ?? (lastOfficialFailure.isEmpty ? nil : "账号音源未返回完整音频（\(String(lastOfficialFailure.prefix(80)))）")
+            ToastCenter.shared.show(String(localized: "《\(track.name)》无法播放\(detail.map { "：\($0)" } ?? "")"))
             if consecutiveFailures < 5 {
                 advanceToNext(userInitiated: false)
             } else {
@@ -1372,7 +1373,10 @@ final class PlayerService: ObservableObject {
 
     /// Resolve a full-length provider URL using the account belonging to the
     /// track's catalogue. The returned quality is the provider's response.
+    private var lastOfficialFailure = ""
+
     private func resolveOfficialAudio(for track: Track, quality: AudioQuality) async -> OfficialAudio? {
+        lastOfficialFailure = ""
         let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
         let requestedCandidates = qualityCandidates(startingAt: quality)
 
@@ -1382,16 +1386,29 @@ final class PlayerService: ObservableObject {
             let neteaseCandidates = hasActiveNeteaseVIP
                 ? requestedCandidates
                 : requestedCandidates.filter { !$0.requiresNeteaseVIP }
+            var failureNotes: [String] = []
+            defer {
+                if !failureNotes.isEmpty {
+                    let joined = failureNotes.joined(separator: " | ")
+                    lastOfficialFailure = joined
+                    Task { @MainActor in
+                        DiagnosticLogStore.shared.append(level: .warning, category: "网易云账号音源", message: "《\(track.name)》未取得完整音频", detail: "会员=\(hasActiveNeteaseVIP) \(joined)")
+                    }
+                }
+            }
             for candidate in neteaseCandidates {
                 guard let data = (try? await NeteaseAPI.songURL(
                     ids: [track.id], level: candidate.neteaseLevel
-                ))?.first,
-                data.freeTrialInfo == nil,
-                hasActiveNeteaseVIP || data.fee <= 0,
-                data.time <= 0 || track.duration <= 0
-                    || TimeInterval(data.time) / 1000 >= max(45, track.duration * 0.65),
-                let rawURL = data.url,
-                let url = validAudioURL(rawURL) else { continue }
+                ))?.first else { failureNotes.append("\(candidate.neteaseLevel):接口无返回"); continue }
+                guard data.freeTrialInfo == nil else { failureNotes.append("\(candidate.neteaseLevel):仅试听"); continue }
+                guard hasActiveNeteaseVIP || data.fee <= 0 else { failureNotes.append("\(candidate.neteaseLevel):需要会员 fee=\(data.fee)"); continue }
+                guard data.time <= 0 || track.duration <= 0
+                    || TimeInterval(data.time) / 1000 >= max(45, track.duration * 0.65) else {
+                    failureNotes.append("\(candidate.neteaseLevel):时长不足 \(data.time)ms"); continue
+                }
+                guard let rawURL = data.url, let url = validAudioURL(rawURL) else {
+                    failureNotes.append("\(candidate.neteaseLevel):无地址 fee=\(data.fee)"); continue
+                }
                 return OfficialAudio(
                     url: url,
                     quality: NeteaseAPI.officialQuality(for: data)?.lxType ?? "unknown",
