@@ -735,66 +735,39 @@ enum NeteaseAPI {
         guard client.isLoggedIn else { throw NeteaseAPIError.needLogin }
 
         let threadID = "R_SO_4_\(songID)"
-        do {
-            // The legacy endpoint is still the most widely accepted route
-            // for a top-level song comment. Include the complete payload;
-            // sending only threadId/content is treated as an untrusted client
-            // by several NetEase deployments.
-            let response = try await weapi(
-                CodeOnly.self,
-                "/comment/add",
-                [
-                    "type": 0,
-                    "id": songID,
-                    "threadId": threadID,
-                    "content": trimmed,
-                    "commentId": 0,
-                    "at": "",
-                    "atUserIds": "",
-                ]
-            )
-            guard response.code == 200 else {
-                throw NeteaseAPIError.business(
-                    code: response.code,
-                    message: String(localized: "发表评论失败，请稍后重试")
-                )
-            }
-            return
-        } catch {
-            // Do not retry a device-security rejection: repeating it can
-            // worsen the account risk score. The official client must verify
-            // this device before the API will accept a comment.
-            if Self.isDeviceVerificationRejection(error) {
-                throw NeteaseAPIError.business(
-                    code: 512,
-                    message: "网易云拒绝了当前设备的评论请求，请先在官方网易云客户端完成一次安全验证后再试。"
-                )
-            }
-
-            // Some accounts are routed to the newer endpoint. Use it only
-            // after the legacy route failed for a non-device reason.
+        // The client-style route first (`threadId` + `content`), then the two older ones.
+        let routes: [(String, [String: Any])] = [
+            ("/resource/comments/add", ["threadId": threadID, "content": trimmed]),
+            ("/comment/add", ["type": 0, "id": songID, "threadId": threadID, "content": trimmed,
+                              "commentId": 0, "at": "", "atUserIds": ""]),
+            ("/v1/resource/comments/add", ["threadId": threadID, "content": trimmed])
+        ]
+        var lastError: Error?
+        for (path, payload) in routes {
             do {
-                let response = try await weapi(
-                    CodeOnly.self,
-                    "/v1/resource/comments/add",
-                    ["threadId": threadID, "content": trimmed]
-                )
-                guard response.code == 200 else {
-                    throw NeteaseAPIError.business(
-                        code: response.code,
-                        message: String(localized: "发表评论失败，请稍后重试")
-                    )
+                let response = try await weapi(CodeOnly.self, path, payload)
+                if response.code == 200 { return }
+                let message = "code=\(response.code)"
+                Task { @MainActor in
+                    DiagnosticLogStore.shared.append(level: .warning, category: "网易云评论", message: "发表失败 \(path)", detail: message)
                 }
+                lastError = NeteaseAPIError.business(code: response.code, message: "发表评论失败（\(message)），请稍后重试")
             } catch {
+                // Do not retry a device-security rejection: repeating it can worsen the account risk score.
                 if Self.isDeviceVerificationRejection(error) {
                     throw NeteaseAPIError.business(
                         code: 512,
                         message: "网易云拒绝了当前设备的评论请求，请先在官方网易云客户端完成一次安全验证后再试。"
                     )
                 }
-                throw error
+                let detail = "\(error.localizedDescription)"
+                Task { @MainActor in
+                    DiagnosticLogStore.shared.append(level: .warning, category: "网易云评论", message: "发表失败 \(path)", detail: detail)
+                }
+                lastError = error
             }
         }
+        throw lastError ?? NeteaseAPIError.business(code: -1, message: "发表评论失败，请稍后重试")
     }
 
     private static func isDeviceVerificationRejection(_ error: Error) -> Bool {

@@ -1,4 +1,4 @@
-#if os(iOS)
+﻿#if os(iOS)
 import SwiftUI
 
 extension Track {
@@ -29,23 +29,39 @@ struct BilibiliSearchResults: View {
     @EnvironmentObject private var bilibili: BilibiliSessionStore
     @EnvironmentObject private var settings: SettingsManager
     @EnvironmentObject private var player: PlayerService
+    private enum Kind: String, CaseIterable, Identifiable {
+        case videos = "视频"
+        case users = "用户"
+        var id: String { rawValue }
+    }
+
+    @State private var kind: Kind = .videos
+    @State private var users: [BilibiliAPI.User] = []
     @State private var videos: [BilibiliAPI.Video] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var selected: BilibiliAPI.Video?
 
+    private var isEmpty: Bool { kind == .videos ? videos.isEmpty : users.isEmpty }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if isLoading && videos.isEmpty {
+            // Listen / watch is a global setting; here the user only picks what to search.
+            Picker("搜索类型", selection: $kind) {
+                ForEach(Kind.allCases) { item in Text(item.rawValue).tag(item) }
+            }
+            .pickerStyle(.segmented)
+
+            if isLoading && isEmpty {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 240)
-            } else if let errorMessage, videos.isEmpty {
+            } else if let errorMessage, isEmpty {
                 ErrorStateView(message: errorMessage) { Task { await load() } }
                     .frame(maxWidth: .infinity, minHeight: 240)
-            } else if videos.isEmpty {
-                EmptyStateView(icon: "play.rectangle", title: "没有找到相关视频")
+            } else if isEmpty {
+                EmptyStateView(icon: kind == .videos ? "play.rectangle" : "person.2",
+                               title: kind == .videos ? "没有找到相关视频" : "没有找到相关用户")
                     .frame(maxWidth: .infinity, minHeight: 240)
-            } else {
-                modeHint
+            } else if kind == .videos {
                 ForEach(videos) { video in
                     Button {
                         open(video)
@@ -54,10 +70,12 @@ struct BilibiliSearchResults: View {
                     }
                     .buttonStyle(.plain)
                 }
+            } else {
+                ForEach(users) { user in userRow(user) }
             }
         }
         .padding(.horizontal, Theme.Layout.contentInset)
-        .task(id: keyword) { await load() }
+        .task(id: "\(keyword)|\(kind.rawValue)") { await load() }
         .sheet(item: $selected) { video in
             NavigationStack {
                 BilibiliVideoDetailView(video: video)
@@ -67,12 +85,26 @@ struct BilibiliSearchResults: View {
         }
     }
 
-    private var modeHint: some View {
-        Picker("播放方式", selection: $settings.bilibiliMode) {
-            Text("听视频").tag(BilibiliMode.listen)
-            Text("看视频").tag(BilibiliMode.watch)
+    private func userRow(_ user: BilibiliAPI.User) -> some View {
+        HStack(spacing: 12) {
+            CachedAsyncImage(url: user.avatarURL?.resizedImageURL(160), animated: false)
+                .frame(width: 54, height: 54)
+                .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 4) {
+                Text(user.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(user.signature.isEmpty ? "UP 主" : user.signature)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+            if user.followerCount > 0 {
+                Text("粉丝 \(Formatters.playCount(user.followerCount))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .pickerStyle(.segmented)
+        .padding(8)
     }
 
     private func row(_ video: BilibiliAPI.Video) -> some View {
@@ -117,8 +149,13 @@ struct BilibiliSearchResults: View {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            let page = try await BilibiliAPI.shared.searchVideos(keyword: query, cookie: bilibili.cookie)
-            videos = BilibiliContentFilter.videos(page.videos)
+            switch kind {
+            case .videos:
+                let page = try await BilibiliAPI.shared.searchVideos(keyword: query, cookie: bilibili.cookie)
+                videos = BilibiliContentFilter.videos(page.videos)
+            case .users:
+                users = try await BilibiliAPI.shared.searchUsers(keyword: query, cookie: bilibili.cookie)
+            }
         } catch is CancellationError {
             return
         } catch {

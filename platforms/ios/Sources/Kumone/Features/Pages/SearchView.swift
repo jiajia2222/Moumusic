@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 #if os(iOS)
 import UIKit
 #endif
@@ -552,7 +552,7 @@ struct SearchView: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(model.platform.displayName)
+                Text(biliSelected ? "哔哩哔哩" : model.platform.displayName)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Theme.accent)
             }
@@ -569,18 +569,18 @@ struct SearchView: View {
                             resignSearchInput()
                         } label: {
                             HStack(spacing: 5) {
-                                if model.platform == platform {
+                                if model.platform == platform, !biliSelected {
                                     Image(systemName: "checkmark")
                                         .font(.caption2.weight(.bold))
                                 }
                                 Text(platform.displayName)
                             }
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(model.platform == platform ? .white : .primary)
+                            .foregroundStyle(model.platform == platform && !biliSelected ? .white : .primary)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
                             .background(
-                                model.platform == platform
+                                model.platform == platform && !biliSelected
                                     ? Theme.accent
                                     : Color.secondary.opacity(0.12),
                                 in: Capsule()

@@ -1279,24 +1279,23 @@ final class PlayerService: ObservableObject {
         } else {
             asset = AVURLAsset(url: url)
         }
-        let assetTrack = await loadAudioTrack(from: asset, timeout: 2)
+        // Start streaming immediately: AVPlayer buffers while it plays. The audio track is
+        // probed in the background afterwards (spectrum tap + verified quality) instead of
+        // delaying the first sound.
         guard generation == resolveGeneration else { return }
 
 #if os(iOS)
         servedQuality = verifiedServedQuality(
             providerQuality: servedByLXQuality,
-            audioTrack: assetTrack
+            audioTrack: nil
         )
         servedQualityTrackKey = track.playbackKey
         NowPlayingManager.shared.updateResolvedQuality(servedQuality, for: track)
 #endif
 
         let item = AVPlayerItem(asset: asset)
-        if let assetTrack, let mix = AudioSpectrum.shared.makeAudioMix(for: assetTrack) {
-            item.audioMix = mix
-        } else {
-            AudioSpectrum.shared.markUntappable()
-        }
+        item.preferredForwardBufferDuration = 0
+        AudioSpectrum.shared.markUntappable()
 
         if let old = endObserver {
             NotificationCenter.default.removeObserver(old)
@@ -1325,6 +1324,22 @@ final class PlayerService: ObservableObject {
             engine.rate = playbackRate
         }
         isPlaying = true
+
+        let providerQualitySnapshot = servedByLXQuality
+        Task { [weak self, weak item] in
+            guard let self else { return }
+            let probed = await self.loadAudioTrack(from: asset, timeout: 6)
+            guard generation == self.resolveGeneration, let item, self.engine.currentItem === item else { return }
+#if os(iOS)
+            if let probed {
+                self.servedQuality = self.verifiedServedQuality(providerQuality: providerQualitySnapshot, audioTrack: probed)
+                NowPlayingManager.shared.updateResolvedQuality(self.servedQuality, for: track)
+            }
+#endif
+            if let probed, let mix = AudioSpectrum.shared.makeAudioMix(for: probed) {
+                item.audioMix = mix
+            }
+        }
 
         if !startScrobbled {
             startScrobbled = true
@@ -1878,7 +1893,7 @@ final class PlayerService: ObservableObject {
                 return seconds.isFinite && seconds > 0 ? seconds : nil
             }
             group.addTask {
-                try? await Task.sleep(for: .seconds(3))
+                try? await Task.sleep(for: .seconds(1.5))
                 return nil
             }
             let first = await group.next() ?? nil
