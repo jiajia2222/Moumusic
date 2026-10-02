@@ -68,6 +68,63 @@ actor QQMusicAPI {
     private let cookieStorage: HTTPCookieStorage
     private let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
 
+    struct AccountPlaylist: Identifiable, Hashable, Sendable {
+        let id: String
+        let name: String
+        let count: Int
+        let coverURL: String?
+    }
+
+    /// Playlists created by the signed-in QQ account (`fcg_user_created_diss`).
+    func userPlaylists(cookie: String) async throws -> [AccountPlaylist] {
+        var fields: [String: String] = [:]
+        for part in cookie.split(separator: ";") {
+            let pair = part.split(separator: "=", maxSplits: 1).map { String($0).trimmingCharacters(in: .whitespaces) }
+            if pair.count == 2 { fields[pair[0]] = pair[1] }
+        }
+        let rawUin = fields["uin"] ?? fields["p_uin"] ?? fields["wxuin"] ?? ""
+        let uin = rawUin.drop { !$0.isNumber }
+        guard !uin.isEmpty else { throw APIError.invalidResponse }
+        let credential = fields["qqmusic_key"] ?? fields["p_skey"] ?? fields["skey"] ?? ""
+        var hash = 5381
+        for scalar in credential.unicodeScalars { hash += (hash << 5) + Int(scalar.value) }
+        let gtk = hash & 0x7fffffff
+
+        var components = URLComponents(string: "https://c.y.qq.com/rsc/fcgi-bin/fcg_user_created_diss")!
+        components.queryItems = [
+            URLQueryItem(name: "cv", value: "4747474"), URLQueryItem(name: "ct", value: "24"),
+            URLQueryItem(name: "format", value: "json"), URLQueryItem(name: "inCharset", value: "utf-8"),
+            URLQueryItem(name: "outCharset", value: "utf-8"), URLQueryItem(name: "notice", value: "0"),
+            URLQueryItem(name: "platform", value: "yqq.json"), URLQueryItem(name: "needNewCode", value: "1"),
+            URLQueryItem(name: "uin", value: String(uin)), URLQueryItem(name: "hostuin", value: String(uin)),
+            URLQueryItem(name: "sin", value: "0"), URLQueryItem(name: "size", value: "200"),
+            URLQueryItem(name: "g_tk", value: String(gtk)), URLQueryItem(name: "g_tk_new_20200303", value: String(gtk)),
+        ]
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = 20
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw APIError.invalidResponse
+        }
+        let list = ((root["data"] as? [String: Any])?["disslist"] as? [[String: Any]]) ?? []
+        let code = String(describing: root["code"] ?? "?")
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .info, category: "QQ 音乐", message: "账号歌单列表", detail: "code=\(code) rows=\(list.count)")
+        }
+        return list.compactMap { item in
+            let id = (item["tid"] as? Int).map(String.init) ?? (item["tid"] as? String) ?? ""
+            let name = (item["diss_name"] as? String) ?? ""
+            guard !id.isEmpty, !name.isEmpty, id != "0" else { return nil }
+            return AccountPlaylist(
+                id: id, name: name,
+                count: (item["song_cnt"] as? Int) ?? 0,
+                coverURL: (item["diss_cover"] as? String).flatMap { $0.isEmpty ? nil : $0.replacingOccurrences(of: "http://", with: "https://") })
+        }
+    }
+
     private init() {
         let configuration = URLSessionConfiguration.ephemeral
         cookieStorage = HTTPCookieStorage()

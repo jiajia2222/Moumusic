@@ -1646,6 +1646,11 @@ enum LXCatalogService {
         }
     }
 
+    /// Normalises a provider song dictionary into a Track (used for account playlists).
+    static func parseTrack(_ item: [String: Any], source: LXCatalogPlatform) -> Track? {
+        track(from: item, source: source)
+    }
+
     private static func track(from item: [String: Any], source: LXCatalogPlatform) -> Track? {
         let nestedAlbum = item["album"] as? [String: Any]
         let nestedFile = item["file"] as? [String: Any]

@@ -30,6 +30,25 @@ struct MyProfileView: View {
                 header
                 compactIdentity
                 accountSourcesCard
+                NavigationLink {
+                    AccountPlaylistsView()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "music.note.list")
+                            .font(.title3)
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 30)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("账号歌单").font(.body.weight(.semibold)).foregroundStyle(.primary)
+                            Text("酷狗音乐、QQ 音乐账号里的歌单").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                }
+                .buttonStyle(.plain)
                 listeningCard
                 quickLinks
                 appearanceCard

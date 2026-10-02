@@ -319,6 +319,91 @@ actor KugouAPI {
         return (auth, openTime)
     }
 
+    // MARK: - Account (cloud) playlists
+
+    struct CloudPlaylist: Identifiable, Hashable, Sendable {
+        let id: String
+        let name: String
+        let count: Int
+        let coverURL: String?
+    }
+
+    /// Signs and sends a request to the Android gateway (`gateway.kugou.com`).
+    private func androidRequest(path: String, method: String, query: [String: String], body: String?,
+                                router: String?, fields: [String: String]) async throws -> [String: Any] {
+        let clientTime = Int(Date().timeIntervalSince1970)
+        var params: [String: String] = [
+            "dfid": fields["dfid"] ?? "-",
+            "mid": deviceMid,
+            "uuid": "-",
+            "appid": "1005",
+            "clientver": "20489",
+            "clienttime": String(clientTime),
+            "srcappid": "2919",
+        ]
+        for (key, value) in query { params[key] = value }
+        let salt = "OIlwieks28dk2k092lksi2UIkp"
+        let joined = params.map { "\($0.key)=\($0.value)" }.sorted().joined()
+        params["signature"] = Self.md5(salt + joined + (body ?? "") + salt)
+
+        var request = try Self.request(endpoint: URL(string: "https://gateway.kugou.com\(path)")!, parameters: params)
+        request.httpMethod = method
+        if let router { request.setValue(router, forHTTPHeaderField: "x-router") }
+        if let body {
+            request.httpBody = Data(body.utf8)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        let cookie = fields.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        let (data, response) = try await session.data(for: request)
+        guard Self.isSuccess(response), let root = Self.jsonObject(from: data) else {
+            throw APIError.invalidResponse
+        }
+        return root
+    }
+
+    /// The signed-in user's own (created and collected) playlists.
+    func userPlaylists(cookie: String) async throws -> [CloudPlaylist] {
+        let fields = Self.cookieFields(cookie)
+        guard let token = fields["token"] ?? fields["kg_token"] ?? fields["login_token"],
+              let userID = fields["userid"] ?? fields["user_id"] ?? fields["kugooid"],
+              !token.isEmpty, !userID.isEmpty else { throw APIError.invalidCookie }
+        let body = "{\"userid\":\(Int(userID) ?? 0),\"token\":\"\(Self.jsonEscaped(token))\",\"total_ver\":979,\"type\":2,\"page\":1,\"pagesize\":100}"
+        let root = try await androidRequest(
+            path: "/v7/get_all_list", method: "POST",
+            query: ["plat": "1", "userid": userID, "token": token],
+            body: body, router: "cloudlist.service.kugou.com", fields: fields)
+        let payload = root["data"] as? [String: Any]
+        let rows = (payload?["info"] as? [[String: Any]]) ?? []
+        let status = Self.text(root["status"]) ?? Self.text(root["error_code"]) ?? "?"
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .info, category: "Kugou", message: "云歌单列表",
+                                             detail: "status=\(status) rows=\(rows.count) keys=\((rows.first ?? [:]).keys.sorted().joined(separator: ","))")
+        }
+        return rows.compactMap { item in
+            guard let id = Self.text(in: item, keys: ["global_collection_id", "listid", "list_create_gid"]),
+                  let name = Self.text(in: item, keys: ["name", "listname"]), !id.isEmpty else { return nil }
+            let cover = Self.text(in: item, keys: ["pic", "img", "create_user_pic"])?
+                .replacingOccurrences(of: "{size}", with: "400")
+            return CloudPlaylist(id: id, name: name,
+                                 count: Self.integer(in: item, keys: ["count", "song_count"]) ?? 0,
+                                 coverURL: cover)
+        }
+    }
+
+    /// Songs of one cloud playlist, as raw provider dictionaries (normalised by the caller).
+    func cloudPlaylistSongs(id: String, cookie: String) async throws -> [[String: Any]] {
+        let fields = Self.cookieFields(cookie)
+        let root = try await androidRequest(
+            path: "/pubsongs/v2/get_other_list_file_nofilt", method: "GET",
+            query: ["area_code": "1", "begin_idx": "0", "plat": "1", "type": "1", "mode": "1",
+                    "personal_switch": "1", "extend_fields": "abtags,hot_cmt,popularization",
+                    "pagesize": "300", "global_collection_id": id,
+                    "userid": fields["userid"] ?? "0", "token": fields["token"] ?? ""],
+            body: nil, router: nil, fields: fields)
+        let payload = root["data"] as? [String: Any]
+        return (payload?["songs"] as? [[String: Any]]) ?? (payload?["info"] as? [[String: Any]]) ?? []
+    }
     private func baseParameters(clientTime: Int) -> [String: String] {
         [
             "dfid": "-",
