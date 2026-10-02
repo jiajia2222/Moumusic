@@ -102,24 +102,12 @@ final class SearchViewModel: ObservableObject {
         invalidatePendingResults()
     }
 
+    /// Hot searches always come from NetEase, whichever platform the search itself targets
+    /// (the default search platform is the aggregate one).
     func loadHotKeywords() async {
-        let requestedPlatform = platform
-        var keywords = (try? await LXCatalogService.hotKeywords(platform: requestedPlatform)) ?? []
-        guard requestedPlatform == platform else { return }
-
-        // Hot-word endpoints are not equally reliable across platforms. Keep
-        // the page useful with live catalogue names instead of leaving the
-        // hot-search section empty when one provider changes its endpoint.
+        var keywords = (try? await LXCatalogService.hotKeywords(platform: .wy)) ?? []
         if keywords.count < 6 {
-            let fallback: [String]
-            if requestedPlatform == .aggregate || requestedPlatform == .wy {
-                fallback = (try? await NeteaseAPI.hotSongs(limit: 12))?.map(\.name) ?? []
-            } else {
-                fallback = (try? await LXCatalogService.recommendedTracks(
-                    platform: requestedPlatform, limit: 12
-                ))?.map(\.name) ?? []
-            }
-            keywords.append(contentsOf: fallback)
+            keywords.append(contentsOf: (try? await NeteaseAPI.hotSongs(limit: 12))?.map(\.name) ?? [])
         }
 
         var seen = Set<String>()
