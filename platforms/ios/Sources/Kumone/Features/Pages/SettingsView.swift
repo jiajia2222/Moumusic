@@ -61,7 +61,7 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 14) {
 #if os(iOS)
             settingsNavigator
 #endif
@@ -719,7 +719,7 @@ struct SettingsView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
-                .frame(minHeight: 40)
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -727,14 +727,15 @@ struct SettingsView: View {
             if isExpanded {
                 Divider()
                     .padding(.horizontal, 2)
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 10) {
                     content()
                 }
-                .padding(.top, 8)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
         // Non-interactive: an interactive glass container swallows taps meant
         // for the header button inside it (intermittent missed taps).
         .compatGlass(interactive: false, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
