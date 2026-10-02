@@ -4,7 +4,8 @@ import SwiftUI
 
 struct RecentsView: View {
     @State private var records: [PlayRecordItem] = []
-    @State private var week = false
+    /// NetEase only reports reliable play history for the last week.
+    private let week = true
     @State private var isLoading = true
 
     @EnvironmentObject private var account: AccountStore
@@ -14,13 +15,9 @@ struct RecentsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
-                    Picker("", selection: $week) {
-                        Text("所有时间").tag(false)
-                        Text("最近一周").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 200)
+                    Text("最近一周")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
 
                     Spacer()
 
@@ -54,7 +51,7 @@ struct RecentsView: View {
             }
         }
         .navigationTitle("最近播放")
-        .task(id: week) {
+        .task {
             await load()
         }
     }

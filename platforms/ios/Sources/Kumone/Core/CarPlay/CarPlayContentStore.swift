@@ -128,7 +128,7 @@ final class CarPlayContentStore {
             return
         }
         if !force, Date().timeIntervalSince(recentsFetchedAt) < ttl, !recentsTracks.isEmpty { return }
-        recentsTracks = (try? await NeteaseAPI.playRecords(uid: uid, week: false))?.map(\.song) ?? []
+        recentsTracks = (try? await NeteaseAPI.playRecords(uid: uid, week: true))?.map(\.song) ?? []
         recentsFetchedAt = Date()
     }
 

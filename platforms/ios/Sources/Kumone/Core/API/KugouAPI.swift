@@ -51,7 +51,15 @@ actor KugouAPI {
     private let endpoint = URL(string: "https://usercenter.kugou.com/v3/get_my_info")!
     private let session: URLSession
     private let cookieStorage: HTTPCookieStorage
-    private let deviceMid = String(Int64(Date().timeIntervalSince1970 * 1000))
+    /// The device id is part of what a Kugou token is issued for, so it must stay the same
+    /// between the login and later requests (it used to change on every launch).
+    private let deviceMid: String = {
+        let key = "moumusic.kugou.deviceMid"
+        if let stored = UserDefaults.standard.string(forKey: key), !stored.isEmpty { return stored }
+        let fresh = String(Int64(Date().timeIntervalSince1970 * 1000))
+        UserDefaults.standard.set(fresh, forKey: key)
+        return fresh
+    }()
 
     private init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -126,7 +134,7 @@ actor KugouAPI {
                   !token.isEmpty, !userID.isEmpty else {
                 throw APIError.unavailable
             }
-            let sessionCookie = [cookie, "token=\(token)", "userid=\(userID)"]
+            let sessionCookie = [cookie, "token=\(token)", "userid=\(userID)", "kugou_api_mid=\(deviceMid)"]
                 .filter { !$0.isEmpty }
                 .joined(separator: "; ")
             return .success(cookie: sessionCookie)
@@ -334,7 +342,7 @@ actor KugouAPI {
         let clientTime = Int(Date().timeIntervalSince1970)
         var params: [String: String] = [
             "dfid": fields["dfid"] ?? "-",
-            "mid": deviceMid,
+            "mid": fields["kugou_api_mid"] ?? deviceMid,
             "uuid": "-",
             "appid": "1005",
             "clientver": "20489",
@@ -375,7 +383,7 @@ actor KugouAPI {
             body: body, router: "cloudlist.service.kugou.com", fields: fields)
         let payload = root["data"] as? [String: Any]
         let rows = (payload?["info"] as? [[String: Any]]) ?? []
-        let status = Self.text(root["status"]) ?? Self.text(root["error_code"]) ?? "?"
+        let status = "\(Self.text(root["status"]) ?? "?")/err=\(Self.text(root["error_code"]) ?? "-")"
         Task { @MainActor in
             DiagnosticLogStore.shared.append(level: .info, category: "Kugou", message: "云歌单列表",
                                              detail: "status=\(status) rows=\(rows.count) keys=\((rows.first ?? [:]).keys.sorted().joined(separator: ","))")

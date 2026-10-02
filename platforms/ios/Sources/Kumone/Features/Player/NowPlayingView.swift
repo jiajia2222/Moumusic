@@ -26,6 +26,23 @@ struct NowPlayingView: View {
     #if os(iOS)
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
     @ObservedObject private var customCovers = CustomSongCoverStore.shared
+    /// Transport controls plus a comments entry in the bottom controls, like NetEase.
+    private var transportWithComments: some View {
+        VStack(spacing: 2) {
+            CompactTransportControls()
+            Button {
+                activeSheet = .comments
+            } label: {
+                Label("评论", systemImage: "text.bubble")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .frame(minWidth: 88, minHeight: 36)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("查看评论")
+        }
+    }
+
     private var customCoverView: AnyView? {
         if let entry = customCovers.entry(for: player.currentTrack) {
             return AnyView(CustomCoverMedia(entry: entry))
@@ -375,7 +392,7 @@ struct NowPlayingView: View {
             VStack(spacing: 2) {
                 NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
                     .padding(.horizontal, 16)
-                CompactTransportControls()
+                transportWithComments
                     .frame(maxWidth: 360)
             }
             .frame(height: controlsHeight)
@@ -484,7 +501,7 @@ struct NowPlayingView: View {
                     .padding(.horizontal, 24)
                 CompactVolumeControl()
                     .padding(.horizontal, 24)
-                CompactTransportControls()
+                transportWithComments
             }
             .padding(.bottom, 12)
         }
@@ -501,7 +518,7 @@ struct NowPlayingView: View {
                 .padding(.horizontal, 20)
             CompactVolumeControl()
                 .padding(.horizontal, 20)
-            CompactTransportControls()
+            transportWithComments
                 .padding(.bottom, 12)
         }
         .padding(.horizontal, 16)
@@ -526,7 +543,7 @@ struct NowPlayingView: View {
                 .padding(.horizontal, 20)
             CompactVolumeControl()
                 .padding(.horizontal, 20)
-            CompactTransportControls()
+            transportWithComments
                 .padding(.bottom, 12)
         }
         .padding(.horizontal, 16)
@@ -557,7 +574,7 @@ struct NowPlayingView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
                 .padding(.horizontal, 20)
-            CompactTransportControls()
+            transportWithComments
                 .padding(.bottom, 12)
         }
         .padding(.horizontal, 16)
@@ -622,7 +639,7 @@ struct NowPlayingView: View {
     private var immersiveControls: some View {
         VStack(spacing: 17) {
             NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
-            CompactTransportControls()
+            transportWithComments
             CompactVolumeControl()
             CompactSecondaryControls(
                 showsLyrics: showLyricsOnMobile,
