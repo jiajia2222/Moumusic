@@ -1,677 +1,422 @@
-import { createHash, createHmac, randomUUID } from 'node:crypto'
-import { createServer } from 'node:http'
-import { readFile } from 'node:fs/promises'
-import { dirname, extname, join, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { MoumusicAccountError, MoumusicAccountService } from './moumusic-account.mjs'
+﻿// Moumusic server: device IDs, heartbeat, remote config, feedback, profile cards.
+// Protocol is modelled on Beans 2.0.2 (DeviceReporter / RemoteControlStore). Zero dependencies, Node >= 22.5.
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const websiteRoot = resolve(__dirname, '..')
-const publicRoot = join(websiteRoot, 'public')
-const port = Number.parseInt(process.env.PORT || '8787', 10) || 8787
-const cacheTtlMs = 10 * 60 * 1000
-const afdianApiBases = [
-  'https://afdian.com/api/open',
-  'https://ifdian.net/api/open',
-  'https://afdian.net/api/open',
-]
-const githubReleasesUrl = 'https://api.github.com/repos/jiajia2222/Moumusic/releases?per_page=20'
-const githubReleasesPage = 'https://github.com/jiajia2222/Moumusic/releases'
-const githubReleaseDownloadBase = 'https://github.com/jiajia2222/Moumusic/releases/latest/download'
-const releaseAssetNames = {
-  ios: ['Moumusic-full-ios26-unsigned.ipa', 'Moumusic-unsigned.ipa'],
-  ios15: ['Moumusic-compat-ios15-18-unsigned.ipa'],
+const PORT = Number(process.env.PORT || 8790);
+const HOST = process.env.HOST || '0.0.0.0';
+const DATA_DIR = process.env.DATA_DIR || './data';
+const BASE = (process.env.BASE_PATH || '/moumusic').replace(/\/$/, '');
+const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+const DEVELOPER_IDS = new Set((process.env.DEVELOPER_IDS || '').split(',').map(s => s.trim()).filter(Boolean));
+const MAX_ATTACH = 50 * 1024 * 1024;
+const MAX_ATTACH_COUNT = 4;
+const FIRST_PUBLIC_ID = 100001;
+const DEVICE_RE = /^[a-f0-9-]{16,80}$/;
+const BADGES = new Set(['black_purple_gold', 'classic_gold']);
+
+fs.mkdirSync(path.join(DATA_DIR, 'uploads'), { recursive: true });
+const db = new DatabaseSync(path.join(DATA_DIR, 'moumusic.db'));
+db.exec(`
+PRAGMA journal_mode = WAL;
+CREATE TABLE IF NOT EXISTS devices (
+  user_id TEXT PRIMARY KEY,
+  public_user_id TEXT NOT NULL UNIQUE,
+  exclusive_id TEXT,
+  exclusive_badge_style TEXT NOT NULL DEFAULT 'black_purple_gold',
+  device_model TEXT, device_name TEXT, system_name TEXT, system_version TEXT,
+  app_version TEXT, app_build TEXT,
+  listening_seconds INTEGER NOT NULL DEFAULT 0,
+  listening_play_count INTEGER NOT NULL DEFAULT 0,
+  blocked INTEGER NOT NULL DEFAULT 0,
+  download_unlocked INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS feedback (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL, content TEXT NOT NULL, contact TEXT,
+  attachments TEXT NOT NULL DEFAULT '[]', submitted_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS feedback_replies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, feedback_id TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS profiles (
+  user_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+`);
+
+const now = () => new Date().toISOString();
+const getSetting = (k, d) => { const r = db.prepare('SELECT value FROM settings WHERE key=?').get(k); return r ? JSON.parse(r.value) : d; };
+const setSetting = (k, v) => db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(k, JSON.stringify(v));
+
+const DEFAULT_CONFIG = {
+  enabled: true,
+  announcement: '',
+  announcement_enabled: false,
+  announcement_image_url: '',
+  announcement_media_url: '',
+  announcement_media_type: 'image',
+  announcement_text_color: '',
+  platforms: { netease: true, qq: true, kugou: true },
+  features: { third_party_sources: true, comments: true, homepage_remote_notice: true },
+};
+const getConfig = () => ({ ...DEFAULT_CONFIG, ...getSetting('config', {}), updated_at: getSetting('config_updated_at', now()) });
+const saveConfig = patch => {
+  const cur = { ...DEFAULT_CONFIG, ...getSetting('config', {}) };
+  const next = { ...cur, ...patch };
+  setSetting('config', next); setSetting('config_updated_at', now());
+  return getConfig();
+};
+
+class ApiError extends Error {
+  constructor(status, code, message) { super(message || code); this.status = status; this.code = code; }
 }
-const defaultAfdianUrl = 'https://www.ifdian.net/a/moumou2026'
-const defaultAfdianPlanUrl = 'https://ifdian.net/a/moumou2026/plan'
-const defaultChatwayScriptId = 'Ol4m4dkJ9UJP'
-const defaultChatwayWidgetId = 'qfybc7qkscn3ptkgxwrv'
-const cache = new Map()
-const latestReleaseCache = new Map()
-const rateBuckets = new Map()
-const moumusicAccounts = new MoumusicAccountService()
 
-export class AfdianError extends Error {
-  constructor(code, message, status = 502) {
-    super(message)
-    this.name = 'AfdianError'
-    this.code = code
-    this.status = status
+function nextPublicId() {
+  // Random six-digit ID, unique among public and exclusive IDs.
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const candidate = String(crypto.randomInt(100000, 1000000));
+    const taken = db.prepare('SELECT 1 FROM devices WHERE public_user_id=? OR exclusive_id=?').get(candidate, candidate);
+    if (!taken) return candidate;
   }
+  throw new ApiError(503, 'id_exhausted', 'No free public ID.');
 }
 
-export function makeAfdianSignature({ token, userId, timestamp, params }) {
-  const paramsString = typeof params === 'string' ? params : JSON.stringify(params)
-  const canonical = `params${paramsString}ts${timestamp}user_id${userId}`
-  return createHash('md5').update(`${token}${canonical}`).digest('hex')
-}
-
-function envBoolean(value) {
-  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase())
-}
-
-function getConfig() {
-  return {
-    userId: String(process.env.AFDIAN_USER_ID || '').trim(),
-    token: String(process.env.AFDIAN_TOKEN || '').trim(),
-    showAmount: envBoolean(process.env.SHOW_SPONSOR_AMOUNT),
+// One-time migration: sequential IDs become random six-digit IDs.
+if (!getSetting('public_id_random_v1', false)) {
+  for (const row of db.prepare('SELECT user_id FROM devices').all()) {
+    db.prepare('UPDATE devices SET public_user_id=? WHERE user_id=?').run(nextPublicId(), row.user_id);
   }
+  setSetting('public_id_random_v1', true);
 }
+const deviceView = d => ({
+  message: 'ok',
+  is_developer: DEVELOPER_IDS.has(d.user_id),
+  blocked: !!d.blocked,
+  public_user_id: d.exclusive_id || d.public_user_id,
+  original_public_user_id: d.public_user_id,
+  exclusive_id: d.exclusive_id || '',
+  exclusive_badge_style: d.exclusive_badge_style,
+  download_unlocked: !!d.download_unlocked,
+  download_global_enabled: !!getSetting('download_global', false),
+  listening_seconds: d.listening_seconds,
+  listening_play_count: d.listening_play_count,
+});
 
-function getPublicConfig(baseUrl = `http://localhost:${port}`) {
-  const siteOrigin = new URL(baseUrl).origin
-  const afdianUrl = safeHttpUrl(process.env.AFDIAN_URL) || defaultAfdianUrl
-  return {
-    name: process.env.SITE_NAME || 'MouMou',
-    avatar: safeHttpUrl(process.env.SITE_AVATAR) || '',
-    tagline: process.env.SITE_TAGLINE || '感谢你的支持，每一份心意都会变成继续维护和创造的动力。',
-    taglineEn: process.env.SITE_TAGLINE_EN || 'Download the app, add a source you are allowed to use, and start playing.',
-    thanks: process.env.SITE_THANKS || '感谢每一位支持者，让 Moumusic 可以持续更新。',
-    thanksEn: process.env.SITE_THANKS_EN || 'Thank you to every supporter for helping Moumusic keep moving.',
-    afdianUrl,
-    afdianPlanUrl: deriveAfdianPlanUrl(process.env.AFDIAN_PLAN_URL || afdianUrl),
-    showAmount: envBoolean(process.env.SHOW_SPONSOR_AMOUNT),
-    iosDownloadUrl: safeHttpUrl(process.env.IOS_DOWNLOAD_URL) || `${siteOrigin}/download/ios`,
-    ios15DownloadUrl: safeHttpUrl(process.env.IOS15_DOWNLOAD_URL) || `${siteOrigin}/download/ios15`,
-    chatwayScriptId: String(process.env.CHATWAY_SCRIPT_ID || defaultChatwayScriptId).trim(),
-    chatwayWidgetId: String(process.env.CHATWAY_WIDGET_ID || defaultChatwayWidgetId).trim(),
+function heartbeat(b) {
+  const id = String(b.user_id || '').toLowerCase();
+  if (!DEVICE_RE.test(id)) throw new ApiError(400, 'invalid_public_user_id', 'The device identifier is invalid.');
+  const t = now();
+  const s = v => (v == null ? null : String(v).slice(0, 120));
+  const n = v => Math.max(0, Math.floor(Number(v) || 0));
+  let d = db.prepare('SELECT * FROM devices WHERE user_id=?').get(id);
+  if (!d) {
+    db.prepare(`INSERT INTO devices(user_id,public_user_id,device_model,device_name,system_name,system_version,app_version,app_build,
+      listening_seconds,listening_play_count,created_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(id, nextPublicId(), s(b.device_model), s(b.device_name), s(b.system_name), s(b.system_version), s(b.app_version), s(b.app_build),
+        n(b.listening_seconds), n(b.listening_play_count), t, t);
+  } else {
+    // Counters only move forward so a reinstall that reports 0 cannot wipe history.
+    db.prepare(`UPDATE devices SET device_model=?,device_name=?,system_name=?,system_version=?,app_version=?,app_build=?,
+      listening_seconds=MAX(listening_seconds,?),listening_play_count=MAX(listening_play_count,?),last_seen_at=? WHERE user_id=?`)
+      .run(s(b.device_model), s(b.device_name), s(b.system_name), s(b.system_version), s(b.app_version), s(b.app_build),
+        n(b.listening_seconds), n(b.listening_play_count), t, id);
   }
+  return deviceView(db.prepare('SELECT * FROM devices WHERE user_id=?').get(id));
 }
 
-function deriveAfdianPlanUrl(value, fallback = defaultAfdianPlanUrl) {
-  try {
-    const url = new URL(String(value || ''))
-    if (!['https:', 'http:'].includes(url.protocol)) return fallback
-    if (!/\/plan\/?$/i.test(url.pathname)) url.pathname = `${url.pathname.replace(/\/$/, '')}/plan`
-    return url.toString()
-  } catch {
-    return fallback
+const recordView = d => ({ user_id: d.user_id, public_user_id: d.public_user_id, exclusive_id: d.exclusive_id || '', badge_style: d.exclusive_badge_style,
+  device_model: d.device_model, device_name: d.device_name, system_name: d.system_name, system_version: d.system_version, app_version: d.app_version, app_build: d.app_build,
+  last_seen_at: d.last_seen_at, enabled: true, changed_at: d.last_seen_at });
+// Target may be the visible public ID, the exclusive ID, or the raw device code (user_id).
+const findByPublic = pid => db.prepare('SELECT * FROM devices WHERE public_user_id=? OR exclusive_id=? OR user_id=?').get(pid, pid, String(pid).toLowerCase());
+function requireDeveloper(req, b) {
+  const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (ADMIN_TOKEN && bearer) {
+    const a = crypto.createHash('sha256').update(bearer).digest();
+    const z = crypto.createHash('sha256').update(ADMIN_TOKEN).digest();
+    if (crypto.timingSafeEqual(a, z)) return;
   }
+  const dev = String(b.developer_user_id || '').toLowerCase();
+  if (dev && DEVELOPER_IDS.has(dev)) return;
+  throw new ApiError(403, 'developer_unauthorized', 'This device does not have developer access.');
 }
+const mustTarget = b => {
+  const pid = String(b.target_public_user_id || '').trim();
+  if (!pid) throw new ApiError(400, 'missing_required_fields', 'Please complete all required fields.');
+  const d = findByPublic(pid);
+  if (!d) throw new ApiError(404, 'device_not_found', 'That device was not found. Ask the user to launch the app first.');
+  return d;
+};
 
-async function getDirectReleaseAsset(platform) {
-  for (const name of releaseAssetNames[platform] || []) {
-    const url = `${githubReleaseDownloadBase}/${encodeURIComponent(name)}`
-    try {
-      const response = await fetch(url, { redirect: 'manual' })
-      if (response.ok || [301, 302, 303, 307, 308].includes(response.status)) return { url, version: 'latest' }
-    } catch {
-      // Try the next compatible filename before falling back to the GitHub API.
+// ---------- body parsing ----------
+function readBody(req, limit) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let size = 0;
+    req.on('data', c => { size += c.length; if (size > limit) { reject(new ApiError(413, 'attachment_too_large', 'Request too large.')); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+const readJson = async req => {
+  const buf = await readBody(req, 1024 * 1024);
+  if (!buf.length) return {};
+  try { return JSON.parse(buf.toString('utf8')); } catch { throw new ApiError(400, 'invalid_json', 'Invalid JSON.'); }
+};
+function parseMultipart(buf, boundary) {
+  const fields = {}; const files = [];
+  const delim = Buffer.from('--' + boundary);
+  let pos = buf.indexOf(delim);
+  while (pos !== -1) {
+    const start = pos + delim.length;
+    if (buf.slice(start, start + 2).toString() === '--') break;
+    const next = buf.indexOf(delim, start);
+    if (next === -1) break;
+    const part = buf.slice(start + 2, next - 2); // strip CRLF both sides
+    const sep = part.indexOf('\r\n\r\n');
+    if (sep !== -1) {
+      const head = part.slice(0, sep).toString('utf8');
+      const body = part.slice(sep + 4);
+      const name = /name="([^"]*)"/.exec(head)?.[1];
+      const filename = /filename="([^"]*)"/.exec(head)?.[1];
+      const type = /content-type:\s*([^\r\n]+)/i.exec(head)?.[1] || 'application/octet-stream';
+      if (filename !== undefined) files.push({ name, filename, type, data: body }); else if (name) fields[name] = body.toString('utf8');
     }
+    pos = next;
   }
-  return null
+  return { fields, files };
+}
+const ALLOWED_EXT = /\.(js|png|jpe?g|gif|webp|heic|mp4|mov|m4v|txt|log|json|zip|pdf)$/i;
+
+async function submitFeedback(req) {
+  const ct = req.headers['content-type'] || '';
+  const m = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(ct);
+  let fields, files = [];
+  if (m) {
+    const buf = await readBody(req, MAX_ATTACH * MAX_ATTACH_COUNT + 2 * 1024 * 1024);
+    ({ fields, files } = parseMultipart(buf, m[1] || m[2]));
+  } else fields = await readJson(req);
+  const id = String(fields.user_id || '').toLowerCase();
+  const content = String(fields.content || fields.message || '').trim();
+  if (!DEVICE_RE.test(id) || !content) throw new ApiError(400, 'missing_required_fields', 'Please complete all required fields.');
+  if (files.length > MAX_ATTACH_COUNT) throw new ApiError(400, 'too_many_attachments', 'You can upload up to four attachments.');
+  const saved = [];
+  for (const f of files) {
+    if (f.data.length > MAX_ATTACH) throw new ApiError(413, 'attachment_too_large', 'Each attachment must be 50 MB or smaller.');
+    if (!ALLOWED_EXT.test(f.filename)) throw new ApiError(400, 'unsupported_attachment', 'This file type is not supported.');
+    const stored = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}${path.extname(f.filename).toLowerCase()}`;
+    fs.writeFileSync(path.join(DATA_DIR, 'uploads', stored), f.data);
+    saved.push({ name: path.basename(f.filename), file: stored, size: f.data.length });
+  }
+  const fid = crypto.randomUUID();
+  const t = now();
+  db.prepare('INSERT INTO feedback(id,user_id,content,contact,attachments,submitted_at) VALUES(?,?,?,?,?,?)')
+    .run(fid, id, content.slice(0, 5000), String(fields.contact || '').slice(0, 200), JSON.stringify(saved), t);
+  // Submitting feedback unlocks downloads for this device (Beans behaviour).
+  db.prepare('UPDATE devices SET download_unlocked=1 WHERE user_id=?').run(id);
+  return { message: 'ok', feedback_id: fid, submitted_at: t, download_unlocked: true };
 }
 
-async function getLatestTaggedAsset(platform) {
-  try {
-    const releasePage = await fetch(`${githubReleasesPage}?_=${Math.floor(Date.now() / 300_000)}`)
-    const html = await releasePage.text()
-    const tagMatch = html.match(/\/releases\/tag\/([^"?#<]+)/)
-    if (!releasePage.ok || !tagMatch) return null
-    const tag = decodeURIComponent(tagMatch[1])
-    for (const name of releaseAssetNames[platform] || []) {
-      const url = `https://github.com/jiajia2222/Moumusic/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`
-      const response = await fetch(url, { redirect: 'manual' })
-      if (response.ok || [301, 302, 303, 307, 308].includes(response.status)) return { url, version: tag }
+// ---------- routing ----------
+const json = (res, status, obj) => {
+  const body = JSON.stringify(obj);
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), 'Cache-Control': 'no-store' });
+  res.end(body);
+};
+
+async function route(req, res) {
+  const url = new URL(req.url, 'http://x');
+  let p = url.pathname.replace(/\/+$/, '') || '/';
+  if (p === '/health') return json(res, 200, { ok: true });
+  if (!p.startsWith(BASE + '/') && p !== BASE) throw new ApiError(404, 'not_found', 'Not found.');
+  p = p.slice(BASE.length) || '/';
+  const m = req.method;
+
+  if (m === 'GET' && (p === '/config.json' || p === '/config')) return json(res, 200, getConfig());
+  if (m === 'GET' && p === '/') return json(res, 200, getSetting('update', { version: '', channel: 'stable', status: 'none', ipa_url: '', notes_image_url: '', notes_text_color: '' }));
+  if (m === 'POST' && p === '/heartbeat') return json(res, 200, heartbeat(await readJson(req)));
+  if (m === 'POST' && p === '/feedback') return json(res, 200, await submitFeedback(req));
+  if (m === 'GET' && p === '/feedback') {
+    const id = String(url.searchParams.get('user_id') || '').toLowerCase();
+    if (!DEVICE_RE.test(id)) throw new ApiError(400, 'invalid_public_user_id', 'The device identifier is invalid.');
+    const rows = db.prepare('SELECT * FROM feedback WHERE user_id=? ORDER BY submitted_at DESC LIMIT 50').all(id);
+    const rep = db.prepare('SELECT content, created_at FROM feedback_replies WHERE feedback_id=? ORDER BY id');
+    return json(res, 200, { records: rows.map(r => ({ feedback_id: r.id, content: r.content, submitted_at: r.submitted_at, feedback_replies: rep.all(r.id) })) });
+  }
+  if (m === 'POST' && p === '/feedback/delete') {
+    const b = await readJson(req);
+    const id = String(b.user_id || '').toLowerCase();
+    const fid = String(b.feedback_id || '');
+    const row = db.prepare('SELECT attachments FROM feedback WHERE id=? AND user_id=?').get(fid, id);
+    if (!row) throw new ApiError(404, 'not_found', 'Not found.');
+    for (const a of JSON.parse(row.attachments)) { try { fs.unlinkSync(path.join(DATA_DIR, 'uploads', path.basename(a.file))); } catch {} }
+    db.prepare('DELETE FROM feedback_replies WHERE feedback_id=?').run(fid);
+    db.prepare('DELETE FROM feedback WHERE id=?').run(fid);
+    return json(res, 200, { message: 'ok' });
+  }
+  if (m === 'GET' && p.startsWith('/download/')) {
+    const f = path.basename(p);
+    const fp = path.join(DATA_DIR, 'uploads', f);
+    if (!fs.existsSync(fp) || !fs.statSync(fp).isFile()) throw new ApiError(404, 'not_found', 'Not found.');
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': fs.statSync(fp).size, 'X-Content-Type-Options': 'nosniff' });
+    return fs.createReadStream(fp).pipe(res);
+  }
+
+  // Profile card: public read by public ID, write by owning device.
+  if (m === 'GET' && p.startsWith('/profile/')) {
+    const d = findByPublic(decodeURIComponent(p.slice(9)));
+    if (!d) throw new ApiError(404, 'device_not_found', 'That device was not found.');
+    const pr = db.prepare('SELECT data, updated_at FROM profiles WHERE user_id=?').get(d.user_id);
+    return json(res, 200, {
+      public_user_id: d.exclusive_id || d.public_user_id, exclusive_id: d.exclusive_id || '', exclusive_badge_style: d.exclusive_badge_style,
+      joined_at: d.created_at, listening_seconds: d.listening_seconds, listening_play_count: d.listening_play_count,
+      profile: pr ? JSON.parse(pr.data) : null, updated_at: pr?.updated_at ?? null,
+    });
+  }
+  if (m === 'PUT' && p === '/profile') {
+    const b = await readJson(req);
+    const id = String(b.user_id || '').toLowerCase();
+    if (!DEVICE_RE.test(id) || !db.prepare('SELECT 1 FROM devices WHERE user_id=?').get(id)) throw new ApiError(404, 'device_not_found', 'That device was not found.');
+    const data = JSON.stringify(b.profile ?? {});
+    if (data.length > 64 * 1024) throw new ApiError(413, 'attachment_too_large', 'Profile too large.');
+    const t = now();
+    db.prepare('INSERT INTO profiles(user_id,data,updated_at) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at').run(id, data, t);
+    return json(res, 200, { message: 'ok', updated_at: t });
+  }
+
+  // Developer / admin
+  if (p.startsWith('/developer/')) {
+    if (m !== 'POST') throw new ApiError(405, 'method_not_allowed', 'Use POST.');
+    const b = await readJson(req);
+    requireDeveloper(req, b);
+    const op = p.slice(11);
+    if (op === 'announcement') {
+      const patch = {};
+      if ('announcement' in b) patch.announcement = String(b.announcement);
+      for (const k of ['announcement_enabled']) if (k in b) patch[k] = !!b[k];
+      for (const k of ['announcement_image_url', 'announcement_media_url', 'announcement_media_type', 'announcement_text_color']) if (k in b) patch[k] = String(b[k]);
+      return json(res, 200, saveConfig(patch));
     }
-  } catch {
-    // Continue to the API and direct URL fallbacks.
-  }
-  return null
-}
-
-function pickReleaseAsset(assets, platform) {
-  const list = Array.isArray(assets) ? assets : []
-  if (platform === 'ios15') return list.find(item => /compat.*\.ipa$/i.test(item?.name || ''))
-  return list.find(item => RELEASE_ASSET_NAMES.ios.includes(item?.name))
-    || list.find(item => /\.ipa$/i.test(item?.name || '') && !/compat/i.test(item?.name || ''))
-}
-
-function assetMatchesPlatform(assets, platform) {
-  return Boolean(pickReleaseAsset(assets, platform))
-}
-
-async function getLatestReleaseAsset(platform) {
-  const cached = latestReleaseCache.get(platform)
-  if (cached && cached.expiresAt > Date.now()) return cached.value
-
-  let response
-  try {
-    response = await fetch(`${githubReleasesUrl}&_=${Math.floor(Date.now() / 300_000)}`, {
-      headers: { accept: 'application/vnd.github+json', 'user-agent': 'Moumusic-website' },
-      cache: 'no-store',
-    })
-  } catch {
-    response = null
-  }
-  if (response?.ok) {
-    try {
-      const releases = await response.json()
-      const release = Array.isArray(releases)
-        ? releases.find(item => item?.draft !== true && item?.prerelease !== true && Array.isArray(item?.assets) && (
-          assetMatchesPlatform(item.assets, platform)
-        ))
-        : null
-      const assets = Array.isArray(release?.assets) ? release.assets : []
-      const asset = pickReleaseAsset(assets, platform)
-      const url = safeHttpUrl(asset?.browser_download_url)
-      if (url) {
-        const value = { url, version: String(release.tag_name || '') }
-        latestReleaseCache.set(platform, { value, expiresAt: Date.now() + cacheTtlMs })
-        return value
+    if (op === 'download-global') {
+      if ('enabled' in b) setSetting('download_global', !!b.enabled);
+      return json(res, 200, { message: 'ok', enabled: !!getSetting('download_global', false) });
+    }
+    if (op === 'download-access') {
+      if (!b.target_public_user_id) {
+        const rows = db.prepare('SELECT * FROM devices WHERE download_unlocked=1 ORDER BY last_seen_at DESC LIMIT 200').all();
+        return json(res, 200, { global_enabled: !!getSetting('download_global', false), records: rows.map(recordView) });
       }
-    } catch {
-      // Continue with the public releases page fallback.
+      const d = mustTarget(b);
+      return json(res, 200, { message: 'ok', enabled: !!d.download_unlocked, global_enabled: !!getSetting('download_global', false) });
     }
-  }
-
-  const taggedAsset = await getLatestTaggedAsset(platform)
-  if (taggedAsset) {
-    latestReleaseCache.set(platform, { value: taggedAsset, expiresAt: Date.now() + cacheTtlMs })
-    return taggedAsset
-  }
-  const directAsset = await getDirectReleaseAsset(platform)
-  if (directAsset) {
-    latestReleaseCache.set(platform, { value: directAsset, expiresAt: Date.now() + cacheTtlMs })
-    return directAsset
-  }
-  throw new AfdianError('RELEASE_ASSET_MISSING', `No ${platform} asset found in recent releases.`, 503)
-}
-
-async function getLatestReleaseInfo() {
-  const results = await Promise.allSettled([
-    getLatestReleaseAsset('ios'),
-    getLatestReleaseAsset('ios15'),
-  ])
-  const ios = results[0].status === 'fulfilled' ? results[0].value : { url: null, version: '' }
-  const ios15 = results[1].status === 'fulfilled' ? results[1].value : { url: null, version: '' }
-  const version = [ios.version, ios15.version].find(value => value && value !== 'latest') || 'latest'
-  return { version, ios, ios15 }
-}
-
-function assertAfdianConfig(config) {
-  if (!config.userId || !config.token) {
-    throw new AfdianError('CONFIG_MISSING', 'Afdian API is not configured.', 503)
-  }
-}
-
-function parseJsonBody(response, endpoint) {
-  return response.json().catch(() => {
-    throw new AfdianError('UPSTREAM_INVALID_JSON', `Afdian returned invalid JSON for ${endpoint}.`)
-  })
-}
-
-async function requestAfdian(endpoint, params) {
-  const config = getConfig()
-  assertAfdianConfig(config)
-
-  const timestamp = Math.floor(Date.now() / 1000)
-  const paramsString = JSON.stringify(params)
-  const payload = {
-    user_id: config.userId,
-    params: paramsString,
-    ts: timestamp,
-    sign: makeAfdianSignature({
-      token: config.token,
-      userId: config.userId,
-      timestamp,
-      params: paramsString,
-    }),
-  }
-
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 12_000)
-  try {
-    let lastHttpStatus = null
-    for (const apiBase of afdianApiBases) {
-      const response = await fetch(`${apiBase}/${endpoint}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      })
-      if (!response.ok) {
-        lastHttpStatus = response.status
-        continue
-      }
-      const body = await parseJsonBody(response, endpoint)
-      if (body?.ec !== 200) {
-        throw new AfdianError('UPSTREAM_API', 'Afdian rejected the API request.')
-      }
-      return body.data || {}
+    if (op === 'grant-download') {
+      const d = mustTarget(b);
+      db.prepare('UPDATE devices SET download_unlocked=? WHERE user_id=?').run(b.enabled ? 1 : 0, d.user_id);
+      return json(res, 200, { message: 'ok', enabled: !!b.enabled });
     }
-    throw new AfdianError('UPSTREAM_HTTP', `Afdian returned HTTP ${lastHttpStatus || 502}.`)
-  } catch (error) {
-    if (error instanceof AfdianError) throw error
-    if (error?.name === 'AbortError') {
-      throw new AfdianError('UPSTREAM_TIMEOUT', 'Afdian request timed out.')
+    if (op === 'exclusive-access/status') { const d = mustTarget(b); return json(res, 200, { message: 'ok', enabled: !!d.exclusive_id, exclusive_id: d.exclusive_id || '', exclusive_badge_style: d.exclusive_badge_style }); }
+    if (op === 'exclusive-access') {
+      const rows = db.prepare("SELECT * FROM devices WHERE exclusive_id IS NOT NULL ORDER BY last_seen_at DESC LIMIT 200").all();
+      return json(res, 200, { records: rows.map(recordView) });
     }
-    throw new AfdianError('UPSTREAM_UNAVAILABLE', 'Afdian is temporarily unavailable.')
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-async function fetchAllPages(endpoint, pageSizeLimit = 100) {
-  const records = []
-  let page = 1
-  let totalPages = 1
-  while (page <= totalPages && page <= pageSizeLimit) {
-    const data = await requestAfdian(endpoint, { page })
-    if (Array.isArray(data.list)) records.push(...data.list)
-    totalPages = Math.max(1, Number.parseInt(data.total_page, 10) || 1)
-    page += 1
-  }
-  return records
-}
-
-function cleanText(value, fallback, maxLength = 120) {
-  const text = String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength)
-  return text || fallback
-}
-
-function safeHttpUrl(value) {
-  try {
-    const url = new URL(String(value || ''))
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : undefined
-  } catch {
-    return undefined
-  }
-}
-
-function unixTime(value) {
-  const number = Number(value)
-  return Number.isFinite(number) && number > 0 ? Math.floor(number) : undefined
-}
-
-function money(value) {
-  const number = Number.parseFloat(String(value ?? ''))
-  return Number.isFinite(number) && number >= 0 ? Math.round(number * 100) / 100 : undefined
-}
-
-function publicId(config, value) {
-  const source = String(value || 'anonymous')
-  return createHmac('sha256', config.token || 'moumusic-public-id').update(source).digest('hex').slice(0, 20)
-}
-
-export function mapSponsor(raw, { showAmount = false, token = '' } = {}) {
-  const config = { token }
-  const user = raw?.user || {}
-  const lastSupportTime = unixTime(raw?.last_pay_time) || unixTime(raw?.create_time)
-  const currentPlan = cleanText(raw?.current_plan?.name, '')
-  const plan = currentPlan || '持续支持中'
-  const result = {
-    id: publicId(config, raw?.user_private_id || user.user_id || `${user.name}-${lastSupportTime || ''}`),
-    name: cleanText(user.name, '匿名支持者'),
-    plan,
-    lastSupportTime: lastSupportTime || null,
-  }
-  const avatar = safeHttpUrl(user.avatar)
-  if (avatar) result.avatar = avatar
-  if (showAmount) {
-    const amount = money(raw?.all_sum_amount)
-    if (amount !== undefined) result.amount = amount
-  }
-  return result
-}
-
-function mapOrder(raw, { showAmount = false, token = '' } = {}) {
-  const result = {
-    id: publicId({ token }, raw?.out_trade_no),
-    plan: cleanText(raw?.title, raw?.plan_id ? `支持方案 ${String(raw.plan_id).slice(0, 8)}` : '一次支持'),
-    paidAt: unixTime(raw?.create_time) || unixTime(raw?.pay_time) || null,
-  }
-  if (showAmount) {
-    const amount = money(raw?.show_amount ?? raw?.total_amount)
-    if (amount !== undefined) result.amount = amount
-  }
-  return result
-}
-
-async function cached(key, loader) {
-  const current = cache.get(key)
-  if (current && current.expiresAt > Date.now()) return current.value
-  const value = await loader()
-  cache.set(key, { value, expiresAt: Date.now() + cacheTtlMs })
-  return value
-}
-
-async function getSponsors() {
-  return cached('sponsors', async () => {
-    const config = getConfig()
-    const records = await fetchAllPages('query-sponsor')
-    return records
-      .map(record => mapSponsor(record, { showAmount: config.showAmount, token: config.token }))
-      .sort((a, b) => (b.lastSupportTime || 0) - (a.lastSupportTime || 0))
-  })
-}
-
-async function getOrders() {
-  return cached('orders', async () => {
-    const config = getConfig()
-    const records = await fetchAllPages('query-order')
-    return records
-      .filter(record => Number(record?.status) === 2 || record?.status === undefined)
-      .map(record => mapOrder(record, { showAmount: config.showAmount, token: config.token }))
-      .sort((a, b) => (b.paidAt || 0) - (a.paidAt || 0))
-  })
-}
-
-export async function getStats() {
-  const sponsors = await getSponsors()
-  const config = getConfig()
-  const totalAmount = config.showAmount
-    ? sponsors.reduce((sum, sponsor) => sum + (sponsor.amount || 0), 0)
-    : undefined
-  return {
-    supporterCount: sponsors.length,
-    recentSupportAt: sponsors[0]?.lastSupportTime || null,
-    showAmount: config.showAmount,
-    ...(totalAmount !== undefined ? { totalAmount: Math.round(totalAmount * 100) / 100 } : {}),
-  }
-}
-
-function safeJson(value) {
-  return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026')
-}
-
-async function renderPage(filename, baseUrl) {
-  const template = await readFile(join(publicRoot, filename), 'utf8')
-  const config = getPublicConfig(baseUrl)
-  return template
-    .replace('__SITE_CONFIG__', safeJson(config))
-    .replaceAll('__CHATWAY_SCRIPT_ID__', encodeURIComponent(config.chatwayScriptId))
-    .replaceAll('__CHATWAY_WIDGET_ID__', encodeURIComponent(config.chatwayWidgetId))
-}
-
-function logEvent(event, fields = {}) {
-  process.stdout.write(`${JSON.stringify({ level: 'info', event, at: new Date().toISOString(), ...fields })}\n`)
-}
-
-function setSecurityHeaders(response) {
-  response.setHeader('X-Content-Type-Options', 'nosniff')
-  response.setHeader('X-Frame-Options', 'DENY')
-  response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
-  response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-  response.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://cdn.chatway.app https://fonts.googleapis.com; script-src 'self' https://cdn.chatway.app; connect-src 'self' https://www.cloudflare.com https://chatway.app https://*.chatway.app https://lottie.host https://*.sentry.io wss://*.chatway.app; frame-src 'self' https://chatway.app https://*.chatway.app https://ifdian.net https://www.ifdian.net; font-src 'self' https://cdn.chatway.app https://*.chatway.app https://fonts.gstatic.com data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
-}
-
-function sendJson(response, status, body) {
-  response.statusCode = status
-  response.setHeader('content-type', 'application/json; charset=utf-8')
-  response.setHeader('cache-control', 'no-store')
-  response.end(JSON.stringify(body))
-}
-async function readJsonBody(request, maxBytes = 64 * 1024) {
-  let size = 0
-  let body = ''
-  for await (const chunk of request) {
-    size += Buffer.byteLength(chunk)
-    if (size > maxBytes) throw new MoumusicAccountError('REQUEST_TOO_LARGE', 'Request body is too large.', 413)
-    body += chunk
-  }
-  if (!body.trim()) return {}
-  try {
-    const parsed = JSON.parse(body)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('object required')
-    return parsed
-  } catch {
-    throw new MoumusicAccountError('INVALID_JSON', 'Request body must be valid JSON.', 400)
-  }
-}
-
-function applyMoumusicCORS(request, response) {
-  const allowed = String(process.env.MOUMUSIC_CORS_ORIGIN || '').trim()
-  const origin = String(request.headers.origin || '').trim()
-  if (!allowed || origin !== allowed) return
-  response.setHeader('access-control-allow-origin', allowed)
-  response.setHeader('access-control-allow-headers', 'authorization, content-type')
-  response.setHeader('access-control-allow-methods', 'GET, POST, PATCH, OPTIONS')
-  response.setHeader('access-control-max-age', '600')
-  response.setHeader('vary', 'Origin')
-}
-
-function sendMoumusicError(response, error, requestId) {
-  const safeError = error instanceof MoumusicAccountError
-    ? error
-    : new MoumusicAccountError('INTERNAL_ERROR', 'Moumusic account service is temporarily unavailable.', 503)
-  if (!(error instanceof MoumusicAccountError)) logEvent('moumusic_account_error', { requestId, code: safeError.code })
-  sendJson(response, safeError.status || 400, { success: false, error: { code: safeError.code, message: safeError.message } })
-}
-
-async function handleMoumusicRequest(request, response, pathname, requestId) {
-  applyMoumusicCORS(request, response)
-  if (request.method === 'OPTIONS') {
-    response.statusCode = 204
-    response.end()
-    return
-  }
-  const tail = pathname.split('/').filter(Boolean).slice(2)
-  try {
-    if (request.method === 'GET' && (tail[0] === 'health' || tail[0] === 'config')) {
-      await moumusicAccounts.ensureReady()
-      sendJson(response, 200, { success: true, config: moumusicAccounts.publicConfig() })
-      return
+    if (op === 'grant-exclusive-id') {
+      const d = mustTarget(b);
+      const enabled = b.enabled !== false;
+      if (!enabled) { db.prepare('UPDATE devices SET exclusive_id=NULL WHERE user_id=?').run(d.user_id); return json(res, 200, { message: 'ok', enabled: false }); }
+      const want = String(b.assigned_public_user_id || '').trim();
+      if (!want || /\s/.test(want) || [...want].length > 24) throw new ApiError(400, 'invalid_public_user_id', 'The public ID can contain up to 24 non-space characters.');
+      const clash = db.prepare('SELECT user_id FROM devices WHERE (public_user_id=? OR exclusive_id=?) AND user_id<>?').get(want, want, d.user_id);
+      if (clash) throw new ApiError(409, 'public_user_id_taken', 'That public ID is already assigned to another device.');
+      const badge = BADGES.has(b.badge_style) ? b.badge_style : 'black_purple_gold';
+      db.prepare('UPDATE devices SET exclusive_id=?, exclusive_badge_style=? WHERE user_id=?').run(want, badge, d.user_id);
+      return json(res, 200, { message: 'ok', enabled: true, assigned_public_user_id: want, exclusive_badge_style: badge });
     }
-    if (request.method === 'POST' && tail.join('/') === 'auth/register') {
-      sendJson(response, 201, { success: true, ...await moumusicAccounts.register(await readJsonBody(request)) })
-      return
+    if (op === 'block') { const d = mustTarget(b); db.prepare('UPDATE devices SET blocked=? WHERE user_id=?').run(b.blocked ? 1 : 0, d.user_id); return json(res, 200, { message: 'ok', blocked: !!b.blocked }); }
+    if (op === 'reply-feedback') {
+      const fid = String(b.feedback_id || ''); const content = String(b.content || '').trim();
+      if (!fid || !content || !db.prepare('SELECT 1 FROM feedback WHERE id=?').get(fid)) throw new ApiError(400, 'missing_required_fields', 'Please complete all required fields.');
+      db.prepare('INSERT INTO feedback_replies(feedback_id,content,created_at) VALUES(?,?,?)').run(fid, content.slice(0, 5000), now());
+      return json(res, 200, { message: 'ok' });
     }
-    if (request.method === 'POST' && tail.join('/') === 'auth/admin/login') {
-      sendJson(response, 200, { success: true, ...await moumusicAccounts.adminLogin(await readJsonBody(request)) })
-      return
+    if (op === 'feedback-list') {
+      const limit = Math.min(100, Math.max(1, Number(b.limit) || 50));
+      const offset = Math.max(0, Number(b.offset) || 0);
+      const unreplied = b.filter === 'unreplied';
+      const q = String(b.query || '').trim();
+      const conds = [];
+      const args = [];
+      if (unreplied) conds.push('NOT EXISTS (SELECT 1 FROM feedback_replies r WHERE r.feedback_id=f.id)');
+      if (q) { conds.push('(f.content LIKE ? OR f.contact LIKE ? OR d.public_user_id=? OR d.exclusive_id=? OR f.user_id=?)'); args.push(`%${q}%`, `%${q}%`, q, q, q.toLowerCase()); }
+      const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+      const total = db.prepare(`SELECT COUNT(*) c FROM feedback f LEFT JOIN devices d ON d.user_id=f.user_id ${where}`).get(...args).c;
+      const rows = db.prepare(`SELECT f.*, d.public_user_id, d.exclusive_id, d.device_model, d.system_name, d.system_version, d.app_version
+        FROM feedback f LEFT JOIN devices d ON d.user_id=f.user_id ${where} ORDER BY f.submitted_at DESC LIMIT ? OFFSET ?`).all(...args, limit, offset);
+      const rep = db.prepare('SELECT content, created_at FROM feedback_replies WHERE feedback_id=? ORDER BY id');
+      return json(res, 200, { total, records: rows.map(r => ({
+        feedback_id: r.id, user_id: r.user_id, public_user_id: r.exclusive_id || r.public_user_id || '',
+        content: r.content, contact: r.contact || '', submitted_at: r.submitted_at,
+        device: [r.device_model, r.system_name && `${r.system_name} ${r.system_version || ''}`.trim(), r.app_version && `v${r.app_version}`].filter(Boolean).join(' · '),
+        attachments: JSON.parse(r.attachments || '[]').map(a => ({ name: a.name, size: a.size, file: a.file })),
+        replies: rep.all(r.id),
+      })) });
     }
-    if (request.method === 'POST' && tail.join('/') === 'auth/logout') {
-      await moumusicAccounts.logout(request)
-      sendJson(response, 200, { success: true })
-      return
+    if (op === 'delete-feedback') {
+      const fid = String(b.feedback_id || '');
+      const row = db.prepare('SELECT attachments FROM feedback WHERE id=?').get(fid);
+      if (!row) throw new ApiError(404, 'not_found', 'Not found.');
+      for (const a of JSON.parse(row.attachments || '[]')) { try { fs.unlinkSync(path.join(DATA_DIR, 'uploads', path.basename(a.file))); } catch {} }
+      db.prepare('DELETE FROM feedback_replies WHERE feedback_id=?').run(fid);
+      db.prepare('DELETE FROM feedback WHERE id=?').run(fid);
+      return json(res, 200, { message: 'ok' });
     }
-    if (request.method === 'GET' && tail.join('/') === 'me') {
-      const user = await moumusicAccounts.authenticate(request)
-      await moumusicAccounts.ensureReady()
-      sendJson(response, 200, { success: true, profile: moumusicAccounts.publicUser(user), server: moumusicAccounts.publicConfig() })
-      return
+    if (op === 'devices') {
+      const limit = Math.min(200, Math.max(1, Number(b.limit) || 50));
+      const offset = Math.max(0, Number(b.offset) || 0);
+      const q = String(b.query || '').trim();
+      const conds = [];
+      const args = [];
+      if (q) { conds.push('(public_user_id=? OR exclusive_id=? OR user_id=? OR device_model LIKE ? OR device_name LIKE ? OR exclusive_id LIKE ?)'); args.push(q, q, q.toLowerCase(), `%${q}%`, `%${q}%`, `%${q}%`); }
+      if (b.filter === 'blocked') conds.push('blocked=1');
+      if (b.filter === 'download') conds.push('download_unlocked=1');
+      if (b.filter === 'exclusive') conds.push('exclusive_id IS NOT NULL');
+      const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+      const total = db.prepare(`SELECT COUNT(*) c FROM devices ${where}`).get(...args).c;
+      const rows = db.prepare(`SELECT d.*, (SELECT COUNT(*) FROM feedback f WHERE f.user_id=d.user_id) AS feedback_count
+        FROM devices d ${where.replaceAll('public_user_id', 'd.public_user_id')} ORDER BY d.last_seen_at DESC LIMIT ? OFFSET ?`).all(...args, limit, offset);
+      return json(res, 200, { total, records: rows.map(d => ({
+        ...recordView(d), created_at: d.created_at, blocked: !!d.blocked, download_unlocked: !!d.download_unlocked,
+        listening_seconds: d.listening_seconds, listening_play_count: d.listening_play_count, feedback_count: d.feedback_count,
+        is_developer: DEVELOPER_IDS.has(d.user_id),
+      })) });
     }
-    if (request.method === 'GET' && tail[0] === 'profile' && tail[1]) {
-      sendJson(response, 200, { success: true, profile: await moumusicAccounts.profile(decodeURIComponent(tail[1])) })
-      return
+    if (op === 'reset-public-id') {
+      const d = mustTarget(b);
+      const fresh = nextPublicId();
+      db.prepare('UPDATE devices SET public_user_id=? WHERE user_id=?').run(fresh, d.user_id);
+      return json(res, 200, { message: 'ok', public_user_id: fresh });
     }
-    if (request.method === 'PATCH' && tail.join('/') === 'profile') {
-      const user = await moumusicAccounts.authenticate(request)
-      sendJson(response, 200, { success: true, profile: await moumusicAccounts.updateProfile(user, await readJsonBody(request)) })
-      return
+    if (op === 'delete-profile') {
+      const d = mustTarget(b);
+      db.prepare('DELETE FROM profiles WHERE user_id=?').run(d.user_id);
+      return json(res, 200, { message: 'ok' });
+    }    if (op === 'update') { setSetting('update', b.update ?? {}); return json(res, 200, { message: 'ok' }); }
+    if (op === 'stats') {
+      const r = db.prepare('SELECT COUNT(*) c, COALESCE(SUM(listening_seconds),0) s, COALESCE(SUM(listening_play_count),0) p FROM devices').get();
+      return json(res, 200, { devices: r.c, listening_seconds: r.s, listening_play_count: r.p });
     }
-    if (tail[0] === 'admin' && tail[1] === 'settings') {
-      const user = await moumusicAccounts.authenticate(request)
-      moumusicAccounts.requireAdmin(user)
-      if (request.method === 'GET') {
-        await moumusicAccounts.ensureReady()
-        sendJson(response, 200, { success: true, config: moumusicAccounts.publicConfig() })
-      } else if (request.method === 'PATCH') {
-        sendJson(response, 200, { success: true, config: await moumusicAccounts.updateAdminSettings(user, await readJsonBody(request)) })
-      } else {
-        response.setHeader('allow', 'GET, PATCH')
-        sendJson(response, 405, { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed.' } })
-      }
-      return
-    }
-    if (tail[0] === 'admin' && tail[1] === 'users') {
-      const user = await moumusicAccounts.authenticate(request)
-      if (request.method === 'GET' && tail.length === 2) {
-        sendJson(response, 200, { success: true, users: await moumusicAccounts.listUsers(user) })
-      } else if (request.method === 'PATCH' && tail[2]) {
-        sendJson(response, 200, { success: true, user: await moumusicAccounts.updateUser(user, decodeURIComponent(tail[2]), await readJsonBody(request)) })
-      } else {
-        response.setHeader('allow', 'GET, PATCH')
-        sendJson(response, 405, { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed.' } })
-      }
-      return
-    }
-    sendJson(response, 404, { success: false, error: { code: 'NOT_FOUND', message: 'Moumusic account endpoint not found.' } })
-  } catch (error) {
-    sendMoumusicError(response, error, requestId)
+    throw new ApiError(404, 'not_found', 'Not found.');
   }
-}
-async function sendLatestReleaseRedirect(response, platform) {
-  try {
-    await moumusicAccounts.ensureReady()
-    if (!moumusicAccounts.downloadsEnabled) throw new MoumusicAccountError('DOWNLOADS_DISABLED', 'Downloads are temporarily disabled by the administrator.', 403)
-    const name = releaseAssetNames[platform]?.[0]
-    if (!name) throw new AfdianError('RELEASE_ASSET_MISSING', `No ${platform} asset configured.`, 503)
-    response.statusCode = 302
-    response.setHeader('location', `${githubReleaseDownloadBase}/${encodeURIComponent(name)}`)
-    response.setHeader('cache-control', 'no-store')
-    response.end()
-  } catch (error) {
-    sendJson(response, error instanceof AfdianError ? error.status : 503, {
-      success: false,
-      error: { code: 'RELEASE_UNAVAILABLE', message: '暂时无法获取最新安装包，请稍后再试。' },
-    })
-  }
-}
-
-function checkRateLimit(request) {
-  const ip = request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.socket.remoteAddress || 'unknown'
-  const now = Date.now()
-  const bucket = rateBuckets.get(ip) || { count: 0, startedAt: now }
-  if (now - bucket.startedAt > 60_000) {
-    bucket.count = 0
-    bucket.startedAt = now
-  }
-  bucket.count += 1
-  rateBuckets.set(ip, bucket)
-  return bucket.count <= 60
+  throw new ApiError(404, 'not_found', 'Not found.');
 }
 
-const contentTypes = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.svg': 'image/svg+xml',
-}
-
-async function sendStatic(response, filename) {
-  const target = resolve(publicRoot, filename)
-  if (!target.startsWith(`${publicRoot}${sep}`)) {
-    response.statusCode = 403
-    response.end('Forbidden')
-    return
-  }
-  try {
-    const data = await readFile(target)
-    response.statusCode = 200
-    response.setHeader('content-type', contentTypes[extname(target)] || 'application/octet-stream')
-    response.setHeader('cache-control', 'public, max-age=300')
-    response.end(data)
-  } catch {
-    response.statusCode = 404
-    response.end('Not found')
-  }
-}
-
-async function handleRequest(request, response) {
-  const requestId = randomUUID()
-  response.setHeader('x-request-id', requestId)
-  setSecurityHeaders(response)
-  const url = new URL(request.url || '/', 'http://localhost')
-  const pathname = url.pathname
-
-  if (pathname.startsWith('/api/') && !checkRateLimit(request)) {
-    sendJson(response, 429, { success: false, error: { code: 'RATE_LIMITED', message: '请求过于频繁，请稍后再试。' } })
-    return
-  }
-
-  if (pathname.startsWith('/api/moumusic/')) {
-    await handleMoumusicRequest(request, response, pathname, requestId)
-    return
-  }
-
-  if (request.method !== 'GET') {
-    response.setHeader('allow', 'GET')
-    sendJson(response, 405, { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: '仅支持 GET 请求。' } })
-    return
-  }
-
-  if (pathname === '/' || pathname === '/aifadian') {
-    const html = await renderPage('index.html', url)
-    response.statusCode = 200
-    response.setHeader('content-type', 'text/html; charset=utf-8')
-    response.setHeader('cache-control', 'no-cache')
-    response.end(html)
-    return
-  }
-  if (pathname === '/install') {
-    const html = await renderPage('install.html', url)
-    response.statusCode = 200
-    response.setHeader('content-type', 'text/html; charset=utf-8')
-    response.setHeader('cache-control', 'no-cache')
-    response.end(html)
-    return
-  }
-  if (pathname === '/sponsors') {
-    const html = await renderPage('sponsors.html', url)
-    response.statusCode = 200
-    response.setHeader('content-type', 'text/html; charset=utf-8')
-    response.setHeader('cache-control', 'no-cache')
-    response.end(html)
-    return
-  }
-  if (pathname === '/download/ios') {
-    await sendLatestReleaseRedirect(response, 'ios')
-    return
-  }
-  if (pathname === '/download/ios15') {
-    await sendLatestReleaseRedirect(response, 'ios15')
-    return
-  }
-  if (pathname === '/health') {
-    sendJson(response, 200, { status: 'ok' })
-    return
-  }
-  if (pathname === '/api/site-config') {
-    sendJson(response, 200, { success: true, config: getPublicConfig(url) })
-    return
-  }
-
-  const apiHandlers = {
-    '/api/releases/latest': async () => ({ release: await getLatestReleaseInfo() }),
-    '/api/aifadian/sponsors': async () => ({ supporters: await getSponsors() }),
-    '/api/aifadian/orders': async () => ({ orders: await getOrders() }),
-    '/api/aifadian/stats': async () => ({ stats: await getStats() }),
-  }
-  if (apiHandlers[pathname]) {
-    try {
-      const data = await apiHandlers[pathname]()
-      sendJson(response, 200, { success: true, ...data, cacheTtlSeconds: cacheTtlMs / 1000 })
-    } catch (error) {
-      const safeError = error instanceof AfdianError ? error : new AfdianError('INTERNAL_ERROR', 'Unable to load sponsor data.')
-      logEvent('aifadian_api_error', { requestId, path: pathname, code: safeError.code })
-      sendJson(response, safeError.status || 502, {
-        success: false,
-        error: { code: safeError.code, message: '暂时无法获取赞助名单，请稍后再试。' },
-      })
-    }
-    return
-  }
-
-  const staticFile = pathname.replace(/^\/+/, '')
-  await sendStatic(response, staticFile)
-}
-
-const server = createServer((request, response) => {
-  handleRequest(request, response).catch(error => {
-    logEvent('request_error', { code: error?.code || 'INTERNAL_ERROR' })
-    if (!response.headersSent) sendJson(response, 500, { success: false, error: { code: 'INTERNAL_ERROR', message: '页面暂时无法打开，请稍后再试。' } })
-    else response.end()
-  })
-})
-
-if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
-  server.listen(port, () => logEvent('server_started', { port }))
-}
-
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, value] of cache) if (value.expiresAt <= now) cache.delete(key)
-  for (const [key, value] of rateBuckets) if (now - value.startedAt > 60_000) rateBuckets.delete(key)
-}, 60_000).unref()
+http.createServer((req, res) => {
+  route(req, res).catch(err => {
+    if (err instanceof ApiError) return json(res, err.status, { error: err.code, message: err.message });
+    console.error(err);
+    json(res, 500, { error: 'server_error', message: 'The server could not process the request. Please try again later.' });
+  });
+}).listen(PORT, HOST, () => console.log(`moumusic-server listening on ${HOST}:${PORT}${BASE}${PUBLIC_URL ? ' (' + PUBLIC_URL + ')' : ''}`));

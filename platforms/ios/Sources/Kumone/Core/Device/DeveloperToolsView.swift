@@ -1,4 +1,4 @@
-#if os(iOS)
+﻿#if os(iOS)
 import SwiftUI
 import UIKit
 
@@ -36,6 +36,7 @@ struct DeveloperToolsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         identityCard
+                        managementCard
                         displayCard
                         announcementCard
                         downloadCard
@@ -71,6 +72,41 @@ struct DeveloperToolsView: View {
                 }
             }
         }
+    }
+
+    private var managementCard: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 10) {
+                title("反馈与用户管理")
+                NavigationLink {
+                    DeveloperFeedbackView()
+                } label: {
+                    managementRow("用户反馈", "查看所有反馈、附件，回复或删除", icon: "text.bubble")
+                }
+                .buttonStyle(.plain)
+                NavigationLink {
+                    DeveloperDevicesView()
+                } label: {
+                    managementRow("用户管理", "搜索用户，封禁、下载权限、重置 ID、专属 ID", icon: "person.2.badge.gearshape")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func managementRow(_ name: String, _ detail: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 18)).frame(width: 28).foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).font(.system(size: 14, weight: .semibold))
+                Text(detail).font(.system(size: 11)).foregroundStyle(Color.secondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.secondary)
+        }
+        .padding(10)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(Rectangle())
     }
 
     private var displayCard: some View {

@@ -1,4 +1,4 @@
-#if os(iOS)
+﻿#if os(iOS)
 import Foundation
 
 /// 服务端错误码 → 用户可读文案（与 Beans 2.0.2 的 DeviceReporter 保持一致）。
@@ -194,6 +194,116 @@ enum MoumusicBackendAPI {
             "enabled": enabled,
             "badge_style": badgeStyle,
         ])
+    }
+
+    // MARK: 开发者 · 反馈与用户管理
+
+    struct DevAttachment: Identifiable, Hashable {
+        var id: String { file }
+        let name: String
+        let size: Int
+        let file: String
+        var url: URL { MoumusicServer.url("download/\(file)") }
+    }
+
+    struct DevFeedback: Identifiable, Hashable {
+        let id: String
+        let userID: String
+        let publicID: String
+        let content: String
+        let contact: String
+        let submittedAt: String
+        let device: String
+        let attachments: [DevAttachment]
+        let replies: [FeedbackReply]
+    }
+
+    struct DevDevice: Identifiable, Hashable {
+        var id: String { userID }
+        let userID: String
+        let publicID: String
+        let exclusiveID: String
+        let deviceModel: String
+        let deviceName: String
+        let system: String
+        let appVersion: String
+        let lastSeenAt: String
+        let createdAt: String
+        let blocked: Bool
+        let downloadUnlocked: Bool
+        let listeningSeconds: Int
+        let playCount: Int
+        let feedbackCount: Int
+        let isDeveloper: Bool
+    }
+
+    @MainActor static func devFeedbackList(filter: String, query: String, offset: Int) async throws -> (total: Int, items: [DevFeedback]) {
+        let obj = try await devRequest("feedback-list", ["filter": filter, "query": query, "offset": offset, "limit": 40])
+        let rows = obj["records"] as? [[String: Any]] ?? []
+        let items = rows.map { r in
+            DevFeedback(
+                id: r["feedback_id"] as? String ?? UUID().uuidString,
+                userID: r["user_id"] as? String ?? "",
+                publicID: r["public_user_id"] as? String ?? "",
+                content: r["content"] as? String ?? "",
+                contact: r["contact"] as? String ?? "",
+                submittedAt: r["submitted_at"] as? String ?? "",
+                device: r["device"] as? String ?? "",
+                attachments: (r["attachments"] as? [[String: Any]] ?? []).map {
+                    DevAttachment(name: $0["name"] as? String ?? "附件", size: $0["size"] as? Int ?? 0, file: $0["file"] as? String ?? "")
+                },
+                replies: (r["replies"] as? [[String: Any]] ?? []).map {
+                    FeedbackReply(content: $0["content"] as? String ?? "", createdAt: $0["created_at"] as? String ?? "")
+                }
+            )
+        }
+        return (obj["total"] as? Int ?? items.count, items)
+    }
+
+    @MainActor static func devReplyFeedback(id: String, content: String) async throws {
+        _ = try await devRequest("reply-feedback", ["feedback_id": id, "content": content])
+    }
+
+    @MainActor static func devDeleteFeedback(id: String) async throws {
+        _ = try await devRequest("delete-feedback", ["feedback_id": id])
+    }
+
+    @MainActor static func devDevices(filter: String, query: String, offset: Int) async throws -> (total: Int, items: [DevDevice]) {
+        let obj = try await devRequest("devices", ["filter": filter, "query": query, "offset": offset, "limit": 50])
+        let rows = obj["records"] as? [[String: Any]] ?? []
+        let items = rows.map { r in
+            DevDevice(
+                userID: r["user_id"] as? String ?? "",
+                publicID: r["public_user_id"] as? String ?? "",
+                exclusiveID: r["exclusive_id"] as? String ?? "",
+                deviceModel: r["device_model"] as? String ?? "",
+                deviceName: r["device_name"] as? String ?? "",
+                system: [r["system_name"] as? String, r["system_version"] as? String].compactMap { $0 }.joined(separator: " "),
+                appVersion: r["app_version"] as? String ?? "",
+                lastSeenAt: r["last_seen_at"] as? String ?? "",
+                createdAt: r["created_at"] as? String ?? "",
+                blocked: r["blocked"] as? Bool ?? false,
+                downloadUnlocked: r["download_unlocked"] as? Bool ?? false,
+                listeningSeconds: r["listening_seconds"] as? Int ?? 0,
+                playCount: r["listening_play_count"] as? Int ?? 0,
+                feedbackCount: r["feedback_count"] as? Int ?? 0,
+                isDeveloper: r["is_developer"] as? Bool ?? false
+            )
+        }
+        return (obj["total"] as? Int ?? items.count, items)
+    }
+
+    @MainActor static func devSetBlocked(userID: String, blocked: Bool) async throws {
+        _ = try await devRequest("block", ["target_public_user_id": userID, "blocked": blocked])
+    }
+
+    @MainActor static func devResetPublicID(userID: String) async throws -> String {
+        let obj = try await devRequest("reset-public-id", ["target_public_user_id": userID])
+        return obj["public_user_id"] as? String ?? ""
+    }
+
+    @MainActor static func devDeleteProfile(userID: String) async throws {
+        _ = try await devRequest("delete-profile", ["target_public_user_id": userID])
     }
 }
 #endif
