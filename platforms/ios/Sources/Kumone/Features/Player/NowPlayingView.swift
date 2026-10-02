@@ -26,6 +26,12 @@ struct NowPlayingView: View {
     #if os(iOS)
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
     @ObservedObject private var customCovers = CustomSongCoverStore.shared
+    private var customCoverView: AnyView? {
+        if let entry = customCovers.entry(for: player.currentTrack) {
+            return AnyView(CustomCoverMedia(entry: entry))
+        }
+        return nil
+    }
     @ObservedObject private var dynamicWallpaper = DynamicWallpaperStore.shared
     @ObservedObject private var playerAmbience = PlayerAmbienceStore.shared
     @Environment(\.dismissNowPlayingAction) private var dismissNowPlayingAction
@@ -200,7 +206,8 @@ struct NowPlayingView: View {
                 }
                 #else
                 EmptyView()
-                #endif            }
+                #endif
+            }
         }
     }
 
@@ -609,13 +616,9 @@ struct NowPlayingView: View {
 
     private func immersiveArtworkSurface(isExpanded: Bool) -> some View {
         Group {
-            #if os(iOS)
-            if let custom = customCovers.entry(for: player.currentTrack) {
-                CustomCoverMedia(entry: custom)
+            if let customCoverView {
+                customCoverView
             } else if let artworkImage {
-            #else
-            if let artworkImage {
-            #endif
                 Image(platformImage: artworkImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -790,13 +793,9 @@ struct NowPlayingView: View {
 
     private func artworkView(size: CGFloat) -> some View {
         Group {
-            #if os(iOS)
-            if let custom = customCovers.entry(for: player.currentTrack) {
-                CustomCoverMedia(entry: custom)
+            if let customCoverView {
+                customCoverView
             } else if let artworkImage {
-            #else
-            if let artworkImage {
-            #endif
                 Image(platformImage: artworkImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
