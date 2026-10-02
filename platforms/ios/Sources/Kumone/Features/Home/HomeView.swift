@@ -415,13 +415,6 @@ struct HomeView: View {
         .refreshable {
             await loadCurrentHome(force: true)
         }
-        // Switching platform shows its cached feed; only a manual refresh fetches new songs.
-        .onChange(of: settings.homeRecommendationPlatform) { _ in
-            Task { await loadCurrentHome() }
-        }
-        .onChange(of: settings.homeRecommendationMode) { _ in
-            Task { await loadCurrentHome() }
-        }
     }
 
     private var homeTaskID: String {
@@ -602,8 +595,10 @@ struct HomeView: View {
 
     private func selectHomePlatform(_ platform: LXCatalogPlatform) {
         bilibiliActive = false
-        settings.homeRecommendationPlatform = platform
+        // Set the mode first: .task(id:) reads both, and a half-updated pair would
+        // start a load for the wrong source.
         settings.homeRecommendationMode = platform == .wy ? .netease : .lx
+        settings.homeRecommendationPlatform = platform
     }
 
     private func lxPlaylistCard(_ playlist: LXPlaylistSummary) -> some View {
