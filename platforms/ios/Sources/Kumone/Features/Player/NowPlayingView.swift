@@ -13,6 +13,8 @@ struct NowPlayingView: View {
         case lyricsOptions
         case downloads
         case addToPlaylist
+        case lyricPoster
+        case customCover
 
         var id: String { rawValue }
     }
@@ -23,6 +25,7 @@ struct NowPlayingView: View {
     @ObservedObject private var favorites = FavoritesStore.shared
     #if os(iOS)
     @ObservedObject private var backgroundStore = BackgroundImageStore.shared
+    @ObservedObject private var customCovers = CustomSongCoverStore.shared
     @ObservedObject private var dynamicWallpaper = DynamicWallpaperStore.shared
     @ObservedObject private var playerAmbience = PlayerAmbienceStore.shared
     @Environment(\.dismissNowPlayingAction) private var dismissNowPlayingAction
@@ -178,7 +181,26 @@ struct NowPlayingView: View {
                 } else {
                     EmptyView()
                 }
-            }
+            case .lyricPoster:
+                #if os(iOS)
+                if let track = player.currentTrack {
+                    LyricPosterSheet(track: track, lyrics: player.lyrics?.lines ?? [], currentTime: player.progress)
+                } else {
+                    EmptyView()
+                }
+                #else
+                EmptyView()
+                #endif
+            case .customCover:
+                #if os(iOS)
+                if let track = player.currentTrack {
+                    CustomCoverPickerSheet(track: track)
+                } else {
+                    EmptyView()
+                }
+                #else
+                EmptyView()
+                #endif            }
         }
     }
 
@@ -587,7 +609,13 @@ struct NowPlayingView: View {
 
     private func immersiveArtworkSurface(isExpanded: Bool) -> some View {
         Group {
+            #if os(iOS)
+            if let custom = customCovers.entry(for: player.currentTrack) {
+                CustomCoverMedia(entry: custom)
+            } else if let artworkImage {
+            #else
             if let artworkImage {
+            #endif
                 Image(platformImage: artworkImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -762,7 +790,13 @@ struct NowPlayingView: View {
 
     private func artworkView(size: CGFloat) -> some View {
         Group {
+            #if os(iOS)
+            if let custom = customCovers.entry(for: player.currentTrack) {
+                CustomCoverMedia(entry: custom)
+            } else if let artworkImage {
+            #else
             if let artworkImage {
+            #endif
                 Image(platformImage: artworkImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -894,6 +928,19 @@ struct NowPlayingView: View {
                 } label: {
                     Label("查看评论", systemImage: "text.bubble")
                 }
+
+#if os(iOS)
+                Button {
+                    activeSheet = .lyricPoster
+                } label: {
+                    Label("分享歌词海报", systemImage: "text.quote")
+                }
+                Button {
+                    activeSheet = .customCover
+                } label: {
+                    Label("自定义封面…", systemImage: "photo")
+                }
+#endif
 
                 PlayerPlaybackModeMenu()
 
@@ -1849,6 +1896,8 @@ private struct CompactTrackHeader: View {
         case comments
         case lyricsOptions
         case downloads
+        case lyricPoster
+        case customCover
 
         var id: String { rawValue }
     }
@@ -1923,6 +1972,19 @@ private struct CompactTrackHeader: View {
                     } label: {
                         Label("查看评论", systemImage: "text.bubble")
                     }
+
+#if os(iOS)
+                    Button {
+                        activeSheet = .lyricPoster
+                    } label: {
+                        Label("分享歌词海报", systemImage: "text.quote")
+                    }
+                    Button {
+                        activeSheet = .customCover
+                    } label: {
+                        Label("自定义封面…", systemImage: "photo")
+                    }
+#endif
 
                     Menu {
                         ForEach(LyricsDisplayStyle.allCases) { style in
@@ -2000,7 +2062,26 @@ private struct CompactTrackHeader: View {
                 } else {
                     EmptyView()
                 }
-            case .comments:
+            case .lyricPoster:
+                #if os(iOS)
+                if let track = player.currentTrack {
+                    LyricPosterSheet(track: track, lyrics: player.lyrics?.lines ?? [], currentTime: player.progress)
+                } else {
+                    EmptyView()
+                }
+                #else
+                EmptyView()
+                #endif
+            case .customCover:
+                #if os(iOS)
+                if let track = player.currentTrack {
+                    CustomCoverPickerSheet(track: track)
+                } else {
+                    EmptyView()
+                }
+                #else
+                EmptyView()
+                #endif            case .comments:
                 if let track = player.currentTrack {
                     SongCommentsSheet(track: track)
                 } else {

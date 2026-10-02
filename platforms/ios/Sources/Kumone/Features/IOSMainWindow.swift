@@ -60,6 +60,7 @@ public struct IOSMainWindow: View {
                 backupStore.startAutomaticBackup()
                 ListeningStatsStore.shared.attach(player)
                 HighRefreshController.shared.apply()
+                MetricKitDiagnostics.shared.start()
                 DeviceReporter.shared.start()
                 await RemoteControlStore.shared.refreshIfNeeded()
                 await startup.start(
