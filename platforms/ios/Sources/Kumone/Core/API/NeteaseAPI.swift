@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 
 /// Typed NetEase Cloud Music API surface, mapped to real weapi/eapi endpoints.
 enum NeteaseAPI {
@@ -90,6 +90,38 @@ enum NeteaseAPI {
 
     static func userAccount() async throws -> UserProfile? {
         try await weapi(AccountResponse.self, "/w/nuser/account/get").profile
+    }
+
+    /// Membership as the NetEase client sees it. `/w/nuser/account/get` often reports
+    /// `vipType` 0 for SVIP accounts, which wrongly hid every premium audio tier.
+    struct VIPInfo: Sendable {
+        let isActive: Bool
+        let label: String?
+    }
+
+    private struct VIPInfoResponse: Decodable {
+        struct Part: Decodable {
+            let vipCode: Int?
+            let expireTime: Int?
+        }
+        struct Body: Decodable {
+            let redVipLevel: Int?
+            let associator: Part?
+            let musicPackage: Part?
+            let redplus: Part?
+        }
+        let data: Body?
+    }
+
+    static func vipInfo() async -> VIPInfo? {
+        guard let response = try? await weapi(VIPInfoResponse.self, "/music-vip-membership/client/vip/info"),
+              let body = response.data else { return nil }
+        let now = Int(Date().timeIntervalSince1970 * 1000)
+        func active(_ part: VIPInfoResponse.Part?) -> Bool { (part?.expireTime ?? 0) > now }
+        if active(body.redplus) { return VIPInfo(isActive: true, label: "黑胶 SVIP") }
+        if active(body.associator) { return VIPInfo(isActive: true, label: "黑胶 VIP") }
+        if active(body.musicPackage) { return VIPInfo(isActive: true, label: "音乐包") }
+        return VIPInfo(isActive: false, label: nil)
     }
 
     // MARK: - User library
@@ -470,6 +502,15 @@ enum NeteaseAPI {
         // NetEase can echo the requested `level` and a 999K-ish bitrate even
         // after downgrading an account. Prefer the returned format marker, and
         // only use the bitrate as a conservative fallback.
+        // Premium tiers (SVIP master / spatial / dolby) are reported through `level`;
+        // the format alone only says "flac" and used to flatten them into lossless.
+        switch data.level?.lowercased() {
+        case "jymaster": return .master
+        case "jyeffect": return .atmos
+        case "sky": return .surround
+        case "dolby": return .dolby
+        default: break
+        }
         if let type = data.type?.lowercased() {
             if type.contains("24") || type.contains("hires") || type.contains("highres") {
                 return .hires

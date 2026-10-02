@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 
 /// Account state used for optional metadata synchronisation.
 ///
@@ -33,7 +33,13 @@ final class AccountStore: ObservableObject {
     var hasAuthCookie: Bool { NeteaseClient.shared.isLoggedIn }
     var vipType: Int { profile?.vipType ?? 0 }
     var vipStatusKnown: Bool { profile != nil }
-    var hasActiveVIP: Bool { profile?.hasActiveVIP ?? false }
+    @Published private(set) var vipInfo: NeteaseAPI.VIPInfo?
+    var hasActiveVIP: Bool { (profile?.hasActiveVIP ?? false) || (vipInfo?.isActive ?? false) }
+    /// "黑胶 SVIP" / "黑胶 VIP" / "会员" when active, nil otherwise.
+    var vipLabel: String? {
+        if let label = vipInfo?.label { return label }
+        return hasActiveVIP ? "会员" : nil
+    }
 
     var likedSongsPlaylist: PlaylistSummary? {
         userPlaylists.first(where: \.isLikedSongsList) ?? userPlaylists.first
@@ -71,6 +77,7 @@ final class AccountStore: ObservableObject {
             ListeningSyncStore.shared.markSignedOut()
             return
         }
+        vipInfo = await NeteaseAPI.vipInfo()
         await refreshLibrary()
         await ListeningSyncStore.shared.refreshRemoteRecords(uid: profile.userId)
     }

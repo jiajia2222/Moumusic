@@ -535,7 +535,7 @@ struct MyProfileView: View {
 
                 accountSourceRow(
                     title: "网易云音乐",
-                    subtitle: account.isLoggedIn ? ((account.profile?.nickname ?? "已登录") + ((account.profile?.vipType ?? 0) > 0 ? " · 会员" : " · 非会员")) : "未登录 · 同步歌单与播放记录",
+                    subtitle: account.isLoggedIn ? ((account.profile?.nickname ?? "已登录") + (" · " + (account.vipLabel ?? "非会员"))) : "未登录 · 同步歌单与播放记录",
                     icon: "music.note",
                     isLoggedIn: account.isLoggedIn,
                     action: { openLogin() },

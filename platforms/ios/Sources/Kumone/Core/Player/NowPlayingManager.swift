@@ -104,9 +104,16 @@ final class NowPlayingManager {
             } else {
                 url = await Self.fallbackArtworkURL(for: track, size: artworkSize)
             }
-            guard let url,
-                  let loaded = await ImageCache.shared.image(for: url),
-                  let self, !Task.isCancelled else { return }
+            // Forced immersive cover: retry a failed download once, then fall back to a
+            // generated cover so every track still gets full-size (and animated) artwork.
+            var fetched: UIImage?
+            if let url { fetched = await ImageCache.shared.image(for: url) }
+            if fetched == nil, url != nil, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                if let url { fetched = await ImageCache.shared.image(for: url) }
+            }
+            guard !Task.isCancelled, let self else { return }
+            let loaded = fetched ?? Self.placeholderArtwork(for: track)
             // Video covers (16:9) are center-cropped so the system player shows a square cover.
             let image: UIImage = {
                 let w = loaded.size.width, h = loaded.size.height
@@ -129,10 +136,6 @@ final class NowPlayingManager {
         guard #available(iOS 26.0, *) else { return }
         let keys = MPNowPlayingInfoCenter.supportedAnimatedArtworkKeys
         for key in keys { info[key] = nil }
-        guard SettingsManager.shared.lockScreenImmersiveArtwork else {
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-            return
-        }
         let artworks = await LockScreenAnimatedArtwork.artworks(for: image, key: track.playbackKey)
         guard !Task.isCancelled, currentTrack?.playbackKey == track.playbackKey else { return }
         for (name, artwork) in artworks {
@@ -142,8 +145,32 @@ final class NowPlayingManager {
     }
 
     #if os(iOS)
-    private var lockScreenArtworkSize: Int {
-        SettingsManager.shared.lockScreenImmersiveArtwork ? 1024 : 256
+    /// Immersive lock-screen artwork is always on: high-resolution cover for every track.
+    private var lockScreenArtworkSize: Int { 1024 }
+
+    /// A generated square cover (track-tinted gradient with the first letter) for songs
+    /// without a usable picture.
+    private static func placeholderArtwork(for track: Track) -> UIImage {
+        let seed = abs((track.name + track.artistNames).unicodeScalars.reduce(5381) { ($0 &* 33) &+ Int($1.value) })
+        let hue = Double(seed % 360) / 360
+        let size = CGSize(width: 1024, height: 1024)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let colors = [UIColor(hue: hue, saturation: 0.55, brightness: 0.55, alpha: 1).cgColor,
+                          UIColor(hue: (hue + 0.12).truncatingRemainder(dividingBy: 1), saturation: 0.65, brightness: 0.25, alpha: 1).cgColor]
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: [0, 1]) {
+                context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+            }
+            let initial = String(track.name.trimmingCharacters(in: .whitespaces).first ?? "♪")
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 460, weight: .bold),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.85)
+            ]
+            let text = NSAttributedString(string: initial, attributes: attributes)
+            let textSize = text.size()
+            text.draw(at: CGPoint(x: (size.width - textSize.width) / 2, y: (size.height - textSize.height) / 2))
+        }
     }
     #else
     private var lockScreenArtworkSize: Int { 1024 }
