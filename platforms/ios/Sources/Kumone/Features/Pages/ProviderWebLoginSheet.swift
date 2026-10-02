@@ -234,7 +234,11 @@ private struct ProviderWebView: UIViewRepresentable {
         // before setting the final account cookie. A persistent app-local store
         // is required for those flows to survive the redirect. The actual
         // playback clients still receive only the normalized cookie header.
-        configuration.websiteDataStore = .default()
+        // A fresh, non-persistent store per login page: otherwise a login left
+        // over from an earlier attempt is picked up immediately and the app
+        // "signs in" before the user has done anything. The store still lives
+        // for the whole page session, so redirects keep working.
+        configuration.websiteDataStore = .nonPersistent()
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.allowsBackForwardNavigationGestures = true
         view.navigationDelegate = context.coordinator

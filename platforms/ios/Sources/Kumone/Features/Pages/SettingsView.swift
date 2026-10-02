@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 import UniformTypeIdentifiers
 #if os(iOS)
 import AVFoundation
@@ -48,9 +48,13 @@ struct SettingsView: View {
     @State private var isExportingBackup = false
     @State private var isImportingBackup = false
     @State private var exportDocument: MoumusicBackupFileDocument?
-    @State private var collapsedSettings: Set<String> = [
-        "播放器氛围", "图片背景", "歌词显示", "存储与下载", "数据备份与恢复", "更新", "关于", "赞赏与支持"
-    ]
+    /// Accordion state is remembered across launches (comma-joined titles in
+    /// UserDefaults; `nil` means the user never changed it, so use the defaults).
+    @AppStorage("moumusic.settings.collapsed") private var collapsedStorage: String = "播放器氛围|图片背景|歌词显示|存储与下载|数据备份与恢复|更新|关于|赞赏与支持"
+    private var collapsedSettings: Set<String> {
+        get { Set(collapsedStorage.split(separator: "|").map(String.init)) }
+        nonmutating set { collapsedStorage = newValue.sorted().joined(separator: "|") }
+    }
 
     @State private var settingsQuery = ""
     @State private var settingsPage: SettingsCategory?

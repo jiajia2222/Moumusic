@@ -336,41 +336,54 @@ actor QQMusicAPI {
         Self.oauthLog("check_sig 完成", "credential=\(credential.isEmpty ? "无" : "有") cookies=\(cookieHeader(includeQRSig: true).split(separator: ";").compactMap { $0.split(separator: "=").first.map { String($0).trimmingCharacters(in: .whitespaces) } }.joined(separator: ","))")
         guard !credential.isEmpty else { throw APIError.oauthFailed }
 
-        let fields: [String: String] = [
-            "response_type": "code",
-            "client_id": "100497308",
-            "redirect_uri": "https://y.qq.com/portal/wx_redirect.html?login_type=1&surl=https://y.qq.com/",
-            "scope": "all",
-            "state": "state",
-            "switch": "",
-            "from_ptlogin": "1",
-            "src": "1",
-            "update_auth": "1",
-            "openapi": "80901010_1030",
-            "g_tk": String(Self.hash5381(credential)),
-            "auth_time": String(Int(Date().timeIntervalSince1970 * 1000)),
-            "ui": "DFEC5395-9E69-4D3E-96A6-300BB770874D"
+        // The web player's own authorize call uses the get_user_info scope; the
+        // broader "all" scope is kept as a fallback because graph.qq.com
+        // answers error=100035 for parameter sets it does not accept.
+        let variants: [(scope: String, openapi: String)] = [
+            ("get_user_info,get_app_friends", "1010_1030"),
+            ("get_user_info,get_app_friends", "80901010_1030"),
+            ("all", "80901010_1030")
         ]
+        var foundCode: String?
+        for variant in variants {
+            let fields: [String: String] = [
+                "response_type": "code",
+                "client_id": "100497308",
+                "redirect_uri": "https://y.qq.com/portal/wx_redirect.html?login_type=1&surl=https://y.qq.com/",
+                "scope": variant.scope,
+                "state": "state",
+                "switch": "",
+                "from_ptlogin": "1",
+                "src": "1",
+                "update_auth": "1",
+                "openapi": variant.openapi,
+                "g_tk": String(Self.hash5381(credential)),
+                "auth_time": String(Int(Date().timeIntervalSince1970 * 1000)),
+                "ui": "DFEC5395-9E69-4D3E-96A6-300BB770874D"
+            ]
 
-        var authRequest = URLRequest(url: URL(string: "https://graph.qq.com/oauth2.0/authorize")!)
-        authRequest.httpMethod = "POST"
-        authRequest.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        authRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        authRequest.setValue("https://graph.qq.com/", forHTTPHeaderField: "Referer")
-        authRequest.setValue(cookieHeader(), forHTTPHeaderField: "Cookie")
-        authRequest.httpBody = Self.formEncode(fields).data(using: .utf8)
-        let (authData, authResponse) = try await redirectSession.data(for: authRequest)
-        collectCookies(from: authResponse)
+            var authRequest = URLRequest(url: URL(string: "https://graph.qq.com/oauth2.0/authorize")!)
+            authRequest.httpMethod = "POST"
+            authRequest.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            authRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            authRequest.setValue("https://graph.qq.com/oauth2.0/show?which=Login&display=pc&client_id=100497308", forHTTPHeaderField: "Referer")
+            authRequest.setValue("https://graph.qq.com", forHTTPHeaderField: "Origin")
+            authRequest.setValue(fullCookieHeader(), forHTTPHeaderField: "Cookie")
+            authRequest.httpBody = Self.formEncode(fields).data(using: .utf8)
+            let (authData, authResponse) = try await redirectSession.data(for: authRequest)
+            collectCookies(from: authResponse)
 
-        let authStatus = (authResponse as? HTTPURLResponse)?.statusCode ?? -1
-        let authLocation = ((authResponse as? HTTPURLResponse)?.value(forHTTPHeaderField: "Location") ?? "").components(separatedBy: "code=").first ?? ""
-        guard let authHTTP = authResponse as? HTTPURLResponse,
-              let code = Self.extractCode(from: authData, response: authHTTP),
-              !code.isEmpty else {
-            Self.oauthLog("authorize 未取得 code", "http=\(authStatus) location=\(authLocation) body=\(String(data: authData.prefix(160), encoding: .utf8) ?? "")")
-            throw APIError.oauthFailed
+            let authStatus = (authResponse as? HTTPURLResponse)?.statusCode ?? -1
+            let authLocation = ((authResponse as? HTTPURLResponse)?.value(forHTTPHeaderField: "Location") ?? "").components(separatedBy: "code=").first ?? ""
+            if let authHTTP = authResponse as? HTTPURLResponse,
+               let code = Self.extractCode(from: authData, response: authHTTP), !code.isEmpty {
+                foundCode = code
+                Self.oauthLog("authorize 成功", "scope=\(variant.scope) openapi=\(variant.openapi)")
+                break
+            }
+            Self.oauthLog("authorize 未取得 code", "scope=\(variant.scope) openapi=\(variant.openapi) http=\(authStatus) location=\(authLocation) body=\(String(data: authData.prefix(160), encoding: .utf8) ?? "")")
         }
-
+        guard let code = foundCode else { throw APIError.oauthFailed }
         let loginPayload: [String: Any] = [
             // Match the current QQ Music web-client envelope. The older
             // tmeLoginType form can return HTTP 200 without issuing a
