@@ -905,16 +905,8 @@ struct HomePlatformBadge: View {
     let platform: LXCatalogPlatform
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(tint.opacity(0.16))
-            Image(systemName: iconName)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(tint)
-        }
-        .frame(width: 40, height: 40)
-        .overlay(Circle().strokeBorder(.white.opacity(0.2), lineWidth: 0.8))
-        .background(.regularMaterial, in: Circle())
+        // Plain SF Symbol: the system toolbar supplies the liquid-glass button.
+        Image(systemName: iconName)
     }
 
     private var iconName: String {
