@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 import UniformTypeIdentifiers
 
 struct LocalPlaylistsView: View {
@@ -140,7 +140,10 @@ struct LocalPlaylistsView: View {
     }
 
     private var likedSongsSubtitle: String {
-        guard account.isLoggedIn else { return "登录网易云后同步红心歌曲" }
+        guard account.isLoggedIn else {
+            let local = FavoritesStore.shared.tracks.count
+            return local == 0 ? "红心歌曲保存在本机，登录网易云可同步" : "\(local) 首 · 本地收藏"
+        }
         let count = account.likedTrackIDs.count
         return count == 0 ? "暂无红心歌曲" : "\(count) 首红心歌曲 · 云端同步"
     }
@@ -185,6 +188,7 @@ struct LikedSongsView: View {
     @EnvironmentObject private var player: PlayerService
     @Environment(\.openLogin) private var openLogin
 
+    @ObservedObject private var favorites = FavoritesStore.shared
     @State private var tracks: [Track] = []
     @State private var query = ""
     @State private var isLoading = false
@@ -208,9 +212,7 @@ struct LikedSongsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
 
-                if !account.isLoggedIn {
-                    loginState
-                } else if isLoading && tracks.isEmpty {
+                if account.isLoggedIn, isLoading && tracks.isEmpty {
                     VStack(spacing: 14) {
                         ProgressView()
                             .controlSize(.large)
@@ -219,7 +221,7 @@ struct LikedSongsView: View {
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, minHeight: 260)
-                } else if let errorMessage, tracks.isEmpty {
+                } else if account.isLoggedIn, let errorMessage, tracks.isEmpty {
                     ErrorStateView(message: errorMessage) {
                         Task { await loadTracks() }
                     }
@@ -228,7 +230,7 @@ struct LikedSongsView: View {
                     EmptyStateView(
                         icon: "heart",
                         title: "还没有红心歌曲",
-                        subtitle: "在歌曲播放页点红心，歌曲会同步出现在这里"
+                        subtitle: account.isLoggedIn ? "在歌曲播放页点红心，歌曲会同步出现在这里" : "在歌曲播放页点红心，歌曲会保存在本机；登录网易云可同步到账号"
                     )
                     .frame(minHeight: 260)
                 } else {
@@ -286,6 +288,9 @@ struct LikedSongsView: View {
             await account.refreshForOpen()
             await loadTracks()
         }
+        .onChange(of: favorites.tracks) { _ in
+            if !account.isLoggedIn { tracks = favorites.tracks }
+        }
         .refreshable {
             await account.refreshLibrary()
             await loadTracks()
@@ -317,7 +322,7 @@ struct LikedSongsView: View {
                     .font(.title3.weight(.bold))
                 Text(account.isLoggedIn
                      ? "\(account.likedTrackIDs.count) 首 · 网易云云端同步"
-                     : "登录网易云后查看你的红心歌单")
+                     : "\(favorites.tracks.count) 首 · 仅保存在本机")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -349,8 +354,9 @@ struct LikedSongsView: View {
 
     @MainActor
     private func loadTracks() async {
+        // Not signed in: the favourites are simply the local hearts.
         guard account.isLoggedIn else {
-            tracks = []
+            tracks = favorites.tracks
             errorMessage = nil
             return
         }

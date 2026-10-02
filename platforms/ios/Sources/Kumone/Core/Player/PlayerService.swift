@@ -1336,10 +1336,12 @@ final class PlayerService: ObservableObject {
             let probed = await self.loadAudioTrack(from: asset, timeout: 6)
             guard generation == self.resolveGeneration, let item, self.engine.currentItem === item else { return }
 #if os(iOS)
-            if let probed {
-                self.servedQuality = self.verifiedServedQuality(providerQuality: providerQualitySnapshot, audioTrack: probed)
-                NowPlayingManager.shared.updateResolvedQuality(self.servedQuality, for: track)
-            }
+            // Never leave the label on "检测中": when the stream cannot be inspected (or the
+            // inspection is inconclusive) fall back to the quality the source reported.
+            let verified = self.verifiedServedQuality(providerQuality: providerQualitySnapshot, audioTrack: probed)
+            self.servedQuality = verified ?? providerQualitySnapshot
+            self.servedQualityTrackKey = track.playbackKey
+            NowPlayingManager.shared.updateResolvedQuality(self.servedQuality, for: track)
 #endif
             if let probed, let mix = AudioSpectrum.shared.makeAudioMix(for: probed) {
                 item.audioMix = mix
