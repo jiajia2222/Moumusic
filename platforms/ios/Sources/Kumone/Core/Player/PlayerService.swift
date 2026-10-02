@@ -732,6 +732,9 @@ final class PlayerService: ObservableObject {
 
     private func publishLyrics(_ parsed: ParsedLyrics, for track: Track, generation: Int) {
         lyrics = parsed
+        DiagnosticLogStore.shared.append(
+            level: .info, category: "歌词", message: parsed.hasVerbatimTimings ? "逐字歌词" : "逐句歌词",
+            detail: "\(track.name) · 来源 \(track.source ?? "wy") · \(parsed.lines.count) 行")
         updateLyricsCursor(at: livePlaybackTime)
 
         // Many source adapters provide the original lyrics but omit the
