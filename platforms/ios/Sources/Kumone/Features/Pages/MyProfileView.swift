@@ -21,7 +21,6 @@ struct MyProfileView: View {
     @State private var showKugouLogin = false
     @State private var showBilibiliLogin = false
     @State private var showMoumusicProfileEditor = false
-    @State private var showProfileCard = false
     @ObservedObject private var deviceReporter = DeviceReporter.shared
     @ObservedObject private var stats = ListeningStatsStore.shared
 
@@ -71,21 +70,6 @@ struct MyProfileView: View {
         .sheet(isPresented: $showBilibiliLogin) {
             BilibiliLoginSheet()
                 .environmentObject(bilibili)
-        }
-        .sheet(isPresented: $showProfileCard) {
-            NavigationStack {
-                ScrollView {
-                    XProfileCardView()
-                        .padding(16)
-                }
-                .navigationTitle("个人名片")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("完成") { showProfileCard = false }
-                    }
-                }
-            }
         }
         .sheet(isPresented: $showMoumusicProfileEditor) {
             MoumusicProfileEditorView()
@@ -140,14 +124,6 @@ struct MyProfileView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
-                    Spacer(minLength: 8)
-                    Button {
-                        showProfileCard = true
-                    } label: {
-                        Label("名片", systemImage: "person.text.rectangle")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .buttonStyle(.bordered)
                 }
                 HStack(spacing: 10) {
                     metric(title: "本机听歌时长", value: stats.formattedDuration)
