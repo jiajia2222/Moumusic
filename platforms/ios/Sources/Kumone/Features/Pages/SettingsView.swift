@@ -28,6 +28,7 @@ struct SettingsView: View {
     @State private var showDownloads = false
     @State private var showPlayerLayoutEditor = false
     @State private var isImportingBackgroundFile = false
+    @State private var waterPhoto: PhotosPickerItem?
     @State private var showFeedback = false
     @State private var showDeveloperTools = false
     @ObservedObject private var deviceReporter = DeviceReporter.shared
@@ -214,13 +215,25 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                HStack {
-                    Text("动画速度")
-                    Slider(value: $dynamicWallpaper.speed, in: 0.05...1.0)
-                    Text(String(format: "%.2fx", dynamicWallpaper.speed))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 48, alignment: .trailing)
+                Text(dynamicWallpaper.kind.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if dynamicWallpaper.kind == .dots {
+                    Picker("点阵样式", selection: $dynamicWallpaper.dotsStyleRaw) {
+                        Text("波浪").tag("wavy")
+                        Text("山脉").tag("mountains")
+                        Text("海洋").tag("ocean")
+                        Text("站立波").tag("standing")
+                        Text("流动").tag("flow")
+                        Text("等离子").tag("plasma")
+                        Text("蛇形").tag("snake")
+                    }
+                    .pickerStyle(.menu)
+                }
+                if dynamicWallpaper.kind == .water {
+                    PhotosPicker(selection: $waterPhoto, matching: .images) {
+                        Label("上传一张图片作为水面内容", systemImage: "photo")
+                    }
                 }
                 HStack {
                     Text("显示强度")
@@ -567,7 +580,8 @@ struct SettingsView: View {
                     Label("在爱发电支持 Moumusic", systemImage: "heart")
                 }
 #endif
-            }#if os(iOS)
+            }
+#if os(iOS)
             // The floating player bar is rendered above this scroll view.
             // Keep the last settings group reachable instead of letting the
             // bar cover it on the smaller iPhone layouts.
@@ -670,6 +684,16 @@ struct SettingsView: View {
         .sheet(isPresented: $showPlayerLayoutEditor) {
             PlayerLayoutEditorView()
                 .environmentObject(settings)
+        }
+        .onChange(of: waterPhoto) { item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    dynamicWallpaper.setWaterImage(data)
+                    ToastCenter.shared.show("水面壁纸已更新")
+                }
+                waterPhoto = nil
+            }
         }
         .onChange(of: backgroundStore.photoSelection) { _ in
             Task { await backgroundStore.importSelection() }

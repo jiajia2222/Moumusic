@@ -973,6 +973,7 @@ struct NowPlayingView: View {
                 } label: {
                     Label("歌词设置…", systemImage: "slider.horizontal.3")
                 }
+                Toggle("逐字歌词", isOn: $settings.verbatimLyrics)
 
 #if os(iOS)
                 Button {

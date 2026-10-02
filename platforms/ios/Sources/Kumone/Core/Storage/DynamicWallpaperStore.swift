@@ -1,30 +1,67 @@
 #if os(iOS)
 import Foundation
+import PhotosUI
 import SwiftUI
+import UIKit
 
+/// Metal shader wallpapers (ShipSwift, MIT — see ShipSwift-LICENSE.txt).
 enum DynamicWallpaperKind: String, CaseIterable, Identifiable, Sendable {
-    case aurora
+    case fractalClouds
+    case inkSmoke
+    case liquidChrome
+    case neuroNoise
+    case simplexNoise
     case metaballs
     case water
     case starNest
+    case dotOrbit
+    case dots
     case grainGradient
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .aurora: return "极光"
-        case .metaballs: return "流体"
-        case .water: return "水波"
+        case .fractalClouds: return "分形云层"
+        case .inkSmoke: return "墨水扩散"
+        case .liquidChrome: return "液态金属"
+        case .neuroNoise: return "神经噪声"
+        case .simplexNoise: return "单纯形噪声"
+        case .metaballs: return "融合球"
+        case .water: return "水面"
         case .starNest: return "星云"
-        case .grainGradient: return "柔和彩色"
+        case .dotOrbit: return "圆点"
+        case .dots: return "点阵"
+        case .grainGradient: return "颗粒渐变"
+        }
+    }
+
+    var englishName: String {
+        switch self {
+        case .fractalClouds: return "Fractal Clouds"
+        case .inkSmoke: return "Ink Smoke"
+        case .liquidChrome: return "Liquid Chrome"
+        case .neuroNoise: return "Neuro Noise"
+        case .simplexNoise: return "Simplex Noise"
+        case .metaballs: return "Metaballs"
+        case .water: return "Water"
+        case .starNest: return "Star Nest"
+        case .dotOrbit: return "Dot Orbit"
+        case .dots: return "Dots"
+        case .grainGradient: return "Grain Gradient"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .water: return "水面折射，使用你上传的图片作为内容"
+        case .dots: return "点阵波浪、海洋与流动样式"
+        case .grainGradient: return "静态颗粒渐变，不持续播放动画"
+        default: return "着色器实时渲染的动态壁纸"
         }
     }
 }
 
-/// A lightweight native counterpart to Beans' DynamicWallpaperStore. It uses
-/// SwiftUI shapes instead of shipping a binary renderer, so it stays safe for
-/// iOS 16 through iOS 27 and automatically pauses when the app is inactive.
 @MainActor
 final class DynamicWallpaperStore: ObservableObject {
     static let shared = DynamicWallpaperStore()
@@ -36,6 +73,7 @@ final class DynamicWallpaperStore: ObservableObject {
         static let intensity = "moumusic.dynamicWallpaper.intensity"
         static let syncToApp = "moumusic.dynamicWallpaper.syncToApp"
         static let syncToPlayer = "moumusic.dynamicWallpaper.syncToPlayer"
+        static let dotsStyle = "moumusic.dynamicWallpaper.dotsStyle"
     }
 
     @Published var isEnabled: Bool {
@@ -44,6 +82,7 @@ final class DynamicWallpaperStore: ObservableObject {
     @Published var kind: DynamicWallpaperKind {
         didSet { UserDefaults.standard.set(kind.rawValue, forKey: Keys.kind) }
     }
+    /// Kept for stored-settings compatibility; the shaders run at their own pace.
     @Published var speed: Double {
         didSet { UserDefaults.standard.set(speed, forKey: Keys.speed) }
     }
@@ -56,16 +95,49 @@ final class DynamicWallpaperStore: ObservableObject {
     @Published var syncToPlayer: Bool {
         didSet { UserDefaults.standard.set(syncToPlayer, forKey: Keys.syncToPlayer) }
     }
+    /// wavy / mountains / ocean / standing / flow / plasma / snake
+    @Published var dotsStyleRaw: String {
+        didSet { UserDefaults.standard.set(dotsStyleRaw, forKey: Keys.dotsStyle) }
+    }
+    @Published private(set) var waterImage: UIImage?
 
     private init() {
         let defaults = UserDefaults.standard
         isEnabled = defaults.object(forKey: Keys.enabled) as? Bool ?? false
         kind = defaults.string(forKey: Keys.kind)
-            .flatMap(DynamicWallpaperKind.init(rawValue:)) ?? .aurora
+            .flatMap(DynamicWallpaperKind.init(rawValue:)) ?? .fractalClouds
         speed = defaults.object(forKey: Keys.speed) as? Double ?? 0.35
-        intensity = defaults.object(forKey: Keys.intensity) as? Double ?? 0.78
+        intensity = defaults.object(forKey: Keys.intensity) as? Double ?? 0.9
         syncToApp = defaults.object(forKey: Keys.syncToApp) as? Bool ?? true
         syncToPlayer = defaults.object(forKey: Keys.syncToPlayer) as? Bool ?? true
+        dotsStyleRaw = defaults.string(forKey: Keys.dotsStyle) ?? "wavy"
+        waterImage = UIImage(contentsOfFile: Self.waterURL.path)
+    }
+
+    private static var waterURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("DynamicWallpaper", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("water.jpg")
+    }
+
+    func setWaterImage(_ data: Data) {
+        guard let image = UIImage(data: data) else { return }
+        let maxSide: CGFloat = 1600
+        let scale = min(1, maxSide / max(image.size.width, image.size.height))
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let resized = UIGraphicsImageRenderer(size: size).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        try? resized.jpegData(compressionQuality: 0.88)?.write(to: Self.waterURL, options: .atomic)
+        waterImage = resized
+        kind = .water
+    }
+
+    func resetDefaults() {
+        dotsStyleRaw = "wavy"
+        try? FileManager.default.removeItem(at: Self.waterURL)
+        waterImage = nil
     }
 }
 
@@ -74,113 +146,38 @@ struct MoumusicDynamicWallpaperView: View {
     let speed: Double
     let intensity: Double
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-
-    private var paused: Bool { reduceMotion || scenePhase != .active }
+    @ObservedObject private var store = DynamicWallpaperStore.shared
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: paused)) { context in
-            wallpaper(at: context.date.timeIntervalSinceReferenceDate)
-        }
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        shader
+            .opacity(max(0.2, min(1, intensity)))
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
-    private func wallpaper(at time: TimeInterval) -> some View {
-        let phase = (time.truncatingRemainder(dividingBy: 180) * max(0.05, speed))
-        ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.04, green: 0.06, blue: 0.13),
-                         Color(red: 0.08, green: 0.03, blue: 0.15)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            switch kind {
-            case .aurora:
-                orb(.cyan, size: 420, phase: phase, x: -0.35, y: -0.18)
-                orb(.blue, size: 520, phase: phase * 0.8, x: 0.34, y: -0.12)
-                orb(.purple, size: 460, phase: phase * 0.65, x: 0.18, y: 0.35)
-                orb(.green, size: 360, phase: phase * 0.5, x: -0.25, y: 0.38)
-            case .metaballs:
-                orb(.mint, size: 300, phase: phase * 1.3, x: -0.25, y: -0.18)
-                orb(.teal, size: 360, phase: phase, x: 0.25, y: -0.08)
-                orb(.indigo, size: 390, phase: phase * 0.75, x: 0.05, y: 0.3)
-                orb(.pink, size: 240, phase: phase * 1.4, x: -0.35, y: 0.3)
-            case .water:
-                LinearGradient(
-                    colors: [.teal.opacity(0.65), .blue.opacity(0.24), .indigo.opacity(0.66)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                WaveShape(phase: phase, height: 0.36)
-                    .fill(.cyan.opacity(0.18))
-                WaveShape(phase: phase * 0.7 + 1.6, height: 0.55)
-                    .fill(.blue.opacity(0.18))
-            case .starNest:
-                ForEach(0..<42, id: \.self) { index in
-                    let progress = CGFloat(index + 1) / 42
-                    let angle = phase * 0.08 + Double(index) * 0.83
-                    Circle()
-                        .fill(index.isMultiple(of: 3) ? .cyan : .white)
-                        .frame(width: 1.5 + progress * 3, height: 1.5 + progress * 3)
-                        .offset(x: CGFloat(cos(angle)) * (80 + progress * 260),
-                                y: CGFloat(sin(angle)) * (60 + progress * 360))
-                        .opacity(0.25 + (1 - progress) * 0.6)
+    private var shader: some View {
+        switch kind {
+        case .fractalClouds: SWFractalClouds()
+        case .inkSmoke: SWInkSmoke()
+        case .liquidChrome: SWLiquidChrome()
+        case .neuroNoise: SWNeuroNoise()
+        case .simplexNoise: SWSimplexNoise()
+        case .metaballs: SWMetaballs()
+        case .water:
+            SWWater {
+                if let image = store.waterImage {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    LinearGradient(colors: [.blue, .teal, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
                 }
-                RadialGradient(colors: [.purple.opacity(0.32), .clear], center: .center,
-                               startRadius: 10, endRadius: 420)
-            case .grainGradient:
-                AngularGradient(colors: [.orange, .pink, .purple, .blue, .teal, .orange],
-                                center: .center)
-                    .rotationEffect(.radians(phase * 0.02))
-                Rectangle().fill(.white.opacity(0.05))
-                    .blendMode(.overlay)
             }
+        case .starNest: SWStarNest()
+        case .dotOrbit: SWDotOrbit()
+        case .dots: SWDots(style: SWDotsStyle(rawValue: store.dotsStyleRaw) ?? .wavy)
+        case .grainGradient: SWGrainGradient()
         }
-        .opacity(intensity.clamped(to: 0...1))
-        .blur(radius: kind == .starNest ? 0 : 12)
-        .drawingGroup()
-    }
-
-    private func orb(_ color: Color, size: CGFloat, phase: Double, x: CGFloat, y: CGFloat) -> some View {
-        Circle()
-            .fill(color.opacity(0.75))
-            .frame(width: size, height: size)
-            .blur(radius: size * 0.24)
-            .offset(
-                x: x * 430 + CGFloat(sin(phase * 0.14)) * 90,
-                y: y * 780 + CGFloat(cos(phase * 0.11)) * 110
-            )
-    }
-}
-
-private struct WaveShape: Shape {
-    let phase: Double
-    let height: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let baseline = rect.height * height
-        path.move(to: CGPoint(x: 0, y: rect.height))
-        path.addLine(to: CGPoint(x: 0, y: baseline))
-        for step in 0...48 {
-            let x = rect.width * CGFloat(step) / 48
-            let wave = sin(Double(step) * 0.38 + phase) * 26
-            path.addLine(to: CGPoint(x: x, y: baseline + wave))
-        }
-        path.addLine(to: CGPoint(x: rect.width, y: rect.height))
-        path.closeSubpath()
-        return path
-    }
-}
-
-private extension Comparable {
-    func clamped(to range: ClosedRange<Self>) -> Self {
-        min(max(self, range.lowerBound), range.upperBound)
     }
 }
 #endif

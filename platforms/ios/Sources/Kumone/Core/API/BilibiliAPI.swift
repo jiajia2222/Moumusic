@@ -1510,7 +1510,7 @@ actor BilibiliAPI {
         }
     }
 
-    /// Reads dimension (width, height, otate) and applies the rotation.
+    // Reads the dimension object (width, height, rotate) and applies the rotation.
     private static func displayDimensions(_ raw: [String: Any]?) -> (width: Int, height: Int) {
         guard let raw, let width = integer(raw["width"]), let height = integer(raw["height"]),
               width > 0, height > 0 else { return (0, 0) }
