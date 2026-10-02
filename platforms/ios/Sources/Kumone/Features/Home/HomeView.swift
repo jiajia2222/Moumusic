@@ -342,6 +342,9 @@ struct HomeView: View {
     @EnvironmentObject private var bilibili: BilibiliSessionStore
     /// Bilibili is one more home platform: it replaces the feed in place.
     @AppStorage("moumusic.home.bilibiliActive") private var bilibiliActive = false
+    @EnvironmentObject private var qqMusic: QQMusicSessionStore
+    @EnvironmentObject private var kugou: KugouSessionStore
+    @State private var showPlatformAccount = false
 #endif
     @StateObject private var model = HomeViewModel.shared
 #if os(iOS)
@@ -406,6 +409,17 @@ struct HomeView: View {
                 .accessibilityLabel("当前首页平台：\(selectedHomePlatform.displayName)，点击切换")
                 .accessibilityHint("选择首页推荐平台或打开哔哩哔哩")
             }
+            if !bilibiliActive, selectedHomePlatform == .tx || selectedHomePlatform == .kg {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showPlatformAccount = true
+                    } label: {
+                        Image(systemName: (selectedHomePlatform == .kg ? kugou.isLoggedIn : qqMusic.isLoggedIn)
+                              ? "person.crop.circle.fill" : "person.crop.circle.badge.plus")
+                    }
+                    .accessibilityLabel("\(selectedHomePlatform.displayName)账号")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink(value: Destination.recents) {
                     Image(systemName: "clock.arrow.circlepath")
@@ -429,6 +443,12 @@ struct HomeView: View {
             await loadCurrentHome(force: true)
         }
         #if os(iOS)
+        .sheet(isPresented: $showPlatformAccount) {
+            PlatformAccountPage(platform: selectedHomePlatform)
+                .environmentObject(qqMusic)
+                .environmentObject(kugou)
+                .environmentObject(player)
+        }
         .task { await RemoteControlStore.shared.refreshIfNeeded() }
         .onChange(of: remoteControl.announcementText) { _ in presentAnnouncementIfNew() }
         .onChange(of: remoteControl.announcementEnabled) { _ in presentAnnouncementIfNew() }
