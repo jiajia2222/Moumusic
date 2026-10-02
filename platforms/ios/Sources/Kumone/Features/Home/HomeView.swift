@@ -905,8 +905,9 @@ struct HomePlatformBadge: View {
     let platform: LXCatalogPlatform
 
     var body: some View {
-        // Plain SF Symbol: the system toolbar supplies the liquid-glass button.
-        Image(systemName: iconName)
+        // Vector platform mark; the system toolbar supplies the liquid-glass button.
+        PlatformGlyph(platform: platform)
+            .frame(width: 26, height: 26)
     }
 
     private var iconName: String {
