@@ -139,6 +139,45 @@ struct MyProfileView: View {
         }
     }
 
+    /// The ID capsule. A granted exclusive ID gets the crown and the gold style
+    /// chosen on the server (black-purple-gold or classic gold).
+    private var idBadge: some View {
+        let exclusive = !deviceReporter.exclusiveID.isEmpty
+        let id = String(deviceReporter.displayID.prefix(24))
+        let classic = deviceReporter.badgeStyle == .classicGold
+        let gold = Color(red: 0.96, green: 0.76, blue: 0.30)
+        let textColor: Color = exclusive ? (classic ? Color(red: 0.24, green: 0.16, blue: 0.0) : gold) : .secondary
+        return Button {
+            UIPasteboard.general.string = id
+            ToastCenter.shared.show("用户 ID 已复制")
+        } label: {
+            HStack(spacing: 6) {
+                if exclusive { Image(systemName: "crown.fill") }
+                Text(exclusive ? "专属 ID · \(id)" : "ID \(id)")
+                Image(systemName: "doc.on.doc").font(.system(size: 10, weight: .semibold))
+            }
+            .font(.system(size: 12, weight: .bold, design: .rounded))
+            .foregroundStyle(textColor)
+            .lineLimit(1)
+            .padding(.horizontal, exclusive ? 11 : 0)
+            .padding(.vertical, exclusive ? 5 : 0)
+            .background {
+                if exclusive {
+                    Capsule().fill(
+                        classic
+                            ? LinearGradient(colors: [Color(red: 0.98, green: 0.84, blue: 0.45), Color(red: 0.80, green: 0.58, blue: 0.16)],
+                                             startPoint: .leading, endPoint: .trailing)
+                            : LinearGradient(colors: [Color(red: 0.07, green: 0.05, blue: 0.16), Color(red: 0.24, green: 0.12, blue: 0.43)],
+                                             startPoint: .leading, endPoint: .trailing))
+                }
+            }
+            .overlay {
+                if exclusive { Capsule().strokeBorder(gold.opacity(0.9), lineWidth: 1) }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(exclusive ? "专属 ID \(id)，点击复制" : "用户 ID \(id)，点击复制")
+    }
     private var compactIdentity: some View {
         let hasBackground = appearance.background != nil
         return MouGlassCard(cornerRadius: 24, padding: 14) {
@@ -164,15 +203,17 @@ struct MyProfileView: View {
                         Text(account.profile?.nickname ?? "Moumusic 用户")
                             .font(.headline)
                             .lineLimit(1)
-                        Button {
-                            showDeviceCode = true
-                        } label: {
-                            Text("ID \(String(deviceReporter.displayID.prefix(14))) · 设备码")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                        HStack(spacing: 8) {
+                            idBadge
+                            Button {
+                                showDeviceCode = true
+                            } label: {
+                                Text("设备码")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                     Spacer(minLength: 8)
                     Button {
