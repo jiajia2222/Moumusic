@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 /// Song comments are always read from NetEase. A non-NetEase track is matched
 /// to its NetEase metadata record before comments are loaded or posted.
@@ -176,7 +176,7 @@ struct SongCommentsSheet: View {
 
             if canPost {
                 HStack(alignment: .bottom, spacing: 8) {
-                    TextField("发表评论（网易云）", text: $draft, axis: .vertical)
+                    TextField(isBilibili ? "发表评论（哔哩哔哩）" : "发表评论（网易云）", text: $draft, axis: .vertical)
                         .lineLimit(1...4)
                         .textFieldStyle(.plain)
                         .padding(.horizontal, 14)
@@ -209,7 +209,7 @@ struct SongCommentsSheet: View {
                 Button {
                     openLogin()
                 } label: {
-                    Label("登录网易云后发表评论", systemImage: "person.crop.circle.badge.plus")
+                    Label(isBilibili ? "登录哔哩哔哩后发表评论" : "登录网易云后发表评论", systemImage: "person.crop.circle.badge.plus")
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .foregroundStyle(.primary)
@@ -238,7 +238,27 @@ struct SongCommentsSheet: View {
         latestComments = []
         metadataNotice = nil
         postStatus = nil
-        canPost = NeteaseClient.shared.isLoggedIn
+        canPost = isBilibili ? BilibiliSessionStore.shared.isLoggedIn : NeteaseClient.shared.isLoggedIn
+
+        if isBilibili {
+            // Bilibili videos carry Bilibili's own comment area (oid = aid).
+            let aid = Int(track.sourceMetadata["aid"] ?? "") ?? track.id
+            let cookie = BilibiliSessionStore.shared.cookie
+            do {
+                async let hot = BilibiliAPI.shared.comments(aid: aid, sort: .hot, cookie: cookie)
+                async let latest = BilibiliAPI.shared.comments(aid: aid, sort: .latest, cookie: cookie)
+                let (hotPage, latestPage) = try await (hot, latest)
+                hotComments = uniqueComments(hotPage.comments.map(DisplayComment.init))
+                latestComments = uniqueComments(latestPage.comments.map(DisplayComment.init))
+                metadataNotice = "哔哩哔哩视频评论"
+            } catch is CancellationError {
+                return
+            } catch {
+                self.error = error.localizedDescription
+            }
+            isLoading = false
+            return
+        }
 
         do {
             let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
@@ -275,9 +295,30 @@ struct SongCommentsSheet: View {
         return match.id
     }
 
+    private var isBilibili: Bool {
+        (track.source ?? track.sourceMetadata["source"] ?? "").lowercased() == "bili"
+    }
+
     private func postComment() async {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
+        if isBilibili {
+            isPosting = true
+            postStatus = nil
+            defer { isPosting = false }
+            do {
+                let aid = Int(track.sourceMetadata["aid"] ?? "") ?? track.id
+                try await BilibiliAPI.shared.postComment(aid: aid, message: content, cookie: BilibiliSessionStore.shared.cookie)
+                draft = ""
+                await loadComments()
+                postStatus = "评论已发送到哔哩哔哩。"
+                postStatusIsError = false
+            } catch {
+                postStatus = "评论发送失败，请检查 B 站登录状态后重试。"
+                postStatusIsError = true
+            }
+            return
+        }
         guard let neteaseSongID else {
             postStatus = "当前歌曲未匹配到网易云，暂时无法发表评论。"
             postStatusIsError = true
@@ -354,6 +395,14 @@ private struct DisplayComment: Identifiable, Hashable {
         author = comment.author
         likedCount = comment.likedCount
         date = comment.date
+    }
+
+    init(_ comment: BilibiliAPI.Comment) {
+        id = comment.id
+        content = comment.message
+        author = comment.author
+        likedCount = comment.likeCount
+        date = comment.publishedAt
     }
 
     init(_ comment: NeteaseAPI.CommentItem) {

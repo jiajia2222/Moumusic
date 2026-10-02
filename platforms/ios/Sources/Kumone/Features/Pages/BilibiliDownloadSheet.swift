@@ -1,4 +1,4 @@
-#if os(iOS)
+﻿#if os(iOS)
 import Foundation
 import SwiftUI
 
@@ -260,7 +260,7 @@ struct BilibiliDownloadSheet: View {
         isLoadingOptions = true
         defer { isLoadingOptions = false }
         do {
-            let playback = try await BilibiliAPI.shared.playback(for: video, cookie: bilibili.cookie)
+            let playback = try await BilibiliAPI.shared.playback(for: video, muxed: true, cookie: bilibili.cookie)
             videoQualities = playback.qualities
             selectedVideoQuality = playback.quality
         } catch {

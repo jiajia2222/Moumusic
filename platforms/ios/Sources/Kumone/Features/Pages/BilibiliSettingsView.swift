@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 /// Bilibili has its own settings page so video/audio switches do not get lost
 /// among global playback, lyrics, and LX-source preferences.
@@ -33,18 +33,23 @@ struct BilibiliSettingsView: View {
 
                 settingsCard("视频偏好") {
                     Picker("默认清晰度", selection: $preferredQuality) {
+                        Text("8K 超高清").tag(127)
+                        Text("杜比视界").tag(126)
+                        Text("HDR 真彩").tag(125)
+                        Text("4K 超清").tag(120)
+                        Text("1080P 60帧").tag(116)
                         Text("1080P 高码率").tag(112)
                         Text("1080P").tag(80)
                         Text("720P").tag(64)
                         Text("480P").tag(32)
                         Text("360P").tag(16)
                     }
-                    Text("实际清晰度取决于视频与账号权限（登录后通常最高 1080P）；播放页的「画质」菜单可临时切换。")
+                    Text("实际清晰度取决于视频与账号权限（4K、8K、杜比视界、HDR 需要大会员，且视频本身提供该规格）；播放页的「画质」菜单可临时切换。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Toggle("打开视频自动播放", isOn: $autoplay)
                     Toggle("显示弹幕", isOn: $settings.bilibiliDanmakuEnabled)
-                    Label("解码：H.264（音画合一流，系统硬件解码）", systemImage: "cpu")
+                    Label("解码：高画质优先 HEVC，其余 H.264，系统硬件解码；音频自动选用杜比/无损/最高码率", systemImage: "cpu")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

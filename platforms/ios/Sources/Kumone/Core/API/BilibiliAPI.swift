@@ -1,4 +1,4 @@
-import CryptoKit
+﻿import CryptoKit
 import Foundation
 
 /// Bilibili public-content and account client.
@@ -241,6 +241,8 @@ actor BilibiliAPI {
         let url: URL
         let quality: Int
         let qualities: [VideoQuality]
+        /// Separate audio track when the stream is DASH (video-only `url`).
+        var audioURL: URL? = nil
     }
 
     struct LiveArea: Identifiable, Hashable, Sendable {
@@ -1100,14 +1102,26 @@ actor BilibiliAPI {
     func danmaku(cid: Int, cookie: String? = nil) async throws -> [DanmakuCue] {
         guard cid > 0 else { throw APIError.invalidResponse }
         await ensureVisitorCookies()
-        let endpoint = URL(string: "https://comment.bilibili.com/\(cid).xml")!
-        var request = URLRequest(url: endpoint)
-        applyHeaders(to: &request, referer: "https://www.bilibili.com/")
-        request.setValue("application/xml,text/xml,*/*", forHTTPHeaderField: "Accept")
-        let cookies = mergedRequestCookieHeader(cookie)
-        if !cookies.isEmpty { request.setValue(cookies, forHTTPHeaderField: "Cookie") }
-        let (data, response) = try await session.data(for: request)
-        guard Self.isSuccess(response), !data.isEmpty else { throw APIError.requestFailed }
+        // Two equivalent XML endpoints; either may answer raw-deflate bytes without
+        // a Content-Encoding header, so inflate when the body is not XML text.
+        var xmlData: Data?
+        for endpoint in ["https://api.bilibili.com/x/v1/dm/list.so?oid=\(cid)", "https://comment.bilibili.com/\(cid).xml"] {
+            guard let url = URL(string: endpoint) else { continue }
+            var request = URLRequest(url: url)
+            applyHeaders(to: &request, referer: "https://www.bilibili.com/")
+            request.setValue("application/xml,text/xml,*/*", forHTTPHeaderField: "Accept")
+            let cookies = mergedRequestCookieHeader(cookie)
+            if !cookies.isEmpty { request.setValue(cookies, forHTTPHeaderField: "Cookie") }
+            guard let (data, response) = try? await session.data(for: request),
+                  Self.isSuccess(response), !data.isEmpty else { continue }
+            var body = data
+            if body.first != UInt8(ascii: "<"),
+               let inflated = try? (body as NSData).decompressed(using: .zlib) as Data {
+                body = inflated
+            }
+            if body.contains(UInt8(ascii: "<")) { xmlData = body; break }
+        }
+        guard let data = xmlData else { throw APIError.requestFailed }
         let parsed = try BilibiliDanmakuXMLParser().parse(data)
         return parsed.prefix(6000).enumerated().map { index, item in
             DanmakuCue(id: "\(cid)-\(index)-\(item.start)-\(item.text)",
@@ -1197,7 +1211,7 @@ actor BilibiliAPI {
     /// Returns one progressive stream plus the qualities actually accepted
     /// by the current account/video.  The UI never invents an unavailable
     /// resolution.
-    func playback(for video: Video, quality: Int? = nil, cookie: String? = nil) async throws -> Playback {
+    func playback(for video: Video, quality: Int? = nil, muxed: Bool = false, cookie: String? = nil) async throws -> Playback {
         guard let cid = video.cid else { throw APIError.invalidResponse }
         let preferred = UserDefaults.standard.integer(forKey: "moumusic.bili.preferredQuality")
         let requestedQuality = quality ?? (preferred > 0 ? preferred : 80)
@@ -1208,10 +1222,12 @@ actor BilibiliAPI {
             URLQueryItem(name: "qn", value: "\(requestedQuality)"),
             // fnval=1 -> muxed MP4 (video + audio in one stream). DASH video
             // streams are silent because the audio is a separate track.
-            URLQueryItem(name: "fnval", value: "1"),
+            // 4048 = DASH + HDR/4K/Dolby Vision/8K/Dolby audio/AV1 flags (played natively by
+            // AVPlayer with separate video+audio); 1 = one muxed MP4 (downloads, fallback).
+            URLQueryItem(name: "fnval", value: muxed ? "1" : "4048"),
             URLQueryItem(name: "fnver", value: "0"),
             URLQueryItem(name: "fourk", value: "1"),
-            URLQueryItem(name: "platform", value: "html5"),
+            URLQueryItem(name: "platform", value: muxed ? "html5" : "pc"),
             URLQueryItem(name: "high_quality", value: "1")
         ]
         let root = try await requestObject(components.url!, cookie: cookie,
@@ -1235,6 +1251,38 @@ actor BilibiliAPI {
         } else if actualQuality > 0 && !available.contains(where: { $0.code == actualQuality }) {
             available.append(VideoQuality(code: actualQuality, title: "\(actualQuality)p"))
             available.sort { $0.code > $1.code }
+        }
+
+        if !muxed, let dash = data["dash"] as? [String: Any],
+           let videos = dash["video"] as? [[String: Any]], !videos.isEmpty {
+            let ids = Set(videos.compactMap { Self.integer($0["id"]) })
+            let target = ids.contains(actualQuality) ? actualQuality
+                : (ids.filter { $0 <= actualQuality }.max() ?? ids.max() ?? actualQuality)
+            let candidates = videos.filter { Self.integer($0["id"]) == target }
+            func codec(_ row: [String: Any]) -> Int { Self.integer(row["codecid"]) ?? 0 }
+            // HEVC for high-end tiers, AVC otherwise; AV1 only as a last resort.
+            let chosen = (target >= 112 ? candidates.first(where: { codec($0) == 12 }) : nil)
+                ?? candidates.first(where: { codec($0) == 7 })
+                ?? candidates.first(where: { codec($0) == 12 })
+                ?? candidates.first
+            func firstURL(_ row: [String: Any]) -> URL? {
+                for key in ["baseUrl", "base_url", "url"] {
+                    if let value = Self.text(row[key]), let url = URL(string: value) { return url }
+                }
+                if let backups = (row["backupUrl"] ?? row["backup_url"]) as? [String] {
+                    for value in backups { if let url = URL(string: value) { return url } }
+                }
+                return nil
+            }
+            if let chosen, let videoURL = firstURL(chosen) {
+                let dolby = ((dash["dolby"] as? [String: Any])?["audio"] as? [[String: Any]])?.first
+                let flac = (dash["flac"] as? [String: Any])?["audio"] as? [String: Any]
+                let aac = (dash["audio"] as? [[String: Any]])?
+                    .max { (Self.integer($0["id"]) ?? 0) < (Self.integer($1["id"]) ?? 0) }
+                let audioRow = dolby ?? flac ?? aac
+                return Playback(url: videoURL, quality: target, qualities: available,
+                                audioURL: audioRow.flatMap(firstURL))
+            }
         }
 
         if let rows = data["durl"] as? [[String: Any]] {
@@ -1274,7 +1322,7 @@ actor BilibiliAPI {
     }
 
     func playableURL(for video: Video, cookie: String? = nil) async throws -> URL {
-        try await playback(for: video, cookie: cookie).url
+        try await playback(for: video, muxed: true, cookie: cookie).url
     }
 
     /// Returns the audio representations advertised by Bilibili's DASH
