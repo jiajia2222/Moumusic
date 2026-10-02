@@ -128,7 +128,16 @@ final class DeviceReporter: ObservableObject {
     var deviceUserID: String { StableDeviceID.value }
 
     /// 页面展示用 ID：专属 ID 优先，其次公开 ID。
-    var displayID: String { exclusiveID.isEmpty ? publicUserID : exclusiveID }
+    /// The ID shown in the UI: exclusive ID, else the server's random six-digit ID.
+    /// Until the first heartbeat answers, a stable six-digit placeholder derived from
+    /// this device is shown so a long device code never leaks into the UI.
+    var displayID: String {
+        if !exclusiveID.isEmpty { return exclusiveID }
+        if !publicUserID.isEmpty { return publicUserID }
+        var hash: UInt64 = 1469598103934665603
+        for byte in StableDeviceID.value.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
+        return String(100000 + Int(hash % 900000))
+    }
 
     func start() {
         Task { await reportHeartbeat() }

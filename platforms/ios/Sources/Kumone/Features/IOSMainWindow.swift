@@ -325,6 +325,7 @@ public struct IOSMainWindow: View {
             }
         }
         .toolbarBackground(.hidden, for: .tabBar)
+        .containerBackground(.clear, for: .tabView)
         .background(Color.clear)
     }
 
@@ -388,7 +389,9 @@ public struct IOSMainWindow: View {
         @ViewBuilder _ content: () -> Content
     ) -> some View {
         NavigationStack(path: binding(for: tab)) {
-            content().appDestinations()
+            content()
+                .appDestinations()
+                .containerBackground(.clear, for: .navigation)
         }
         .toolbarBackground(.hidden, for: .navigationBar)
         .background(Color.clear)

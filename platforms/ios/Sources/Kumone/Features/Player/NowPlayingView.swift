@@ -427,12 +427,48 @@ struct NowPlayingView: View {
             compactTrackMetaView
                 .padding(.top, compactTitleTopPadding)
             if showLyricsOnMobile {
+                // NetEase-style: a small cover on the lyric page returns to the cover page.
+                Button {
+                    withAnimation(AppAnimation.standard) {
+                        showLyricsOnMobile = false
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        Group {
+                            if let customCoverView {
+                                customCoverView
+                            } else if let artworkImage {
+                                Image(platformImage: artworkImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } else {
+                                Color.white.opacity(0.1)
+                            }
+                        }
+                        .frame(width: 52, height: 52)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        Text("点击封面返回")
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.65))
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 8)
+                .accessibilityLabel("返回封面")
                 lyricsColumn
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity)
             } else {
                 VStack(spacing: 20) {
                     artworkView(size: artworkDim)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(AppAnimation.standard) {
+                                showLyricsOnMobile = true
+                            }
+                        }
                     MiniLyricsView {
                         withAnimation(AppAnimation.standard) {
                             showLyricsOnMobile = true

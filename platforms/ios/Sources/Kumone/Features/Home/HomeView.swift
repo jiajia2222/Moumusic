@@ -404,6 +404,12 @@ struct HomeView: View {
         .refreshable {
             await loadCurrentHome(force: true)
         }
+        .onChange(of: settings.homeRecommendationPlatform) { _ in
+            Task { await loadCurrentHome(force: true) }
+        }
+        .onChange(of: settings.homeRecommendationMode) { _ in
+            Task { await loadCurrentHome(force: true) }
+        }
     }
 
     private var homeTaskID: String {

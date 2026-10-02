@@ -190,6 +190,7 @@ struct BilibiliContentView: View {
 
     @EnvironmentObject private var bilibili: BilibiliSessionStore
     @EnvironmentObject private var settings: SettingsManager
+    @EnvironmentObject private var player: PlayerService
     @StateObject private var model = BilibiliContentViewModel()
     @State private var selectedVideo: BilibiliAPI.Video?
     @State private var surface: Surface = .videos
@@ -218,7 +219,7 @@ struct BilibiliContentView: View {
         VStack(spacing: 0) {
         if embedded {
             Picker("哔哩哔哩", selection: $surface) {
-                ForEach(Surface.allCases.filter { $0 != .account }) { value in
+                ForEach(Surface.allCases) { value in
                     Text(value.rawValue).tag(value)
                 }
             }
@@ -404,7 +405,7 @@ struct BilibiliContentView: View {
                     .padding(.horizontal, Theme.Layout.contentInset)
                     ForEach(BilibiliContentFilter.dynamics(dynamics)) { item in
                         BilibiliDynamicCard(item: item) {
-                            if let video = item.video { selectedVideo = video }
+                            if let video = item.video { open(video) }
                         }
                         .padding(.horizontal, Theme.Layout.contentInset)
                     }
@@ -704,7 +705,7 @@ struct BilibiliContentView: View {
                 LazyVStack(spacing: 10) {
                     ForEach(watchHistory) { item in
                         Button {
-                            if let video = item.video { selectedVideo = video }
+                            if let video = item.video { open(video) }
                         } label: {
                             BilibiliHistoryRow(item: item)
                         }
@@ -953,6 +954,16 @@ struct BilibiliContentView: View {
         }
     }
 
+    /// 听视频 plays the audio through the main music player; 看视频 opens the video page.
+    private func open(_ video: BilibiliAPI.Video, in list: [BilibiliAPI.Video]? = nil) {
+        if settings.bilibiliMode == .listen {
+            let source = list ?? [video]
+            player.play(tracks: source.map(Track.bilibili), source: .none, startAt: Track.bilibili(video))
+        } else {
+            selectedVideo = video
+        }
+    }
+
     private func videoGrid(_ videos: [BilibiliAPI.Video]) -> some View {
         LazyVGrid(
             columns: [
@@ -963,7 +974,7 @@ struct BilibiliContentView: View {
             spacing: 18
         ) {
             ForEach(BilibiliContentFilter.videos(videos)) { video in
-                Button { selectedVideo = video } label: { BilibiliVideoCard(video: video) }
+                Button { open(video, in: videos) } label: { BilibiliVideoCard(video: video) }
                     .buttonStyle(.plain)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }

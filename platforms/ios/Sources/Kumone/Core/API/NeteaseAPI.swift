@@ -501,6 +501,12 @@ enum NeteaseAPI {
         // `/song/lyric/v1` also returns verbatim (word-by-word) `yrc`. Fall back
         // to the classic endpoint if it yields nothing usable, so plain lyrics
         // never regress.
+        let v1Payload: [String: Any] = ["id": id, "cp": false, "lv": 0, "kv": 0, "tv": 0, "rv": 0, "yv": 0, "ytv": 0, "yrv": 0]
+        // Word-by-word (yrc) lyrics are only returned by the eapi form.
+        if let verbatim = try? await eapi(LyricResponse.self, "/song/lyric/v1", v1Payload),
+           (verbatim.yrc?.lyric?.isEmpty == false) || (verbatim.lrc?.lyric?.isEmpty == false) {
+            return verbatim
+        }
         if let v1 = try? await weapi(LyricResponse.self, "/song/lyric/v1",
             ["id": id, "cp": false,
              "lv": 0, "kv": 0, "tv": 0, "rv": 0, "yv": 0, "ytv": 0, "yrv": 0]),

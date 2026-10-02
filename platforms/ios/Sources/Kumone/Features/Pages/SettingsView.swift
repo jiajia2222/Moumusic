@@ -57,7 +57,7 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
 #if os(iOS)
             settingsNavigator
 #endif
@@ -89,17 +89,6 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-
-#if os(iOS)
-            settingsGroup("账号与同步") {
-                NavigationLink(value: Destination.accountSync) {
-                    Label("账号登录与同步", systemImage: "person.crop.circle.badge.checkmark")
-                }
-                Text("网易云、QQ 音乐、酷狗和哔哩哔哩的登录入口统一放在“我的 → 账号登录与同步”。这里不重复显示平台登录卡片。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-#endif
 
             settingsGroup("播放设置") {
 #if os(iOS)
@@ -726,7 +715,7 @@ struct SettingsView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
-                .frame(minHeight: 54)
+                .frame(minHeight: 40)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -734,19 +723,20 @@ struct SettingsView: View {
             if isExpanded {
                 Divider()
                     .padding(.horizontal, 2)
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
                     content()
                 }
-                .padding(.top, 12)
+                .padding(.top, 8)
             }
         }
-        .padding(16)
-        .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .compatGlass(interactive: true, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(.primary.opacity(0.1), lineWidth: 0.8)
         }
-        .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+        .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
         }
     }
 
@@ -789,7 +779,7 @@ struct SettingsView: View {
             case .playback:
                 return ["音源与音质", "播放设置", "LX 音源"]
             case .accounts:
-                return ["账号与同步", "哔哩哔哩"]
+                return ["哔哩哔哩"]
             case .about:
                 return ["存储与下载", "数据备份与恢复", "关于与支持"]
             }
