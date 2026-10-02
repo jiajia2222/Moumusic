@@ -894,12 +894,14 @@ enum LXCatalogService {
     /// word, which is not a recommendation feed and can return placeholder
     /// words from a user API.  Keeping the song list and its tracks together
     /// also guarantees that a home recommendation never loses its platform.
-    static func recommendedContent(platform: LXCatalogPlatform, limit: Int = 30)
+    /// ariety is set by a manual refresh: the feed is deterministic, so a refresh
+    /// samples different playlists and shuffles the songs to show something new.
+    static func recommendedContent(platform: LXCatalogPlatform, limit: Int = 30, variety: Bool = false)
         async -> (playlists: [LXPlaylistSummary], tracks: [Track]) {
         guard platform != .aggregate else { return ([], []) }
 
         let playlists = (try? await recommendedSonglists(platform: platform, limit: limit)) ?? []
-        let candidates = Array(playlists.prefix(3))
+        let candidates = variety ? Array(playlists.shuffled().prefix(3)) : Array(playlists.prefix(3))
         let groups = await withTaskGroup(of: [Track].self, returning: [[Track]].self) { group in
             for playlist in candidates {
                 group.addTask {
@@ -916,10 +918,11 @@ enum LXCatalogService {
             seen.insert("\($0.name.lowercased())|\($0.artistNames.lowercased())").inserted
         }
 
+        if variety { tracks.shuffle() }
         // If a platform exposes only the playlist feed temporarily, keep the
         // page honest rather than filling it with a fixed hot-search query.
         // The next pull-to-refresh will request the live source feed again.
-        return (playlists, Array(tracks.prefix(limit)))
+        return (variety ? playlists.shuffled() : playlists, Array(tracks.prefix(limit)))
     }
 
     static func recommendedTracks(platform: LXCatalogPlatform, limit: Int = 30) async throws -> [Track] {

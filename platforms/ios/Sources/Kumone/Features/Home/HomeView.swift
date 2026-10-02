@@ -47,6 +47,8 @@ final class HomeViewModel: ObservableObject {
     private var activeRequest: LoadRequest?
     private var loadTask: Task<Void, Never>?
     private var loadGeneration = 0
+    /// Set by a manual refresh so the next load asks the feed for different songs.
+    private var wantsVariety = false
     private var lastLoadedAt: Date?
     private static let didPerformInstallRefreshKey = "moumusic.home.didPerformInstallRefresh.v2"
     private let recommendationCache = HomeRecommendationCache.shared
@@ -196,6 +198,8 @@ final class HomeViewModel: ObservableObject {
     private func loadOnce(loggedIn: Bool, mode: HomeRecommendationMode,
                           platform: LXCatalogPlatform, generation: Int) async {
         guard generation == loadGeneration else { return }
+        let variety = wantsVariety
+        wantsVariety = false
         activeMode = mode
         activePlatform = mode == .netease ? .wy : platform
         let hasExistingContent = !recommendTracks.isEmpty || !recommendPlaylists.isEmpty
@@ -208,7 +212,7 @@ final class HomeViewModel: ObservableObject {
         if mode == .lx {
             // LX recommendations are catalogue-only. The selected source is
             // still the only component allowed to resolve audio on iOS.
-            let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
+            let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30, variety: variety)
             guard generation == loadGeneration else { return }
             lxRecommendPlaylists = content.playlists
             var tracks = content.tracks
@@ -219,8 +223,9 @@ final class HomeViewModel: ObservableObject {
             // case and normalize these tracks before they enter the queue so
             // playback still goes through the selected LX source.
             if platform == .wy {
-                let liveTracks = (try? await NeteaseAPI.hotSongs(limit: 30))?
+                var liveTracks = (try? await NeteaseAPI.hotSongs(limit: variety ? 100 : 30))?
                     .map { $0.normalizedForLXPlayback() } ?? []
+                if variety { liveTracks = Array(liveTracks.shuffled().prefix(30)) }
                 if !liveTracks.isEmpty {
                     tracks = liveTracks
                 }
@@ -239,7 +244,7 @@ final class HomeViewModel: ObservableObject {
         // No account or NetEase audio URL is used here; queued tracks are
         // resolved by the selected LX User API in PlayerService.
         async let playlistsTask = fetchRecommendPlaylists(loggedIn: loggedIn)
-        async let hotSongsTask = try? NeteaseAPI.hotSongs(limit: 30)
+        async let hotSongsTask = try? NeteaseAPI.hotSongs(limit: variety ? 100 : 30)
         async let toplistsTask = try? NeteaseAPI.toplists()
         async let albumsTask = try? NeteaseAPI.newAlbums(limit: 20)
         async let artistsTask = try? NeteaseAPI.topArtists()
@@ -251,7 +256,9 @@ final class HomeViewModel: ObservableObject {
         // Never replace a live recommendation feed with a fixed keyword
         // search. An empty response is shown as an empty state and can be
         // retried with pull-to-refresh.
-        recommendTracks = hotSongs.map { $0.normalizedForLXPlayback() }
+        var normalizedHot = hotSongs.map { $0.normalizedForLXPlayback() }
+        if variety { normalizedHot = Array(normalizedHot.shuffled().prefix(30)) }
+        recommendTracks = normalizedHot
         guard generation == loadGeneration else { return }
         toplists = Array((await toplistsTask ?? []).prefix(12))
         newAlbums = await albumsTask ?? []
@@ -279,6 +286,7 @@ final class HomeViewModel: ObservableObject {
         loadGeneration += 1
         loadTask?.cancel()
         loadTask = nil
+        wantsVariety = true
         activeRequest = nil
         resetContent()
         lastLoadedAt = nil
@@ -404,11 +412,12 @@ struct HomeView: View {
         .refreshable {
             await loadCurrentHome(force: true)
         }
+        // Switching platform shows its cached feed; only a manual refresh fetches new songs.
         .onChange(of: settings.homeRecommendationPlatform) { _ in
-            Task { await loadCurrentHome(force: true) }
+            Task { await loadCurrentHome() }
         }
         .onChange(of: settings.homeRecommendationMode) { _ in
-            Task { await loadCurrentHome(force: true) }
+            Task { await loadCurrentHome() }
         }
     }
 
