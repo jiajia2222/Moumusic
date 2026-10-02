@@ -216,6 +216,11 @@ private struct ProviderWebView: UIViewRepresentable {
         configuration.websiteDataStore = .default()
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.allowsBackForwardNavigationGestures = true
+        // y.qq.com serves a mobile page without a login entry; ask for the desktop site.
+        if url.host?.contains("y.qq.com") == true {
+            view.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+            configuration.defaultWebpagePreferences.preferredContentMode = .desktop
+        }
         view.load(URLRequest(url: url))
         DispatchQueue.main.async { webView = view }
         return view

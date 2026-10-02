@@ -13,6 +13,7 @@ actor KugouAPI {
         let name: String
         let avatarURL: String?
         let refreshedCookie: String?
+        var isVIP: Bool = false
     }
 
     struct ResolvedAudio: Sendable {
@@ -205,10 +206,17 @@ actor KugouAPI {
         let name = Self.text(in: info, keys: [
             "nickname", "nick_name", "username", "name", "nick"
         ]) ?? "酷狗音乐用户"
+        // Best-effort membership flag; the profile payload has used several names.
+        let vipLevel = Self.integer(in: info, keys: ["is_vip", "vip_type", "svip_level", "vip", "m_type"]) ?? 0
+        let fieldNames = info.keys.sorted().joined(separator: ",")
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .info, category: "Kugou", message: "账号资料字段", detail: fieldNames)
+        }
         return Profile(
             id: id,
             name: name,
             avatarURL: Self.text(in: info, keys: ["avatar", "avatar_url", "avatarUrl", "headurl"]),
+            isVIP: vipLevel > 0,
             refreshedCookie: Self.mergedCookie(
                 original: cookie,
                 response: response as? HTTPURLResponse

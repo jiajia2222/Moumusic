@@ -487,6 +487,10 @@ actor BilibiliAPI {
             guard !cookies.isEmpty else { throw APIError.unavailable }
             return .success(cookie: cookies)
         default:
+            let unexpected = code.map(String.init) ?? "nil"
+            Task { @MainActor in
+                DiagnosticLogStore.shared.append(level: .error, category: "哔哩哔哩登录", message: "扫码轮询返回未知状态", detail: "code=\(unexpected)")
+            }
             throw APIError.unavailable
         }
     }

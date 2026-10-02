@@ -409,7 +409,7 @@ struct MyProfileView: View {
 
                 accountSourceRow(
                     title: "酷狗音乐",
-                    subtitle: kugou.isLoggedIn ? (kugou.profileName ?? "已登录") : "未登录 · 扫码同步账号资料",
+                    subtitle: kugou.isLoggedIn ? ((kugou.profileName ?? "已登录") + (kugou.isVIP ? " · 会员" : " · 非会员")) : "未登录 · 扫码同步账号资料",
                     icon: "headphones",
                     isLoggedIn: kugou.isLoggedIn
                 ) {

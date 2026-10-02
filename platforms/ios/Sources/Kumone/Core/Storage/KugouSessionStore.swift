@@ -22,6 +22,7 @@ final class KugouSessionStore: ObservableObject {
 
     @Published private(set) var isLoggedIn = false
     @Published private(set) var profileName: String?
+    @Published private(set) var isVIP = false
     @Published private(set) var sessionRevision = 0
 
     var cookie: String? { storedCookie }
@@ -82,6 +83,7 @@ final class KugouSessionStore: ObservableObject {
             storedCookie = refreshedCookie
         }
         profileName = profile?.name ?? "酷狗音乐用户"
+        isVIP = profile?.isVIP ?? false
         isLoggedIn = true
         sessionRevision &+= 1
     }
@@ -103,6 +105,7 @@ final class KugouSessionStore: ObservableObject {
             return
         }
         profileName = profile.name
+        isVIP = profile.isVIP
         isLoggedIn = true
         if let refreshedCookie = profile.refreshedCookie {
             try? ProviderSessionSupport.writeCookie(refreshedCookie, service: keychainService)
@@ -114,6 +117,7 @@ final class KugouSessionStore: ObservableObject {
         ProviderSessionSupport.deleteCookie(service: keychainService)
         storedCookie = nil
         profileName = nil
+        isVIP = false
         isLoggedIn = false
         sessionRevision &+= 1
     }

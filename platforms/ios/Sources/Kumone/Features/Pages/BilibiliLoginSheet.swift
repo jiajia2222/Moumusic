@@ -238,6 +238,8 @@ struct BilibiliLoginSheet: View {
                                 return
                             } catch {
                                 pollTask = nil
+                                let names = cookie.split(separator: ";").compactMap { $0.split(separator: "=").first.map { String($0).trimmingCharacters(in: .whitespaces) } }.joined(separator: ",")
+                                DiagnosticLogStore.shared.append(level: .error, category: "哔哩哔哩登录", message: "扫码成功但会话验证失败", detail: "error=\(error); cookies=\(names)")
                                 phase = .failed("已扫码，但哔哩哔哩会话验证失败，请重新获取二维码")
                                 return
                             }

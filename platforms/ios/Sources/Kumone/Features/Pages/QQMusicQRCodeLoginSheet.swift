@@ -230,6 +230,7 @@ struct QQMusicQRCodeLoginSheet: View {
             } catch {
                 if !Task.isCancelled, generation == loginGeneration {
                     pollTask = nil
+                    DiagnosticLogStore.shared.append(level: .error, category: "QQ 音乐登录", message: "扫码登录失败", detail: "\(error)")
                     phase = .failed(error.localizedDescription)
                 }
             }

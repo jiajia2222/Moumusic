@@ -115,6 +115,9 @@ final class HomeViewModel: ObservableObject {
         // returns immediately; stale data remains visible while refreshing.
         if activeRequest != request {
             activeRequest = request
+            // Keep the displayed platform in step with the cached snapshot we apply.
+            activeMode = mode
+            activePlatform = mode == .netease ? .wy : platform
             if let snapshot = recommendationCache.snapshot(for: requestKey) {
                 apply(snapshot)
                 lastLoadedAt = snapshot.savedAt
