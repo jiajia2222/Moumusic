@@ -2080,7 +2080,8 @@ private struct CompactTrackHeader: View {
                 }
                 #else
                 EmptyView()
-                #endif            case .comments:
+                #endif
+            case .comments:
                 if let track = player.currentTrack {
                     SongCommentsSheet(track: track)
                 } else {
