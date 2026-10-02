@@ -1,0 +1,987 @@
+import Foundation
+
+/// Typed NetEase Cloud Music API surface, mapped to real weapi/eapi endpoints.
+enum NeteaseAPI {
+    private static var client: NeteaseClient { .shared }
+
+    private static func weapi<T: Decodable>(
+        _ type: T.Type, _ path: String, _ payload: [String: Any] = [:]
+    ) async throws -> T {
+        let data = try await client.weapi(path, payload)
+        return try client.decoded(T.self, from: data)
+    }
+
+    private static func eapi<T: Decodable>(
+        _ type: T.Type, _ path: String, _ payload: [String: Any] = [:]
+    ) async throws -> T {
+        let data = try await client.eapi(path, payload)
+        return try client.decoded(T.self, from: data)
+    }
+
+    struct CodeOnly: Decodable {
+        let code: Int
+    }
+
+    // MARK: - Auth
+
+    struct QRKeyResponse: Decodable {
+        let code: Int
+        let unikey: String
+    }
+
+    static func qrKey() async throws -> String {
+        try await weapi(QRKeyResponse.self, "/login/qrcode/unikey", ["type": 1]).unikey
+    }
+
+    static func qrLoginURL(unikey: String) -> String {
+        "https://music.163.com/login?codekey=\(unikey)"
+    }
+
+    struct QRCheckResponse: Decodable {
+        let code: Int
+        let message: String?
+        let nickname: String?
+        let avatarUrl: String?
+    }
+
+    /// Codes: 800 expired · 801 waiting · 802 scanned · 803 success.
+    /// On 803 the auth cookies arrive via Set-Cookie and are absorbed by the client.
+    static func qrCheck(unikey: String) async throws -> QRCheckResponse {
+        let data = try await client.weapi("/login/qrcode/client/login", ["key": unikey, "type": 1])
+        return try JSONDecoder().decode(QRCheckResponse.self, from: data)
+    }
+
+    /// Sends an SMS verification code for phone-number login
+    /// (upstream: `/api/sms/captcha/sent`).
+    static func sendSMSCode(phone: String, countryCode: String = "86") async throws {
+        let data = try await client.weapi("/sms/captcha/sent",
+                                          ["ctcode": countryCode, "cellphone": phone,
+                                           "secrete": "music_middleuser_pclogin"])
+        _ = try client.decoded(CodeOnly.self, from: data)
+    }
+
+    /// Phone-number login with an SMS code (upstream: `/api/w/login/cellphone`).
+    /// Auth cookies arrive via Set-Cookie.
+    static func loginCellphone(phone: String, captcha: String, countryCode: String = "86") async throws {
+        let data = try await client.weapi("/w/login/cellphone",
+                                          ["type": "1", "https": "true",
+                                           "phone": phone, "countrycode": countryCode,
+                                           "captcha": captcha, "remember": "true",
+                                           "secureCaptcha": ""])
+        _ = try client.decoded(CodeOnly.self, from: data)
+        guard client.isLoggedIn else {
+            throw NeteaseAPIError.business(code: -1, message: String(localized: "登录失败，请重试"))
+        }
+    }
+
+    static func logout() async {
+        _ = try? await client.weapi("/logout")
+        client.clearAuthCookies()
+    }
+
+    static func refreshLogin() async {
+        _ = try? await client.weapi("/login/token/refresh")
+    }
+
+    struct AccountResponse: Decodable {
+        let code: Int
+        let profile: UserProfile?
+    }
+
+    static func userAccount() async throws -> UserProfile? {
+        try await weapi(AccountResponse.self, "/w/nuser/account/get").profile
+    }
+
+    // MARK: - User library
+
+    struct UserPlaylistsResponse: Decodable {
+        let playlist: [PlaylistSummary]
+        let more: Bool?
+    }
+
+    static func userPlaylists(uid: Int, limit: Int = 2000, offset: Int = 0) async throws -> [PlaylistSummary] {
+        try await weapi(UserPlaylistsResponse.self, "/user/playlist",
+                        ["uid": uid, "limit": limit, "offset": offset, "includeVideo": true]).playlist
+    }
+
+    struct LikelistResponse: Decodable {
+        let ids: [Int]
+    }
+
+    static func likedTrackIDs(uid: Int) async throws -> [Int] {
+        try await weapi(LikelistResponse.self, "/song/like/get", ["uid": uid]).ids
+    }
+
+    static func likeTrack(id: Int, like: Bool) async throws {
+        let resp = try await weapi(CodeOnly.self, "/radio/like?alg=itembased&trackId=\(id)&time=3",
+                                   ["trackId": id, "like": like])
+        guard resp.code == 200 else {
+            throw NeteaseAPIError.business(code: resp.code, message: String(localized: "操作失败，专辑下架或版权锁定"))
+        }
+    }
+
+    struct SublistResponse<Item: Decodable>: Decodable {
+        let data: [Item]
+        let count: Int?
+        let hasMore: Bool?
+    }
+
+    static func likedAlbums(limit: Int = 500, offset: Int = 0) async throws -> [AlbumSummary] {
+        try await weapi(SublistResponse<AlbumSummary>.self, "/album/sublist",
+                        ["limit": limit, "offset": offset, "total": true]).data
+    }
+
+    static func likedArtists(limit: Int = 500, offset: Int = 0) async throws -> [ArtistSummary] {
+        try await weapi(SublistResponse<ArtistSummary>.self, "/artist/sublist",
+                        ["limit": limit, "offset": offset, "total": true]).data
+    }
+
+    struct PlayRecordResponse: Decodable {
+        let weekData: [PlayRecordItem]?
+        let allData: [PlayRecordItem]?
+    }
+
+    static func playRecords(uid: Int, week: Bool) async throws -> [PlayRecordItem] {
+        let resp = try await weapi(PlayRecordResponse.self, "/v1/play/record",
+                                   ["uid": uid, "type": week ? 1 : 0])
+        return (week ? resp.weekData : resp.allData) ?? []
+    }
+
+    struct CloudResponse: Decodable {
+        let data: [CloudSongItem]?
+        let hasMore: Bool?
+        /// Bytes; served as a number or a numeric string depending on account age.
+        let size: Int64?
+        let maxSize: Int64?
+
+        private enum CodingKeys: String, CodingKey {
+            case data, hasMore, size, maxSize
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            data = try? c.decode([CloudSongItem].self, forKey: .data)
+            hasMore = try? c.decode(Bool.self, forKey: .hasMore)
+            size = (try? c.decode(Int64.self, forKey: .size))
+                ?? (try? c.decode(String.self, forKey: .size)).flatMap(Int64.init)
+            maxSize = (try? c.decode(Int64.self, forKey: .maxSize))
+                ?? (try? c.decode(String.self, forKey: .maxSize)).flatMap(Int64.init)
+        }
+    }
+
+    static func cloudSongs(limit: Int = 1000, offset: Int = 0) async throws -> CloudResponse {
+        try await weapi(CloudResponse.self, "/v1/cloud/get", ["limit": limit, "offset": offset])
+    }
+
+    static func cloudDelete(id: Int) async throws {
+        _ = try await weapi(CodeOnly.self, "/cloud/del", ["songIds": "[\(id)]"])
+    }
+
+    /// `startplay` weblog — writes the song into the 最近播放 (recent-plays)
+    /// list. NetEase needs this *and* the `play` weblog; sending only `play`
+    /// (as before) bumped the listening ranking but never wrote 最近播放 (#33).
+    @discardableResult
+    static func scrobbleStart(trackID: Int, sourceID: Int) async -> Bool {
+        await sendWeblog([[
+            "action": "startplay",
+            "json": [
+                "id": trackID, "type": "song",
+                "mainsite": "1", "mainsiteWeb": "1",
+                "content": "id=\(sourceID)",
+            ],
+        ]])
+    }
+
+    /// `play` weblog — increments the listening-ranking play count and time.
+    @discardableResult
+    static func scrobbleFinish(trackID: Int, sourceID: Int, seconds: Int) async -> Bool {
+        guard seconds > 0 else { return false }
+        return await sendWeblog([[
+            "action": "play",
+            "json": [
+                "download": 0, "end": "playend", "id": trackID,
+                "sourceId": String(sourceID), "time": seconds,
+                "type": "song", "wifi": 0, "source": "list",
+                "mainsite": "1", "mainsiteWeb": "1",
+                "content": "id=\(sourceID)",
+            ],
+        ]])
+    }
+
+    /// Routed via eapi with the desktop-client cookie (`os=osx`) to match the
+    /// reference scrobble implementation.
+    private static func sendWeblog(_ log: [[String: Any]]) async -> Bool {
+        guard let data = try? JSONSerialization.data(withJSONObject: log),
+              let logs = String(data: data, encoding: .utf8) else { return false }
+
+        do {
+            let response = try await client.eapi("/feedback/weblog", ["logs": logs],
+                                                 cookieOverrides: ["os": "osx"])
+            // The transport only validates HTTP status. The weblog endpoint
+            // can still return a business error in a 2xx response, so do not
+            // report a local sync until its JSON code explicitly succeeds.
+            let result = try client.decoded(CodeOnly.self, from: response)
+            return result.code == 200
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - Playlists
+
+    struct PersonalizedResponse: Decodable {
+        let result: [PlaylistSummary]
+    }
+
+    static func personalizedPlaylists(limit: Int = 30) async throws -> [PlaylistSummary] {
+        try await weapi(PersonalizedResponse.self, "/personalized/playlist",
+                        ["limit": limit, "total": true, "n": 1000]).result
+    }
+
+    struct RecommendResourceResponse: Decodable {
+        let recommend: [PlaylistSummary]
+    }
+
+    /// Logged-in daily recommended playlists.
+    static func recommendResource() async throws -> [PlaylistSummary] {
+        try await weapi(RecommendResourceResponse.self, "/v1/discovery/recommend/resource").recommend
+    }
+
+    struct RecommendSongsResponse: Decodable {
+        struct Body: Decodable {
+            let dailySongs: [Track]?
+        }
+
+        // New accounts with no listening history get `"data": null`.
+        let data: Body?
+    }
+
+    static func dailyRecommendSongs() async throws -> [Track] {
+        let resp = try await weapi(RecommendSongsResponse.self, "/v3/discovery/recommend/songs")
+        return resp.data?.dailySongs ?? []
+    }
+
+    struct PlaylistDetailResponse: Decodable {
+        let playlist: PlaylistDetail
+        let privileges: [TrackPrivilege]?
+    }
+
+    static func playlistDetail(id: Int) async throws -> PlaylistDetailResponse {
+        try await weapi(PlaylistDetailResponse.self, "/v6/playlist/detail",
+                        ["id": id, "n": 100_000, "s": 8])
+    }
+
+    struct PlaylistBrief: Decodable {
+        struct Body: Decodable {
+            let id: Int
+            let name: String?
+            let coverImgUrl: String?
+        }
+
+        let playlist: Body
+    }
+
+    /// Lightweight name + cover fetch (used for the personalized radar playlists,
+    /// whose title/artwork are generated per account).
+    static func playlistBrief(id: Int) async throws -> PlaylistBrief.Body {
+        try await weapi(PlaylistBrief.self, "/v6/playlist/detail", ["id": id, "n": 1, "s": 0]).playlist
+    }
+
+    struct SongDetailResponse: Decodable {
+        let songs: [Track]
+        let privileges: [TrackPrivilege]?
+    }
+
+    static func songDetails(ids: [Int]) async throws -> SongDetailResponse {
+        guard !ids.isEmpty else { return SongDetailResponse(songs: [], privileges: []) }
+        let c = "[" + ids.map { "{\"id\":\($0)}" }.joined(separator: ",") + "]"
+        return try await weapi(SongDetailResponse.self, "/v3/song/detail", ["c": c])
+    }
+
+    struct TopPlaylistResponse: Decodable {
+        let playlists: [PlaylistSummary]
+        let total: Int?
+        let more: Bool?
+    }
+
+    static func topPlaylists(category: String, order: String = "hot",
+                             limit: Int = 50, offset: Int = 0) async throws -> TopPlaylistResponse {
+        try await weapi(TopPlaylistResponse.self, "/playlist/list",
+                        ["cat": category, "order": order, "limit": limit, "offset": offset, "total": true])
+    }
+
+    struct HighQualityResponse: Decodable {
+        let playlists: [PlaylistSummary]
+        let lasttime: Int?
+        let more: Bool?
+    }
+
+    static func highQualityPlaylists(category: String = "全部", limit: Int = 50,
+                                     before: Int = 0) async throws -> HighQualityResponse {
+        try await weapi(HighQualityResponse.self, "/playlist/highquality/list",
+                        ["cat": category, "limit": limit, "lasttime": before, "total": true])
+    }
+
+    struct ToplistResponse: Decodable {
+        let list: [ToplistItem]
+    }
+
+    static func toplists() async throws -> [ToplistItem] {
+        try await eapi(ToplistResponse.self, "/toplist").list
+    }
+
+    struct PlaylistCreateResponse: Decodable {
+        let code: Int
+        let id: Int?
+    }
+
+    @discardableResult
+    static func createPlaylist(name: String, isPrivate: Bool) async throws -> Int? {
+        try await weapi(PlaylistCreateResponse.self, "/playlist/create",
+                        ["name": name, "privacy": isPrivate ? 10 : 0, "type": "NORMAL"]).id
+    }
+
+    static func deletePlaylist(id: Int) async throws {
+        _ = try await weapi(CodeOnly.self, "/playlist/remove", ["ids": "[\(id)]"])
+    }
+
+    static func subscribePlaylist(id: Int, subscribe: Bool) async throws {
+        _ = try await weapi(CodeOnly.self, "/playlist/\(subscribe ? "subscribe" : "unsubscribe")", ["id": id])
+    }
+
+    struct ManipulateResponse: Decodable {
+        let code: Int?
+    }
+
+    static func playlistTracks(op: String, playlistID: Int, trackIDs: [Int]) async throws {
+        let ids = "[" + trackIDs.map(String.init).joined(separator: ",") + "]"
+        let data = try await client.weapi("/playlist/manipulate/tracks",
+                                          ["op": op, "pid": playlistID, "trackIds": ids, "imme": "true"])
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let code = obj["code"] as? Int, code != 200 {
+            // 512: already-in-playlist quirk — retry with doubled ids like the reference impl
+            if code == 512, op == "add" {
+                let doubled = "[" + (trackIDs + trackIDs).map(String.init).joined(separator: ",") + "]"
+                _ = try await client.weapi("/playlist/manipulate/tracks",
+                                           ["op": op, "pid": playlistID, "trackIds": doubled, "imme": "true"])
+                return
+            }
+            throw NeteaseAPIError.business(code: code, message: obj["message"] as? String)
+        }
+    }
+
+    struct IntelligenceResponse: Decodable {
+        struct Item: Decodable {
+            let songInfo: Track?
+            let id: Int?
+        }
+
+        let data: [Item]?
+    }
+
+    /// 心动模式 — generates a heartbeat-mode queue from a seed song in a playlist.
+    static func intelligenceList(songID: Int, playlistID: Int) async throws -> [Track] {
+        let resp = try await weapi(IntelligenceResponse.self, "/playmode/intelligence/list",
+                                   ["songId": songID, "type": "fromPlayOne",
+                                    "playlistId": playlistID, "startMusicId": songID, "count": 1])
+        return (resp.data ?? []).compactMap(\.songInfo)
+    }
+
+    // MARK: - Tracks
+
+    /// The desktop target still has its historical native player. iOS is
+    /// allowed to use the same endpoint only when the user explicitly signs
+    /// in and selects automatic or official account playback.
+    struct SongURLResponse: Decodable {
+        let data: [SongURLData]
+    }
+
+    static func songURL(ids: [Int], level: String) async throws -> [SongURLData] {
+        let idString = "[" + ids.map(String.init).joined(separator: ",") + "]"
+        var payload: [String: Any] = ["ids": idString, "level": level, "encodeType": "flac"]
+        if level == "sky" { payload["immerseType"] = "c51" }
+        return try await eapi(SongURLResponse.self, "/song/enhance/player/url/v1", payload).data
+    }
+
+    /// Quality availability is advisory UI data. Keep a slow or unavailable
+    /// account endpoint from making the picker wait for the normal API timeout.
+    /// URLSession cancellation is propagated when the timeout task wins.
+    private static func qualityProbeURL(id: Int, level: String) async -> [SongURLData]? {
+        await withTaskGroup(of: [SongURLData]?.self) { group in
+            group.addTask {
+                try? await songURL(ids: [id], level: level)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                return nil
+            }
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
+        }
+    }
+
+    /// Probes the authenticated account endpoint and returns only quality
+    /// tiers for which this song actually has a non-preview URL. The player
+    /// uses this instead of advertising every quality label in the UI.
+    static func officialQualityNames(for id: Int, duration: TimeInterval? = nil,
+                                     allowPremium: Bool = false) async -> [String] {
+        guard id > 0 else { return [] }
+        let allProbes: [AudioQuality] = [.master, .atmos, .dolby, .surround,
+                                         .hires, .lossless, .exhigh, .standard]
+        let probes = allowPremium
+            ? allProbes
+            : allProbes.filter { !$0.requiresNeteaseVIP }
+        var available = Set<String>()
+        // These requests are independent. Launch them together so an expired
+        // session or a slow tier cannot multiply the wait by eight.
+        let probeTasks = probes.map { requested in
+            Task { await qualityProbeURL(id: id, level: requested.neteaseLevel) }
+        }
+        for (_, task) in zip(probes, probeTasks) {
+            guard let response = await task.value,
+                  let data = response.first,
+                  let rawURL = data.url,
+                  let url = URL(string: rawURL),
+                  let scheme = url.scheme?.lowercased(),
+                   ["http", "https"].contains(scheme),
+                   data.freeTrialInfo == nil,
+                   allowPremium || data.fee <= 0 else { continue }
+            if let duration, duration > 0, data.time > 0,
+               TimeInterval(data.time) / 1000 < max(45, duration * 0.65) {
+                continue
+            }
+            if let quality = officialQuality(for: data) {
+                available.insert(quality.lxType)
+            }
+        }
+        return AudioQuality.allCases
+            .map(\.lxType)
+            .filter { available.contains($0) }
+            .reduce(into: []) { result, name in
+                if !result.contains(name) { result.append(name) }
+            }
+    }
+
+    /// Maps the server's returned level/format/bitrate to the real tier that
+    /// was served. This deliberately prefers response metadata over the
+    /// requested tier because VIP restrictions can downgrade a request.
+    static func officialQuality(for data: SongURLData) -> AudioQuality? {
+        // NetEase can echo the requested `level` and a 999K-ish bitrate even
+        // after downgrading an account. Prefer the returned format marker, and
+        // only use the bitrate as a conservative fallback.
+        if let type = data.type?.lowercased() {
+            if type.contains("24") || type.contains("hires") || type.contains("highres") {
+                return .hires
+            }
+            if type.contains("flac") || type.contains("ape") {
+                return .lossless
+            }
+        }
+
+        if data.br > 0 {
+            switch data.br {
+            case 1_800_000...: return .hires
+            case 600_000..<1_800_000: return .lossless
+            case 300_000..<600_000: return .exhigh
+            // 192 kbps (and similar provider-specific bitrates) is not the
+            // 320 kbps tier. Keep the safe standard tier instead.
+            case 160_000..<300_000: return .standard
+            default: return .standard
+            }
+        }
+
+        // `level` alone is not proof of the returned stream. NetEase can echo
+        // the requested level after downgrading an account, so leave the
+        // result unknown instead of claiming Master/Atmos/Lossless.
+        return nil
+    }
+
+    static func lyric(id: Int) async throws -> LyricResponse {
+        // `/song/lyric/v1` also returns verbatim (word-by-word) `yrc`. Fall back
+        // to the classic endpoint if it yields nothing usable, so plain lyrics
+        // never regress.
+        if let v1 = try? await weapi(LyricResponse.self, "/song/lyric/v1",
+            ["id": id, "cp": false,
+             "lv": 0, "kv": 0, "tv": 0, "rv": 0, "yv": 0, "ytv": 0, "yrv": 0]),
+            (v1.lrc?.lyric?.isEmpty == false) || (v1.yrc?.lyric?.isEmpty == false) {
+            return v1
+        }
+        return try await weapi(LyricResponse.self, "/song/lyric",
+                               ["id": id, "lv": -1, "kv": -1, "tv": -1, "rv": -1])
+    }
+
+    struct CommentUser: Decodable {
+        let nickname: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case nickname, name
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            nickname = (try? container.decode(String.self, forKey: .nickname))
+                ?? (try? container.decode(String.self, forKey: .name))
+        }
+    }
+
+    struct CommentItem: Decodable, Identifiable {
+        let id: Int
+        let content: String
+        let likedCount: Int
+        let user: CommentUser?
+        let time: Int64?
+
+        private enum CodingKeys: String, CodingKey {
+            case id, commentId, content, likedCount, user, time, timestamp, timeStr
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            // The public resource endpoint calls this field `commentId`,
+            // while older encrypted responses used `id`.
+            func decodeInt(_ key: CodingKeys) -> Int? {
+                if let value = try? container.decode(Int.self, forKey: key) {
+                    return value
+                }
+                if let value = try? container.decode(String.self, forKey: key) {
+                    return Int(value)
+                }
+                return nil
+            }
+
+            func decodeInt64(_ key: CodingKeys) -> Int64? {
+                if let value = try? container.decode(Int64.self, forKey: key) {
+                    return value
+                }
+                if let value = try? container.decode(String.self, forKey: key) {
+                    return Int64(value)
+                }
+                return nil
+            }
+
+            if let commentID = decodeInt(.commentId) {
+                id = commentID
+            } else if let commentID = decodeInt(.id) {
+                id = commentID
+            } else {
+                throw DecodingError.dataCorrupted(.init(
+                    codingPath: container.codingPath,
+                    debugDescription: "Comment response has no numeric id"
+                ))
+            }
+            content = (try? container.decode(String.self, forKey: .content)) ?? ""
+            likedCount = decodeInt(.likedCount) ?? 0
+            user = try? container.decode(CommentUser.self, forKey: .user)
+            time = decodeInt64(.time) ?? decodeInt64(.timestamp) ?? decodeInt64(.timeStr)
+        }
+    }
+
+    struct CommentResponse: Decodable {
+        let comments: [CommentItem]
+        let hotComments: [CommentItem]
+        let topComments: [CommentItem]
+        let total: Int?
+
+        private struct CommentData: Decodable {
+            let comments: [CommentItem]?
+            let hotComments: [CommentItem]?
+            let topComments: [CommentItem]?
+            let total: Int?
+
+            private enum CodingKeys: String, CodingKey {
+                case comments, hotComments, topComments, total
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                comments = try? container.decode([CommentItem].self, forKey: .comments)
+                hotComments = try? container.decode([CommentItem].self, forKey: .hotComments)
+                topComments = try? container.decode([CommentItem].self, forKey: .topComments)
+                if let value = try? container.decode(Int.self, forKey: .total) {
+                    total = value
+                } else if let value = try? container.decode(String.self, forKey: .total) {
+                    total = Int(value)
+                } else {
+                    total = nil
+                }
+            }
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let direct = (try? container.decode([CommentItem].self, forKey: .comments)) ?? []
+            let directHot = (try? container.decode([CommentItem].self, forKey: .hotComments)) ?? []
+            let directTop = (try? container.decode([CommentItem].self, forKey: .topComments)) ?? []
+            let data = try? container.decode(CommentData.self, forKey: .data)
+            // Keep latest, popular, and pinned comments separate so the UI
+            // can switch modes without mixing the server's result sets.
+            func unique(_ values: [CommentItem]) -> [CommentItem] {
+                var seen = Set<Int>()
+                return values.filter { seen.insert($0.id).inserted }
+            }
+            comments = unique(direct + (data?.comments ?? []))
+            hotComments = unique(directHot + (data?.hotComments ?? []))
+            topComments = unique(directTop + (data?.topComments ?? []))
+            if let value = try? container.decode(Int.self, forKey: .total) {
+                total = value
+            } else if let value = try? container.decode(String.self, forKey: .total) {
+                total = Int(value) ?? data?.total
+            } else {
+                total = data?.total
+            }
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case comments, hotComments, topComments, total, data
+        }
+    }
+
+    /// Public comments are metadata only and do not require a NetEase login.
+    enum CommentOrder: Int {
+        case hot = 1
+        case latest = 2
+    }
+
+    static func comments(for songID: Int, limit: Int = 50, offset: Int = 0,
+                         order: CommentOrder = .hot) async throws -> CommentResponse {
+        let threadID = "R_SO_4_\(songID)"
+        let payload: [String: Any] = ["rid": threadID, "threadId": threadID,
+                                      "pageNo": offset / max(limit, 1) + 1,
+                                      "pageSize": limit, "cursor": "-1",
+                                      "offset": offset, "orderType": order.rawValue]
+
+        // The newer endpoint can return an empty payload for public IDs. Try
+        // the legacy encrypted route, then the public REST route.
+        if let response = try? await weapi(CommentResponse.self,
+                                           "/comment/resource/comments/get", payload),
+           !response.comments.isEmpty || !response.hotComments.isEmpty || !response.topComments.isEmpty {
+            return response
+        }
+        if let response = try? await weapi(CommentResponse.self, "/comment/music",
+                                           ["id": songID, "limit": limit,
+                                            "offset": offset, "total": true, "before": 0]),
+           !response.comments.isEmpty || !response.hotComments.isEmpty || !response.topComments.isEmpty {
+            return response
+        }
+
+        let publicData = try await client.publicGet(
+            "/v1/resource/comments/\(threadID)?limit=\(limit)&offset=\(offset)&orderType=\(order.rawValue)")
+        return try client.decoded(CommentResponse.self, from: publicData)
+    }
+
+    /// Publishes a top-level comment to a NetEase song thread.
+    /// Reading comments is public, but posting requires the user's NetEase
+    /// account cookie. The ID must already be a NetEase song ID.
+    static func addComment(songID: Int, content: String) async throws {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard client.isLoggedIn else { throw NeteaseAPIError.needLogin }
+
+        let threadID = "R_SO_4_\(songID)"
+        do {
+            // The legacy endpoint is still the most widely accepted route
+            // for a top-level song comment. Include the complete payload;
+            // sending only threadId/content is treated as an untrusted client
+            // by several NetEase deployments.
+            let response = try await weapi(
+                CodeOnly.self,
+                "/comment/add",
+                [
+                    "type": 0,
+                    "id": songID,
+                    "threadId": threadID,
+                    "content": trimmed,
+                    "commentId": 0,
+                    "at": "",
+                    "atUserIds": "",
+                ]
+            )
+            guard response.code == 200 else {
+                throw NeteaseAPIError.business(
+                    code: response.code,
+                    message: String(localized: "发表评论失败，请稍后重试")
+                )
+            }
+            return
+        } catch {
+            // Do not retry a device-security rejection: repeating it can
+            // worsen the account risk score. The official client must verify
+            // this device before the API will accept a comment.
+            if Self.isDeviceVerificationRejection(error) {
+                throw NeteaseAPIError.business(
+                    code: 512,
+                    message: "网易云拒绝了当前设备的评论请求，请先在官方网易云客户端完成一次安全验证后再试。"
+                )
+            }
+
+            // Some accounts are routed to the newer endpoint. Use it only
+            // after the legacy route failed for a non-device reason.
+            do {
+                let response = try await weapi(
+                    CodeOnly.self,
+                    "/v1/resource/comments/add",
+                    ["threadId": threadID, "content": trimmed]
+                )
+                guard response.code == 200 else {
+                    throw NeteaseAPIError.business(
+                        code: response.code,
+                        message: String(localized: "发表评论失败，请稍后重试")
+                    )
+                }
+            } catch {
+                if Self.isDeviceVerificationRejection(error) {
+                    throw NeteaseAPIError.business(
+                        code: 512,
+                        message: "网易云拒绝了当前设备的评论请求，请先在官方网易云客户端完成一次安全验证后再试。"
+                    )
+                }
+                throw error
+            }
+        }
+    }
+
+    private static func isDeviceVerificationRejection(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("更换设备")
+            || message.contains("换个设备")
+            || message.contains("device")
+            || message.contains("risk")
+            || message.contains("安全验证")
+    }
+
+    struct FMResponse: Decodable {
+        let data: [Track]?
+    }
+
+    static func personalFM() async throws -> [Track] {
+        try await weapi(FMResponse.self, "/v1/radio/get").data ?? []
+    }
+
+    static func fmTrash(id: Int) async throws {
+        _ = try await weapi(CodeOnly.self, "/radio/trash/add?alg=RT&songId=\(id)&time=25",
+                            ["songId": id])
+    }
+
+    struct SimiSongResponse: Decodable {
+        let songs: [Track]
+    }
+
+    static func similarSongs(id: Int, limit: Int = 30) async throws -> [Track] {
+        try await weapi(SimiSongResponse.self, "/v1/discovery/simiSong",
+                        ["songid": id, "limit": limit, "offset": 0]).songs
+    }
+
+    // MARK: - Albums
+
+    static func album(id: Int) async throws -> AlbumDetailResponse {
+        try await weapi(AlbumDetailResponse.self, "/v1/album/\(id)")
+    }
+
+    struct NewAlbumsResponse: Decodable {
+        let albums: [AlbumSummary]
+    }
+
+    static func newAlbums(area: String = "ALL", limit: Int = 30, offset: Int = 0) async throws -> [AlbumSummary] {
+        try await weapi(NewAlbumsResponse.self, "/album/new",
+                        ["area": area, "limit": limit, "offset": offset, "total": true]).albums
+    }
+
+    struct AlbumDynamicResponse: Decodable {
+        let isSub: Bool?
+        let subCount: Int?
+    }
+
+    static func albumDynamic(id: Int) async throws -> AlbumDynamicResponse {
+        try await eapi(AlbumDynamicResponse.self, "/album/detail/dynamic", ["id": id])
+    }
+
+    static func subscribeAlbum(id: Int, subscribe: Bool) async throws {
+        _ = try await weapi(CodeOnly.self, "/album/\(subscribe ? "sub" : "unsub")", ["id": id])
+    }
+
+    // MARK: - Artists
+
+    struct ArtistResponse: Decodable {
+        let artist: ArtistSummary
+        let hotSongs: [Track]
+    }
+
+    static func artist(id: Int) async throws -> ArtistResponse {
+        try await weapi(ArtistResponse.self, "/v1/artist/\(id)")
+    }
+
+    struct ArtistAlbumsResponse: Decodable {
+        let hotAlbums: [AlbumSummary]
+        let more: Bool?
+    }
+
+    static func artistAlbums(id: Int, limit: Int = 100, offset: Int = 0) async throws -> ArtistAlbumsResponse {
+        try await weapi(ArtistAlbumsResponse.self, "/artist/albums/\(id)",
+                        ["limit": limit, "offset": offset, "total": true])
+    }
+
+    static func subscribeArtist(id: Int, subscribe: Bool) async throws {
+        _ = try await weapi(CodeOnly.self, "/artist/\(subscribe ? "sub" : "unsub")",
+                            ["artistId": id, "artistIds": "[\(id)]"])
+    }
+
+    struct ToplistArtistResponse: Decodable {
+        struct Body: Decodable {
+            let artists: [ArtistSummary]
+        }
+
+        let list: Body
+    }
+
+    static func topArtists(limit: Int = 100) async throws -> [ArtistSummary] {
+        try await weapi(ToplistArtistResponse.self, "/toplist/artist",
+                        ["type": 1, "limit": limit, "offset": 0, "total": true]).list.artists
+    }
+
+    struct SimiArtistResponse: Decodable {
+        let artists: [ArtistSummary]
+    }
+
+    static func similarArtists(id: Int) async throws -> [ArtistSummary] {
+        try await weapi(SimiArtistResponse.self, "/discovery/simiArtist", ["artistid": id]).artists
+    }
+
+    // MARK: - Search
+
+    enum SearchType: Int {
+        case songs = 1
+        case albums = 10
+        case artists = 100
+        case playlists = 1000
+    }
+
+    struct SearchResult: Decodable {
+        let songs: [Track]?
+        let albums: [AlbumSummary]?
+        let artists: [ArtistSummary]?
+        let playlists: [PlaylistSummary]?
+        let songCount: Int?
+        let albumCount: Int?
+        let artistCount: Int?
+        let playlistCount: Int?
+    }
+
+    struct SearchResponse: Decodable {
+        let result: SearchResult?
+    }
+
+    static func search(_ keywords: String, type: SearchType,
+                       limit: Int = 30, offset: Int = 0) async throws -> SearchResult {
+        let resp = try await eapi(SearchResponse.self, "/cloudsearch/pc",
+                                  ["s": keywords, "type": type.rawValue,
+                                   "limit": limit, "offset": offset, "total": true])
+        return resp.result ?? SearchResult(songs: nil, albums: nil, artists: nil, playlists: nil,
+                                           songCount: nil, albumCount: nil, artistCount: nil, playlistCount: nil)
+    }
+
+    /// Finds the NetEase metadata record for a song returned by an LX source.
+    /// The returned ID is safe to use for public lyrics and comments.
+    static func matchingSong(for track: Track, limit: Int = 12,
+                             requireDuration: Bool = true) async throws -> Track? {
+        let query = [track.name, track.artistNames]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !query.isEmpty else { return nil }
+        let result = try await search(query, type: .songs, limit: limit)
+        let candidates = result.songs ?? []
+        let match = requireDuration
+            ? NeteaseTrackMatcher.bestCandidate(for: track, in: candidates)
+            : NeteaseTrackMatcher.bestMetadataCandidate(for: track, in: candidates)
+        if let match { return match }
+        if !requireDuration,
+           let titleMatch = NeteaseTrackMatcher.bestTitleCandidate(for: track, in: candidates) {
+            return titleMatch
+        }
+
+        // LX providers can format artist names differently. Retry by title;
+        // the matcher still checks the title and any available artist tokens.
+        let title = track.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title != query else { return nil }
+        let titleResult = try await search(title, type: .songs, limit: limit)
+        let titleCandidates = titleResult.songs ?? []
+        let titleMatch = requireDuration
+            ? NeteaseTrackMatcher.bestCandidate(for: track, in: titleCandidates)
+            : NeteaseTrackMatcher.bestMetadataCandidate(for: track, in: titleCandidates)
+        if let titleMatch { return titleMatch }
+        return requireDuration
+            ? nil
+            : NeteaseTrackMatcher.bestTitleCandidate(for: track, in: titleCandidates)
+    }
+
+    struct SearchSuggestResponse: Decodable {
+        struct Body: Decodable {
+            let songs: [Track]?
+            let artists: [ArtistSummary]?
+            let albums: [AlbumSummary]?
+            let playlists: [PlaylistSummary]?
+        }
+
+        let result: Body?
+    }
+
+    static func searchSuggest(_ keywords: String) async throws -> SearchSuggestResponse.Body? {
+        try await weapi(SearchSuggestResponse.self, "/search/suggest/web", ["s": keywords]).result
+    }
+
+    struct SearchDefaultResponse: Decodable {
+        struct Body: Decodable {
+            let showKeyword: String?
+            let realkeyword: String?
+        }
+
+        let data: Body?
+    }
+
+    static func searchDefaultKeyword() async throws -> String? {
+        try await eapi(SearchDefaultResponse.self, "/search/defaultkeyword/get").data?.showKeyword
+    }
+
+    // MARK: - Personalized extras
+
+    /// The public hot-song chart is a live catalogue feed. The detail
+    /// endpoint often returns only a ten-song preview, so fill the remainder
+    /// from its track id list before handing the result to the UI.
+    static func hotSongs(limit: Int = 30) async throws -> [Track] {
+        do {
+            let response = try await playlistDetail(id: 3_778_678)
+            var tracks = response.playlist.tracks
+            let remainingIDs = response.playlist.trackIds.map(\.id).dropFirst(tracks.count)
+            if !remainingIDs.isEmpty {
+                for chunk in stride(from: 0, to: remainingIDs.count, by: 500)
+                    .map({ Array(remainingIDs.dropFirst($0).prefix(500)) }) {
+                    guard let more = try? await songDetails(ids: chunk) else { break }
+                    tracks += more.songs
+                    if tracks.count >= limit { break }
+                }
+            }
+            if !tracks.isEmpty { return Array(tracks.prefix(limit)) }
+        } catch {
+            // Fall through to the live new-song feed when the hot chart is
+            // temporarily rate-limited or unavailable in the current region.
+        }
+        return try await personalizedNewSongs(limit: limit)
+    }
+
+    struct PersonalizedNewsongResponse: Decodable {
+        struct Item: Decodable {
+            let id: Int
+            let name: String?
+            let song: Track?
+        }
+
+        let result: [Item]
+    }
+
+    static func personalizedNewSongs(limit: Int = 10) async throws -> [Track] {
+        let resp = try await weapi(PersonalizedNewsongResponse.self, "/personalized/newsong",
+                                   ["type": "recommend", "limit": limit, "areaId": 0])
+        return resp.result.compactMap(\.song)
+    }
+}

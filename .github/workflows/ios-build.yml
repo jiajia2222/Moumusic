@@ -1,28 +1,69 @@
 name: iOS unsigned IPAs
 
-# Builds two unsigned IPAs from platforms/ios. Does NOT create a release.
-#   full-ios26     : project.yml        - iOS 26+, all features (CiliCili/Bilibili, Metal wallpapers)
-#   compat-ios15-18: project-compat.yml - iOS 15+, MOUMUSIC_COMPAT defined, no Bilibili / Metal wallpapers
+# Two unsigned IPAs. Never creates a release.
+#   full   : platforms/ios         (Kumone-based Moumusic, iOS 26+, all features)
+#   compat : platforms/ios-compat  (Beans-based compatibility build, iOS 15-18, MOUMUSIC_COMPAT)
 on:
   workflow_dispatch:
   push:
     branches: [refactor/beans-ui]
-    paths: ["platforms/ios/**", ".github/workflows/ios-build.yml"]   # dev phase: build on push
+    paths:
+      - "platforms/ios/**"
+      - "platforms/ios-compat/**"
+      - ".github/workflows/ios-build.yml"
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  full:
     runs-on: macos-26
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - variant: full-ios26
-            spec: project.yml
-          - variant: compat-ios15-18
-            spec: project-compat.yml
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install XcodeGen
+        run: HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: platforms/ios/ios
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        working-directory: platforms/ios/ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project KumoneIOS.xcodeproj \
+            -scheme KumoneIOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
+            build 2>&1 | tee build.log | tail -n 400
+
+      - name: Package IPA
+        working-directory: platforms/ios/ios
+        run: |
+          mkdir -p dist/Payload
+          cp -R build/Build/Products/Release-iphoneos/MoumusicIOS.app dist/Payload/Moumusic.app
+          plutil -p dist/Payload/Moumusic.app/Info.plist | grep -E "CFBundleShortVersionString|CFBundleVersion|MinimumOSVersion"
+          ditto -c -k --sequesterRsrc --keepParent dist/Payload dist/Moumusic-full-ios26-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Moumusic-full-ios26-unsigned
+          path: platforms/ios/ios/dist/Moumusic-full-ios26-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log-full-ios26
+          path: platforms/ios/ios/build.log
+
+  compat:
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
 
@@ -30,11 +71,11 @@ jobs:
         run: HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install xcodegen
 
       - name: Generate project
-        working-directory: platforms/ios
-        run: xcodegen generate --spec ${{ matrix.spec }}
+        working-directory: platforms/ios-compat
+        run: xcodegen generate --spec project-compat.yml
 
       - name: Build (unsigned)
-        working-directory: platforms/ios
+        working-directory: platforms/ios-compat
         run: |
           set -o pipefail
           xcodebuild \
@@ -49,20 +90,20 @@ jobs:
             build 2>&1 | tee build.log | tail -n 400
 
       - name: Package IPA
-        working-directory: platforms/ios
+        working-directory: platforms/ios-compat
         run: |
           rm -rf Payload && mkdir Payload
           cp -R build/Build/Products/Release-iphoneos/Moumusic.app Payload/
           plutil -p Payload/Moumusic.app/Info.plist | grep -E "CFBundleShortVersionString|CFBundleVersion|MinimumOSVersion"
-          ditto -c -k --sequesterRsrc --keepParent Payload "Moumusic-${{ matrix.variant }}-unsigned.ipa"
+          ditto -c -k --sequesterRsrc --keepParent Payload Moumusic-compat-ios15-18-unsigned.ipa
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Moumusic-${{ matrix.variant }}-unsigned
-          path: platforms/ios/Moumusic-${{ matrix.variant }}-unsigned.ipa
+          name: Moumusic-compat-ios15-18-unsigned
+          path: platforms/ios-compat/Moumusic-compat-ios15-18-unsigned.ipa
 
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: build-log-${{ matrix.variant }}
-          path: platforms/ios/build.log
+          name: build-log-compat-ios15-18
+          path: platforms/ios-compat/build.log
