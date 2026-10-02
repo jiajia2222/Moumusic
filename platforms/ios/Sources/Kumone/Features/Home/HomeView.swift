@@ -584,7 +584,10 @@ struct HomeView: View {
             .padding(.horizontal, Theme.Layout.contentInset)
 
             #if os(iOS)
-            PlatformAccountPlaylists(platform: model.activePlatform)
+            // QQ 音乐 home has no 我的歌单 shelf; account playlists live on the account page.
+            if model.activePlatform != .tx {
+                PlatformAccountPlaylists(platform: model.activePlatform)
+            }
             #endif
 
             if !model.lxRecommendPlaylists.isEmpty {
