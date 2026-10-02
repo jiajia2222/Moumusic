@@ -1,4 +1,4 @@
-#if os(iOS)
+﻿#if os(iOS)
 import SwiftUI
 
 /// Bilibili live browsing and playback.
@@ -303,6 +303,7 @@ struct BilibiliLiveRoomView: View {
     @Environment(\.dismiss) private var dismiss
     let room: BilibiliAPI.LiveRoom
 
+    @StateObject private var playerModel = BiliPlayerModel()
     @State private var playbackURL: URL?
     @State private var qualities: [BilibiliAPI.LiveQuality] = []
     @State private var selectedQuality: Int?
@@ -316,16 +317,17 @@ struct BilibiliLiveRoomView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     ZStack(alignment: .topLeading) {
-                        PiliPlusVideoPlayerView(
-                            url: playbackURL,
+                        BiliNativePlayer(
+                            model: playerModel,
                             cues: [],
                             danmaku: [],
+                            danmakuEnabled: false,
+                            subtitles: [],
+                            selectedSubtitleID: nil,
+                            onSelectSubtitle: { _ in },
                             posterURL: room.coverURL,
                             audioOnly: settings.bilibiliMode == .listen,
-                            autoPlay: playbackURL != nil,
                             title: room.title,
-                            author: room.userName,
-                            onError: { errorMessage = $0 },
                             onFullscreen: { showFullScreen = true }
                         )
                         .id(playerToken)
@@ -360,8 +362,30 @@ struct BilibiliLiveRoomView: View {
         }
         .task { await loadPlayback(quality: selectedQuality) }
         .fullScreenCover(isPresented: $showFullScreen) {
-            PiliPlusFullScreenPlayer(url: playbackURL, cues: [], danmaku: [], posterURL: room.coverURL, audioOnly: settings.bilibiliMode == .listen)
+            BiliNativePlayer(
+                model: playerModel,
+                cues: [],
+                danmaku: [],
+                danmakuEnabled: false,
+                subtitles: [],
+                selectedSubtitleID: nil,
+                onSelectSubtitle: { _ in },
+                posterURL: room.coverURL,
+                audioOnly: settings.bilibiliMode == .listen,
+                title: room.title,
+                isFullscreen: true,
+                onClose: { showFullScreen = false }
+            )
+            .ignoresSafeArea()
+            .background(Color.black.ignoresSafeArea())
         }
+        .task(id: "\(playbackURL?.absoluteString ?? "")-\(playerToken.uuidString)") {
+            playerModel.load(video: playbackURL, audio: nil, autoplay: true)
+        }
+        .onAppear {
+            playerModel.onError = { errorMessage = $0 }
+        }
+        .onDisappear { playerModel.stop() }
     }
 
     private var playbackOptions: some View {
