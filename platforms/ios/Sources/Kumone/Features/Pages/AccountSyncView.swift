@@ -196,6 +196,28 @@ struct AccountSyncView: View {
         }
     }
 
+    /// Brand artwork for the four account platforms; other rows keep their symbol.
+    @ViewBuilder
+    private func platformMark(title: String, icon: String) -> some View {
+        let brand: String? = {
+            if title.contains("网易") { return "BrandNetease" }
+            if title.contains("QQ") { return "BrandQQ" }
+            if title.contains("酷狗") { return "BrandKugou" }
+            if title.contains("哔哩") { return "BrandBilibili" }
+            return nil
+        }()
+        if let brand {
+            Image(brand, bundle: .module)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 34, height: 34)
+        } else {
+            Image(systemName: icon)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 34)
+        }
+    }
     private func platformRow(
         title: String,
         subtitle: String,
@@ -205,10 +227,7 @@ struct AccountSyncView: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 34)
+                platformMark(title: title, icon: icon)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.body.weight(.semibold))

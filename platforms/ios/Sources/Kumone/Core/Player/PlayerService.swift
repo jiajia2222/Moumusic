@@ -474,7 +474,8 @@ final class PlayerService: ObservableObject {
 
         #if os(iOS)
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            let mixOptions: AVAudioSession.CategoryOptions = UserDefaults.standard.bool(forKey: "moumusic.mixWithOthers") ? [.mixWithOthers] : []
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: mixOptions)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             print("Failed to activate audio session: \(error)")

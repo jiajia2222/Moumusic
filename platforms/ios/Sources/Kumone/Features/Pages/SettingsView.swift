@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 #if os(iOS)
+import AVFoundation
 import PhotosUI
 #endif
 
@@ -36,6 +37,10 @@ struct SettingsView: View {
     @AppStorage(AppAppearanceKeys.floatingEffects) private var floatingEffects = false
     @AppStorage("moumusic.tabBarMinimize") private var tabBarMinimizes = true
     @AppStorage("moumusic.appLanguage") private var appLanguage = "system"
+    @AppStorage("moumusic.mixWithOthers") private var mixWithOthers = false
+    @AppStorage("moumusic.hapticsEnabled") private var hapticsEnabled = true
+    @AppStorage("moumusic.autoPlayLast") private var autoPlayLast = false
+    @AppStorage("moumusic.vipReminder") private var vipReminder = true
     @AppStorage("moumusic.showDeveloperTools") private var showDeveloperToolsEntry = true
 #endif
     @StateObject private var backupStore = AppDataBackupManager.shared
@@ -103,6 +108,14 @@ struct SettingsView: View {
                      : "单平台模式：只使用歌曲标记的平台，不跨平台匹配。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("与其他音频同时播放", isOn: $mixWithOthers)
+                    .onChange(of: mixWithOthers) { value in
+                        let options: AVAudioSession.CategoryOptions = value ? [.mixWithOthers] : []
+                        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: options)
+                    }
+                Toggle("触感反馈", isOn: $hapticsEnabled)
+                Toggle("启动时自动播放上次歌曲", isOn: $autoPlayLast)
+                Toggle("第三方音源播放会员歌时提醒", isOn: $vipReminder)
                 Toggle("拔出耳机自动暂停", isOn: $settings.autoPauseOnRouteChange)
                 Text(settings.autoPauseOnRouteChange
                      ? "断开耳机、车载或蓝牙输出时自动暂停当前歌曲。"

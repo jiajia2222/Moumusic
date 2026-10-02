@@ -98,3 +98,19 @@ struct FloatingEffectOverlay: View {
         return CGPoint(x: Double(size.width) * (orb.x + dx), y: Double(size.height) * (orb.y + dy))
     }
 }
+
+#if os(iOS)
+import UIKit
+
+/// Haptic feedback gated by the 触感反馈 setting (default on).
+enum Haptics {
+    static var isEnabled: Bool {
+        UserDefaults.standard.object(forKey: "moumusic.hapticsEnabled") as? Bool ?? true
+    }
+
+    static func tap() {
+        guard isEnabled else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+}
+#endif

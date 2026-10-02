@@ -74,10 +74,19 @@ public struct IOSMainWindow: View {
                     settings: settings
                 )
                 updateLog.presentIfNeeded()
+                if UserDefaults.standard.bool(forKey: "moumusic.autoPlayLast"), player.currentTrack != nil, !player.isPlaying {
+                    player.togglePlayPause()
+                }
 
                 if settings.autoCheckUpdates {
                     IOSUpdater.shared.check(interactive: false)
                 }
+            }
+            .onChange(of: selectedTab) { _ in Haptics.tap() }
+            .onChange(of: player.currentTrack?.playbackKey) { _ in
+                guard UserDefaults.standard.object(forKey: "moumusic.vipReminder") as? Bool ?? true,
+                      let track = player.currentTrack, track.fee == 1 else { return }
+                ToastCenter.shared.show("会员歌曲，将通过第三方音源播放")
             }
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
