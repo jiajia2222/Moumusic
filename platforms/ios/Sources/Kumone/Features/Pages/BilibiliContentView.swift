@@ -206,6 +206,9 @@ struct BilibiliContentView: View {
     @State private var selectedFavoriteFolderID: Int?
     @State private var accountLoading = false
     @State private var accountError: String?
+    @State private var accountStats = BilibiliAccountStats()
+    @State private var showAccountDetail = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack {
@@ -231,6 +234,14 @@ struct BilibiliContentView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .accessibilityLabel("返回")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     ForEach(Surface.allCases) { value in
                         Button {
@@ -242,19 +253,13 @@ struct BilibiliContentView: View {
                         }
                     }
                 } label: {
-                    ZStack {
-                        Circle().fill(Color(red: 0.08, green: 0.62, blue: 0.86).opacity(0.18))
-                        Image(systemName: "play.rectangle.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(Color(red: 0.08, green: 0.62, blue: 0.86))
-                    }
-                    .frame(width: 40, height: 40)
-                    .background(.regularMaterial, in: Circle())
-                    .overlay(Circle().strokeBorder(.white.opacity(0.2), lineWidth: 0.8))
+                    Image(systemName: "square.grid.2x2")
                 }
                 .accessibilityLabel("切换哔哩哔哩内容")
             }
             ToolbarItemGroup(placement: .primaryAction) {
+                ThemeRevealButton()
+                    .environmentObject(settings)
                 Button {
                     showSearch = true
                 } label: {
@@ -311,6 +316,11 @@ struct BilibiliContentView: View {
                     .environmentObject(bilibili)
                     .environmentObject(settings)
             }
+        }
+        .sheet(isPresented: $showAccountDetail) {
+            accountDetailSheet
+                .environmentObject(bilibili)
+                .environmentObject(settings)
         }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
@@ -398,9 +408,8 @@ struct BilibiliContentView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
                 if bilibili.isLoggedIn {
-                    accountIdentityCard
-                }
-                if !bilibili.isLoggedIn {
+                    beansAccountSurface
+                } else {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("登录后查看 B 站账号内容", systemImage: "person.crop.circle.badge.exclamationmark")
                             .font(.headline)
@@ -415,15 +424,100 @@ struct BilibiliContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .padding(.horizontal, Theme.Layout.contentInset)
-                } else {
-                    Picker("账号内容", selection: $accountTab) {
-                        ForEach(AccountTab.allCases) { tab in
-                            Text(tab.rawValue).tag(tab)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, Theme.Layout.contentInset)
+                }
+                PlayerClearanceSpacer()
+            }
+            .padding(.top, 12)
+        }
+        .scrollIndicators(.hidden)
+        .task {
+            if bilibili.isLoggedIn {
+                accountStats = await BilibiliAccountStats.fetch(cookie: bilibili.cookie)
+                if privateMessages.isEmpty {
+                    privateMessages = (try? await BilibiliAPI.shared.privateMessages(cookie: bilibili.cookie)) ?? []
+                }
+            }
+        }
+    }
 
+    /// Beans-style "我的" page: account card, account content rows, settings
+    /// rows and the listen/watch switch.
+    private var beansAccountSurface: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            BilibiliBeansAccountCard(
+                avatarURL: bilibili.avatarURL?.resizedImageURL(120),
+                name: bilibili.profileName ?? "Bilibili",
+                uid: accountStats.uid,
+                stats: accountStats,
+                onSignOut: { bilibili.signOut() }
+            )
+
+            BilibiliRowCard(title: "账号内容", rows: [
+                .init(icon: "sparkles", title: "动态") {
+                    withAnimation(.easeInOut(duration: 0.22)) { surface = .dynamic }
+                },
+                .init(icon: "bell.badge", title: "账号消息", badge: unreadMessageCount) {
+                    openAccountDetail(.messages)
+                },
+                .init(icon: "clock.arrow.circlepath", title: "观看记录") {
+                    openAccountDetail(.history)
+                },
+                .init(icon: "star", title: "账号收藏") {
+                    openAccountDetail(.favorites)
+                },
+            ])
+
+            BilibiliRowCard(title: "设置", titleIcon: "slider.horizontal.3", rows: [
+                .init(icon: "paintpalette", title: "界面显示", subtitle: "强调色跟随 Moumusic") {
+                    showSettings = true
+                },
+                .init(icon: "house", title: "首页与搜索",
+                      subtitle: settings.bilibiliRecommendationSource.displayName) {
+                    showSettings = true
+                },
+                .init(icon: "play.rectangle", title: "播放偏好", subtitle: "画质、解码、自动播放与播放行为") {
+                    showSettings = true
+                },
+                .init(icon: "line.3.horizontal.decrease.circle", title: "内容过滤", subtitle: "推荐与动态关键词过滤") {
+                    showSettings = true
+                },
+                .init(icon: "gearshape", title: "Moumusic 设置", subtitle: "Moumusic 软件设置") {
+                    showSettings = true
+                },
+            ])
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Image(systemName: "play.rectangle").font(.title3)
+                    Text("视频播放").font(.headline.weight(.semibold))
+                }
+                Picker("视频播放", selection: $settings.bilibiliMode) {
+                    Text("听视频").tag(BilibiliMode.listen)
+                    Text("看视频").tag(BilibiliMode.watch)
+                }
+                .pickerStyle(.segmented)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .compatGlass(interactive: false, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .strokeBorder(.primary.opacity(0.08), lineWidth: 0.8)
+            }
+        }
+        .padding(.horizontal, Theme.Layout.contentInset)
+    }
+
+    private func openAccountDetail(_ tab: AccountTab) {
+        accountTab = tab
+        showAccountDetail = true
+        Task { await loadAccount() }
+    }
+
+    private var accountDetailSheet: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
                     if accountLoading && accountIsEmpty {
                         ProgressView("正在读取 B 站账号内容")
                             .frame(maxWidth: .infinity, minHeight: 240)
@@ -435,24 +529,23 @@ struct BilibiliContentView: View {
                     } else {
                         accountBody
                     }
-
-                    HStack {
-                        Spacer()
-                        Button {
-                            Task { await loadAccount() }
-                        } label: {
-                            Label("刷新账号内容", systemImage: accountLoading ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(accountLoading)
-                        Spacer()
-                    }
                 }
-                PlayerClearanceSpacer()
+                .padding(.top, 12)
             }
-            .padding(.top, 12)
+            .scrollIndicators(.hidden)
+            .navigationTitle(accountTab.rawValue)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await loadAccount() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(accountLoading)
+                }
+            }
         }
-        .scrollIndicators(.hidden)
     }
 
     private var accountIdentityCard: some View {
