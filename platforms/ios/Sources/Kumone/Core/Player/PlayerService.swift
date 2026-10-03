@@ -295,13 +295,13 @@ final class PlayerService: ObservableObject {
         trackQualityOverride ?? SettingsManager.shared.audioQuality
     }
 
-    func availableQualitiesForCurrentTrack() async -> [AudioQuality] {
+    func availableQualitiesForCurrentTrack(forceRefresh: Bool = false) async -> [AudioQuality] {
         guard let track = currentTrack else { return [] }
         let trackKey = track.playbackKey
 #if os(iOS)
         let playbackMode = SettingsManager.shared.playbackSourceMode
         let cacheKey = qualityAvailabilityCacheKey(for: track, mode: playbackMode)
-        if let cached = qualityAvailabilityCache[cacheKey], cached.expiresAt > Date() {
+        if !forceRefresh, let cached = qualityAvailabilityCache[cacheKey], cached.expiresAt > Date() {
             // A probe can finish before playback resolves the real URL and
             // cache only the safe 128K fallback. Merge the verified result for
             // this exact track into that cache hit so the picker does not stay
@@ -385,7 +385,8 @@ final class PlayerService: ObservableObject {
         let result = available.isEmpty ? [.standard] : available
         // Do not cache a timeout/empty-source fallback as if it were a real
         // capability result; the source may finish initializing moments later.
-        if !names.isEmpty {
+        // A cold source often answers only some tiers: never cache a thin result as the final answer.
+        if names.count >= 3 {
             qualityAvailabilityCache[cacheKey] = QualityAvailabilityCacheEntry(
                 expiresAt: Date().addingTimeInterval(30),
                 qualities: result
@@ -540,6 +541,9 @@ final class PlayerService: ObservableObject {
                 guard let self, !self.isScrubbing else { return }
                 let seconds = time.seconds
                 guard seconds.isFinite else { return }
+                // While a seek is pending the player still reports the old position: following it
+                // made the lyrics jump back and forth during quick scrubbing / lyric taps.
+                if self.seekInFlight || self.queuedSeekTarget != nil { return }
 
                 // Self-healing: once no fade is running, the audible state must match what the UI says
                 // (an interrupted fade used to leave the song playing after "pause", or silent after play).
@@ -847,30 +851,45 @@ final class PlayerService: ObservableObject {
         }
     }
 
+    /// Lyric payloads of other catalogues that carry a translation for the same song.
+    private func translationSources(for track: Track) async -> [ParsedLyrics] {
+        var sources: [ParsedLyrics] = []
+        let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
+        let neteaseTrack: Track? = ["wy", "netease", "163"].contains(source)
+            ? track
+            : (try? await NeteaseAPI.matchingSong(for: track, requireDuration: false))
+        if let neteaseTrack, let response = try? await NeteaseAPI.lyric(id: neteaseTrack.id) {
+            let metadata = LyricsParser.parse(response, includeVerbatim: false)
+            if !metadata.isEmpty { sources.append(metadata) }
+        }
+        let qqTrack: Track? = ["tx", "qq", "qqmusic"].contains(source)
+            ? track
+            : await LXCatalogService.matchingTrack(track, on: "tx")
+        if let qqTrack, let native = try? await LXCatalogService.nativeLyrics(for: qqTrack),
+           let translated = native.tlyric, !translated.isEmpty {
+            let parsed = LyricsParser.parseLX(lyric: native.lyric, tlyric: translated)
+            if !parsed.isEmpty { sources.append(parsed) }
+        }
+        return sources
+    }
+
     private func enrichTranslation(for track: Track, base: ParsedLyrics,
                                    generation: Int) async {
-        let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
-        let candidate: Track?
-        if ["wy", "netease", "163"].contains(source) {
-            candidate = track
-        } else {
-            candidate = try? await NeteaseAPI.matchingSong(for: track,
-                                                           requireDuration: false)
-        }
-        guard let candidate,
-              let response = try? await NeteaseAPI.lyric(id: candidate.id) else { return }
-        let metadata = LyricsParser.parse(response, includeVerbatim: false)
-        guard !metadata.isEmpty, generation == resolveGeneration else { return }
+        let sources = await translationSources(for: track)
+        guard !sources.isEmpty, generation == resolveGeneration else { return }
 
         var merged = base
         var changed = false
         for index in merged.lines.indices where merged.lines[index].translation == nil {
-            guard let nearest = metadata.lines.min(by: {
-                abs($0.time - merged.lines[index].time) < abs($1.time - merged.lines[index].time)
-            }), abs(nearest.time - merged.lines[index].time) < 0.5,
-                  let translation = nearest.translation, !translation.isEmpty else { continue }
-            merged.lines[index].translation = translation
-            changed = true
+            for metadata in sources {
+                guard let nearest = metadata.lines.min(by: {
+                    abs($0.time - merged.lines[index].time) < abs($1.time - merged.lines[index].time)
+                }), abs(nearest.time - merged.lines[index].time) < 1.2,
+                      let translation = nearest.translation, !translation.isEmpty else { continue }
+                merged.lines[index].translation = translation
+                changed = true
+                break
+            }
         }
         guard changed, generation == resolveGeneration else { return }
         lyrics = merged

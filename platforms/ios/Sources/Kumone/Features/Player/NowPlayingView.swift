@@ -1718,6 +1718,13 @@ private struct QualityPickerSheet: View {
             }
             available = AudioQuality.allCases.filter { merged.contains($0) }
             loading = false
+            // The first pass can miss tiers (a source still waking up, a request that failed once):
+            // ask again a moment later and only ever add to the list.
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard !Task.isCancelled, player.currentTrack?.playbackKey == trackKey else { return }
+            let second = await player.availableQualitiesForCurrentTrack(forceRefresh: true)
+            guard !Task.isCancelled, player.currentTrack?.playbackKey == trackKey else { return }
+            available = AudioQuality.allCases.filter { merged.contains($0) || second.contains($0) || available.contains($0) }
         }
     }
 }

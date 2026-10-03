@@ -800,9 +800,15 @@ struct BiliNativePlayer: View {
                     .padding(.top, isFullscreen ? (rotatesInFullscreen ? 10 : 44) : 0)
                     .transition(.opacity)
             }
-            if showComposer { danmakuComposer }
         }
         .clipped()
+        // A sheet, not an overlay: the player frame clips anything taller than the picture, which hid
+        // the position / size / colour options while typing.
+        .sheet(isPresented: $showComposer, onDismiss: { scheduleHide() }) {
+            danmakuComposer
+                .presentationDetents([.height(250), .medium])
+                .presentationDragIndicator(.visible)
+        }
         .onAppear {
             UIDevice.current.beginGeneratingDeviceOrientationNotifications()
             showDanmaku = danmakuEnabled
@@ -1079,10 +1085,7 @@ struct BiliNativePlayer: View {
 
     /// Bottom input panel like the Bilibili app: text field, send, then position / size / colour chips.
     private var danmakuComposer: some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.35)
-                .ignoresSafeArea()
-                .onTapGesture { closeComposer() }
+        VStack(spacing: 0) {
             VStack(spacing: 12) {
                 HStack(spacing: 8) {
                     TextField("发一条友善的弹幕", text: $composerText)
@@ -1129,11 +1132,12 @@ struct BiliNativePlayer: View {
                     .padding(.horizontal, 2)
                 }
             }
-            .padding(14)
-            .background(Color.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
+            .padding(16)
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(white: 0.12).ignoresSafeArea())
+        .environment(\.colorScheme, .dark)
         .onAppear { composerFocused = true }
     }
 
