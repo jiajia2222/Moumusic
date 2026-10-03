@@ -50,6 +50,7 @@ struct BeansApp: App {
                 }
             }
             .environment(\.locale, Locale(identifier: languageRaw))
+            .environment(\.beansFlatGlass, theme.backgroundSyncAll && theme.customBackgroundImage != nil)
             .bilibiliHost()
             .task {
                 // 先让系统完成首帧，再恢复仅影响已安装用户的数据与媒体偏好。

@@ -102,6 +102,11 @@ final class NetEaseAPI {
         cookieValue(named: "MUSIC_U")
     }
 
+    /// 登录态 cookie，供网页版评论页注入使用。
+    func webSessionCookies() -> [String: String] {
+        ["MUSIC_U": musicU, "__csrf": csrfToken].filter { !$0.value.isEmpty }
+    }
+
     private func cookieValue(named name: String) -> String {
         storedCookies[name] ?? ""
     }

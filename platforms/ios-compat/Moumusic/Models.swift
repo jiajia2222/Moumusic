@@ -461,6 +461,17 @@ enum LyricParser {
     private static func parseCore(_ raw: String, offset: Double) -> [LyricLine] {
         var lines: [LyricLine] = []
         for line in raw.components(separatedBy: .newlines) {
+            // 网易云署名行：{"t":0,"c":[{"tx":"作词: "},{"tx":"某人","li":"http…"}]} → 只显示文字。
+            let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedLine.hasPrefix("{"), let data = trimmedLine.data(using: .utf8),
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let pieces = object["c"] as? [[String: Any]] {
+                let text = pieces.compactMap { $0["tx"] as? String }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    lines.append(LyricLine(time: max(0, ((object["t"] as? NSNumber)?.doubleValue ?? 0) / 1000 + offset), text: text))
+                }
+                continue
+            }
             parseTimes(in: line).forEach { time in
                 let text = line.replacingOccurrences(of: #"\[\d{2}:\d{2}(\.\d{1,3})?\]"#, with: "", options: .regularExpression)
                     .trimmingCharacters(in: .whitespacesAndNewlines)

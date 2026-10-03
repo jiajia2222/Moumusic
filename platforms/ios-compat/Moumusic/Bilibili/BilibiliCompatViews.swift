@@ -27,6 +27,7 @@ struct CompatBilibiliRootView: View {
     @ObservedObject private var session = BilibiliSessionStore.shared
     @ObservedObject private var toast = ToastCenter.shared
     @State private var tab: Tab = .recommend
+    @State private var showSettings = false
 
     var body: some View {
         NavigationView {
@@ -52,9 +53,14 @@ struct CompatBilibiliRootView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("关闭", action: onClose)
                 }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                        .accessibilityLabel("哔哩哔哩设置")
+                }
             }
         }
         .navigationViewStyle(.stack)
+        .sheet(isPresented: $showSettings) { CompatBiliSettingsView() }
         .environmentObject(session)
         .overlay(alignment: .bottom) {
             if let message = toast.message {
@@ -356,6 +362,7 @@ struct CompatBiliVideoView: View {
     @State private var errorMessage: String?
     @State private var showFullScreen = false
     @State private var relatedSelection: BilibiliAPI.Video?
+    @State private var listenOnly = false
 
     private var active: BilibiliAPI.Video { detail ?? video }
 
@@ -424,7 +431,7 @@ struct CompatBiliVideoView: View {
                 if let subtitle { Task { await loadSubtitle(subtitle) } } else { selectedSubtitle = nil; cues = [] }
             },
             posterURL: active.coverURL,
-            audioOnly: false,
+            audioOnly: listenOnly,
             title: active.title,
             isFullscreen: fullscreen,
             rotatesInFullscreen: active.displayAspectRatio >= 1,
@@ -475,12 +482,17 @@ struct CompatBiliVideoView: View {
                 }
                 .buttonStyle(.bordered)
             }
+            Button { listenOnly.toggle() } label: {
+                Label(listenOnly ? "看画面" : "只听声音", systemImage: listenOnly ? "play.rectangle" : "headphones")
+            }
+            .buttonStyle(.bordered)
             Button { showFullScreen = true } label: {
                 Label("全屏", systemImage: "arrow.up.left.and.arrow.down.right")
             }
             .buttonStyle(.bordered)
             Spacer(minLength: 0)
         }
+        .font(.footnote)
         .padding(.horizontal, 16)
     }
 

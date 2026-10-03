@@ -25,7 +25,39 @@ enum PlaylistSearchAPI {
         }
     }
 
+    private static func qqMusicu(_ keyword: String) async -> [Playlist] {
+        let payload: [String: Any] = [
+            "comm": ["ct": 19, "cv": 1859, "uin": "0"],
+            "req": ["method": "DoSearchForQQMusicDesktop", "module": "music.search.SearchCgiService",
+                    "param": ["grp": 1, "num_per_page": 30, "page_num": 1, "query": keyword, "search_type": 3]]
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload),
+              let endpoint = URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg") else { return [] }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.timeoutInterval = 20
+        request.setValue("https://y.qq.com", forHTTPHeaderField: "Origin")
+        request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let req = root["req"] as? [String: Any],
+              let payloadData = req["data"] as? [String: Any],
+              let bodyObject = payloadData["body"] as? [String: Any],
+              let songlist = bodyObject["songlist"] as? [String: Any],
+              let items = songlist["list"] as? [[String: Any]] else { return [] }
+        return items.compactMap { item in
+            guard let id = Int(ExtraHTTP.string(item["dissid"])) else { return nil }
+            return Playlist(id: id, name: ExtraHTTP.decodeName(ExtraHTTP.string(item["dissname"])),
+                            coverURL: URL(string: ExtraHTTP.string(item["imgurl"])),
+                            trackCount: Int(ExtraHTTP.double(item["song_count"])), source: .qq)
+        }
+    }
+
     private static func qq(_ keyword: String) async throws -> [Playlist] {
+        let modern = await qqMusicu(keyword)
+        if !modern.isEmpty { return modern }
         let url = "https://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist?remoteplace=txt.yqq.playlist&page_no=0&num_per_page=30&query=\(ExtraHTTP.encode(keyword))&format=json&inCharset=utf8&outCharset=utf-8&platform=yqq.json&needNewCode=0"
         let headers = ["Referer": "https://y.qq.com/", "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"]
         guard let root = try await ExtraHTTP.json(url, headers: headers) as? [String: Any],

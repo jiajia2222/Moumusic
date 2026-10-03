@@ -36,6 +36,7 @@ struct CommentsSheet: View {
     @State private var loading = true
     @State private var errorMessage: String?
     @State private var offset = 0
+    @State private var showWebComment = false
 
     private let limit = 30
     /// QQ 音乐每页条数（接口单页上限 25）
@@ -67,8 +68,19 @@ struct CommentsSheet: View {
                 }
                 .navigationTitle("评论")
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        if song.source == .netease {
+                            Button { showWebComment = true } label: {
+                                Image(systemName: "square.and.pencil")
+                            }
+                            .accessibilityLabel("在网页版发表评论")
+                        }
+                    }
+                }
             }
         }
+        .sheet(isPresented: $showWebComment) { NetEaseWebCommentSheet(songID: song.id) }
         .task { await load(reset: true) }
     }
 
