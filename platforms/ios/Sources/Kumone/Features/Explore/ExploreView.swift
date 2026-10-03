@@ -146,7 +146,9 @@ struct ExploreView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
+#if !os(iOS)
                 platformPicker
+#endif
                 categoryChips
 
                 if model.isLoading && model.officialPlaylists.isEmpty && model.playlists.isEmpty && model.tracks.isEmpty {
@@ -225,6 +227,36 @@ struct ExploreView: View {
             }
         }
         .navigationTitle("精选")
+#if os(iOS)
+        // Same liquid-glass platform switch as the home page (top-left).
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Menu {
+                    Section("发现平台") {
+                        ForEach(LXCatalogPlatform.catalogueCases.filter { $0 != .aggregate }) { platform in
+                            Button {
+                                model.selectPlatform(platform)
+                            } label: {
+                                if model.platform == platform {
+                                    Label(platform.displayName, systemImage: "checkmark")
+                                } else {
+                                    Text(platform.displayName)
+                                }
+                            }
+                        }
+                    }
+                    if settings.bilibiliMode != .disabled {
+                        Section {
+                            Button { showBilibili = true } label: { Label("哔哩哔哩", systemImage: "play.rectangle.fill") }
+                        }
+                    }
+                } label: {
+                    HomePlatformBadge(platform: model.platform)
+                }
+                .accessibilityLabel("当前发现平台：\(model.platform.displayName)，点击切换")
+            }
+        }
+#endif
         .task(id: "\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)") {
             model.prepare(platform: settings.homeRecommendationPlatform)
             await model.loadMore()

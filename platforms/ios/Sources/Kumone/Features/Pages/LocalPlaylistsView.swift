@@ -1,9 +1,51 @@
 ﻿import SwiftUI
 import UniformTypeIdentifiers
 
+/// Top-left liquid-glass switch for the 歌单 tab and 我喜欢的音乐: one entry per signed-in platform.
+struct LibrarySourceMenu: View {
+    @Binding var selection: String
+    let sources: [LikedSongsView.Source]
+
+    var body: some View {
+        Menu {
+            Section("歌单平台") {
+                ForEach(sources) { source in
+                    Button { selection = source.rawValue } label: {
+                        if selection == source.rawValue {
+                            Label(source.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(source.rawValue)
+                        }
+                    }
+                }
+            }
+        } label: {
+            badge
+        }
+        .accessibilityLabel("当前歌单平台：\(selection)，点击切换")
+    }
+
+    @ViewBuilder
+    private var badge: some View {
+        switch LikedSongsView.Source(rawValue: selection) ?? .local {
+        case .netease: PlatformGlyph(platform: .wy).frame(width: 26, height: 26)
+        case .qq: PlatformGlyph(platform: .tx).frame(width: 26, height: 26)
+        case .kugou: PlatformGlyph(platform: .kg).frame(width: 26, height: 26)
+        case .local: Image(systemName: "iphone").font(.system(size: 18, weight: .semibold))
+        }
+    }
+}
+
 struct LocalPlaylistsView: View {
     @StateObject private var store = LocalPlaylistStore.shared
     @EnvironmentObject private var account: AccountStore
+    @EnvironmentObject private var qqMusic: QQMusicSessionStore
+    @EnvironmentObject private var kugou: KugouSessionStore
+    @AppStorage("moumusic.library.source") private var librarySource = LikedSongsView.Source.local.rawValue
+
+    private var librarySources: [LikedSongsView.Source] {
+        LikedSongsView.availableSources(netease: account.isLoggedIn, qq: qqMusic.isLoggedIn, kugou: kugou.isLoggedIn)
+    }
     @State private var showImport = false
     @State private var showCreate = false
     @State private var newName = ""
@@ -15,6 +57,15 @@ struct LocalPlaylistsView: View {
                     likedSongsRow
                 }
                 .buttonStyle(.plain)
+
+                #if os(iOS)
+                // The selected platform's own account playlists, right under 我喜欢的音乐.
+                if librarySource == LikedSongsView.Source.qq.rawValue, qqMusic.isLoggedIn {
+                    PlatformAccountPlaylists(platform: .tx)
+                } else if librarySource == LikedSongsView.Source.kugou.rawValue, kugou.isLoggedIn {
+                    PlatformAccountPlaylists(platform: .kg)
+                }
+                #endif
 
                 if store.playlists.isEmpty {
                     VStack(spacing: 14) {
@@ -75,6 +126,11 @@ struct LocalPlaylistsView: View {
         }
         .navigationTitle("本地歌单")
         .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .topBarLeading) {
+                LibrarySourceMenu(selection: $librarySource, sources: librarySources)
+            }
+            #endif
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     showImport = true
@@ -140,6 +196,10 @@ struct LocalPlaylistsView: View {
     }
 
     private var likedSongsSubtitle: String {
+        if librarySource != LikedSongsView.Source.local.rawValue,
+           librarySources.contains(where: { $0.rawValue == librarySource }) {
+            return "\(librarySource)账号的喜欢歌单 · 打开自动同步"
+        }
         guard account.isLoggedIn else {
             let local = FavoritesStore.shared.tracks.count
             return local == 0 ? "红心歌曲保存在本机，登录网易云可同步" : "\(local) 首 · 本地收藏"
@@ -201,7 +261,7 @@ struct LikedSongsView: View {
     @Environment(\.openLogin) private var openLogin
 
     @ObservedObject private var favorites = FavoritesStore.shared
-    @State private var source: Source?
+    @AppStorage("moumusic.library.source") private var sourceRaw = Source.local.rawValue
     @State private var tracksBySource: [Source: [Track]] = [:]
     @State private var query = ""
     @State private var isLoading = false
@@ -210,16 +270,22 @@ struct LikedSongsView: View {
     @State private var showDownloadOptions = false
     #endif
 
-    private var availableSources: [Source] {
+    static func availableSources(netease: Bool, qq: Bool, kugou: Bool) -> [Source] {
         var result: [Source] = []
-        if account.isLoggedIn { result.append(.netease) }
-        if qqMusic.isLoggedIn { result.append(.qq) }
-        if kugou.isLoggedIn { result.append(.kugou) }
+        if netease { result.append(.netease) }
+        if qq { result.append(.qq) }
+        if kugou { result.append(.kugou) }
         result.append(.local)
         return result
     }
 
-    private var current: Source { source.flatMap { availableSources.contains($0) ? $0 : nil } ?? availableSources[0] }
+    private var availableSources: [Source] {
+        Self.availableSources(netease: account.isLoggedIn, qq: qqMusic.isLoggedIn, kugou: kugou.isLoggedIn)
+    }
+
+    private var current: Source {
+        Source(rawValue: sourceRaw).flatMap { availableSources.contains($0) ? $0 : nil } ?? availableSources[0]
+    }
 
     private var tracks: [Track] {
         current == .local ? favorites.tracks : (tracksBySource[current] ?? [])
@@ -240,13 +306,6 @@ struct LikedSongsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
 
-                if availableSources.count > 1 {
-                    Picker("平台", selection: Binding(get: { current }, set: { source = $0 })) {
-                        ForEach(availableSources) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, Theme.Layout.contentInset)
-                }
 
                 if isLoading && tracks.isEmpty {
                     VStack(spacing: 14) {
@@ -288,6 +347,12 @@ struct LikedSongsView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .topBarLeading) {
+                LibrarySourceMenu(selection: Binding(get: { current.rawValue }, set: { sourceRaw = $0 }),
+                                  sources: availableSources)
+            }
+            #endif
             ToolbarItemGroup(placement: .primaryAction) {
                 if !visibleTracks.isEmpty {
                     Button {
