@@ -366,10 +366,13 @@ final class LXUserAPIService: ObservableObject {
         // Two passes, like Beans: first the song's own platform (no catalogue matching, so the very first
         // request goes out immediately and a hit returns at once); only when that does not satisfy the
         // requested tier, the other platforms (which need a catalogue search each).
-        for passIndex in 0..<2 {
-        // A miss costs under a second per lower tier on the same platform, so anything already in hand from
-        // the song's own platform beats paying for catalogue searches on the other platforms.
-        if passIndex == 1, downgradedFallback != nil { break }
+        // Pass 0: own platform, requested tier only. Pass 1: other platforms, requested tier only, 2 s budget.
+        // Pass 2: own platform again, stepping down tier by tier (only when nothing answered yet).
+        let crossPlatformDeadline: TimeInterval = 2
+        var crossStartedAt: Date?
+        for passIndex in 0..<3 {
+        if passIndex == 1 { crossStartedAt = Date() }
+        if passIndex == 2, downgradedFallback != nil { break }
         var candidates: [MusicURLCandidate] = []
 
         // Collect all possible source/platform/quality combinations first.
@@ -387,7 +390,8 @@ final class LXUserAPIService: ObservableObject {
             }
 
             for platform in platforms {
-                if (platform == primaryPlatform) != (passIndex == 0) { continue }
+                if (platform == primaryPlatform) != (passIndex != 1) { continue }
+                if passIndex == 1, let began = crossStartedAt, Date().timeIntervalSince(began) > crossPlatformDeadline { continue }
                 let requestTrack: Track
                 if platform == primaryPlatform {
                     requestTrack = track
@@ -445,7 +449,8 @@ final class LXUserAPIService: ObservableObject {
                 if rank >= 0, rank < wantedRank, !lowerTiers.contains(tier) { lowerTiers.append(tier) }
             }
             lowerTiers.sort { Self.qualityRank($0) > Self.qualityRank($1) }
-            for tier in [candidate.requestedQuality] + lowerTiers {
+            for tier in [candidate.requestedQuality] + (passIndex == 2 ? lowerTiers : []) {
+                if passIndex == 1, let began = crossStartedAt, Date().timeIntervalSince(began) > crossPlatformDeadline { break }
                 do {
                     let response = try await request(
                         source: candidate.platform,

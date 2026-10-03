@@ -543,7 +543,9 @@ final class PlayerService: ObservableObject {
                 guard seconds.isFinite else { return }
                 // While a seek is pending the player still reports the old position: following it
                 // made the lyrics jump back and forth during quick scrubbing / lyric taps.
-                if self.seekInFlight || self.queuedSeekTarget != nil { return }
+                // Only briefly: a slow streamed seek must not freeze the lyrics while the audio keeps playing.
+                if (self.seekInFlight || self.queuedSeekTarget != nil),
+                   Date().timeIntervalSince(self.lastSeekRequestAt) < 0.8 { return }
 
                 // Self-healing: once no fade is running, the audible state must match what the UI says
                 // (an interrupted fade used to leave the song playing after "pause", or silent after play).
@@ -900,6 +902,7 @@ final class PlayerService: ObservableObject {
     }
 
     private var seekInFlight = false
+    private var lastSeekRequestAt = Date.distantPast
     private var queuedSeekTarget: TimeInterval?
     private var queuedSeekCompletions: [@MainActor () -> Void] = []
 
@@ -913,6 +916,7 @@ final class PlayerService: ObservableObject {
             rate: isPlaying ? Double(playbackRate) : 0
         )
         queuedSeekTarget = seconds
+        lastSeekRequestAt = Date()
         if let completion { queuedSeekCompletions.append(completion) }
         drainSeek()
     }
@@ -932,6 +936,7 @@ final class PlayerService: ObservableObject {
                 guard let self else { return }
                 self.seekInFlight = false
                 if self.queuedSeekTarget == nil {
+                    self.updateLyricsCursor(at: self.livePlaybackTime)
                     let completions = self.queuedSeekCompletions
                     self.queuedSeekCompletions = []
                     completions.forEach { $0() }
