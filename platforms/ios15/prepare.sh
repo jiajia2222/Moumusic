@@ -15,5 +15,5 @@ mkdir -p "$IOS/Sources/Kumone/_IOS15"
 cp "$ROOT"/ios15/Polyfills/*.swift "$IOS/Sources/Kumone/_IOS15/" 2>/dev/null || true
 
 # Optional text patches for the few spots a shim cannot cover.
-if [ -x "$ROOT/ios15/patches.py" ]; then python3 "$ROOT/ios15/patches.py" "$IOS"; fi
+if [ -f "$ROOT/ios15/patches.py" ]; then python3 "$ROOT/ios15/patches.py" "$IOS"; fi
 echo "iOS 15 tree ready"
