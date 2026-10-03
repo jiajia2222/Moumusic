@@ -173,7 +173,7 @@ struct MyProfileView: View {
             .background {
                 if !exclusive {
                     Capsule().fill(BackgroundImageStore.shared.appWallpaperActive
-                                   ? AnyShapeStyle(Color.black.opacity(0.28)) : AnyShapeStyle(.thinMaterial))
+                                   ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.thinMaterial))
                         .overlay(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 0.8))
                 }
                 if exclusive {

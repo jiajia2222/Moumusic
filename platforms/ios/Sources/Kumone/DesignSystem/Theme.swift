@@ -132,7 +132,7 @@ private struct CompatGlassModifier: ViewModifier {
     func body(content: Content) -> some View {
         if flatTint {
             #if os(iOS)
-            content.background(Color(uiColor: .secondarySystemBackground).opacity(0.62), in: shape)
+            content.background(Color.clear, in: shape)
             #else
             content
             #endif
@@ -176,7 +176,7 @@ struct MouMaterialBackground<S: Shape>: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)
         if wallpaper.appWallpaperActive {
-            content.background(Color(uiColor: .secondarySystemBackground).opacity(0.62), in: shape)
+            content.background(Color.clear, in: shape)
         } else {
             content.background(material, in: shape)
         }
