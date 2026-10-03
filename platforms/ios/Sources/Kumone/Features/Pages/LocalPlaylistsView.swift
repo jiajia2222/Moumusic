@@ -183,19 +183,47 @@ struct LocalPlaylistsView: View {
     }
 }
 
+/// 我喜欢的音乐: one tab per signed-in platform (网易云 / QQ 音乐 / 酷狗) plus 本地. Every tab
+/// re-fetches its platform's liked list when opened, so all platforms stay in sync automatically.
 struct LikedSongsView: View {
+    enum Source: String, CaseIterable, Identifiable {
+        case netease = "网易云"
+        case qq = "QQ 音乐"
+        case kugou = "酷狗"
+        case local = "本地"
+        var id: String { rawValue }
+    }
+
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var player: PlayerService
+    @EnvironmentObject private var qqMusic: QQMusicSessionStore
+    @EnvironmentObject private var kugou: KugouSessionStore
     @Environment(\.openLogin) private var openLogin
 
     @ObservedObject private var favorites = FavoritesStore.shared
-    @State private var tracks: [Track] = []
+    @State private var source: Source?
+    @State private var tracksBySource: [Source: [Track]] = [:]
     @State private var query = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
     #if os(iOS)
     @State private var showDownloadOptions = false
     #endif
+
+    private var availableSources: [Source] {
+        var result: [Source] = []
+        if account.isLoggedIn { result.append(.netease) }
+        if qqMusic.isLoggedIn { result.append(.qq) }
+        if kugou.isLoggedIn { result.append(.kugou) }
+        result.append(.local)
+        return result
+    }
+
+    private var current: Source { source.flatMap { availableSources.contains($0) ? $0 : nil } ?? availableSources[0] }
+
+    private var tracks: [Track] {
+        current == .local ? favorites.tracks : (tracksBySource[current] ?? [])
+    }
 
     private var visibleTracks: [Track] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -212,42 +240,43 @@ struct LikedSongsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
 
-                if account.isLoggedIn, isLoading && tracks.isEmpty {
+                if availableSources.count > 1 {
+                    Picker("平台", selection: Binding(get: { current }, set: { source = $0 })) {
+                        ForEach(availableSources) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, Theme.Layout.contentInset)
+                }
+
+                if isLoading && tracks.isEmpty {
                     VStack(spacing: 14) {
-                        ProgressView()
-                            .controlSize(.large)
-                        Text("正在读取红心歌曲")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        ProgressView().controlSize(.large)
+                        Text("正在读取\(current.rawValue)红心歌曲").font(.subheadline).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, minHeight: 260)
-                } else if account.isLoggedIn, let errorMessage, tracks.isEmpty {
-                    ErrorStateView(message: errorMessage) {
-                        Task { await loadTracks() }
-                    }
-                    .frame(minHeight: 280)
+                } else if let errorMessage, tracks.isEmpty {
+                    ErrorStateView(message: errorMessage) { Task { await load(force: true) } }
+                        .frame(minHeight: 280)
                 } else if tracks.isEmpty {
                     EmptyStateView(
                         icon: "heart",
                         title: "还没有红心歌曲",
-                        subtitle: account.isLoggedIn ? "在歌曲播放页点红心，歌曲会同步出现在这里" : "在歌曲播放页点红心，歌曲会保存在本机；登录网易云可同步到账号"
+                        subtitle: current == .local
+                            ? "在歌曲播放页点红心，歌曲会保存在本机；登录任意平台后显示该平台的喜欢歌单"
+                            : "\(current.rawValue)账号里还没有喜欢的歌曲"
                     )
                     .frame(minHeight: 260)
-                } else {
-                    if visibleTracks.isEmpty {
-                        EmptyStateView(
-                            icon: "magnifyingglass",
-                            title: "没有匹配的歌曲",
-                            subtitle: "试试搜索歌曲名、歌手或专辑"
-                        )
-                        .frame(minHeight: 220)
-                    } else {
-                        TrackListView(
-                            tracks: visibleTracks,
-                            source: .none
-                        )
-                        .padding(.horizontal, Theme.Layout.contentInset - 10)
+                    if !account.isLoggedIn && current == .local {
+                        Button("登录网易云") { openLogin() }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
                     }
+                } else if visibleTracks.isEmpty {
+                    EmptyStateView(icon: "magnifyingglass", title: "没有匹配的歌曲", subtitle: "试试搜索歌曲名、歌手或专辑")
+                        .frame(minHeight: 220)
+                } else {
+                    TrackListView(tracks: visibleTracks, source: .none)
+                        .padding(.horizontal, Theme.Layout.contentInset - 10)
                 }
 
                 PlayerClearanceSpacer()
@@ -266,7 +295,6 @@ struct LikedSongsView: View {
                     } label: {
                         Label("播放全部", systemImage: "play.fill")
                     }
-
                     #if os(iOS)
                     Button {
                         showDownloadOptions = true
@@ -275,26 +303,18 @@ struct LikedSongsView: View {
                     }
                     #endif
                 }
-
                 Button {
-                    Task { await loadTracks() }
+                    Task { await load(force: true) }
                 } label: {
                     Label("刷新红心歌曲", systemImage: "arrow.clockwise")
                 }
             }
         }
         .searchable(text: $query, prompt: "搜索红心歌曲")
-        .task(id: account.likedTrackIDs) {
-            await account.refreshForOpen()
-            await loadTracks()
+        .task(id: "\(current.rawValue)-\(account.likedTrackIDs.count)-\(qqMusic.sessionRevision)-\(kugou.sessionRevision)") {
+            await load(force: false)
         }
-        .onChange(of: favorites.tracks) { _ in
-            if !account.isLoggedIn { tracks = favorites.tracks }
-        }
-        .refreshable {
-            await account.refreshLibrary()
-            await loadTracks()
-        }
+        .refreshable { await load(force: true) }
         #if os(iOS)
         .sheet(isPresented: $showDownloadOptions) {
             DownloadOptionsSheet(tracks: visibleTracks)
@@ -309,89 +329,84 @@ struct LikedSongsView: View {
                 .foregroundStyle(.white)
                 .frame(width: 84, height: 84)
                 .background(
-                    LinearGradient(
-                        colors: [Theme.accent, Theme.accent.opacity(0.58)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
+                    LinearGradient(colors: [Theme.accent, Theme.accent.opacity(0.58)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing),
                     in: RoundedRectangle(cornerRadius: 22, style: .continuous)
                 )
-
             VStack(alignment: .leading, spacing: 6) {
-                Text("我喜欢的音乐")
-                    .font(.title3.weight(.bold))
-                Text(account.isLoggedIn
-                     ? "\(account.likedTrackIDs.count) 首 · 网易云云端同步"
-                     : "\(favorites.tracks.count) 首 · 仅保存在本机")
+                Text("我喜欢的音乐").font(.title3.weight(.bold))
+                Text(current == .local ? "\(tracks.count) 首 · 仅保存在本机" : "\(tracks.count) 首 · \(current.rawValue)账号同步")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-
             Spacer(minLength: 0)
         }
         .padding(.horizontal, Theme.Layout.contentInset)
     }
 
-    private var loginState: some View {
-        VStack(spacing: 14) {
-            EmptyStateView(
-                icon: "person.crop.circle.badge.plus",
-                title: "登录网易云查看红心歌曲",
-                subtitle: "红心歌单来自网易云账号，不会使用应用内置账号"
-            )
-            Button {
-                openLogin()
-            } label: {
-                Label("登录网易云", systemImage: "person.crop.circle.badge.checkmark")
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Theme.accent)
-            .padding(.horizontal, Theme.Layout.contentInset * 2)
-        }
-        .frame(maxWidth: .infinity, minHeight: 280)
-    }
-
     @MainActor
-    private func loadTracks() async {
-        // Not signed in: the favourites are simply the local hearts.
-        guard account.isLoggedIn else {
-            tracks = favorites.tracks
-            errorMessage = nil
-            return
-        }
-
-        let ids = account.likedTrackIDs.sorted(by: >)
-        guard !ids.isEmpty else {
-            tracks = []
-            errorMessage = nil
-            return
-        }
-
+    private func load(force: Bool) async {
+        let target = current
+        guard target != .local else { errorMessage = nil; return }
+        if !force, tracksBySource[target] != nil { return }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
-
         do {
-            var fetched: [Track] = []
-            for start in stride(from: 0, to: ids.count, by: 500) {
-                let chunk = Array(ids.dropFirst(start).prefix(500))
-                let response = try await NeteaseAPI.songDetails(ids: chunk)
-                let lookup = Dictionary(
-                    response.songs.map { ($0.id, $0.normalizedForLXPlayback()) },
-                    uniquingKeysWith: { first, _ in first }
-                )
-                fetched.append(contentsOf: chunk.compactMap { lookup[$0] })
+            let fetched: [Track]
+            switch target {
+            case .netease:
+                if force { await account.refreshLibrary() } else { await account.refreshForOpen() }
+                fetched = try await neteaseTracks()
+            case .qq:
+                fetched = try await qqTracks()
+            case .kugou:
+                fetched = try await kugouTracks()
+            case .local:
+                fetched = []
             }
-
-            tracks = fetched
-            if fetched.isEmpty {
-                errorMessage = "红心歌曲暂时无法读取，请稍后重试"
-            }
+            tracksBySource[target] = fetched
         } catch {
-            tracks = []
-            errorMessage = "红心歌曲暂时无法读取，请检查网络后重试"
+            errorMessage = "\(target.rawValue)红心歌曲暂时无法读取，请稍后重试"
         }
+    }
+
+    private func neteaseTracks() async throws -> [Track] {
+        let ids = account.likedTrackIDs.sorted(by: >)
+        var fetched: [Track] = []
+        for start in stride(from: 0, to: ids.count, by: 500) {
+            let chunk = Array(ids.dropFirst(start).prefix(500))
+            let response = try await NeteaseAPI.songDetails(ids: chunk)
+            let lookup = Dictionary(response.songs.map { ($0.id, $0.normalizedForLXPlayback()) },
+                                    uniquingKeysWith: { first, _ in first })
+            fetched.append(contentsOf: chunk.compactMap { lookup[$0] })
+        }
+        return fetched
+    }
+
+    /// QQ 音乐's liked songs are the account playlist called 我喜欢 (dirid 201).
+    private func qqTracks() async throws -> [Track] {
+        #if os(iOS)
+        guard let cookie = qqMusic.cookie else { return [] }
+        let lists = try await QQMusicAPI.shared.userPlaylists(cookie: cookie)
+        guard let liked = lists.first(where: { $0.name.contains("我喜欢") }) ?? lists.first else { return [] }
+        return try await LXCatalogService.playlistDetail(source: .tx, id: liked.id).tracks
+        #else
+        return []
+        #endif
+    }
+
+    /// 酷狗's liked songs are the cloud list named 我喜欢.
+    private func kugouTracks() async throws -> [Track] {
+        #if os(iOS)
+        guard let cookie = await kugou.cookieWithDevice() else { return [] }
+        let lists = try await KugouAPI.shared.userPlaylists(cookie: cookie)
+        guard let liked = lists.first(where: { $0.name.contains("我喜欢") }) ?? lists.first else { return [] }
+        let rows = try await KugouAPI.shared.cloudPlaylistSongs(id: liked.id, cookie: cookie)
+        return rows.compactMap { AccountPlaylistsView.kugouTrack($0) }
+        #else
+        return []
+        #endif
     }
 }
 

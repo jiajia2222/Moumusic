@@ -513,6 +513,11 @@ actor KugouAPI {
             "clientver": "20489",
             "clienttime": String(clientTime),
         ]
+        // Like the official client (and KuGouMusicApi's request.js): every gateway call carries
+        // the session token and userid as default query parameters. Without them get_my_info
+        // answers without account data, which is why no nickname appeared.
+        if let token = fields["token"], !token.isEmpty { params["token"] = token }
+        if let userid = fields["userid"] ?? fields["kugooid"], !userid.isEmpty, userid != "0" { params["userid"] = userid }
         for (key, value) in query { params[key] = value }
         let salt = "OIlwieks28dk2k092lksi2UIkp"
         let joined = params.map { "\($0.key)=\($0.value)" }.sorted().joined()
