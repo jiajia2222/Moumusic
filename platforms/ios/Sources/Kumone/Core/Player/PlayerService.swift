@@ -1451,29 +1451,16 @@ final class PlayerService: ObservableObject {
         isPlaying = true
 
         let providerQualitySnapshot = servedByLXQuality
-        // The account's own answer (level checked against the request) is trusted; only third-party
-        // claims are re-measured below.
-        let servedByOfficialAccount = servedBySourceLabel?.contains("官方账号") == true
         Task { [weak self, weak item] in
             guard let self else { return }
             let probed = await self.loadAudioTrack(from: asset, timeout: 6)
             guard generation == self.resolveGeneration, let item, self.engine.currentItem === item else { return }
 #if os(iOS)
-            // Never leave the label on "检测中": when the stream cannot be inspected (or the
-            // inspection is inconclusive) fall back to the quality the source reported.
-            let verified = self.verifiedServedQuality(providerQuality: providerQualitySnapshot, audioTrack: probed)
-            var shown = verified ?? providerQualitySnapshot
-            // A source that merely *claims* Atmos / Master / Hi-Res cannot be believed: when the
-            // stream itself cannot be inspected, work the bitrate out from the file size.
-            let claimedTiers: Set<String> = ["master", "atmos", "dolby", "surround", "spatial", "spatial-audio",
-                                             "flac24bit", "flac24", "hires", "highres", "jymaster", "jyeffect", "sky"]
-            if verified == nil, !servedByOfficialAccount,
-               let claimed = providerQualitySnapshot?.lowercased(), claimedTiers.contains(claimed) {
-                // If the size cannot be read, keep the source's own label rather than inventing "128k".
-                if let measured = await Self.estimatedQuality(of: asset, duration: track.duration > 0 ? track.duration : self.duration) {
-                    shown = measured
-                }
-            }
+            // The label comes from the stream itself: codec, sample rate, channel count and data rate of
+            // the track AVFoundation decodes. A tier the source claims is only shown when those facts
+            // support it; when the track cannot be read at all the source's own label stays (unverified).
+            let measured = await Self.measuredQuality(claimed: providerQualitySnapshot, track: probed)
+            let shown = measured ?? providerQualitySnapshot
             guard generation == self.resolveGeneration, self.engine.currentItem === item else { return }
             self.servedQuality = shown
             self.servedQualityTrackKey = track.playbackKey
@@ -1848,30 +1835,50 @@ final class PlayerService: ObservableObject {
         }
     }
 
-    /// Bitrate from `Content-Length` / duration, bucketed with the same thresholds as the verifier.
-    private static func estimatedQuality(of asset: AVAsset, duration: TimeInterval) async -> String? {
-        guard let url = (asset as? AVURLAsset)?.url, duration > 20 else { return nil }
-        // A one-byte ranged GET: many CDNs refuse HEAD, but all answer Content-Range with the total size.
-        var request = URLRequest(url: url)
-        request.setValue("bytes=0-1", forHTTPHeaderField: "Range")
-        request.timeoutInterval = 10
-        guard let (_, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse else { return nil }
-        var total: Int64 = 0
-        if let range = http.value(forHTTPHeaderField: "Content-Range"),
-           let size = range.split(separator: "/").last.flatMap({ Int64($0) }) {
-            total = size
-        } else if http.statusCode == 200, response.expectedContentLength > 2 {
-            total = response.expectedContentLength
+    /// What the decoder is actually going to get: codec, sample rate, bit depth, channels, data rate.
+    private struct StreamFacts {
+        let format: AudioFormatID
+        let sampleRate: Double
+        let channels: Int
+        let bits: Int
+        let bitrate: Double
+    }
+
+    private static func streamFacts(of track: AVAssetTrack) async -> StreamFacts? {
+        guard let descriptions = try? await track.load(.formatDescriptions),
+              let description = descriptions.first,
+              let basic = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee,
+              basic.mSampleRate > 0 else { return nil }
+        let rate = (try? await track.load(.estimatedDataRate)) ?? 0
+        return StreamFacts(format: basic.mFormatID, sampleRate: basic.mSampleRate,
+                           channels: Int(basic.mChannelsPerFrame), bits: Int(basic.mBitsPerChannel),
+                           bitrate: Double(rate))
+    }
+
+    /// Quality label derived from the stream's real properties (nil when the track cannot be read).
+    /// A claimed tier is kept only if the measured stream satisfies it.
+    private static func measuredQuality(claimed: String?, track: AVAssetTrack?) async -> String? {
+        guard let track, let facts = await streamFacts(of: track) else { return nil }
+        let lossless = facts.format == kAudioFormatFLAC || facts.format == kAudioFormatAppleLossless
+        let dolby = facts.format == kAudioFormatEnhancedAC3 || facts.format == kAudioFormatAC3
+        let hiRes = lossless && (facts.sampleRate >= 88_200 || facts.bits >= 24 || facts.bitrate >= 1_800_000)
+        let claim = (claimed ?? "").lowercased().replacingOccurrences(of: " ", with: "")
+        switch claim {
+        case "master", "jymaster", "master_quality", "master-quality":
+            if lossless, facts.sampleRate >= 176_400 { return "jymaster" }
+        case "atmos", "immersive", "spatial", "spatial-audio", "jyeffect":
+            if hiRes { return "atmos" }
+        case "dolby", "dolby-atmos", "dolbyatmos":
+            if dolby { return "dolby" }
+        case "surround", "sky":
+            if facts.channels >= 6 { return "surround" }
+        default:
+            break
         }
-        guard total > 200_000 else { return nil }
-        let rate = Double(total) * 8 / duration
-        switch Int(rate) {
-        case 1_800_000...: return "flac24bit"
-        case 600_000..<1_800_000: return "flac"
-        case 300_000..<600_000: return "320k"
-        default: return "128k"
-        }
+        if dolby { return "dolby" }
+        if facts.channels >= 6 { return "surround" }
+        if lossless { return hiRes ? "flac24bit" : "flac" }
+        return facts.bitrate >= 224_000 ? "320k" : "128k"
     }
 
     private func loadLyrics(for track: Track, generation: Int) async {
