@@ -1081,8 +1081,9 @@ final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate {
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
                         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
         let key = ObjectIdentifier(loadingRequest)
-        let task = Task { [weak self] in
-            await self?.serve(loadingRequest)
+        let task = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.serve(loadingRequest)
         }
         tasks[key] = task
         return true
