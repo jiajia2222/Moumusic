@@ -1,0 +1,47 @@
+name: iOS 15 build (from the iOS 26 sources)
+
+# Builds the very same sources as the iOS 26 app with a lower deployment target plus the shims in
+# platforms/ios15. Never touches platforms/ios in the repository and never creates a release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios15:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Prepare iOS 15 tree
+        run: bash platforms/ios15/prepare.sh
+
+      - name: Install XcodeGen
+        run: HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: platforms/ios/ios
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        working-directory: platforms/ios/ios
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project KumoneIOS.xcodeproj \
+            -scheme KumoneIOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
+            build 2>&1 | tee build.log | tail -n 60
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log-ios15
+          path: platforms/ios/ios/build.log
