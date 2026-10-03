@@ -269,7 +269,7 @@ struct LXSourceManagerView: View {
     ) -> some View {
         content()
             .padding(16)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)

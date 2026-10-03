@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 
 /// QQ's QR flow must expose redirect responses so the app can collect the
 /// account cookies and exchange the OAuth code for a Music session.
@@ -129,6 +129,40 @@ actor QQMusicAPI {
         return false
     }
 
+    private func musicuPlaylists(cookie: String, uin: String, gtk: Int) async -> [AccountPlaylist]? {
+        let payload: [String: Any] = [
+            "comm": ["g_tk": gtk, "uin": uin, "format": "json", "ct": 20, "cv": 4747474],
+            "req_0": ["module": "music.musicasset.PlaylistBaseRead", "method": "GetPlaylistByUin",
+                      "param": ["uin": uin]]
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+        var request = URLRequest(url: URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.httpBody = body
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let req = root["req_0"] as? [String: Any],
+              let payloadData = req["data"] as? [String: Any] else { return nil }
+        let rows = (payloadData["v_playlist"] as? [[String: Any]]) ?? []
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .info, category: "QQ 音乐", message: "账号歌单列表(musicu)", detail: "rows=\(rows.count)")
+        }
+        return rows.compactMap { item in
+            let id = (item["tid"] as? Int).map(String.init) ?? (item["tid"] as? String) ?? ""
+            let name = (item["dirName"] as? String) ?? (item["diss_name"] as? String) ?? ""
+            guard !id.isEmpty, id != "0", !name.isEmpty else { return nil }
+            let cover = (item["picUrl"] as? String) ?? (item["diss_cover"] as? String)
+            return AccountPlaylist(
+                id: id, name: name,
+                count: (item["songNum"] as? Int) ?? (item["song_cnt"] as? Int) ?? 0,
+                coverURL: cover.flatMap { $0.isEmpty ? nil : $0.replacingOccurrences(of: "http://", with: "https://") })
+        }
+    }
+
     /// Playlists created by the signed-in QQ account (`fcg_user_created_diss`).
     func userPlaylists(cookie: String) async throws -> [AccountPlaylist] {
         var fields: [String: String] = [:]
@@ -142,6 +176,9 @@ actor QQMusicAPI {
         let credential = fields["qqmusic_key"] ?? fields["p_skey"] ?? fields["skey"] ?? ""
         // Overflow-safe: a plain Int `+=` traps on long keys and crashed the playlist page.
         let gtk = Self.hash5381(credential)
+
+        // The musicu route is the one the current web player uses; the legacy cgi below stays as backup.
+        if let rows = await musicuPlaylists(cookie: cookie, uin: String(uin), gtk: gtk), !rows.isEmpty { return rows }
 
         var components = URLComponents(string: "https://c.y.qq.com/rsc/fcgi-bin/fcg_user_created_diss")!
         components.queryItems = [

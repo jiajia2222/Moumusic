@@ -247,6 +247,8 @@ actor BilibiliAPI {
         var audioURL: URL? = nil
         /// Same quality in other codecs / backup CDNs, tried before lowering the quality.
         var alternateURLs: [URL] = []
+        /// Index data for HLS playback (nil for muxed MP4 / unusual responses).
+        var dash: BiliDashSource? = nil
     }
 
     struct LiveArea: Identifiable, Hashable, Sendable {
@@ -1350,6 +1352,27 @@ actor BilibiliAPI {
             func firstURL(_ row: [String: Any]) -> URL? {
                 allURLs(row).first
             }
+            func range(_ value: Any?) -> ClosedRange<Int>? {
+                guard let text = Self.text(value) else { return nil }
+                let parts = text.split(separator: "-").compactMap { Int($0) }
+                guard parts.count == 2, parts[0] <= parts[1] else { return nil }
+                return parts[0]...parts[1]
+            }
+            func dashTrack(_ row: [String: Any]) -> BiliDashTrack? {
+                let base = (row["segment_base"] ?? row["SegmentBase"]) as? [String: Any]
+                let urls = allURLs(row)
+                guard !urls.isEmpty else { return nil }
+                return BiliDashTrack(
+                    urls: urls,
+                    initRange: range(base?["initialization"] ?? base?["Initialization"]),
+                    indexRange: range(base?["index_range"] ?? base?["indexRange"]),
+                    codecs: Self.text(row["codecs"]) ?? "",
+                    bandwidth: Self.integer(row["bandwidth"]) ?? 0,
+                    width: Self.integer(row["width"]) ?? 0,
+                    height: Self.integer(row["height"]) ?? 0,
+                    frameRate: Self.text(row["frame_rate"] ?? row["frameRate"])
+                )
+            }
             if let chosen, let videoURL = firstURL(chosen) {
                 var alternates = ordered.flatMap(allURLs)
                 var seenURLs = Set<String>()
@@ -1359,8 +1382,16 @@ actor BilibiliAPI {
                 let aac = (dash["audio"] as? [[String: Any]])?
                     .max { (Self.integer($0["id"]) ?? 0) < (Self.integer($1["id"]) ?? 0) }
                 let audioRow = dolby ?? flac ?? aac
-                return Playback(url: videoURL, quality: target, qualities: available,
-                                audioURL: audioRow.flatMap(firstURL), alternateURLs: alternates)
+                var playback = Playback(url: videoURL, quality: target, qualities: available,
+                                        audioURL: audioRow.flatMap(firstURL), alternateURLs: alternates)
+                if let videoTrack = dashTrack(chosen), videoTrack.initRange != nil, videoTrack.indexRange != nil {
+                    let audioTrack = audioRow.flatMap(dashTrack)
+                    // Audio without an index cannot go through HLS; then the whole thing falls back.
+                    if audioRow == nil || (audioTrack?.initRange != nil && audioTrack?.indexRange != nil) {
+                        playback.dash = BiliDashSource(video: videoTrack, audio: audioTrack)
+                    }
+                }
+                return playback
             }
         }
 
@@ -1574,22 +1605,46 @@ actor BilibiliAPI {
     private func requestObject(_ url: URL, cookie: String? = nil,
                                referer: String = "https://www.bilibili.com/",
                                headers: [String: String] = [:]) async throws -> [String: Any] {
-        await ensureVisitorCookies()
-        var request = URLRequest(url: url)
-        applyHeaders(to: &request, referer: referer)
-        for (field, value) in headers {
-            request.setValue(value, forHTTPHeaderField: field)
+        var attempt = 0
+        while true {
+            await ensureVisitorCookies()
+            var request = URLRequest(url: url)
+            applyHeaders(to: &request, referer: referer)
+            for (field, value) in headers {
+                request.setValue(value, forHTTPHeaderField: field)
+            }
+            let cookies = mergedRequestCookieHeader(cookie)
+            if !cookies.isEmpty {
+                request.setValue(cookies, forHTTPHeaderField: "Cookie")
+            }
+            do {
+                let (data, response) = try await session.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+                let root = Self.object(data)
+                let code = root.flatMap { Self.integer($0["code"]) } ?? 0
+                // Search and a few other endpoints answer 412 / -412 / -799 when the visitor
+                // fingerprint is stale: refresh it and ask again instead of failing the search.
+                let retryable = [412, 429, 502, 503].contains(status) || [-412, -799, -352, -509, -504, -1200].contains(code)
+                if retryable, attempt < 3 {
+                    attempt += 1
+                    invalidateVisitorCookies()
+                    try? await Task.sleep(for: .milliseconds(300 * attempt))
+                    continue
+                }
+                guard Self.isSuccess(response), let root else { throw APIError.requestFailed }
+                guard Self.integer(root["code"]) == 0 else { throw APIError.unavailable }
+                return root
+            } catch let error as URLError where attempt < 3 && error.code != .cancelled {
+                attempt += 1
+                try? await Task.sleep(for: .milliseconds(300 * attempt))
+            }
         }
-        let cookies = mergedRequestCookieHeader(cookie)
-        if !cookies.isEmpty {
-            request.setValue(cookies, forHTTPHeaderField: "Cookie")
+    }
+
+    private func invalidateVisitorCookies() {
+        for cookie in cookieStorage.cookies ?? [] where visitorCookieNames.contains(cookie.name) {
+            cookieStorage.deleteCookie(cookie)
         }
-        let (data, response) = try await session.data(for: request)
-        guard Self.isSuccess(response), let root = Self.object(data) else {
-            throw APIError.requestFailed
-        }
-        guard Self.integer(root["code"]) == 0 else { throw APIError.unavailable }
-        return root
     }
 
     private func applyHeaders(to request: inout URLRequest, referer: String) {

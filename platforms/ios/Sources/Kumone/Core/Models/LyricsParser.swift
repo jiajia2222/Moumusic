@@ -122,12 +122,29 @@ enum LyricsParser {
     /// while some return escaped newlines or an un-timestamped lyric body.
     /// Normalize those forms before parsing so the UI never silently receives
     /// an empty `ParsedLyrics` just because the source omitted LRC timestamps.
+    /// NetEase prefixes verbatim lyrics with JSON credit lines such as
+    /// `{"t":0,"c":[{"tx":"作词: "},{"tx":"某人","li":"http://…","or":"orpheus://…"}]}`; show the
+    /// readable credit instead of the raw JSON (and its image / app links).
+    static func creditLine(_ line: String) -> (time: TimeInterval, text: String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"), let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let pieces = object["c"] as? [[String: Any]] else { return nil }
+        let text = pieces.compactMap { $0["tx"] as? String }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+        let start = ((object["t"] as? NSNumber)?.doubleValue ?? 0) / 1000
+        return text.isEmpty ? nil : (start, text)
+    }
+
     private static func parsePlainText(_ body: String) -> [(time: TimeInterval, text: String)] {
         let normalized = normalize(body)
         guard !normalized.isEmpty else { return [] }
         return normalized.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+            .compactMap { line -> String? in
+                guard line.hasPrefix("{") else { return line }
+                return creditLine(line)?.text
+            }
             .filter { line in
                 // Drop LRC metadata such as [ar:…] when a source has mixed
                 // metadata and plain text, but keep ordinary lyric text.
@@ -193,6 +210,11 @@ enum LyricsParser {
         var idx = 0
         for raw in yrc.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("{"), let credit = creditLine(line) {
+                lines.append(LyricLine(id: idx, time: credit.time, text: credit.text))
+                idx += 1
+                continue
+            }
             guard let head = line.firstMatch(of: lineTag) else { continue }
             let lineStart = (Double(head.output.1) ?? 0) / 1000
             let contentStart = head.range.upperBound

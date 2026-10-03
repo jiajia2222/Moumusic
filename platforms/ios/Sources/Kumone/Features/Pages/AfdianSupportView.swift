@@ -57,7 +57,7 @@ struct AfdianSupportView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .mouMaterialBackground(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var supportPicker: some View {
@@ -119,7 +119,7 @@ struct AfdianSupportView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .mouMaterialBackground(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var sponsorList: some View {
@@ -146,7 +146,7 @@ struct AfdianSupportView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(28)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .mouMaterialBackground(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             } else if store.sponsors.isEmpty && !store.isLoading {
                 Text("还没有公开赞助记录\n感谢每一位未来的支持者 ❤️")
                     .font(.subheadline)
@@ -154,7 +154,7 @@ struct AfdianSupportView: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .padding(28)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .mouMaterialBackground(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             } else {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(sponsorsByYear, id: \.year) { group in
@@ -218,7 +218,7 @@ struct AfdianSupportView: View {
             }
         }
         .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .mouMaterialBackground(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func money(_ value: Double?) -> String {

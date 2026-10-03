@@ -1,4 +1,5 @@
-﻿#if os(iOS)
+#if os(iOS)
+import PhotosUI
 import SwiftUI
 
 /// Beans-style 闂傚倸鍊烽懗鍫曞磻閵娾晛纾块柤纰卞墮閸ㄦ繄鈧箍鍎遍ˇ顖炲垂閸屾稓绡€濠电姴鍊绘晶娑㈡煕鎼达紕效闁哄本鐩鏉懳熼崫鍕庛劑姊?surface.  It is intentionally a real navigation hub,
@@ -113,7 +114,7 @@ struct MyProfileView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: 48, height: 48)
-                .background(.regularMaterial, in: Circle())
+                .mouMaterialBackground(.regularMaterial, in: Circle())
                 .overlay(Circle().strokeBorder(.primary.opacity(0.10), lineWidth: 1))
             NavigationLink {
                 SettingsView()
@@ -121,7 +122,7 @@ struct MyProfileView: View {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 18, weight: .semibold))
                     .frame(width: 48, height: 48)
-                    .background(.regularMaterial, in: Circle())
+                    .mouMaterialBackground(.regularMaterial, in: Circle())
                     .overlay(Circle().strokeBorder(.primary.opacity(0.10), lineWidth: 1))
             }
             .accessibilityLabel("设置")
@@ -171,7 +172,8 @@ struct MyProfileView: View {
             .padding(.vertical, 4)
             .background {
                 if !exclusive {
-                    Capsule().fill(.thinMaterial)
+                    Capsule().fill(BackgroundImageStore.shared.appWallpaperActive
+                                   ? AnyShapeStyle(Color.black.opacity(0.28)) : AnyShapeStyle(.thinMaterial))
                         .overlay(Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 0.8))
                 }
                 if exclusive {
@@ -242,7 +244,7 @@ struct MyProfileView: View {
                         Image(systemName: "slider.horizontal.3")
                             .font(.system(size: 16, weight: .semibold))
                             .frame(width: 40, height: 40)
-                            .background(.thinMaterial, in: Circle())
+                            .mouMaterialBackground(.thinMaterial, in: Circle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("自定义头像和背景")
@@ -379,7 +381,14 @@ struct MyProfileView: View {
     private var moumusicIdentityCard: some View {
         MouGlassCard(cornerRadius: 28) {
             ZStack {
-                if let background = moumusicServer.profile?.backgroundURL,
+                if let local = appearance.cardBackground {
+                    ProfileCardBackgroundView(image: local, zoom: appearance.cardZoom,
+                                              x: appearance.cardOffsetX, y: appearance.cardOffsetY)
+                        .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 260)
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .overlay(Color.black.opacity(0.26))
+                        .allowsHitTesting(false)
+                } else if let background = moumusicServer.profile?.backgroundURL,
                    let url = URL(string: background), !background.isEmpty {
                     AsyncImage(url: url) { phase in
                         if case .success(let image) = phase {
@@ -431,7 +440,7 @@ struct MyProfileView: View {
                         Image(systemName: "pencil")
                             .font(.subheadline.weight(.semibold))
                             .frame(width: 36, height: 36)
-                            .background(.regularMaterial, in: Circle())
+                            .mouMaterialBackground(.regularMaterial, in: Circle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("编辑个人资料")
@@ -744,8 +753,17 @@ struct MyProfileView: View {
 }
 
 private struct MoumusicProfileEditorView: View {
+    private func positionSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        HStack {
+            Text(title).frame(width: 72, alignment: .leading)
+            Slider(value: value, in: range)
+        }
+    }
+
     @EnvironmentObject private var server: MoumusicServerStore
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var appearance = ProfileAppearanceStore.shared
+    @State private var cardItem: PhotosPickerItem?
     @State private var nickname = ""
     @State private var backgroundURL = ""
     @State private var signature = ""
@@ -761,7 +779,26 @@ private struct MoumusicProfileEditorView: View {
                 }
 
                 Section("个人卡片背景") {
-                    TextField("图片 URL", text: $backgroundURL)
+                    PhotosPicker(selection: $cardItem, matching: .images) {
+                        Label(appearance.cardBackground == nil ? "从相册选择图片" : "更换图片", systemImage: "photo.on.rectangle")
+                    }
+                    if let local = appearance.cardBackground {
+                        ProfileCardBackgroundView(image: local, zoom: appearance.cardZoom,
+                                                  x: appearance.cardOffsetX, y: appearance.cardOffsetY)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 150)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        positionSlider("缩放", value: $appearance.cardZoom, range: 1...3)
+                        positionSlider("水平位置", value: $appearance.cardOffsetX, range: -1...1)
+                        positionSlider("垂直位置", value: $appearance.cardOffsetY, range: -1...1)
+                        Button("还原位置") {
+                            appearance.cardZoom = 1
+                            appearance.cardOffsetX = 0
+                            appearance.cardOffsetY = 0
+                        }
+                        Button("移除相册图片", role: .destructive) { appearance.resetCardBackground() }
+                    }
+                    TextField("或填写图片 URL", text: $backgroundURL)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
 
@@ -785,6 +822,13 @@ private struct MoumusicProfileEditorView: View {
             }
             .navigationTitle("编辑个人卡片")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: cardItem) { item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self) { appearance.setCardBackground(data) }
+                    cardItem = nil
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
@@ -811,7 +855,7 @@ private struct MoumusicProfileEditorView: View {
                 if isSaving {
                     ProgressView()
                         .padding(20)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                        .mouMaterialBackground(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                 }
             }
             .task {

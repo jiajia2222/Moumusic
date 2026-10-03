@@ -1,4 +1,4 @@
-﻿#if os(iOS)
+#if os(iOS)
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -10,6 +10,17 @@ final class ProfileAppearanceStore: ObservableObject {
 
     @Published private(set) var avatar: UIImage?
     @Published private(set) var background: UIImage?
+    /// Album picture for the Moumusic ID card, with the framing the user chose.
+    @Published private(set) var cardBackground: UIImage?
+    @Published var cardZoom: Double = UserDefaults.standard.object(forKey: "moumusic.profile.card.zoom") as? Double ?? 1 {
+        didSet { UserDefaults.standard.set(cardZoom, forKey: "moumusic.profile.card.zoom") }
+    }
+    @Published var cardOffsetX: Double = UserDefaults.standard.object(forKey: "moumusic.profile.card.x") as? Double ?? 0 {
+        didSet { UserDefaults.standard.set(cardOffsetX, forKey: "moumusic.profile.card.x") }
+    }
+    @Published var cardOffsetY: Double = UserDefaults.standard.object(forKey: "moumusic.profile.card.y") as? Double ?? 0 {
+        didSet { UserDefaults.standard.set(cardOffsetY, forKey: "moumusic.profile.card.y") }
+    }
     @Published var nickname: String = UserDefaults.standard.string(forKey: "moumusic.profile.nickname") ?? "" {
         didSet { UserDefaults.standard.set(nickname.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "moumusic.profile.nickname") }
     }
@@ -17,6 +28,24 @@ final class ProfileAppearanceStore: ObservableObject {
     private init() {
         avatar = UIImage(contentsOfFile: Self.url("avatar").path)
         background = UIImage(contentsOfFile: Self.url("background").path)
+        cardBackground = UIImage(contentsOfFile: Self.url("card").path)
+    }
+
+    func setCardBackground(_ data: Data) {
+        guard let image = UIImage(data: data) else { return }
+        let scale = min(1, 1600 / max(image.size.width, image.size.height))
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let rendered = UIGraphicsImageRenderer(size: size).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        try? rendered.jpegData(compressionQuality: 0.88)?.write(to: Self.url("card"), options: .atomic)
+        cardBackground = rendered
+        cardZoom = 1
+        cardOffsetX = 0
+        cardOffsetY = 0
+    }
+
+    func resetCardBackground() {
+        try? FileManager.default.removeItem(at: Self.url("card"))
+        cardBackground = nil
     }
 
     private static func url(_ name: String) -> URL {
@@ -116,6 +145,26 @@ struct ProfileCustomizeSheet: View {
                     backgroundItem = nil
                 }
             }
+        }
+    }
+}
+
+/// The picture of the Moumusic ID card, zoomed and shifted by the user's framing.
+struct ProfileCardBackgroundView: View {
+    let image: UIImage
+    let zoom: Double
+    let x: Double
+    let y: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .scaleEffect(zoom)
+                .offset(x: x * proxy.size.width * 0.25 * zoom, y: y * proxy.size.height * 0.25 * zoom)
+                .clipped()
         }
     }
 }

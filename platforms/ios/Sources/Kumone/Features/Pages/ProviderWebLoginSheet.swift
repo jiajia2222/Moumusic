@@ -1,4 +1,4 @@
-﻿#if os(iOS)
+#if os(iOS)
 import SwiftUI
 import WebKit
 
@@ -112,7 +112,7 @@ struct ProviderWebLoginSheet: View {
                             .foregroundStyle(.green)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 11)
-                            .background(.regularMaterial, in: Capsule())
+                            .mouMaterialBackground(.regularMaterial, in: Capsule())
                             .overlay(Capsule().strokeBorder(.green.opacity(0.28), lineWidth: 1))
                             .padding(.bottom, 24)
                     }

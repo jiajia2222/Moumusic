@@ -35,6 +35,10 @@ final class BackgroundImageStore: ObservableObject {
 
     private let fileName = "wallpaper.jpg"
 
+    /// True while a wallpaper is shown behind the app: cards then use flat tints instead of
+    /// blur / glass so the picture stays sharp (the 背景模糊 slider only blurs the picture itself).
+    var appWallpaperActive: Bool { image != nil && syncToApp }
+
     private init() {
         photoSelection = nil
         blurRadius = UserDefaults.standard.object(forKey: Keys.blurRadius) as? Double ?? 8

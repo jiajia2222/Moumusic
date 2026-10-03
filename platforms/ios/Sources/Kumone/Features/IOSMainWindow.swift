@@ -539,7 +539,7 @@ struct IOSMiniPlayerBar: View {
     private var playerBarSurface: some View {
         if presentation.drawsBackground {
             content
-                .background(.regularMaterial, in: Capsule())
+                .mouMaterialBackground(.regularMaterial, in: Capsule())
                 .overlay {
                     Capsule()
                         .strokeBorder(.primary.opacity(0.08), lineWidth: 0.5)
@@ -693,7 +693,7 @@ private struct PlaybackToastOverlay: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
         .frame(maxWidth: 440, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .mouMaterialBackground(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(.white.opacity(0.18), lineWidth: 1)

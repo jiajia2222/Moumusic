@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 /// Song comments are always read from NetEase. A non-NetEase track is matched
 /// to its NetEase metadata record before comments are loaded or posted.
@@ -56,7 +56,7 @@ struct SongCommentsSheet: View {
                         }
                         .pickerStyle(.segmented)
                         .tint(Theme.accent)
-                        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+                        .mouMaterialBackground(.ultraThinMaterial, in: Capsule(style: .continuous))
                         .overlay {
                             Capsule(style: .continuous)
                                 .stroke(.white.opacity(0.18), lineWidth: 1)
@@ -99,7 +99,7 @@ struct SongCommentsSheet: View {
                             .padding(.vertical, 4)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 12)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .mouMaterialBackground(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                                     .stroke(.white.opacity(0.14), lineWidth: 1)
@@ -157,7 +157,7 @@ struct SongCommentsSheet: View {
             }
         }
         .padding(4)
-        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        .mouMaterialBackground(.ultraThinMaterial, in: Capsule(style: .continuous))
         .overlay {
             Capsule(style: .continuous)
                 .stroke(.white.opacity(0.18), lineWidth: 1)
@@ -181,7 +181,7 @@ struct SongCommentsSheet: View {
                         .textFieldStyle(.plain)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
                                 .stroke(.white.opacity(0.14), lineWidth: 1)
@@ -213,7 +213,7 @@ struct SongCommentsSheet: View {
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .foregroundStyle(.primary)
-                .background(.thinMaterial, in: Capsule(style: .continuous))
+                .mouMaterialBackground(.thinMaterial, in: Capsule(style: .continuous))
                 .overlay {
                     Capsule(style: .continuous)
                         .stroke(.white.opacity(0.16), lineWidth: 1)
@@ -222,7 +222,7 @@ struct SongCommentsSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .mouMaterialBackground(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(.white.opacity(0.16), lineWidth: 1)

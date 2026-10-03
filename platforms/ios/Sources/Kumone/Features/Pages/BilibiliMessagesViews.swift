@@ -103,6 +103,6 @@ struct BilibiliNoticeRow: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }

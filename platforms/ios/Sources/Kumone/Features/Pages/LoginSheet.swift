@@ -140,7 +140,7 @@ struct LoginSheet: View {
                         }
                     }
                     .padding(12)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .mouMaterialBackground(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
 

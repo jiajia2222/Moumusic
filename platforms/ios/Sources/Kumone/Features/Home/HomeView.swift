@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 @MainActor
 final class HomeViewModel: ObservableObject {
@@ -559,7 +559,7 @@ struct HomeView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(Theme.accent.opacity(0.16), lineWidth: 1)
@@ -1136,7 +1136,7 @@ private struct RemoteAnnouncementCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(Theme.accent.opacity(0.16), lineWidth: 1)

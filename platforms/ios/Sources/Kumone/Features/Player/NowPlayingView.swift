@@ -1552,7 +1552,7 @@ private struct LyricPresentationSheet: View {
     private func glassSection<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12, content: content)
             .padding(16)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .mouMaterialBackground(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .stroke(.white.opacity(0.16), lineWidth: 1)

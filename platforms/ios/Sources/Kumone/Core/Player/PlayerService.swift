@@ -1273,7 +1273,9 @@ final class PlayerService: ObservableObject {
                 resolvedURL = resolved.url
                 servedByLXQuality = resolved.quality
                 servedBySourceLabel = "LX 第三方音源"
-                if (track.fee == 1 || track.fee == 4),
+                // Only the account-mode fallback is worth a notice: with a third-party source chosen
+                // on purpose, "会员歌曲将通过第三方音源播放" is just noise.
+                if vipFallbackAllowed, (track.fee == 1 || track.fee == 4),
                    UserDefaults.standard.object(forKey: "moumusic.vipReminder") as? Bool ?? true {
                     ToastCenter.shared.show("会员歌曲，已通过第三方音源播放")
                 }
@@ -1433,7 +1435,16 @@ final class PlayerService: ObservableObject {
             // Never leave the label on "检测中": when the stream cannot be inspected (or the
             // inspection is inconclusive) fall back to the quality the source reported.
             let verified = self.verifiedServedQuality(providerQuality: providerQualitySnapshot, audioTrack: probed)
-            self.servedQuality = verified ?? providerQualitySnapshot
+            var shown = verified ?? providerQualitySnapshot
+            // A source that merely *claims* Atmos / Master / Hi-Res cannot be believed: when the
+            // stream itself cannot be inspected, work the bitrate out from the file size.
+            let claimedTiers: Set<String> = ["master", "atmos", "dolby", "surround", "spatial", "spatial-audio",
+                                             "flac24bit", "flac24", "hires", "highres", "jymaster", "jyeffect", "sky"]
+            if verified == nil, let claimed = providerQualitySnapshot?.lowercased(), claimedTiers.contains(claimed) {
+                shown = await Self.estimatedQuality(of: asset, duration: track.duration > 0 ? track.duration : self.duration) ?? "128k"
+            }
+            guard generation == self.resolveGeneration, self.engine.currentItem === item else { return }
+            self.servedQuality = shown
             self.servedQualityTrackKey = track.playbackKey
             let wanted = self.currentQuality
             let spatial: [AudioQuality] = [.master, .atmos, .dolby, .surround]
@@ -1760,6 +1771,22 @@ final class PlayerService: ObservableObject {
             return "320k"
         default:
             return "128k"
+        }
+    }
+
+    /// Bitrate from `Content-Length` / duration, bucketed with the same thresholds as the verifier.
+    private static func estimatedQuality(of asset: AVAsset, duration: TimeInterval) async -> String? {
+        guard let url = (asset as? AVURLAsset)?.url, duration > 20 else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              response.expectedContentLength > 0 else { return nil }
+        let rate = Double(response.expectedContentLength) * 8 / duration
+        switch Int(rate) {
+        case 1_800_000...: return "flac24bit"
+        case 600_000..<1_800_000: return "flac"
+        case 300_000..<600_000: return "320k"
+        default: return "128k"
         }
     }
 

@@ -164,7 +164,7 @@ struct BilibiliLiveView: View {
                 Image(systemName: "arrow.clockwise")
                     .font(.headline.weight(.semibold))
                     .frame(width: 44, height: 44)
-                    .background(.thinMaterial, in: Circle())
+                    .mouMaterialBackground(.thinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("刷新直播")
@@ -194,7 +194,7 @@ struct BilibiliLiveView: View {
         }
         .padding(.horizontal, 16)
         .frame(minHeight: 52)
-        .background(.thinMaterial, in: Capsule())
+        .mouMaterialBackground(.thinMaterial, in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.16), lineWidth: 0.5))
         .padding(.horizontal, Theme.Layout.contentInset)
     }
@@ -412,6 +412,10 @@ struct BilibiliLiveRoomView: View {
                 }
                 .buttonStyle(.bordered)
             }
+            Button { playerModel.seekToLiveEdge() } label: {
+                Label("追到最新", systemImage: "forward.end.fill")
+            }
+            .buttonStyle(.bordered)
             if settings.bilibiliMode != .listen {
                 Button { listenOnly.toggle() } label: {
                     Label(listenOnly ? "看画面" : "只听声音", systemImage: listenOnly ? "play.rectangle" : "headphones")

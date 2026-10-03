@@ -105,10 +105,16 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
 
     // MARK: Loading
 
-    func load(video: URL?, audio: URL?, autoplay: Bool) {
-        let key = "\(video?.absoluteString ?? "")|\(audio?.absoluteString ?? "")"
+    func load(video: URL?, audio: URL?, dash: BiliDashSource? = nil, autoplay: Bool) {
+        let key = "\(video?.absoluteString ?? "")|\(audio?.absoluteString ?? "")|\(dash == nil ? "c" : "h")"
         guard key != loadedKey else { return }
         loadedKey = key
+        usingHLS = dash != nil
+        isLive = video?.absoluteString.lowercased().contains(".m3u8") == true
+        player.automaticallyWaitsToMinimizeStalling = !isLive
+        fallbackVideo = video
+        fallbackAudio = audio
+        wasAutoplay = autoplay
         loadTask?.cancel()
         isReady = false
         resumeApplied = false
@@ -122,13 +128,44 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         }
         isPreparing = true
         loadTask = Task { [weak self] in
-            let item = await Self.makeItem(video: video, audio: audio)
+            let item = await Self.makeItem(video: video, audio: audio, dash: dash)
             guard let self, !Task.isCancelled else { return }
             self.install(item, autoplay: autoplay)
         }
     }
 
-    nonisolated private static func makeItem(video: URL, audio: URL?) async -> AVPlayerItem {
+    private(set) var isLive = false
+    private var lastLiveCatchUp = Date()
+    private var usingHLS = false
+
+    /// Jumps to the newest part of a live stream.
+    func seekToLiveEdge() {
+        guard let item = player.currentItem, let range = item.seekableTimeRanges.last?.timeRangeValue else { return }
+        let target = CMTimeSubtract(CMTimeRangeGetEnd(range), CMTime(seconds: 1.5, preferredTimescale: 600))
+        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+        lastLiveCatchUp = Date()
+    }
+    private var fallbackVideo: URL?
+    private var fallbackAudio: URL?
+    private var wasAutoplay = true
+
+    nonisolated private static func makeItem(video: URL, audio: URL?, dash: BiliDashSource?) async -> AVPlayerItem {
+        // Live streams are HLS playlists: AVPlayer reads them itself (with the Referer the CDN wants).
+        if video.absoluteString.lowercased().contains(".m3u8") {
+            let asset = AVURLAsset(url: video, options: ["AVURLAssetHTTPHeaderFieldsKey": [
+                "Referer": "https://live.bilibili.com/",
+                "User-Agent": userAgent
+            ]])
+            let item = AVPlayerItem(asset: asset)
+            item.automaticallyPreservesTimeOffsetFromLive = true
+            item.configuredTimeOffsetFromLive = CMTime(seconds: 2, preferredTimescale: 600)
+            item.preferredForwardBufferDuration = 2
+            item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
+            return item
+        }
+        if let dash {
+            return AVPlayerItem(asset: BiliHLSLoader.asset(for: dash, userAgent: userAgent))
+        }
         let options: [String: Any] = ["AVURLAssetHTTPHeaderFieldsKey": [
             "Referer": "https://www.bilibili.com/",
             "User-Agent": userAgent
@@ -195,6 +232,20 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
                     self.applyResumeIfNeeded()
                     self.watchForPicture(item)
                 case .failed:
+                    if self.usingHLS, let video = self.fallbackVideo {
+                        // HLS could not open this stream: stitch the two files together instead.
+                        self.usingHLS = false
+                        let audio = self.fallbackAudio, autoplay = self.wasAutoplay
+                        DiagnosticLogStore.shared.append(level: .warning, category: "哔哩哔哩播放", message: "HLS 播放失败，改用合成播放",
+                                                         detail: message ?? "未知错误")
+                        self.loadTask?.cancel()
+                        self.loadTask = Task { [weak self] in
+                            let item = await Self.makeItem(video: video, audio: audio, dash: nil)
+                            guard let self, !Task.isCancelled else { return }
+                            self.install(item, autoplay: autoplay)
+                        }
+                        return
+                    }
                     self.isPreparing = false
                     self.onError?("B 站视频播放失败：\(message ?? "未知错误")")
                 default:
@@ -229,6 +280,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     private var lastAdvanceTime: Double = -1
     private var lastAdvanceAt = Date()
 
+    @Published private(set) var isWaitingForPicture = false
     private var videoOutput: AVPlayerItemVideoOutput?
     private var lastFrameAt = Date()
     private var frozenCount = 0
@@ -240,14 +292,17 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         guard expectsPicture, let output = videoOutput, player.timeControlStatus == .playing,
               !isScrubbing, currentTime > 1 else {
             lastFrameAt = Date()
+            if isWaitingForPicture { isWaitingForPicture = false }
             return
         }
         let time = output.itemTime(forHostTime: CACurrentMediaTime())
         if output.hasNewPixelBuffer(forItemTime: time) {
             _ = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
             lastFrameAt = Date()
+            if isWaitingForPicture { isWaitingForPicture = false }
             return
         }
+        if Date().timeIntervalSince(lastFrameAt) > 1.2, !isWaitingForPicture { isWaitingForPicture = true }
         guard Date().timeIntervalSince(lastFrameAt) > 3 else { return }
         // Audio ran ahead of the still-buffering picture: re-sync both tracks at the current
         // position so playback waits for the video instead of running on blind. Only a stream
@@ -266,6 +321,12 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     }
 
     private func checkStall() {
+        if isLive, player.timeControlStatus == .playing, Date().timeIntervalSince(lastLiveCatchUp) > 5,
+           let item = player.currentItem, let range = item.seekableTimeRanges.last?.timeRangeValue {
+            // Drifted more than 6 s behind the broadcaster (after buffering): catch up.
+            let behind = CMTimeGetSeconds(CMTimeRangeGetEnd(range)) - CMTimeGetSeconds(item.currentTime())
+            if behind > 6 { seekToLiveEdge() } else { lastLiveCatchUp = Date() }
+        }
         checkFrames()
         guard player.rate > 0 || player.timeControlStatus == .waitingToPlayAtSpecifiedRate else {
             lastAdvanceAt = Date()
@@ -415,7 +476,10 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
 
     private func activateAudioSession() {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .moviePlayback, options: [])
+        // Keep the user's "与其他音频同时播放" choice: resetting the options here is what made the
+        // setting stop working after a video had played.
+        let mix: AVAudioSession.CategoryOptions = UserDefaults.standard.bool(forKey: "moumusic.mixWithOthers") ? [.mixWithOthers] : []
+        try? session.setCategory(.playback, mode: .moviePlayback, options: mix)
         try? session.setActive(true)
     }
 
@@ -656,7 +720,7 @@ struct BiliNativePlayer: View {
                 }
                 .allowsHitTesting(false)
             }
-            if model.isPreparing || model.isBuffering {
+            if model.isPreparing || model.isBuffering || model.isWaitingForPicture {
                 ProgressView()
                     .progressViewStyle(.circular)
                     .tint(.white)

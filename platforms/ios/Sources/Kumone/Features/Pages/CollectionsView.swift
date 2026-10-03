@@ -170,7 +170,7 @@ struct CollectionsView: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contentShape(Rectangle())
     }
 

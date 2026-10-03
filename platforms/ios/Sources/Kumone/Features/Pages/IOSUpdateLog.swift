@@ -80,7 +80,7 @@ struct IOSUpdateLogSheet: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                 }
                 .padding(20)
             }

@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 /// Design tokens: color, radius, spacing, layout metrics.
 enum Theme {
@@ -121,10 +121,22 @@ private struct CompatGlassModifier: ViewModifier {
     let interactive: Bool
     let shape: AnyShape
     @AppStorage(AppAppearanceKeys.disableLiquid) private var disableLiquid = false
+    #if os(iOS)
+    @ObservedObject private var wallpaper = BackgroundImageStore.shared
+    private var flatTint: Bool { wallpaper.appWallpaperActive }
+    #else
+    private var flatTint: Bool { false }
+    #endif
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if disableLiquid {
+        if flatTint {
+            #if os(iOS)
+            content.background(Color(uiColor: .secondarySystemBackground).opacity(0.62), in: shape)
+            #else
+            content
+            #endif
+        } else if disableLiquid {
             content.background(.ultraThinMaterial, in: shape)
         } else {
             glass(content)
@@ -149,5 +161,33 @@ private struct CompatGlassModifier: ViewModifier {
         #else
         self__.background(.ultraThinMaterial, in: shape)
         #endif
+    }
+}
+
+/// `.background(material, in:)` that turns into a flat translucent tint while a wallpaper is active.
+struct MouMaterialBackground<S: Shape>: ViewModifier {
+    let material: Material
+    let shape: S
+    #if os(iOS)
+    @ObservedObject private var wallpaper = BackgroundImageStore.shared
+    #endif
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if wallpaper.appWallpaperActive {
+            content.background(Color(uiColor: .secondarySystemBackground).opacity(0.62), in: shape)
+        } else {
+            content.background(material, in: shape)
+        }
+        #else
+        content.background(material, in: shape)
+        #endif
+    }
+}
+
+extension View {
+    func mouMaterialBackground<S: Shape>(_ material: Material, in shape: S) -> some View {
+        modifier(MouMaterialBackground(material: material, shape: shape))
     }
 }

@@ -1,4 +1,4 @@
-﻿#if os(iOS)
+#if os(iOS)
 import SwiftUI
 
 /// One account playlist of a platform (QQ 音乐 / 酷狗 / 哔哩哔哩 收藏夹) that can be
@@ -123,7 +123,7 @@ struct PlatformCloudPlaylistsCard: View {
             .buttonStyle(.borderedProminent)
         }
         .padding(16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .padding(.horizontal, Theme.Layout.contentInset)
         .sheet(isPresented: $showPicker) {
             NavigationStack {

@@ -401,7 +401,7 @@ struct BilibiliContentView: View {
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .padding(.horizontal, Theme.Layout.contentInset)
                 } else if dynamicLoading && dynamics.isEmpty {
                     ProgressView().frame(maxWidth: .infinity, minHeight: 240)
@@ -471,7 +471,7 @@ struct BilibiliContentView: View {
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .padding(.horizontal, Theme.Layout.contentInset)
                 }
                 PlayerClearanceSpacer()
@@ -682,7 +682,7 @@ struct BilibiliContentView: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, minHeight: 62)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
@@ -704,7 +704,7 @@ struct BilibiliContentView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .background(.regularMaterial, in: Circle())
+        .mouMaterialBackground(.regularMaterial, in: Circle())
         .overlay {
             Circle().strokeBorder(.primary.opacity(0.16), lineWidth: 0.8)
         }
@@ -1148,7 +1148,7 @@ struct BilibiliSearchView: View {
         .font(.body)
         .padding(.horizontal, 16)
         .frame(minHeight: 52)
-        .background(.thinMaterial, in: Capsule())
+        .mouMaterialBackground(.thinMaterial, in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.16), lineWidth: 0.5))
         .padding(.horizontal, Theme.Layout.contentInset)
     }
@@ -1234,7 +1234,7 @@ private struct BilibiliHistoryRow: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -1292,7 +1292,7 @@ private struct BilibiliMessageRow: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -1343,7 +1343,7 @@ private struct BilibiliDynamicCard: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -1412,7 +1412,7 @@ private struct BilibiliUserRow: View {
             Spacer()
             if user.followerCount > 0 { Text("粉丝 \(Formatters.playCount(user.followerCount))").font(.caption).foregroundStyle(.secondary) }
         }
-        .padding(12).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(12).mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -1428,7 +1428,7 @@ private struct BilibiliCollectionRow: View {
             Spacer()
             Text("\(collection.itemCount) 个视频").font(.caption).foregroundStyle(.secondary)
         }
-        .padding(12).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(12).mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -1442,6 +1442,7 @@ struct BilibiliVideoDetailView: View {
     @StateObject private var playerModel = BiliPlayerModel()
     @State private var playbackURL: URL?
     @State private var playbackAudioURL: URL?
+    @State private var playbackDash: BiliDashSource?
     @State private var triedMuxedFallback = false
     @State private var qualityFallbackDepth = 0
     @State private var alternateVideoURLs: [URL] = []
@@ -1624,6 +1625,7 @@ struct BilibiliVideoDetailView: View {
             playerModel.load(
                 video: activePlaybackURL,
                 audio: listenOnly ? nil : playbackAudioURL,
+                dash: listenOnly ? nil : playbackDash,
                 autoplay: UserDefaults.standard.object(forKey: "moumusic.bili.autoplay") as? Bool ?? true
             )
         }
@@ -1632,6 +1634,7 @@ struct BilibiliVideoDetailView: View {
                 DiagnosticLogStore.shared.append(level: .warning, category: "哔哩哔哩播放", message: "画质 \(selectedQuality.map(String.init) ?? "-") 打开失败", detail: message)
                 // Same quality first: another codec or a backup CDN usually plays.
                 if !listenOnly, !alternateVideoURLs.isEmpty {
+                    playbackDash = nil
                     playbackURL = alternateVideoURLs.removeFirst()
                     playerToken = UUID()
                     return
@@ -2062,6 +2065,7 @@ struct BilibiliVideoDetailView: View {
             selectedQuality = playback.quality > 0 ? playback.quality : nil
             playbackURL = playback.url
             playbackAudioURL = playback.audioURL
+            playbackDash = playback.dash
             alternateVideoURLs = playback.alternateURLs
             playerToken = UUID()
             errorMessage = nil

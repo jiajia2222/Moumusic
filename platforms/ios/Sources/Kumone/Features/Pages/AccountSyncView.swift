@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 /// Optional account page. Login is deliberately isolated from LX source
 /// management: it synchronises account metadata and listening history only.
@@ -130,7 +130,7 @@ struct AccountSyncView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(.white.opacity(0.12), lineWidth: 1)
@@ -169,7 +169,7 @@ struct AccountSyncView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(.white.opacity(0.12), lineWidth: 1)
@@ -280,7 +280,7 @@ struct AccountSyncView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
         .padding(.horizontal, 20)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func accountLoginButton(
@@ -334,7 +334,7 @@ struct AccountSyncView: View {
             .font(.subheadline.weight(.medium))
         }
         .padding(16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var syncCard: some View {
@@ -372,7 +372,7 @@ struct AccountSyncView: View {
             }
         }
         .padding(16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var cloudPlaylistsCard: some View {
@@ -421,7 +421,7 @@ struct AccountSyncView: View {
             }
         }
         .padding(16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var lastPlaylistSyncText: String {

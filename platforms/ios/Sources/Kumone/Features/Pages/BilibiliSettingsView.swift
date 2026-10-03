@@ -138,7 +138,7 @@ struct BilibiliSettingsView: View {
                 .font(.headline.weight(.semibold))
             VStack(alignment: .leading, spacing: 10, content: content)
                 .padding(14)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .mouMaterialBackground(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
     }
 }

@@ -85,7 +85,7 @@ struct KugouQRCodeLoginSheet: View {
                         .font(.subheadline.weight(.semibold))
                 }
                 .padding(16)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .mouMaterialBackground(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
         }
         .accessibilityElement(children: .ignore)
