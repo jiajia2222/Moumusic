@@ -114,9 +114,10 @@ jobs:
           name: build-log-compat-ios15-18
           path: platforms/ios/ios/build.log
 
-  # Every successful build is uploaded to the update host; the app polls its manifest.
-  publish:
-    needs: [full, compat]
+  # Every successful build of a channel is uploaded to the update host; the two channels are independent
+  # (a failed or skipped build of one never changes what the other serves).
+  publish-ios26:
+    needs: [full]
     if: github.ref == 'refs/heads/refactor/beans-ui'
     runs-on: ubuntu-latest
     steps:
@@ -125,19 +126,37 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: Moumusic-full-ios26-unsigned
-          path: dl/full
+          path: dl
+
+      - name: Upload iOS 26 channel
+        env:
+          IMGBED_TOKEN: ${{ secrets.IMGBED_TOKEN }}
+          CHANNEL: ios26
+          BUILD: ${{ github.run_number }}
+          IPA: dl/Moumusic-full-ios26-unsigned.ipa
+        run: |
+          export VERSION="$(grep -m1 '^MARKETING_VERSION' platforms/ios/ios/Config/Shared.xcconfig | sed -E 's/.*= *//')"
+          export NOTES="$(git log -1 --pretty=%s)"
+          python3 .github/scripts/publish_update.py
+
+  publish-compat:
+    needs: [compat]
+    if: github.ref == 'refs/heads/refactor/beans-ui'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
 
       - uses: actions/download-artifact@v4
         with:
           name: Moumusic-compat-ios15-18-unsigned
-          path: dl/compat
+          path: dl
 
-      - name: Upload to yun.nadev.xyz
+      - name: Upload compatibility channel
         env:
           IMGBED_TOKEN: ${{ secrets.IMGBED_TOKEN }}
+          CHANNEL: compat
           BUILD: ${{ github.run_number }}
-          FULL_IPA: dl/full/Moumusic-full-ios26-unsigned.ipa
-          COMPAT_IPA: dl/compat/Moumusic-compat-ios15-18-unsigned.ipa
+          IPA: dl/Moumusic-compat-ios15-18-unsigned.ipa
         run: |
           export VERSION="$(grep -m1 '^MARKETING_VERSION' platforms/ios/ios/Config/Shared.xcconfig | sed -E 's/.*= *//')"
           export NOTES="$(git log -1 --pretty=%s)"

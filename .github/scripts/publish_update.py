@@ -1,14 +1,14 @@
-﻿"""Uploads the freshly built IPAs and the update manifest to the image host.
+"""Uploads one build of one update channel to the image host.
 
-Environment: IMGBED_TOKEN (API token), BUILD (CI run number), VERSION (marketing version),
-NOTES (release notes), FULL_IPA / COMPAT_IPA (paths). The app reads
-https://yun.nadev.xyz/file/moumusic/latest.json and installs whatever it points at.
+Two channels exist and never share files:
+  ios26  : the iOS 26+ app          -> latest-ios26.json (and latest.json, which installed iOS 26 builds read)
+  compat : the iOS 15-18 app        -> latest-compat.json
+
+Environment: IMGBED_TOKEN, CHANNEL (ios26|compat), BUILD (CI run number), VERSION, NOTES, IPA (path).
 """
 import hashlib
 import json
 import os
-import re
-import sys
 import time
 import urllib.parse
 import urllib.request
@@ -16,8 +16,15 @@ import urllib.request
 HOST = "https://yun.nadev.xyz"
 FOLDER = "moumusic"
 TOKEN = os.environ["IMGBED_TOKEN"].replace("﻿", "").strip()
+CHANNEL = os.environ["CHANNEL"]
 BUILD = int(os.environ["BUILD"])
 AUTH = {"Authorization": f"Bearer {TOKEN}", "User-Agent": "Mozilla/5.0 (compatible; Moumusic-CI/1.0)", "Accept": "*/*"}
+
+CHANNELS = {
+    "ios26": {"key": "full", "ipa": "Moumusic-full-ios26-unsigned", "manifests": ["latest-ios26.json", "latest.json"]},
+    "compat": {"key": "compat", "ipa": "Moumusic-compat-ios15-18-unsigned", "manifests": ["latest-compat.json"]},
+}
+cfg = CHANNELS[CHANNEL]
 
 
 def call(method, url, data=None, headers=None, retries=4):
@@ -56,38 +63,33 @@ def delete(name):
         pass
 
 
-def entry(path, name):
-    return {"url": upload(path, name), "size": os.path.getsize(path),
-            "sha256": hashlib.sha256(open(path, "rb").read()).hexdigest()}
-
-
-full_name = f"Moumusic-full-ios26-unsigned-b{BUILD}.ipa"
-compat_name = f"Moumusic-compat-ios15-18-unsigned-b{BUILD}.ipa"
-for name in (full_name, compat_name):
-    delete(name)
-full = entry(os.environ["FULL_IPA"], full_name)
-compat = entry(os.environ["COMPAT_IPA"], compat_name)
+ipa_path = os.environ["IPA"]
+ipa_name = f"{cfg['ipa']}-b{BUILD}.ipa"
+delete(ipa_name)
+entry = {
+    "url": upload(ipa_path, ipa_name),
+    "size": os.path.getsize(ipa_path),
+    "sha256": hashlib.sha256(open(ipa_path, "rb").read()).hexdigest(),
+}
 
 manifest = {
+    "channel": CHANNEL,
     "version": os.environ["VERSION"],
     "build": BUILD,
     "notes": os.environ.get("NOTES", ""),
     "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    "full": full,
-    "compat": compat,
+    cfg["key"]: entry,
 }
-manifest_path = "latest.json"
-open(manifest_path, "w", encoding="utf-8").write(json.dumps(manifest, ensure_ascii=False, indent=2))
-# The host never overwrites by name: remove the old manifest first.
-delete("latest.json")
-upload(manifest_path, "latest.json")
+for manifest_name in cfg["manifests"]:
+    with open(manifest_name, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(manifest, ensure_ascii=False, indent=2))
+    # The host never overwrites by name: remove the old manifest first.
+    delete(manifest_name)
+    upload(manifest_name, manifest_name)
+    check = json.loads(call("GET", f"{HOST}/file/{FOLDER}/{manifest_name}?t={int(time.time())}"))
+    assert check["build"] == BUILD and check["channel"] == CHANNEL, check
+    print("published", manifest_name, BUILD, entry["url"])
 
-# Verify what the app will actually read.
-check = json.loads(call("GET", f"{HOST}/file/{FOLDER}/latest.json?t={int(time.time())}"))
-assert check["build"] == BUILD, check
-print("published build", BUILD, check["full"]["url"])
-
-# Keep only the newest builds (the API token cannot list, so remove by name).
+# Keep only the newest builds of this channel's IPA (the API token cannot list, so remove by name).
 for old in range(max(1, BUILD - 6), BUILD - 1):
-    delete(f"Moumusic-full-ios26-unsigned-b{old}.ipa")
-    delete(f"Moumusic-compat-ios15-18-unsigned-b{old}.ipa")
+    delete(f"{cfg['ipa']}-b{old}.ipa")

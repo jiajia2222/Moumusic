@@ -1512,10 +1512,12 @@ final class PlayerService: ObservableObject {
            NeteaseClient.shared.isLoggedIn {
             await AccountStore.shared.ensureVIPInfo()
             let hasActiveNeteaseVIP = AccountStore.shared.hasActiveVIP
-            // Never trust the locally detected membership here: a wrongly "非会员" SVIP account used
-            // to have every premium tier and every VIP song filtered out before NetEase was even
-            // asked. The server decides - a full-length URL without `freeTrialInfo` is playable.
-            let neteaseCandidates = requestedCandidates
+            // Premium tiers (Hi-Res / Atmos / Master ...) are only requested for accounts known to be
+            // members: for anyone else NetEase "answers" them with a downgraded or oddly muxed stream,
+            // which pre-empted the third-party sources and played without sound.
+            let neteaseCandidates = hasActiveNeteaseVIP
+                ? requestedCandidates
+                : requestedCandidates.filter { !$0.requiresNeteaseVIP }
             var failureNotes: [String] = []
             defer {
                 if !failureNotes.isEmpty {
