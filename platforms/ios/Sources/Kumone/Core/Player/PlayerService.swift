@@ -1451,6 +1451,9 @@ final class PlayerService: ObservableObject {
         isPlaying = true
 
         let providerQualitySnapshot = servedByLXQuality
+        // The account's own answer (level checked against the request) is trusted; only third-party
+        // claims are re-measured below.
+        let servedByOfficialAccount = servedBySourceLabel?.contains("官方账号") == true
         Task { [weak self, weak item] in
             guard let self else { return }
             let probed = await self.loadAudioTrack(from: asset, timeout: 6)
@@ -1464,7 +1467,8 @@ final class PlayerService: ObservableObject {
             // stream itself cannot be inspected, work the bitrate out from the file size.
             let claimedTiers: Set<String> = ["master", "atmos", "dolby", "surround", "spatial", "spatial-audio",
                                              "flac24bit", "flac24", "hires", "highres", "jymaster", "jyeffect", "sky"]
-            if verified == nil, let claimed = providerQualitySnapshot?.lowercased(), claimedTiers.contains(claimed) {
+            if verified == nil, !servedByOfficialAccount,
+               let claimed = providerQualitySnapshot?.lowercased(), claimedTiers.contains(claimed) {
                 shown = await Self.estimatedQuality(of: asset, duration: track.duration > 0 ? track.duration : self.duration) ?? "128k"
             }
             guard generation == self.resolveGeneration, self.engine.currentItem === item else { return }
