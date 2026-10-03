@@ -502,6 +502,8 @@ actor BilibiliAPI {
                 guard let name = Self.text(row["name"]), let value = Self.text(row["value"]) else { return nil }
                 return "\(name)=\(value)"
             }.joined(separator: "; ")
+                + ((((payload?["token_info"] as? [String: Any])?["access_token"]).flatMap(Self.text)
+                    ?? Self.text(payload?["access_token"])).map { "; bili_access_key=\($0)" } ?? "")
             guard !cookie.isEmpty else {
                 Task { @MainActor in
                     DiagnosticLogStore.shared.append(level: .error, category: "哔哩哔哩登录", message: "TV 登录成功但没有 cookie", detail: "keys=\((payload ?? [:]).keys.sorted().joined(separator: ","))")
@@ -643,6 +645,18 @@ actor BilibiliAPI {
             URLQueryItem(name: "splash_id", value: ""),
             URLQueryItem(name: "voice_balance", value: "0")
         ]
+        // Personalised feed: the TV/HD login access_key, signed with the same app key.
+        if let accessKey = cookie.flatMap({ Self.cookieValue("bili_access_key", from: $0) }), !accessKey.isEmpty {
+            var items = (components.queryItems ?? []).filter { $0.name != "mobi_app" }
+            items += [URLQueryItem(name: "access_key", value: accessKey),
+                      URLQueryItem(name: "appkey", value: Self.tvAppKey),
+                      URLQueryItem(name: "mobi_app", value: "android_hd"),
+                      URLQueryItem(name: "ts", value: String(Int(Date().timeIntervalSince1970)))]
+            let query = items.sorted { $0.name < $1.name }
+                .map { "\($0.name)=\(Self.formEncode($0.value ?? ""))" }.joined(separator: "&")
+            let sign = Insecure.MD5.hash(data: Data((query + Self.tvAppSec).utf8)).map { String(format: "%02x", $0) }.joined()
+            components.percentEncodedQuery = query + "&sign=\(sign)"
+        }
         let headers = [
             "app-key": "android_hd",
             "env": "prod",
@@ -1303,7 +1317,8 @@ actor BilibiliAPI {
             }
             let ordered = candidates.filter { rank($0) < 9 }.sorted { rank($0) < rank($1) }
             let chosen = ordered.first
-            func tagged(_ url: URL, _ row: [String: Any]) -> URL {
+            func tagged(_ rawURL: URL, _ row: [String: Any]) -> URL {
+                let url = Self.officialCDN(rawURL)
                 let codecs = (Self.text(row["codecs"]) ?? "").lowercased()
                 guard codecs.hasPrefix("hev1"), var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
                 parts.fragment = "mou-hev1"
@@ -1351,7 +1366,7 @@ actor BilibiliAPI {
             }
             for row in orderedRows {
                 for key in ["url", "baseUrl", "base_url"] {
-                    if let value = Self.text(row[key]), let url = URL(string: value) {
+                    if let value = Self.text(row[key]), let url = URL(string: value).map(Self.officialCDN) {
                         let rowQuality = Self.integer(row["id"] ?? row["quality"] ?? row["qn"]) ?? actualQuality
                         return Playback(url: url, quality: rowQuality, qualities: available)
                     }
@@ -1368,7 +1383,7 @@ actor BilibiliAPI {
             }
             for row in orderedRows {
                 for key in ["baseUrl", "base_url", "url"] {
-                    if let value = Self.text(row[key]), let url = URL(string: value) {
+                    if let value = Self.text(row[key]), let url = URL(string: value).map(Self.officialCDN) {
                         let rowQuality = Self.integer(row["id"] ?? row["quality"] ?? row["qn"]) ?? actualQuality
                         return Playback(url: url, quality: rowQuality, qualities: available)
                     }
@@ -2074,6 +2089,21 @@ actor BilibiliAPI {
         for cookie in HTTPCookie.cookies(withResponseHeaderFields: headers, for: url) {
             cookieStorage.setCookie(cookie)
         }
+    }
+
+    /// Higher qualities are often served from PCDN / MCDN nodes (`*.mcdn.bilivideo.cn:4483`,
+    /// `*.szbdyd.com`, bare IPs) that AVPlayer cannot open ("无法打开"; 480P happened to be on
+    /// upos). Like PiliPlus' CDN setting, point those `upgcxcode` paths at an official upos host.
+    static func officialCDN(_ url: URL) -> URL {
+        guard let host = url.host?.lowercased(), url.path.contains("/upgcxcode/") else { return url }
+        let isIP = host.allSatisfy { $0.isNumber || $0 == "." }
+        let isPCDN = host.contains("mcdn") || host.contains("szbdyd") || isIP || url.port != nil
+            || !host.contains("upos")
+        guard isPCDN, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        parts.scheme = "https"
+        parts.host = "upos-sz-mirrorcos.bilivideo.com"
+        parts.port = nil
+        return parts.url ?? url
     }
 
     private static func cookieValue(_ name: String, from header: String) -> String? {
