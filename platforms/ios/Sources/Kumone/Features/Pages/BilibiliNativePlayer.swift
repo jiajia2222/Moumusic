@@ -1,4 +1,4 @@
-﻿#if os(iOS)
+#if os(iOS)
 import AVFoundation
 import AVKit
 import SwiftUI
@@ -112,10 +112,15 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         guard let audio else { return AVPlayerItem(asset: videoAsset) }
         let audioAsset = BiliHEVCLoader.asset(for: audio, userAgent: userAgent, retag: false)
         do {
-            let videoTracks = try await videoAsset.loadTracks(withMediaType: .video)
-            let audioTracks = try await audioAsset.loadTracks(withMediaType: .audio)
-            let videoDuration = try await videoAsset.load(.duration)
-            let audioDuration = try await audioAsset.load(.duration)
+            // Load both streams at the same time instead of one after the other.
+            async let videoTracksTask = videoAsset.loadTracks(withMediaType: .video)
+            async let audioTracksTask = audioAsset.loadTracks(withMediaType: .audio)
+            async let videoDurationTask = videoAsset.load(.duration)
+            async let audioDurationTask = audioAsset.load(.duration)
+            let videoTracks = try await videoTracksTask
+            let audioTracks = try await audioTracksTask
+            let videoDuration = try await videoDurationTask
+            let audioDuration = try await audioDurationTask
             guard let sourceVideo = videoTracks.first, let sourceAudio = audioTracks.first else {
                 return AVPlayerItem(asset: videoAsset)
             }
@@ -151,6 +156,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
                     self.isPreparing = false
                     self.isReady = true
                     self.applyResumeIfNeeded()
+                    self.watchForPicture(item)
                 case .failed:
                     self.isPreparing = false
                     self.onError?("B 站视频播放失败：\(message ?? "未知错误")")
@@ -183,6 +189,18 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         if isPlaying, abs(currentTime - lastReported) >= 15 {
             lastReported = currentTime
             onProgressReport?(Int(currentTime))
+        }
+    }
+
+    /// Sound but no picture (a codec this device cannot render): report it so the view can try
+    /// the next codec / CDN of the same quality.
+    var expectsPicture = true
+    private func watchForPicture(_ item: AVPlayerItem) {
+        Task { @MainActor [weak self, weak item] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard let self, let item, self.expectsPicture, self.player.currentItem === item,
+                  item.presentationSize == .zero, self.currentTime > 1 else { return }
+            self.onError?("只有声音没有画面")
         }
     }
 
@@ -519,9 +537,11 @@ struct BiliNativePlayer: View {
                 // Full screen runs under the home indicator / rounded corners: keep the buttons
                 // and the progress slider well inside the screen so they are easy to hit.
                 controls
-                    .padding(.horizontal, isFullscreen ? 56 : 0)
-                    .padding(.bottom, isFullscreen ? 26 : 0)
-                    .padding(.top, isFullscreen ? 10 : 0)
+                    // Landscape: clear the rounded corners; portrait (vertical videos): clear the
+                    // status bar / Dynamic Island and the home indicator instead.
+                    .padding(.horizontal, isFullscreen ? (rotatesInFullscreen ? 56 : 8) : 0)
+                    .padding(.bottom, isFullscreen ? (rotatesInFullscreen ? 26 : 34) : 0)
+                    .padding(.top, isFullscreen ? (rotatesInFullscreen ? 10 : 54) : 0)
                     .transition(.opacity)
             }
         }
@@ -1006,6 +1026,14 @@ final class BiliDanmakuUIView: UIView {
         return result
     }
 
+    private static let danmakuShadow: NSShadow = {
+        let shadow = NSShadow()
+        shadow.shadowColor = UIColor.black.withAlphaComponent(0.85)
+        shadow.shadowOffset = CGSize(width: 0, height: 1)
+        shadow.shadowBlurRadius = 2
+        return shadow
+    }()
+
     private func image(for index: Int, fontSize: CGFloat) -> (image: CGImage, size: CGSize) {
         if let cached = imageCache[index] { return cached }
         let item = items[index]
@@ -1015,16 +1043,17 @@ final class BiliDanmakuUIView: UIView {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
             .foregroundColor: color,
-            .strokeColor: UIColor.black.withAlphaComponent(0.8),
-            .strokeWidth: -2.5
+            .strokeColor: UIColor.black.withAlphaComponent(0.95),
+            .strokeWidth: -4,
+            .shadow: Self.danmakuShadow
         ]
         let text = NSAttributedString(string: item.text, attributes: attributes)
         let textSize = text.size()
-        let size = CGSize(width: ceil(textSize.width) + 4, height: ceil(textSize.height) + 2)
+        let size = CGSize(width: ceil(textSize.width) + 8, height: ceil(textSize.height) + 6)
         let format = UIGraphicsImageRendererFormat()
         format.scale = UIScreen.main.scale
         let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            text.draw(at: CGPoint(x: 2, y: 1))
+            text.draw(at: CGPoint(x: 4, y: 2))
         }
         let entry = (rendered.cgImage!, size)
         imageCache[index] = entry
@@ -1043,21 +1072,27 @@ final class BiliDanmakuUIView: UIView {
 /// Bilibili's HEVC streams (4K / HDR / 杜比视界) are tagged `hev1`, which AVFoundation refuses
 /// to decode; the bitstream itself is fine. This resource loader proxies the stream and renames
 /// the sample-entry fourcc to `hvc1` in the file header, the same fix as ffmpeg's `-tag:v hvc1`.
-final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate {
+final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate {
     private static let scheme = "mou-hevc"
-    private static let queue = DispatchQueue(label: "moumusic.bili.hevc-loader")
+    private static let queue = DispatchQueue(label: "moumusic.bili.stream-loader")
     /// Resource loaders keep only a weak delegate; keep each loader alive for its asset.
     private static var live: [ObjectIdentifier: BiliHEVCLoader] = [:]
+    private static var order: [ObjectIdentifier] = []
     private static let lock = NSLock()
 
     private let origin: URL
     private let userAgent: String
     private let retagHEVC: Bool
-    private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
-    private let session: URLSession = {
+    /// Data tasks in flight, keyed by task identifier; only touched on `queue`.
+    private var requests: [Int: (loading: AVAssetResourceLoadingRequest, offset: Int64)] = [:]
+    private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 3600
-        return URLSession(configuration: configuration)
+        configuration.httpMaximumConnectionsPerHost = 6
+        let delegateQueue = OperationQueue()
+        delegateQueue.underlyingQueue = Self.queue
+        delegateQueue.maxConcurrentOperationCount = 1
+        return URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
     }()
 
     private init(origin: URL, userAgent: String, retag: Bool) {
@@ -1075,30 +1110,20 @@ final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate {
         let asset = AVURLAsset(url: proxied)
         let loader = BiliHEVCLoader(origin: origin, userAgent: userAgent, retag: retag)
         asset.resourceLoader.setDelegate(loader, queue: queue)
-        lock.lock(); live[ObjectIdentifier(asset)] = loader; lock.unlock()
-        if live.count > 16 {
-            lock.lock(); live = live.filter { _ in true }.suffix(16).reduce(into: [:]) { $0[$1.key] = $1.value }; lock.unlock()
-        }
+        lock.lock()
+        let key = ObjectIdentifier(asset)
+        live[key] = loader
+        order.append(key)
+        while order.count > 16 { live[order.removeFirst()] = nil }
+        lock.unlock()
         return asset
     }
 
+    // MARK: AVAssetResourceLoaderDelegate (on `queue`)
+
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
                         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
-        let key = ObjectIdentifier(loadingRequest)
-        let task = Task<Void, Never> { [weak self] in
-            guard let self else { return }
-            await self.serve(loadingRequest)
-        }
-        tasks[key] = task
-        return true
-    }
-
-    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
-        tasks.removeValue(forKey: ObjectIdentifier(loadingRequest))?.cancel()
-    }
-
-    private func serve(_ loadingRequest: AVAssetResourceLoadingRequest) async {
-        let start: Int64
+        var start: Int64 = 0
         var end: Int64?
         if let dataRequest = loadingRequest.dataRequest {
             start = dataRequest.requestedOffset
@@ -1106,58 +1131,73 @@ final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate {
                 end = start + Int64(dataRequest.requestedLength) - 1
             }
         } else {
-            start = 0
             end = 1
         }
         var request = URLRequest(url: origin)
         request.setValue("bytes=\(start)-\(end.map(String.init) ?? "")", forHTTPHeaderField: "Range")
         request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        do {
-            let (bytes, response) = try await session.bytes(for: request)
-            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                loadingRequest.finishLoading(with: NSError(domain: "BiliStream", code: http.statusCode,
-                    userInfo: [NSLocalizedDescriptionKey: "视频节点返回 HTTP \(http.statusCode)"]))
-                return
+        let task = session.dataTask(with: request)
+        requests[task.taskIdentifier] = (loadingRequest, start)
+        task.resume()
+        return true
+    }
+
+    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
+        let ids = requests.filter { $0.value.loading === loadingRequest }.map(\.key)
+        for id in ids { requests[id] = nil }
+        session.getAllTasks { tasks in
+            for task in tasks where ids.contains(task.taskIdentifier) { task.cancel() }
+        }
+    }
+
+    // MARK: URLSessionDataDelegate (on `queue`)
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard let entry = requests[dataTask.taskIdentifier] else { completionHandler(.cancel); return }
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            requests[dataTask.taskIdentifier] = nil
+            entry.loading.finishLoading(with: NSError(domain: "BiliStream", code: http.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: "视频节点返回 HTTP \(http.statusCode)"]))
+            completionHandler(.cancel)
+            return
+        }
+        if let info = entry.loading.contentInformationRequest, let http = response as? HTTPURLResponse {
+            // .m4s / octet-stream nodes: declare MPEG-4 so AVFoundation opens the stream.
+            info.contentType = "public.mpeg-4"
+            info.isByteRangeAccessSupported = true
+            if let range = http.value(forHTTPHeaderField: "Content-Range"),
+               let total = range.split(separator: "/").last.flatMap({ Int64($0) }) {
+                info.contentLength = total
+            } else {
+                info.contentLength = http.expectedContentLength
             }
-            if let info = loadingRequest.contentInformationRequest, let http = response as? HTTPURLResponse {
-                info.contentType = "public.mpeg-4"
-                info.isByteRangeAccessSupported = true
-                if let range = http.value(forHTTPHeaderField: "Content-Range"),
-                   let total = range.split(separator: "/").last.flatMap({ Int64($0) }) {
-                    info.contentLength = total
-                } else {
-                    info.contentLength = http.expectedContentLength
-                }
-            }
-            guard let dataRequest = loadingRequest.dataRequest else {
-                loadingRequest.finishLoading()
-                return
-            }
-            // Only the header (first 16 KB of the file) can hold the sample entry.
-            let patchLimit: Int64 = 16 * 1024
-            var buffer = Data()
-            buffer.reserveCapacity(64 * 1024)
-            var offset = start
-            var patched = start >= patchLimit || !retagHEVC
-            for try await byte in bytes {
-                if Task.isCancelled { return }
-                buffer.append(byte)
-                let flushSize = patched ? 64 * 1024 : Int(max(0, patchLimit - start)) + 8
-                if buffer.count >= flushSize {
-                    if !patched { Self.retag(&buffer); patched = true }
-                    dataRequest.respond(with: buffer)
-                    offset += Int64(buffer.count)
-                    buffer.removeAll(keepingCapacity: true)
-                }
-            }
-            if !buffer.isEmpty {
-                if !patched { Self.retag(&buffer) }
-                dataRequest.respond(with: buffer)
-            }
-            loadingRequest.finishLoading()
-        } catch {
-            if !Task.isCancelled { loadingRequest.finishLoading(with: error) }
+        }
+        if entry.loading.dataRequest == nil {
+            requests[dataTask.taskIdentifier] = nil
+            entry.loading.finishLoading()
+            completionHandler(.cancel)
+            return
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard let entry = requests[dataTask.taskIdentifier], let dataRequest = entry.loading.dataRequest else { return }
+        var chunk = data
+        // Only the file header (first 16 KB) can hold the HEVC sample entry.
+        if retagHEVC, entry.offset < 16 * 1024 { Self.retag(&chunk) }
+        dataRequest.respond(with: chunk)
+        requests[dataTask.taskIdentifier] = (entry.loading, entry.offset + Int64(data.count))
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let entry = requests.removeValue(forKey: task.taskIdentifier) else { return }
+        if let error {
+            if (error as NSError).code != NSURLErrorCancelled { entry.loading.finishLoading(with: error) }
+        } else {
+            entry.loading.finishLoading()
         }
     }
 
