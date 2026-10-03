@@ -1,4 +1,4 @@
-name: iOS unsigned IPAs
+﻿name: iOS unsigned IPAs
 
 # Two unsigned IPAs. Never creates a release.
 #   full   : platforms/ios         (Kumone-based Moumusic, iOS 26+, all features)
@@ -11,6 +11,7 @@ on:
       - "platforms/ios/**"
       - "platforms/ios-compat/**"
       - ".github/workflows/ios-build.yml"
+      - ".github/scripts/**"
 
 permissions:
   contents: read
