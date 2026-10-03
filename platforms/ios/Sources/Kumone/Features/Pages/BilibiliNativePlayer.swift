@@ -1131,7 +1131,12 @@ enum BiliDanmakuSettings {
     /// Seconds a scrolling danmaku takes to cross the screen.
 /// Fixed scroll speed in points per second: the same on every screen size and orientation
     /// (the old "seconds to cross" made landscape danmaku far faster than portrait). Slider: right = faster.
-    static var speed: Double { value("moumusic.bili.danmaku.speed", 90) }
+    static var speed: Double {
+        // Five fixed steps (极慢…极快), points per second, identical on every screen size.
+        let steps: [Double] = [40, 65, 90, 130, 180]
+        let level = UserDefaults.standard.object(forKey: "moumusic.bili.danmaku.level") as? Int ?? 2
+        return steps[min(max(level, 0), steps.count - 1)]
+    }
     /// Upper bound of how long a scrolling danmaku stays on screen (widest picture + longest text).
     static var scrollDuration: Double { 1500 / max(speed, 20) }
     /// Words (comma / space separated) whose danmaku are hidden, like PiliPlus' 屏蔽词.

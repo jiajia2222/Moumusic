@@ -13,7 +13,7 @@ struct BilibiliSettingsView: View {
     @AppStorage("moumusic.bili.danmaku.opacity") private var danmakuOpacity = 0.9
     @AppStorage("moumusic.bili.danmaku.fontScale") private var danmakuScale = 1.0
     @AppStorage("moumusic.bili.danmaku.area") private var danmakuArea = 0.6
-    @AppStorage("moumusic.bili.danmaku.speed") private var danmakuSpeed = 90.0
+    @AppStorage("moumusic.bili.danmaku.level") private var danmakuLevel = 2
     @AppStorage("moumusic.bili.danmaku.hideTop") private var hideTopDanmaku = false
     @AppStorage("moumusic.bili.danmaku.hideBottom") private var hideBottomDanmaku = false
 
@@ -76,8 +76,14 @@ struct BilibiliSettingsView: View {
                         Text("3/4 屏").tag(0.75)
                         Text("全屏").tag(1.0)
                     }
-                    sliderRow("滚动速度（固定值，越右越快）", value: $danmakuSpeed, range: 40...240,
-                              text: "\(Int(danmakuSpeed)) 点/秒")
+                    Picker("弹幕速度", selection: $danmakuLevel) {
+                        Text("极慢").tag(0)
+                        Text("慢").tag(1)
+                        Text("中等").tag(2)
+                        Text("快").tag(3)
+                        Text("极快").tag(4)
+                    }
+                    .pickerStyle(.segmented)
                     Toggle("屏蔽顶部弹幕", isOn: $hideTopDanmaku)
                     Toggle("屏蔽底部弹幕", isOn: $hideBottomDanmaku)
                     Text("播放中修改约 1 秒内生效。看过的视频会记住进度，下次打开自动续播。")
