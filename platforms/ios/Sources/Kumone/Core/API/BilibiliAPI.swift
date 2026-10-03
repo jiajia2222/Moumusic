@@ -1,4 +1,4 @@
-﻿import CryptoKit
+import CryptoKit
 import Foundation
 import VideoToolbox
 import CoreMedia
@@ -1324,15 +1324,6 @@ actor BilibiliAPI {
                 parts.fragment = "mou-hev1"
                 return parts.url ?? url
             }
-            func firstURL(_ row: [String: Any]) -> URL? {
-                for key in ["baseUrl", "base_url", "url"] {
-                    if let value = Self.text(row[key]), let url = URL(string: value) { return tagged(url, row) }
-                }
-                if let backups = (row["backupUrl"] ?? row["backup_url"]) as? [String] {
-                    for value in backups { if let url = URL(string: value) { return tagged(url, row) } }
-                }
-                return nil
-            }
             func allURLs(_ row: [String: Any]) -> [URL] {
                 var urls: [URL] = []
                 for key in ["baseUrl", "base_url", "url"] {
@@ -1341,7 +1332,10 @@ actor BilibiliAPI {
                 for value in ((row["backupUrl"] ?? row["backup_url"]) as? [String]) ?? [] {
                     if let url = URL(string: value) { urls.append(tagged(url, row)) }
                 }
-                return urls
+                return urls.filter { !Self.isPCDN($0) } + urls.filter { Self.isPCDN($0) }
+            }
+            func firstURL(_ row: [String: Any]) -> URL? {
+                allURLs(row).first
             }
             if let chosen, let videoURL = firstURL(chosen) {
                 var alternates = ordered.flatMap(allURLs)
@@ -2094,16 +2088,16 @@ actor BilibiliAPI {
     /// Higher qualities are often served from PCDN / MCDN nodes (`*.mcdn.bilivideo.cn:4483`,
     /// `*.szbdyd.com`, bare IPs) that AVPlayer cannot open ("无法打开"; 480P happened to be on
     /// upos). Like PiliPlus' CDN setting, point those `upgcxcode` paths at an official upos host.
-    static func officialCDN(_ url: URL) -> URL {
-        guard let host = url.host?.lowercased(), url.path.contains("/upgcxcode/") else { return url }
-        let isIP = host.allSatisfy { $0.isNumber || $0 == "." }
-        let isPCDN = host.contains("mcdn") || host.contains("szbdyd") || isIP || url.port != nil
-            || !host.contains("upos")
-        guard isPCDN, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
-        parts.scheme = "https"
-        parts.host = "upos-sz-mirrorcos.bilivideo.com"
-        parts.port = nil
-        return parts.url ?? url
+    /// Keeps signed stream URLs as issued: rewriting the host to another upos mirror breaks the
+    /// signature on some nodes (HTTP 403). PCDN nodes are avoided by ordering instead.
+    static func officialCDN(_ url: URL) -> URL { url }
+
+    /// PCDN / MCDN nodes (`*.mcdn.bilivideo.cn`, `*.szbdyd.com`, bare IPs, custom ports) are the
+    /// least reliable; prefer the upos / akamai URLs when a row offers several.
+    static func isPCDN(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host.contains("mcdn") || host.contains("szbdyd") || url.port != nil
+            || host.allSatisfy { $0.isNumber || $0 == "." }
     }
 
     private static func cookieValue(_ name: String, from header: String) -> String? {

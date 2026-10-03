@@ -104,11 +104,13 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
             "Referer": "https://www.bilibili.com/",
             "User-Agent": userAgent
         ]]
-        let videoAsset = video.fragment == "mou-hev1"
-            ? BiliHEVCLoader.asset(for: video, userAgent: userAgent)
-            : AVURLAsset(url: video, options: options)
+        // DASH segments are `.m4s` and several CDN nodes answer `application/octet-stream`, which
+        // AVFoundation refuses ("无法打开"). Every stream goes through the loader, which declares
+        // the data as MPEG-4 (and re-tags hev1 HEVC as hvc1).
+        _ = options
+        let videoAsset = BiliHEVCLoader.asset(for: video, userAgent: userAgent, retag: video.fragment == "mou-hev1")
         guard let audio else { return AVPlayerItem(asset: videoAsset) }
-        let audioAsset = AVURLAsset(url: audio, options: options)
+        let audioAsset = BiliHEVCLoader.asset(for: audio, userAgent: userAgent, retag: false)
         do {
             let videoTracks = try await videoAsset.loadTracks(withMediaType: .video)
             let audioTracks = try await audioAsset.loadTracks(withMediaType: .audio)
@@ -1050,6 +1052,7 @@ final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate {
 
     private let origin: URL
     private let userAgent: String
+    private let retagHEVC: Bool
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private let session: URLSession = {
         let configuration = URLSessionConfiguration.default
@@ -1057,23 +1060,24 @@ final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate {
         return URLSession(configuration: configuration)
     }()
 
-    private init(origin: URL, userAgent: String) {
+    private init(origin: URL, userAgent: String, retag: Bool) {
         self.origin = origin
         self.userAgent = userAgent
+        self.retagHEVC = retag
     }
 
-    static func asset(for url: URL, userAgent: String) -> AVURLAsset {
+    static func asset(for url: URL, userAgent: String, retag: Bool = true) -> AVURLAsset {
         var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
         parts?.fragment = nil
         let origin = parts?.url ?? url
         parts?.scheme = scheme
         let proxied = parts?.url ?? url
         let asset = AVURLAsset(url: proxied)
-        let loader = BiliHEVCLoader(origin: origin, userAgent: userAgent)
+        let loader = BiliHEVCLoader(origin: origin, userAgent: userAgent, retag: retag)
         asset.resourceLoader.setDelegate(loader, queue: queue)
         lock.lock(); live[ObjectIdentifier(asset)] = loader; lock.unlock()
-        if live.count > 8 {
-            lock.lock(); live = live.filter { _ in true }.suffix(8).reduce(into: [:]) { $0[$1.key] = $1.value }; lock.unlock()
+        if live.count > 16 {
+            lock.lock(); live = live.filter { _ in true }.suffix(16).reduce(into: [:]) { $0[$1.key] = $1.value }; lock.unlock()
         }
         return asset
     }
@@ -1111,6 +1115,11 @@ final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate {
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         do {
             let (bytes, response) = try await session.bytes(for: request)
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                loadingRequest.finishLoading(with: NSError(domain: "BiliStream", code: http.statusCode,
+                    userInfo: [NSLocalizedDescriptionKey: "视频节点返回 HTTP \(http.statusCode)"]))
+                return
+            }
             if let info = loadingRequest.contentInformationRequest, let http = response as? HTTPURLResponse {
                 info.contentType = "public.mpeg-4"
                 info.isByteRangeAccessSupported = true
@@ -1130,7 +1139,7 @@ final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate {
             var buffer = Data()
             buffer.reserveCapacity(64 * 1024)
             var offset = start
-            var patched = start >= patchLimit
+            var patched = start >= patchLimit || !retagHEVC
             for try await byte in bytes {
                 if Task.isCancelled { return }
                 buffer.append(byte)
