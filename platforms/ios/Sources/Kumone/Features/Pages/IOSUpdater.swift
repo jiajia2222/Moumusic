@@ -22,6 +22,7 @@ final class IOSUpdater: NSObject, ObservableObject {
         case downloading(Double)        // 0…1
         case readyToInstall(URL)        // local .ipa (non-TrollStore)
         case handedOff                  // passed to TrollStore
+        case safariDownload             // Safari is saving the IPA into Files > Downloads
         case failed(String)
     }
 
@@ -94,6 +95,17 @@ final class IOSUpdater: NSObject, ObservableObject {
             openReleasePage(release)
             return
         }
+        // Safari's download manager saves the IPA straight into Files > 下载 (the Downloads folder)
+        // without asking where to put it; the in-app download below is only the fallback.
+        UIApplication.shared.open(ipaURL) { [weak self] opened in
+            Task { @MainActor in
+                guard let self else { return }
+                if opened { self.phase = .safariDownload } else { self.startInAppDownload(ipaURL) }
+            }
+        }
+    }
+
+    private func startInAppDownload(_ ipaURL: URL) {
         phase = .downloading(0)
         Task {
             do {
@@ -213,6 +225,14 @@ struct IOSUpdaterSheet: View {
                     .font(.system(size: 40)).foregroundStyle(Theme.accent)
                 Text("已下载，请用侧载工具安装").font(.headline)
                     .multilineTextAlignment(.center)
+                doneButton
+
+            case .safariDownload:
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 44)).foregroundStyle(Theme.accent)
+                Text("已在 Safari 开始下载").font(.headline)
+                Text("完成后在「文件 → 下载」里找到 IPA，再用侧载工具安装")
+                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 doneButton
 
             case .handedOff:

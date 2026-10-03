@@ -86,8 +86,17 @@ for manifest_name in cfg["manifests"]:
     # The host never overwrites by name: remove the old manifest first.
     delete(manifest_name)
     upload(manifest_name, manifest_name)
-    check = json.loads(call("GET", f"{HOST}/file/{FOLDER}/{manifest_name}?t={int(time.time())}"))
-    assert check["build"] == BUILD and check["channel"] == CHANNEL, check
+    check = None
+    for _ in range(12):
+        try:
+            check = json.loads(call("GET", f"{HOST}/file/{FOLDER}/{manifest_name}?t={int(time.time())}", retries=1))
+            if check.get("build") == BUILD:
+                break
+        except Exception:  # noqa: BLE001  (the host needs a moment after delete + upload)
+            pass
+        time.sleep(5)
+    assert check and check["build"] == BUILD and check["channel"] == CHANNEL, check
+    time.sleep(3)
     print("published", manifest_name, BUILD, entry["url"])
 
 # Keep only the newest builds of this channel's IPA (the API token cannot list, so remove by name).
