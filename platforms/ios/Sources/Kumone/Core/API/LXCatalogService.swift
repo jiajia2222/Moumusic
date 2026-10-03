@@ -1399,7 +1399,44 @@ enum LXCatalogService {
         }
     }
 
+    /// QQ's songlist search through the same gateway the web player uses (search_type 3).
+    private static func searchQQSonglistsMusicu(_ keyword: String, page: Int, limit: Int) async -> [LXPlaylistSummary] {
+        let payload: [String: Any] = [
+            "comm": ["ct": 19, "cv": 1859, "uin": "0"],
+            "req": ["method": "DoSearchForQQMusicDesktop", "module": "music.search.SearchCgiService",
+                    "param": ["grp": 1, "num_per_page": limit, "page_num": max(1, page), "query": keyword, "search_type": 3]]
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return [] }
+        var request = URLRequest(url: URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg")!)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.timeoutInterval = 20
+        request.setValue("https://y.qq.com", forHTTPHeaderField: "Origin")
+        request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let req = root["req"] as? [String: Any],
+              let payloadData = req["data"] as? [String: Any],
+              let bodyObject = payloadData["body"] as? [String: Any],
+              let songlist = bodyObject["songlist"] as? [String: Any],
+              let items = songlist["list"] as? [[String: Any]] else { return [] }
+        return items.compactMap { item in
+            guard let id = text(item["dissid"]), !id.isEmpty else { return nil }
+            let creator = (item["creator"] as? [String: Any])?["name"]
+            return LXPlaylistSummary(id: id,
+                                     name: firstText(item["dissname"], item["name"]) ?? "",
+                                     coverURL: normalizedImageURL(firstText(item["imgurl"], item["logo"])),
+                                     playCount: int(item["listennum"]) ?? 0,
+                                     trackCount: int(item["song_count"]) ?? 0,
+                                     description: firstText(item["introduction"], item["desc"]),
+                                     author: firstText(creator, item["nickname"]), source: .tx)
+        }
+    }
+
     private static func searchQQSonglists(_ keyword: String, page: Int, limit: Int) async throws -> [LXPlaylistSummary] {
+        let modern = await searchQQSonglistsMusicu(keyword, page: page, limit: limit)
+        if !modern.isEmpty { return modern }
         var components = URLComponents(string: "https://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist")!
         components.queryItems = [
             URLQueryItem(name: "page_no", value: String(max(0, page - 1))),

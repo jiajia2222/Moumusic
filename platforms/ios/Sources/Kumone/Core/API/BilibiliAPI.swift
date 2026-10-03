@@ -860,8 +860,9 @@ actor BilibiliAPI {
                         let lower = url.absoluteString.lowercased()
                         let hlsScore = lower.contains("m3u8") || protocolName.localizedCaseInsensitiveContains("hls") ? 100 : 0
                         let formatScore = formatName.localizedCaseInsensitiveContains("fmp4") ? 20 : 0
+                        let codecScore = (Self.text(codec["codec_name"]) ?? "").lowercased() == "avc" ? 30 : 0
                         candidates.append((url: url, quality: currentQuality,
-                                           score: hlsScore + formatScore))
+                                           score: hlsScore + formatScore + codecScore))
                     }
                 }
             }
@@ -2582,5 +2583,66 @@ extension BilibiliAPI {
         if object["url"] != nil, object["height"] != nil || object["width"] != nil { return "[图片]" }
         if let reply = object["reply_content"] as? String { return reply }
         return "[消息]"
+    }
+}
+
+// MARK: - PiliPlus-style extras: related videos, watch later, live chat server, SponsorBlock
+
+extension BilibiliAPI {
+    func relatedVideos(bvid: String, cookie: String? = nil) async throws -> [Video] {
+        var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/archive/related")!
+        components.queryItems = [URLQueryItem(name: "bvid", value: bvid)]
+        let root = try await requestObject(components.url!, cookie: cookie, referer: "https://www.bilibili.com/video/\(bvid)")
+        return Self.dictionaryRows(root["data"]).compactMap(Self.video)
+    }
+
+    func addToWatchLater(aid: Int, cookie: String?) async throws {
+        guard aid > 0, let cookie, let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty else {
+            throw APIError.unavailable
+        }
+        _ = try await postFormObject(URL(string: "https://api.bilibili.com/x/v2/history/toview/add")!,
+                                     fields: ["aid": "\(aid)", "csrf": csrf],
+                                     cookie: cookie, referer: "https://www.bilibili.com/")
+    }
+
+    /// Token + host of the live chat websocket.
+    func liveDanmakuConfig(roomID: Int, cookie: String?) async -> (token: String, host: String, port: Int, buvid: String?)? {
+        let buvid = cookieStorage.cookies?.first { $0.name == "buvid3" }?.value
+        var components = URLComponents(string: "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo")!
+        components.queryItems = [URLQueryItem(name: "id", value: "\(roomID)"), URLQueryItem(name: "type", value: "0")]
+        if let root = try? await requestObject(components.url!, cookie: cookie, referer: "https://live.bilibili.com/\(roomID)"),
+           let data = root["data"] as? [String: Any], let token = Self.text(data["token"]), !token.isEmpty {
+            let host = (data["host_list"] as? [[String: Any]])?.first
+            return (token, Self.text(host?["host"]) ?? "broadcastlv.chat.bilibili.com", Self.integer(host?["wss_port"]) ?? 443, buvid)
+        }
+        var legacy = URLComponents(string: "https://api.live.bilibili.com/room/v1/Danmu/getConf")!
+        legacy.queryItems = [URLQueryItem(name: "room_id", value: "\(roomID)"), URLQueryItem(name: "platform", value: "pc"),
+                             URLQueryItem(name: "player", value: "web")]
+        if let root = try? await requestObject(legacy.url!, cookie: cookie, referer: "https://live.bilibili.com/\(roomID)"),
+           let data = root["data"] as? [String: Any], let token = Self.text(data["token"]), !token.isEmpty {
+            let host = (data["host_server_list"] as? [[String: Any]])?.first
+            return (token, Self.text(host?["host"]) ?? "broadcastlv.chat.bilibili.com", Self.integer(host?["wss_port"]) ?? 443, buvid)
+        }
+        return nil
+    }
+
+    /// SponsorBlock-style skip segments (community database, as in PiliPlus' 空降助手).
+    func sponsorSegments(bvid: String) async -> [(start: Double, end: Double)] {
+        var components = URLComponents(string: "https://bsbsb.top/api/skipSegments")!
+        components.queryItems = [URLQueryItem(name: "videoID", value: bvid)]
+            + ["sponsor", "selfpromo", "interaction"].map { URLQueryItem(name: "category", value: $0) }
+        guard let url = components.url else { return [] }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+        return rows.compactMap { row in
+            guard (row["actionType"] as? String ?? "skip") == "skip",
+                  let segment = row["segment"] as? [Any], segment.count == 2,
+                  let start = (segment[0] as? NSNumber)?.doubleValue,
+                  let end = (segment[1] as? NSNumber)?.doubleValue, end > start else { return nil }
+            return (start, end)
+        }
     }
 }

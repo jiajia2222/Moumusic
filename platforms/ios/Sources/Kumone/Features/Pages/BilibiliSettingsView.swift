@@ -8,6 +8,8 @@ struct BilibiliSettingsView: View {
     @AppStorage("moumusic.bili.preferredQuality") private var preferredQuality = 80
     @AppStorage("moumusic.bili.autoplay") private var autoplay = true
     @AppStorage("moumusic.bili.autoFullscreen") private var autoFullscreen = true
+    @AppStorage("moumusic.bili.sponsorBlock") private var sponsorBlock = true
+    @AppStorage("moumusic.bili.danmaku.blocklist") private var danmakuBlocklist = ""
     @AppStorage("moumusic.bili.danmaku.opacity") private var danmakuOpacity = 0.9
     @AppStorage("moumusic.bili.danmaku.fontScale") private var danmakuScale = 1.0
     @AppStorage("moumusic.bili.danmaku.area") private var danmakuArea = 0.6
@@ -32,6 +34,9 @@ struct BilibiliSettingsView: View {
                         .foregroundStyle(.secondary)
 
                     Toggle("显示弹幕", isOn: $settings.bilibiliDanmakuEnabled)
+                    Toggle("自动跳过广告片段（空降助手）", isOn: $sponsorBlock)
+                    TextField("弹幕屏蔽词（用逗号或空格分隔）", text: $danmakuBlocklist, axis: .vertical)
+                        .lineLimit(1...3)
 
                     Text("听与看是互斥模式；切换后只保留当前模式的入口，避免播放器同时出现两套能力。")
                         .font(.caption)

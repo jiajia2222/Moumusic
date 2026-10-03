@@ -314,6 +314,7 @@ struct BilibiliLiveRoomView: View {
     @State private var showFullScreen = false
     /// 听直播: hide the picture and keep the audio (works with the screen locked).
     @State private var listenOnly = false
+    @State private var danmakuClient = BiliLiveDanmakuClient()
 
     var body: some View {
         ZStack {
@@ -325,7 +326,7 @@ struct BilibiliLiveRoomView: View {
                             model: playerModel,
                             cues: [],
                             danmaku: [],
-                            danmakuEnabled: false,
+                            danmakuEnabled: settings.bilibiliDanmakuEnabled,
                             subtitles: [],
                             selectedSubtitleID: nil,
                             onSelectSubtitle: { _ in },
@@ -370,7 +371,7 @@ struct BilibiliLiveRoomView: View {
                 model: playerModel,
                 cues: [],
                 danmaku: [],
-                danmakuEnabled: false,
+                danmakuEnabled: settings.bilibiliDanmakuEnabled,
                 subtitles: [],
                 selectedSubtitleID: nil,
                 onSelectSubtitle: { _ in },
@@ -389,7 +390,15 @@ struct BilibiliLiveRoomView: View {
         .onAppear {
             playerModel.onError = { errorMessage = $0 }
         }
-        .onDisappear { playerModel.stop() }
+        .task(id: room.roomID) {
+            danmakuClient.start(roomID: room.roomID, cookie: bilibili.cookie) { text, color in
+                playerModel.pushLiveDanmaku(text: text, color: color)
+            }
+        }
+        .onDisappear {
+            danmakuClient.stop()
+            playerModel.stop()
+        }
     }
 
     private var playbackOptions: some View {

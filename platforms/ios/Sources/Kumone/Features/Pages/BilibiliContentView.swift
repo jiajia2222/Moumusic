@@ -1443,6 +1443,8 @@ struct BilibiliVideoDetailView: View {
     @State private var playbackURL: URL?
     @State private var playbackAudioURL: URL?
     @State private var playbackDash: BiliDashSource?
+    @State private var related: [BilibiliAPI.Video] = []
+    @State private var relatedSelection: BilibiliAPI.Video?
     @State private var triedMuxedFallback = false
     @State private var qualityFallbackDepth = 0
     @State private var alternateVideoURLs: [URL] = []
@@ -1578,6 +1580,19 @@ struct BilibiliVideoDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
         .task { await load() }
+        .task(id: video.bvid) {
+            related = (try? await BilibiliAPI.shared.relatedVideos(bvid: video.bvid, cookie: bilibili.cookie)) ?? []
+        }
+        .task(id: video.bvid) {
+            guard UserDefaults.standard.object(forKey: "moumusic.bili.sponsorBlock") as? Bool ?? true else {
+                playerModel.skipSegments = []
+                return
+            }
+            playerModel.skipSegments = await BilibiliAPI.shared.sponsorSegments(bvid: video.bvid)
+        }
+        .sheet(item: $relatedSelection) { item in
+            NavigationStack { BilibiliVideoDetailView(video: item) }
+        }
         .onChange(of: settings.bilibiliMode) { _ in
             Task { await reloadForCurrentMode() }
         }
@@ -1817,11 +1832,62 @@ struct BilibiliVideoDetailView: View {
                 Text(activeVideo.description).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             interactionBar
+            HStack(spacing: 10) {
+                Button { Task { await oneClickTriple() } } label: {
+                    Label("一键三连", systemImage: "heart.circle")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!bilibili.isLoggedIn || interactionLoading)
+                Button { Task { await addWatchLater() } } label: {
+                    Label("稍后再看", systemImage: "clock.badge.plus")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!bilibili.isLoggedIn)
+            }
             if !allSubtitles.isEmpty {
                 Label("已发现 \(allSubtitles.count) 条字幕轨道（含中文与 AI 字幕），可在播放器里选择", systemImage: "captions.bubble")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+            if !related.isEmpty { relatedSection }
         }.padding(.horizontal, 18)
+    }
+
+    private var relatedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("相关推荐").font(.headline)
+            ForEach(related.prefix(15)) { item in
+                Button { relatedSelection = item } label: {
+                    HStack(spacing: 10) {
+                        CachedAsyncImage(url: item.coverURL?.resizedImageURL(320), animated: false)
+                            .frame(width: 120, height: 68)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                            Text("\(item.author) · \(Formatters.playCount(item.playCount)) 次播放")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 6)
+    }
+
+    @MainActor private func oneClickTriple() async {
+        if interaction?.isLiked != true { await toggleLike() }
+        if (interaction?.coinCount ?? 0) == 0 { await addCoin() }
+        if interaction?.isFavorited != true { await toggleFavorite() }
+    }
+
+    @MainActor private func addWatchLater() async {
+        do {
+            try await BilibiliAPI.shared.addToWatchLater(aid: activeVideo.aid, cookie: bilibili.cookie)
+            ToastCenter.shared.show("已加入稍后再看")
+        } catch {
+            ToastCenter.shared.show("加入稍后再看失败")
+        }
     }
 
     private var currentQualityTitle: String {

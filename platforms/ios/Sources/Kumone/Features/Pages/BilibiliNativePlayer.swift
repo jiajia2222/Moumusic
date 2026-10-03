@@ -111,7 +111,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         loadedKey = key
         usingHLS = dash != nil
         isLive = video?.absoluteString.lowercased().contains(".m3u8") == true
-        player.automaticallyWaitsToMinimizeStalling = !isLive
+        player.automaticallyWaitsToMinimizeStalling = true
         fallbackVideo = video
         fallbackAudio = audio
         wasAutoplay = autoplay
@@ -138,6 +138,33 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     private var lastLiveCatchUp = Date()
     private var usingHLS = false
 
+    private var liveLaneFree = [Double](repeating: 0, count: 14)
+
+    /// Adds one live-room chat message to the scrolling overlay.
+    func pushLiveDanmaku(text: String, color: Int) {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, !BiliDanmakuSettings.blockWords.contains(where: { clean.localizedCaseInsensitiveContains($0) }) else { return }
+        let now = player.currentTime().seconds
+        guard now.isFinite, let lane = Self.pickLane(&liveLaneFree, at: now, hold: max(1.6, BiliDanmakuSettings.scrollDuration * 0.3)) else { return }
+        placedDanmaku.append(PlacedDanmaku(text: clean, color: color, start: now, mode: 1, lane: lane))
+        if placedDanmaku.count > 240 { placedDanmaku.removeFirst(placedDanmaku.count - 240) }
+    }
+
+    /// Community "skip this" ranges (sponsors, self-promotion); jumped over once each while playing.
+    var skipSegments: [(start: Double, end: Double)] = []
+    private var skippedSegments = Set<Int>()
+
+    private func applySkipSegments() {
+        guard player.timeControlStatus == .playing, !skipSegments.isEmpty else { return }
+        for (index, segment) in skipSegments.enumerated()
+        where !skippedSegments.contains(index) && currentTime >= segment.start && currentTime < segment.end - 0.5 {
+            skippedSegments.insert(index)
+            seek(to: segment.end)
+            ToastCenter.shared.show("已跳过广告片段")
+            return
+        }
+    }
+
     /// Jumps to the newest part of a live stream.
     func seekToLiveEdge() {
         guard let item = player.currentItem, let range = item.seekableTimeRanges.last?.timeRangeValue else { return }
@@ -158,8 +185,8 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
             ]])
             let item = AVPlayerItem(asset: asset)
             item.automaticallyPreservesTimeOffsetFromLive = true
-            item.configuredTimeOffsetFromLive = CMTime(seconds: 2, preferredTimescale: 600)
-            item.preferredForwardBufferDuration = 2
+            // A few seconds behind the edge is what keeps live playback smooth; 2 s stuttered.
+            item.configuredTimeOffsetFromLive = CMTime(seconds: 5, preferredTimescale: 600)
             item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
             return item
         }
@@ -289,7 +316,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     /// pictures (undecodable stream, starved video segment). A video output on the item tells
     /// us whether new frames are still arriving.
     private func checkFrames() {
-        guard expectsPicture, let output = videoOutput, player.timeControlStatus == .playing,
+        guard expectsPicture, !isLive, let output = videoOutput, player.timeControlStatus == .playing,
               !isScrubbing, currentTime > 1 else {
             lastFrameAt = Date()
             if isWaitingForPicture { isWaitingForPicture = false }
@@ -325,7 +352,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
            let item = player.currentItem, let range = item.seekableTimeRanges.last?.timeRangeValue {
             // Drifted more than 6 s behind the broadcaster (after buffering): catch up.
             let behind = CMTimeGetSeconds(CMTimeRangeGetEnd(range)) - CMTimeGetSeconds(item.currentTime())
-            if behind > 6 { seekToLiveEdge() } else { lastLiveCatchUp = Date() }
+            if behind > 14 { seekToLiveEdge() } else { lastLiveCatchUp = Date() }
         }
         checkFrames()
         guard player.rate > 0 || player.timeControlStatus == .waitingToPlayAtSpecifiedRate else {
@@ -361,6 +388,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
             duration = fallbackDuration
         }
         saveResumeIfNeeded()
+        applySkipSegments()
         publishNowPlaying()
         if isPlaying, abs(currentTime - lastReported) >= 15 {
             lastReported = currentTime
@@ -560,9 +588,10 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         var bottomFree = [Double](repeating: 0, count: 6)
         var out: [PlacedDanmaku] = []
         out.reserveCapacity(sorted.count)
+        let blocked = BiliDanmakuSettings.blockWords
         for cue in sorted {
             let text = cue.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { continue }
+            guard !text.isEmpty, !blocked.contains(where: { text.localizedCaseInsensitiveContains($0) }) else { continue }
             let lane: Int?
             switch cue.mode {
             case 4: lane = Self.pickLane(&bottomFree, at: cue.start, hold: 4)
@@ -1105,6 +1134,13 @@ enum BiliDanmakuSettings {
     static var speed: Double { value("moumusic.bili.danmaku.speed", 90) }
     /// Upper bound of how long a scrolling danmaku stays on screen (widest picture + longest text).
     static var scrollDuration: Double { 1500 / max(speed, 20) }
+    /// Words (comma / space separated) whose danmaku are hidden, like PiliPlus' 屏蔽词.
+    static var blockWords: [String] {
+        (UserDefaults.standard.string(forKey: "moumusic.bili.danmaku.blocklist") ?? "")
+            .components(separatedBy: CharacterSet(charactersIn: ",，;； \n"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
     static var hideTop: Bool { UserDefaults.standard.bool(forKey: "moumusic.bili.danmaku.hideTop") }
     static var hideBottom: Bool { UserDefaults.standard.bool(forKey: "moumusic.bili.danmaku.hideBottom") }
 

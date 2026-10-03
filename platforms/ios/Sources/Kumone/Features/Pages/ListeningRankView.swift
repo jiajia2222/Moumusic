@@ -1,4 +1,4 @@
-﻿#if os(iOS)
+#if os(iOS)
 import SwiftUI
 
 /// 听歌排行: the NetEase account's own play counts (`/v1/play/record`, as in NeteaseCloudMusicApi's
@@ -16,13 +16,6 @@ struct ListeningRankView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Picker("范围", selection: $week) {
-                    Text("最近一周").tag(true)
-                    Text("所有时间").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, Theme.Layout.contentInset)
-
                 if !account.isLoggedIn {
                     EmptyStateView(icon: "chart.bar", title: "登录网易云查看听歌排行", subtitle: "排行来自网易云账号的真实播放记录")
                         .frame(maxWidth: .infinity, minHeight: 260)
