@@ -414,7 +414,10 @@ final class LXUserAPIService: ObservableObject {
         }
 
         var downgradedFallback: ResolvedURL?
+        let startedAt = Date()
         for candidate in candidates {
+            // Already holding a lower-tier answer: do not keep every other source busy for long.
+            if downgradedFallback != nil, Date().timeIntervalSince(startedAt) > 6 { break }
             guard await activate(candidate.source) else {
                 failures.append("\(candidate.source.name)/\(candidate.platform): unavailable")
                 continue
@@ -484,8 +487,9 @@ final class LXUserAPIService: ObservableObject {
                         downgradedFallback = resolved
                     }
                     failures.append("\(candidate.source.name)/\(candidate.platform): returned \(actualQuality), not \(tier)")
-                    // It served the tier we asked for at this (lower) step: this source cannot do better.
-                    if actualRank >= Self.qualityRank(tier) { break }
+                    // The source answered (just not with the requested tier): that is its best for this song,
+                    // so do not hammer its lower tiers. Lower tiers are only tried after a failed request.
+                    break
                 } catch {
                     failures.append("\(candidate.source.name)/\(candidate.platform): \(error.localizedDescription)")
                 }
