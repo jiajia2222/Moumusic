@@ -91,11 +91,33 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
                     self.inlineLayer?.player = self.player
                     self.fullscreenLayer?.player = self.player
                 }
+            },
+            NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.handleBecameActive() }
             }
         ]
     }
 
     private var backgroundObservers: [NSObjectProtocol] = []
+
+    /// Bumped to rebuild the danmaku overlay (it can stop drawing across picture-in-picture / background).
+    @Published private(set) var danmakuRefreshToken = UUID()
+    /// Re-fetches the danmaku source (video: XML list, live: chat socket).
+    var onRefreshDanmaku: (() -> Void)?
+
+    func refreshDanmaku() {
+        danmakuRefreshToken = UUID()
+        onRefreshDanmaku?()
+    }
+
+    /// Returning to the app: the video comes back into the page (picture-in-picture closes by itself)
+    /// and the danmaku is refreshed, since it may not have been drawn while the app was away.
+    private func handleBecameActive() {
+        if isPiPActive { pipController?.stopPictureInPicture() }
+        inlineLayer?.player = player
+        fullscreenLayer?.player = player
+        refreshDanmaku()
+    }
 
     deinit {
         backgroundObservers.forEach { NotificationCenter.default.removeObserver($0) }
@@ -569,7 +591,10 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     }
 
     nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        Task { @MainActor [weak self] in self?.isPiPActive = false }
+        Task { @MainActor [weak self] in
+            self?.isPiPActive = false
+            self?.refreshDanmaku()
+        }
     }
 
     nonisolated func pictureInPictureController(
@@ -743,6 +768,7 @@ struct BiliNativePlayer: View {
             }
             if showDanmaku, !audioOnly {
                 danmakuCanvas
+                    .id(model.danmakuRefreshToken)
             }
             if let text = currentSubtitle {
                 VStack {

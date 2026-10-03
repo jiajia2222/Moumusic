@@ -388,6 +388,11 @@ struct BilibiliLiveRoomView: View {
             playerModel.load(video: playbackURL, audio: nil, autoplay: true)
         }
         .onAppear {
+            playerModel.onRefreshDanmaku = {
+                danmakuClient.start(roomID: room.roomID, cookie: bilibili.cookie) { text, color in
+                    playerModel.pushLiveDanmaku(text: text, color: color)
+                }
+            }
             playerModel.onError = { errorMessage = $0 }
         }
         .task(id: room.roomID) {

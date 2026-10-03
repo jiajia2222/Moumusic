@@ -1658,6 +1658,7 @@ struct BilibiliVideoDetailView: View {
             )
         }
         .onAppear {
+            playerModel.onRefreshDanmaku = { Task { await loadDanmaku() } }
             playerModel.onError = { message in
                 DiagnosticLogStore.shared.append(level: .warning, category: "哔哩哔哩播放", message: "画质 \(selectedQuality.map(String.init) ?? "-") 打开失败", detail: message)
                 // Same quality first: another codec or a backup CDN usually plays.
@@ -2073,10 +2074,16 @@ struct BilibiliVideoDetailView: View {
             danmakuCues = []
             return
         }
-        danmakuCues = (try? await BilibiliAPI.shared.danmaku(
-            cid: cid,
-            cookie: bilibili.cookie
-        )) ?? []
+        // The list occasionally comes back empty / fails once: ask up to three times before giving up.
+        for attempt in 0..<3 {
+            let loaded = (try? await BilibiliAPI.shared.danmaku(cid: cid, cookie: bilibili.cookie)) ?? []
+            if !loaded.isEmpty || attempt == 2 {
+                danmakuCues = loaded
+                return
+            }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if Task.isCancelled { return }
+        }
     }
 
     @MainActor private func toggleLike() async {
