@@ -657,31 +657,71 @@ final class PlayerService: ObservableObject {
         return true
     }
 
+    // MARK: Fade in / out (设置 → 播放设置 → 播放暂停淡入淡出)
+
+    private var fadeTask: Task<Void, Never>?
+    private var fadeEnabled: Bool {
+        UserDefaults.standard.object(forKey: "moumusic.fadeEnabled") as? Bool ?? true
+    }
+
+    /// Ramps the player gain; `then` runs only if the ramp was not interrupted.
+    private func fadeVolume(to target: Float, duration: Double, then: (@MainActor () -> Void)? = nil) {
+        fadeTask?.cancel()
+        guard fadeEnabled, duration > 0 else {
+            engine.volume = target
+            then?()
+            return
+        }
+        let start = engine.volume
+        fadeTask = Task { @MainActor [weak self] in
+            let steps = 16
+            for step in 1...steps {
+                try? await Task.sleep(nanoseconds: UInt64(duration / Double(steps) * 1_000_000_000))
+                guard let self, !Task.isCancelled else { return }
+                self.engine.volume = start + (target - start) * Float(step) / Float(steps)
+            }
+            then?()
+        }
+    }
+
+    private func pauseWithFade() {
+        isPlaying = false
+        AudioSpectrum.shared.reset()
+        fadeVolume(to: 0, duration: 0.25) { [weak self] in
+            guard let self, !self.isPlaying else { return }
+            self.engine.pause()
+            self.engine.volume = 1
+        }
+    }
+
+    private func resumeWithFade() {
+        fadeTask?.cancel()
+        if fadeEnabled { engine.volume = 0 }
+        engine.play()
+        engine.rate = playbackRate
+        isPlaying = true
+        fadeVolume(to: 1, duration: 0.45)
+    }
+
     func togglePlayPause() {
         guard let track = currentTrack else {
             _ = resumeLastPlayback()
             return
         }
         if isPlaying {
-            engine.pause()
-            isPlaying = false
-            AudioSpectrum.shared.reset()
+            pauseWithFade()
         } else if engine.currentItem == nil {
             // Restored session: re-resolve the source.
             startPlaying(track, indexUnchanged: true, preserveTrackQualityOverride: true)
             return
         } else {
-            engine.play()
-            engine.rate = playbackRate
-            isPlaying = true
+            resumeWithFade()
         }
         NowPlayingManager.shared.updateElapsed(progress, rate: isPlaying ? Double(playbackRate) : 0)
     }
 
     func pause() {
-        engine.pause()
-        isPlaying = false
-        AudioSpectrum.shared.reset()
+        pauseWithFade()
         NowPlayingManager.shared.updateElapsed(progress, rate: 0)
     }
 
@@ -1313,6 +1353,9 @@ final class PlayerService: ObservableObject {
                 self?.handleItemEnded()
             }
         }
+        // A pause fade still running from the previous track must not leave the gain low.
+        fadeTask?.cancel()
+        engine.volume = 1
         engine.replaceCurrentItem(with: item)
         let seekPosition = pendingSeek
         pendingSeek = nil
@@ -1328,7 +1371,10 @@ final class PlayerService: ObservableObject {
             // Pure online streaming: start as soon as the first data arrives instead of
             // waiting for AVPlayer to buffer ahead; nothing is written to disk.
             engine.automaticallyWaitsToMinimizeStalling = false
+            fadeTask?.cancel()
+            if fadeEnabled { engine.volume = 0 }
             engine.playImmediately(atRate: playbackRate)
+            fadeVolume(to: 1, duration: 0.6)
         }
         isPlaying = true
 
