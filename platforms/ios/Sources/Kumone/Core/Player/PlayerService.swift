@@ -1205,6 +1205,9 @@ final class PlayerService: ObservableObject {
                 isPlaying = false
                 return
             }
+            // 自动模式：账号只能给出比所选音质低的档位（例如非会员选了环绕声 / 母带，只拿到 320k）时，
+            // 先记下账号的结果，再向三方音源要所选音质；三方没有更好的才用回账号的结果。
+            var officialFallback: OfficialAudio?
             if playbackMode != .thirdParty, hasOfficialAccount,
                let official = await resolveOfficialAudio(
                 for: track, quality: requestedQuality
@@ -1212,6 +1215,12 @@ final class PlayerService: ObservableObject {
                 resolvedURL = official.url
                 servedByLXQuality = official.quality
                 servedBySourceLabel = official.sourceLabel
+                if playbackMode == .automatic, hasLXSource,
+                   let servedRank = Self.qualityRank(official.quality),
+                   let wantedRank = Self.qualityRank(requestedQuality.lxType), servedRank > wantedRank {
+                    officialFallback = official
+                    resolvedURL = nil
+                }
             }
 
             // Account-only mode normally never leaves the account. A free account playing a
@@ -1273,6 +1282,14 @@ final class PlayerService: ObservableObject {
                 resolvedURL = resolved.url
                 servedByLXQuality = resolved.quality
                 servedBySourceLabel = "LX 第三方音源"
+                if let officialFallback,
+                   let officialRank = Self.qualityRank(officialFallback.quality),
+                   let thirdRank = Self.qualityRank(resolved.quality), thirdRank >= officialRank {
+                    // The third-party source did not beat the account's tier: keep the account stream.
+                    resolvedURL = officialFallback.url
+                    servedByLXQuality = officialFallback.quality
+                    servedBySourceLabel = officialFallback.sourceLabel
+                }
                 // Only the account-mode fallback is worth a notice: with a third-party source chosen
                 // on purpose, "会员歌曲将通过第三方音源播放" is just noise.
                 if vipFallbackAllowed, (track.fee == 1 || track.fee == 4),
@@ -1281,6 +1298,12 @@ final class PlayerService: ObservableObject {
                 }
             } catch {
                 guard !Task.isCancelled, generation == resolveGeneration else { return }
+                if let officialFallback {
+                    // Nothing better than the account's own tier was found: play that.
+                    resolvedURL = officialFallback.url
+                    servedByLXQuality = officialFallback.quality
+                    servedBySourceLabel = officialFallback.sourceLabel
+                } else {
                 consecutiveFailures += 1
                 DiagnosticLogStore.shared.append(
                     level: .error,
@@ -1294,6 +1317,7 @@ final class PlayerService: ObservableObject {
                 // can adjust the source or retry after reading the real error.
                 isPlaying = false
                 return
+                }
             }
             }
         }
@@ -1502,6 +1526,12 @@ final class PlayerService: ObservableObject {
     /// Resolve a full-length provider URL using the account belonging to the
     /// track's catalogue. The returned quality is the provider's response.
     private var lastOfficialFailure = ""
+
+    /// Position in the highest-to-lowest quality order (smaller = better); nil for unknown labels.
+    private static func qualityRank(_ lxType: String?) -> Int? {
+        guard let lxType, let quality = AudioQuality(lxType: lxType) else { return nil }
+        return AudioQuality.allCases.firstIndex(of: quality)
+    }
 
     private func resolveOfficialAudio(for track: Track, quality: AudioQuality) async -> OfficialAudio? {
         lastOfficialFailure = ""
