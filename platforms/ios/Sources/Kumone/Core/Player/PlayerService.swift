@@ -1542,12 +1542,12 @@ final class PlayerService: ObservableObject {
            NeteaseClient.shared.isLoggedIn {
             await AccountStore.shared.ensureVIPInfo()
             let hasActiveNeteaseVIP = AccountStore.shared.hasActiveVIP
-            // Premium tiers (Hi-Res / Atmos / Master ...) are only requested for accounts known to be
-            // members: for anyone else NetEase "answers" them with a downgraded or oddly muxed stream,
-            // which pre-empted the third-party sources and played without sound.
-            let neteaseCandidates = hasActiveNeteaseVIP
-                ? requestedCandidates
-                : requestedCandidates.filter { !$0.requiresNeteaseVIP }
+            // Premium tiers (Hi-Res / Atmos / Master ...) are asked for together, whatever the local
+            // membership flag says (it can be wrong for an SVIP account), but a tier only counts when
+            // NetEase really serves that very level: for a non-member it "answers" with a downgraded
+            // level, which must not pre-empt the third-party sources or the lower official tiers.
+            let neteaseCandidates = requestedCandidates.filter { !$0.requiresNeteaseVIP }
+            let premiumCandidates = requestedCandidates.filter(\.requiresNeteaseVIP)
             var failureNotes: [String] = []
             defer {
                 if !failureNotes.isEmpty {
@@ -1556,6 +1556,41 @@ final class PlayerService: ObservableObject {
                     Task { @MainActor in
                         DiagnosticLogStore.shared.append(level: .warning, category: "网易云账号音源", message: "《\(track.name)》未取得完整音频", detail: "会员=\(hasActiveNeteaseVIP) \(joined)")
                     }
+                }
+            }
+            if !premiumCandidates.isEmpty {
+                let songID = track.id
+                let replies: [(AudioQuality, NeteaseAPI.SongURLData?)] = await withTaskGroup(
+                    of: (AudioQuality, NeteaseAPI.SongURLData?).self
+                ) { group in
+                    for candidate in premiumCandidates {
+                        group.addTask {
+                            (candidate, (try? await NeteaseAPI.songURL(ids: [songID], level: candidate.neteaseLevel))?.first)
+                        }
+                    }
+                    var collected: [(AudioQuality, NeteaseAPI.SongURLData?)] = []
+                    for await reply in group { collected.append(reply) }
+                    return collected
+                }
+                for candidate in premiumCandidates {
+                    guard let data = replies.first(where: { $0.0 == candidate })?.1 else {
+                        failureNotes.append("\(candidate.neteaseLevel):接口无返回"); continue
+                    }
+                    guard data.freeTrialInfo == nil, let rawURL = data.url, let url = validAudioURL(rawURL) else {
+                        failureNotes.append("\(candidate.neteaseLevel):无完整地址"); continue
+                    }
+                    guard (data.level ?? "").lowercased() == candidate.neteaseLevel.lowercased() else {
+                        failureNotes.append("\(candidate.neteaseLevel):返回档位=\(data.level ?? "-")"); continue
+                    }
+                    guard data.time <= 0 || track.duration <= 0
+                        || TimeInterval(data.time) / 1000 >= max(45, track.duration * 0.65) else {
+                        failureNotes.append("\(candidate.neteaseLevel):时长不足 \(data.time)ms"); continue
+                    }
+                    return OfficialAudio(
+                        url: url,
+                        quality: NeteaseAPI.officialQuality(for: data)?.lxType ?? candidate.lxType,
+                        sourceLabel: "网易云官方账号音源"
+                    )
                 }
             }
             for candidate in neteaseCandidates {
