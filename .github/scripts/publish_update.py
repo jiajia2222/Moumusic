@@ -83,7 +83,7 @@ delete("latest.json")
 upload(manifest_path, "latest.json")
 
 # Verify what the app will actually read.
-check = json.loads(urllib.request.urlopen(f"{HOST}/file/{FOLDER}/latest.json?t={int(time.time())}", timeout=60).read())
+check = json.loads(call("GET", f"{HOST}/file/{FOLDER}/latest.json?t={int(time.time())}"))
 assert check["build"] == BUILD, check
 print("published build", BUILD, check["full"]["url"])
 
