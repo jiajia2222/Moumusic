@@ -36,6 +36,9 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     var fallbackDuration: Double = 0
     /// Per-video key for 续播 (resume where you left off); nil disables it.
     var resumeKey: String?
+    /// Called about every 15 s of playback and on stop, to sync 观看历史 to the account.
+    var onProgressReport: ((Int) -> Void)?
+    private var lastReported: Double = -100
     private var lastSavedResume: Double = 0
     private var resumeApplied = false
     private static let resumeStoreKey = "moumusic.bili.resume"
@@ -173,6 +176,10 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
             duration = fallbackDuration
         }
         saveResumeIfNeeded()
+        if isPlaying, abs(currentTime - lastReported) >= 15 {
+            lastReported = currentTime
+            onProgressReport?(Int(currentTime))
+        }
     }
 
     // MARK: 续播
@@ -214,6 +221,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     }
 
     func stop() {
+        if currentTime > 1 { onProgressReport?(Int(currentTime)) }
         loadTask?.cancel()
         if !isPiPActive { player.pause() }
     }

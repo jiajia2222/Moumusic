@@ -1197,6 +1197,16 @@ actor BilibiliAPI {
         ], cookie: cookie, referer: "https://www.bilibili.com/")
     }
 
+    /// Reports watch progress so the video appears in the account's 历史记录 (like the official app).
+    func reportHistory(aid: Int, cid: Int, progress: Int, cookie: String?) async {
+        guard aid > 0, cid > 0, let cookie,
+              let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty else { return }
+        let endpoint = URL(string: "https://api.bilibili.com/x/v2/history/report")!
+        _ = try? await postFormObject(endpoint, fields: [
+            "aid": "\(aid)", "cid": "\(cid)", "progress": "\(max(0, progress))", "csrf": csrf
+        ], cookie: cookie, referer: "https://www.bilibili.com/video/av\(aid)")
+    }
+
     func addVideoCoin(aid: Int, cookie: String? = nil) async throws {
         guard aid > 0, let cookie,
               let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty else {

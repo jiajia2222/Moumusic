@@ -1552,6 +1552,10 @@ struct BilibiliVideoDetailView: View {
         .task(id: playerSourceKey) {
             playerModel.fallbackDuration = activeVideo.duration
             playerModel.resumeKey = listenOnly ? nil : "\(activeVideo.bvid)-\(activeVideo.cid ?? 0)"
+            let aid = activeVideo.aid, cid = activeVideo.cid ?? 0, cookie = bilibili.cookie
+            playerModel.onProgressReport = { seconds in
+                Task { await BilibiliAPI.shared.reportHistory(aid: aid, cid: cid, progress: seconds, cookie: cookie) }
+            }
             playerModel.load(
                 video: activePlaybackURL,
                 audio: listenOnly ? nil : playbackAudioURL,
