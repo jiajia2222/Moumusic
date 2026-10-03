@@ -1,4 +1,4 @@
-﻿import AVFoundation
+import AVFoundation
 import Foundation
 
 enum RepeatMode: String, CaseIterable {
@@ -1221,7 +1221,8 @@ final class PlayerService: ObservableObject {
                         let candidate = try await LXUserAPIService.shared.resolveMusicURL(
                             for: track,
                             quality: quality,
-                            excludingURLs: rejectedPreviewURLs
+                            excludingURLs: rejectedPreviewURLs,
+                            forceThirdParty: vipFallbackAllowed
                         )
                         if await isLikelyPreviewURL(candidate.url, expectedDuration: track.duration) {
                             rejectedPreviewURLs.insert(candidate.url.absoluteString)

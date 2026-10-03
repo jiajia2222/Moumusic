@@ -26,7 +26,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     @Published private(set) var rate: Float = 1
     @Published private(set) var isBoosting = false
     @Published private(set) var isPiPActive = false
-    @Published private(set) var canPiP = false
+    @Published private(set) var canPiP = AVPictureInPictureController.isPictureInPictureSupported()
     @Published private(set) var placedDanmaku: [PlacedDanmaku] = []
     @Published var isScrubbing = false
 
@@ -182,6 +182,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
             videoOutput = output
         }
         player.replaceCurrentItem(with: item)
+        rebuildPiP()
         guard autoplay else { return }
         play()
     }
@@ -405,7 +406,6 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         guard AVPictureInPictureController.isPictureInPictureSupported(),
               let layer = fullscreenLayer ?? inlineLayer else {
             pipController = nil
-            canPiP = false
             return
         }
         if pipController?.playerLayer === layer { return }
@@ -413,12 +413,34 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         controller?.delegate = self
         controller?.canStartPictureInPictureAutomaticallyFromInline = true
         pipController = controller
-        canPiP = controller != nil
     }
 
+    /// The button is shown whenever the device supports PiP; the controller is (re)built on
+    /// demand so a layer registered before the item was ready no longer hides it for good.
     func togglePiP() {
-        guard let pip = pipController else { return }
-        if pip.isPictureInPictureActive { pip.stopPictureInPicture() } else { pip.startPictureInPicture() }
+        rebuildPiP()
+        guard let pip = pipController else {
+            ToastCenter.shared.show("画中画暂时不可用")
+            return
+        }
+        if pip.isPictureInPictureActive {
+            pip.stopPictureInPicture()
+        } else if pip.isPictureInPicturePossible {
+            pip.startPictureInPicture()
+        } else {
+            DiagnosticLogStore.shared.append(level: .warning, category: "哔哩哔哩播放", message: "画中画不可用",
+                                             detail: "isPictureInPicturePossible=false")
+            ToastCenter.shared.show("视频加载完成后才能开启画中画")
+        }
+    }
+
+    nonisolated func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController,
+                                                failedToStartPictureInPictureWithError error: Error) {
+        let detail = error.localizedDescription
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .error, category: "哔哩哔哩播放", message: "画中画启动失败", detail: detail)
+            ToastCenter.shared.show("画中画启动失败")
+        }
     }
 
     nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {

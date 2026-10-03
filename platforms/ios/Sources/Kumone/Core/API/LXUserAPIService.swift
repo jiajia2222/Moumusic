@@ -1,4 +1,4 @@
-﻿#if os(iOS)
+#if os(iOS)
 import CommonCrypto
 import Combine
 import Foundation
@@ -151,8 +151,13 @@ final class LXUserAPIService: ObservableObject {
     }
 
     func resolveMusicURL(for track: Track, quality: String,
-                         excludingURLs: Set<String> = []) async throws -> ResolvedURL {
+                         excludingURLs: Set<String> = [],
+                         forceThirdParty: Bool = false) async throws -> ResolvedURL {
         let sourceMode = SettingsManager.shared.playbackSourceMode
+        if forceThirdParty {
+            // 账号模式下用户允许非会员用第三方音源播放会员歌曲：不再回到官方账号（只会得到试听片段）。
+            return try await resolveMusicURLAcrossSources(for: track, quality: quality, excludingURLs: excludingURLs)
+        }
         if sourceMode == .official {
             guard hasAuthenticatedAccount(for: track) else {
                 throw LXError.sourceUnavailable("请先登录对应平台账号，并选择该平台歌曲")
