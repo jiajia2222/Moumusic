@@ -1,4 +1,4 @@
-"""Uploads the freshly built IPAs and the update manifest to the image host.
+﻿"""Uploads the freshly built IPAs and the update manifest to the image host.
 
 Environment: IMGBED_TOKEN (API token), BUILD (CI run number), VERSION (marketing version),
 NOTES (release notes), FULL_IPA / COMPAT_IPA (paths). The app reads
@@ -17,7 +17,7 @@ HOST = "https://yun.nadev.xyz"
 FOLDER = "moumusic"
 TOKEN = os.environ["IMGBED_TOKEN"].replace("﻿", "").strip()
 BUILD = int(os.environ["BUILD"])
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
+AUTH = {"Authorization": f"Bearer {TOKEN}", "User-Agent": "Mozilla/5.0 (compatible; Moumusic-CI/1.0)", "Accept": "*/*"}
 
 
 def call(method, url, data=None, headers=None, retries=4):
