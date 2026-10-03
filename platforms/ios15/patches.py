@@ -11,6 +11,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from toolbar_fix import fix_toolbar_ifs  # noqa: E402
+
 IOS = sys.argv[1]
 SOURCES = glob.glob(os.path.join(IOS, "Sources", "Kumone", "**", "*.swift"), recursive=True) + \
     glob.glob(os.path.join(IOS, "ios", "KumoneIOS", "*.swift"))
@@ -121,6 +124,7 @@ for path in SOURCES:
     text = re.sub(r"\.lineLimit\(\d+\.\.\.(\d+)\)", r".lineLimit(\1)", text)
     text = text.replace(", axis: .vertical", "")
     text = convert_sleep(text)
+    text = fix_toolbar_ifs(text)
     text = re.sub(r"(?<![A-Za-z0-9_])LabeledContent\(", "IOS15LabeledContent(", text)
     text = re.sub(r"(?<![A-Za-z0-9_])ShareLink\(", "IOS15ShareLink(", text)
     text = re.sub(r"(?<![A-Za-z0-9_])PhotosPickerItem\b", "IOS15PhotosPickerItem", text)
