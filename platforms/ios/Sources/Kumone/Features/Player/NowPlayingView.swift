@@ -884,9 +884,6 @@ struct NowPlayingView: View {
                 .font(.system(size: 13.5))
                 .foregroundStyle(.white.opacity(0.65))
                 .lineLimit(1)
-            Text("来源：\(player.currentTrack.map { sourceName($0.source) } ?? "未知")")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.5))
 
         }
         .frame(maxWidth: 400, alignment: .leading)

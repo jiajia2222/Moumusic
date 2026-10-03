@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 enum TrackRowStyle {
     /// Artwork + album column (playlists, search, daily).
@@ -95,14 +95,6 @@ struct TrackRow: View {
                     .font(isCompact ? .footnote : .system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                HStack(spacing: 4) {
-                    Text("来源：\(sourceName)")
-                    Text("·")
-                    Text("音质：\(qualityName)")
-                }
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
