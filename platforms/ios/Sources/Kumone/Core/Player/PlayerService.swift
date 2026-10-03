@@ -1741,19 +1741,35 @@ final class PlayerService: ObservableObject {
         // Bilibili videos: use the video's own subtitle track as lyrics.
         if sourceKey == "bili" {
             let cookie = BilibiliSessionStore.shared.cookie
-            if let video = try? await BilibiliAPI.shared.videoDetail(bvid: track.sourceMetadata["bvid"] ?? "", cookie: cookie),
-               let cid = video.cid,
-               let tracks = try? await BilibiliAPI.shared.subtitleTracks(bvid: video.bvid, aid: video.aid, cid: cid, cookie: cookie),
-               let chosen = tracks.first(where: { $0.language.lowercased().contains("zh") && !$0.isAIGenerated && !$0.isTranslated })
-                    ?? tracks.first(where: { $0.language.lowercased().contains("zh") && !$0.isTranslated })
-                    ?? tracks.first(where: { !$0.isTranslated })
-                    ?? tracks.first,
-               let cues = try? await BilibiliAPI.shared.subtitleCues(for: chosen, cookie: cookie), !cues.isEmpty {
-                guard !Task.isCancelled, generation == resolveGeneration else { return }
-                var parsed = ParsedLyrics()
-                parsed.lines = cues.enumerated().map { LyricLine(id: $0.offset, time: $0.element.start, text: $0.element.text) }
-                publishLyrics(parsed, for: track, generation: generation)
-                return
+            let bvid = track.sourceMetadata["bvid"] ?? track.sourceMetadata["songmid"] ?? ""
+            if let video = try? await BilibiliAPI.shared.videoDetail(bvid: bvid, cookie: cookie),
+               let cid = video.cid {
+                // The detail call already carries the subtitle list; ask the player API as well
+                // (it is the one that lists AI subtitles) and merge, Chinese first.
+                var tracks = video.subtitles
+                if let extra = try? await BilibiliAPI.shared.subtitleTracks(bvid: video.bvid, aid: video.aid, cid: cid, cookie: cookie) {
+                    for item in extra where !tracks.contains(where: { $0.url == item.url }) { tracks.append(item) }
+                }
+                let ranked = tracks.sorted { lhs, rhs in
+                    func score(_ s: BilibiliAPI.Subtitle) -> Int {
+                        (s.language.lowercased().contains("zh") ? 0 : 4) + (s.isAIGenerated ? 1 : 0) + (s.isTranslated ? 2 : 0)
+                    }
+                    return score(lhs) < score(rhs)
+                }
+                if ranked.isEmpty {
+                    DiagnosticLogStore.shared.append(level: .info, category: "哔哩哔哩播放", message: "听视频：该视频没有字幕",
+                                                     detail: video.bvid + (cookie == nil ? "（未登录，AI 字幕需要登录账号）" : ""))
+                }
+                for chosen in ranked {
+                    guard let cues = try? await BilibiliAPI.shared.subtitleCues(for: chosen, cookie: cookie), !cues.isEmpty else { continue }
+                    guard !Task.isCancelled, generation == resolveGeneration else { return }
+                    var parsed = ParsedLyrics()
+                    parsed.lines = cues.enumerated().map { LyricLine(id: $0.offset, time: $0.element.start, text: $0.element.text) }
+                    publishLyrics(parsed, for: track, generation: generation)
+                    return
+                }
+            } else {
+                DiagnosticLogStore.shared.append(level: .warning, category: "哔哩哔哩播放", message: "听视频：读取视频详情失败，无法获取字幕", detail: bvid)
             }
         }
 

@@ -75,9 +75,30 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
             let status = player.timeControlStatus
             Task { @MainActor [weak self] in self?.apply(status) }
         }
+        // iOS suspends video playback in the background while a layer shows the player; detaching
+        // the layers (QA1668) lets the audio carry on (live streams and videos alike).
+        backgroundObservers = [
+            NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, !self.isPiPActive else { return }
+                    self.inlineLayer?.player = nil
+                    self.fullscreenLayer?.player = nil
+                }
+            },
+            NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.inlineLayer?.player = self.player
+                    self.fullscreenLayer?.player = self.player
+                }
+            }
+        ]
     }
 
+    private var backgroundObservers: [NSObjectProtocol] = []
+
     deinit {
+        backgroundObservers.forEach { NotificationCenter.default.removeObserver($0) }
         stallTimer?.invalidate()
         if let timeObserver { player.removeTimeObserver(timeObserver) }
     }

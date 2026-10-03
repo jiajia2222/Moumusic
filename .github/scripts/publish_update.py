@@ -15,7 +15,7 @@ import urllib.request
 
 HOST = "https://yun.nadev.xyz"
 FOLDER = "moumusic"
-TOKEN = os.environ["IMGBED_TOKEN"]
+TOKEN = os.environ["IMGBED_TOKEN"].replace("﻿", "").strip()
 BUILD = int(os.environ["BUILD"])
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 

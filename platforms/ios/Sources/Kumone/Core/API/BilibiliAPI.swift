@@ -1134,7 +1134,19 @@ actor BilibiliAPI {
         ]
         let root = try await requestObject(components.url!, cookie: cookie,
                                            referer: "https://message.bilibili.com/")
-        return Self.dictionaryRows(root["data"]).compactMap(Self.privateMessageThread)
+        let threads = Self.dictionaryRows(root["data"]).compactMap(Self.privateMessageThread)
+        // The session list carries only ids: look the names / avatars up in one call.
+        let missing = threads.filter { $0.userID > 0 && ($0.userName == "B 站用户" || $0.avatarURL == nil) }.map(\.userID)
+        guard !missing.isEmpty else { return threads }
+        let profiles = await userProfiles(uids: Array(Set(missing)), cookie: cookie)
+        return threads.map { thread in
+            guard let profile = profiles[thread.userID] else { return thread }
+            return PrivateMessageThread(
+                id: thread.id, userID: thread.userID,
+                userName: thread.userName == "B 站用户" ? profile.name : thread.userName,
+                avatarURL: thread.avatarURL ?? profile.face,
+                lastMessage: thread.lastMessage, unreadCount: thread.unreadCount, updatedAt: thread.updatedAt)
+        }
     }
 
     /// Reads the XML danmaku feed used by the Cilicili player.
@@ -1499,7 +1511,8 @@ actor BilibiliAPI {
                                            referer: "https://www.bilibili.com/video/\(bvid)")
         let data = root["data"] as? [String: Any]
         let subtitleData = data?["subtitle"] as? [String: Any]
-        let rows = (subtitleData?["list"] as? [[String: Any]])
+        let rows = (subtitleData?["subtitles"] as? [[String: Any]])
+            ?? (subtitleData?["list"] as? [[String: Any]])
             ?? (data?["subtitle"] as? [[String: Any]])
             ?? []
         return rows.compactMap(Self.subtitle)
@@ -2361,5 +2374,150 @@ actor BilibiliAPI {
             .replacingOccurrences(of: "&gt;", with: ">")
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - Messages: names, conversation, notices
+
+extension BilibiliAPI {
+    struct ChatMessage: Identifiable, Hashable, Sendable {
+        let id: String
+        let senderID: Int
+        let text: String
+        let date: Date?
+    }
+
+    struct FeedNotice: Identifiable, Hashable, Sendable {
+        let id: String
+        let userName: String
+        let avatarURL: String?
+        let action: String
+        let content: String
+        let date: Date?
+    }
+
+    enum NoticeKind: String, CaseIterable, Identifiable, Sendable {
+        case reply = "回复我的"
+        case at = "@我"
+        case like = "收到的赞"
+
+        var id: String { rawValue }
+        var path: String {
+            switch self {
+            case .reply: return "reply"
+            case .at: return "at"
+            case .like: return "like"
+            }
+        }
+    }
+
+    func userProfiles(uids: [Int], cookie: String?) async -> [Int: (name: String, face: String?)] {
+        guard !uids.isEmpty else { return [:] }
+        var components = URLComponents(string: "https://api.vc.bilibili.com/account/v1/user/infos")!
+        components.queryItems = [URLQueryItem(name: "uids", value: uids.map(String.init).joined(separator: ","))]
+        guard let root = try? await requestObject(components.url!, cookie: cookie,
+                                                  referer: "https://message.bilibili.com/") else { return [:] }
+        var result: [Int: (name: String, face: String?)] = [:]
+        for row in Self.dictionaryRows(root["data"]) {
+            guard let mid = Self.integer(row["mid"] ?? row["uid"]),
+                  let name = Self.text(row["name"] ?? row["uname"]), !name.isEmpty else { continue }
+            result[mid] = (name, Self.imageURL(Self.text(row["face"])))
+        }
+        return result
+    }
+
+    /// Latest messages of one private conversation, oldest first.
+    func conversation(talker: Int, cookie: String?) async throws -> [ChatMessage] {
+        guard talker > 0 else { throw APIError.invalidResponse }
+        var components = URLComponents(string: "https://api.vc.bilibili.com/svr_sync/v1/svr_sync/fetch_session_msgs")!
+        components.queryItems = [
+            URLQueryItem(name: "talker_id", value: String(talker)),
+            URLQueryItem(name: "session_type", value: "1"),
+            URLQueryItem(name: "size", value: "60"),
+            URLQueryItem(name: "build", value: "0"),
+            URLQueryItem(name: "mobi_app", value: "web")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie, referer: "https://message.bilibili.com/")
+        let data = root["data"] as? [String: Any]
+        let rows = (data?["messages"] as? [[String: Any]]) ?? []
+        return rows.compactMap { row -> ChatMessage? in
+            let raw = Self.text(row["content"]) ?? ""
+            let text = Self.readableMessage(raw, type: Self.integer(row["msg_type"]) ?? 1)
+            guard !text.isEmpty else { return nil }
+            let seconds = Double(Self.integer(row["timestamp"]) ?? 0)
+            return ChatMessage(
+                id: Self.text(row["msg_key"] ?? row["msg_seqno"]) ?? UUID().uuidString,
+                senderID: Self.integer(row["sender_uid"]) ?? 0,
+                text: text,
+                date: seconds > 0 ? Date(timeIntervalSince1970: seconds) : nil)
+        }.sorted { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) }
+    }
+
+    /// 回复我的 / @我 / 收到的赞 (the account "消息" feeds).
+    func notices(kind: NoticeKind, cookie: String?) async throws -> [FeedNotice] {
+        guard let cookie, !cookie.isEmpty else { throw APIError.unavailable }
+        var components = URLComponents(string: "https://api.bilibili.com/x/msgfeed/\(kind.path)")!
+        components.queryItems = [
+            URLQueryItem(name: "platform", value: "web"),
+            URLQueryItem(name: "build", value: "0"),
+            URLQueryItem(name: "mobi_app", value: "web")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie, referer: "https://message.bilibili.com/")
+        let data = root["data"] as? [String: Any]
+        var rows = (data?["items"] as? [[String: Any]]) ?? []
+        if rows.isEmpty {
+            rows = ((data?["total"] as? [String: Any])?["items"] as? [[String: Any]])
+                ?? ((data?["latest"] as? [String: Any])?["items"] as? [[String: Any]]) ?? []
+        }
+        return rows.compactMap { row -> FeedNotice? in
+            let item = row["item"] as? [String: Any]
+            var name = "B 站用户"
+            var avatar: String?
+            let action: String
+            let content: String
+            switch kind {
+            case .like:
+                let users = (row["users"] as? [[String: Any]]) ?? []
+                name = Self.text(users.first?["nickname"]) ?? name
+                let count = Self.integer(row["counts"]) ?? users.count
+                if count > 1 { name += " 等 \(count) 人" }
+                avatar = Self.imageURL(Self.text(users.first?["avatar"]))
+                action = "赞了我的" + Self.businessName(Self.text(item?["business"]))
+                content = Self.stripHTML(Self.text(item?["title"]) ?? "")
+            case .reply, .at:
+                let user = row["user"] as? [String: Any]
+                name = Self.text(user?["nickname"]) ?? name
+                avatar = Self.imageURL(Self.text(user?["avatar"]))
+                action = kind == .reply ? "回复了我" : "@了我"
+                content = Self.stripHTML(Self.text(item?["source_content"] ?? item?["title"]) ?? "")
+            }
+            let seconds = Double(Self.integer(row["reply_time"] ?? row["at_time"] ?? row["like_time"]) ?? 0)
+            return FeedNotice(
+                id: Self.text(row["id"]) ?? UUID().uuidString,
+                userName: name, avatarURL: avatar, action: action, content: content,
+                date: seconds > 0 ? Date(timeIntervalSince1970: seconds) : nil)
+        }
+    }
+
+    private static func businessName(_ business: String?) -> String {
+        switch business {
+        case "reply": return "评论"
+        case "archive": return "视频"
+        case "dynamic": return "动态"
+        default: return "内容"
+        }
+    }
+
+    /// Message bodies are JSON (`{"content":"hi"}`, image, share card); show readable text.
+    static func readableMessage(_ raw: String, type: Int) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if type == 2 { return "[图片]" }
+        guard trimmed.hasPrefix("{"), let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return trimmed }
+        if let content = object["content"] as? String, !content.isEmpty { return content }
+        if let title = object["title"] as? String, !title.isEmpty { return "[分享] \(title)" }
+        if object["url"] != nil, object["height"] != nil || object["width"] != nil { return "[图片]" }
+        if let reply = object["reply_content"] as? String { return reply }
+        return "[消息]"
     }
 }

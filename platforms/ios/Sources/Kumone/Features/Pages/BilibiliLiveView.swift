@@ -1,4 +1,4 @@
-﻿#if os(iOS)
+#if os(iOS)
 import SwiftUI
 
 /// Bilibili live browsing and playback.
@@ -312,6 +312,8 @@ struct BilibiliLiveRoomView: View {
     @State private var playerToken = UUID()
     @State private var errorMessage: String?
     @State private var showFullScreen = false
+    /// 听直播: hide the picture and keep the audio (works with the screen locked).
+    @State private var listenOnly = false
 
     var body: some View {
         ZStack {
@@ -328,7 +330,7 @@ struct BilibiliLiveRoomView: View {
                             selectedSubtitleID: nil,
                             onSelectSubtitle: { _ in },
                             posterURL: room.coverURL,
-                            audioOnly: settings.bilibiliMode == .listen,
+                            audioOnly: settings.bilibiliMode == .listen || listenOnly,
                             title: room.title,
                             onFullscreen: { showFullScreen = true }
                         )
@@ -373,7 +375,7 @@ struct BilibiliLiveRoomView: View {
                 selectedSubtitleID: nil,
                 onSelectSubtitle: { _ in },
                 posterURL: room.coverURL,
-                audioOnly: settings.bilibiliMode == .listen,
+                audioOnly: settings.bilibiliMode == .listen || listenOnly,
                 title: room.title,
                 isFullscreen: true,
                 onClose: { showFullScreen = false }
@@ -411,6 +413,10 @@ struct BilibiliLiveRoomView: View {
                 .buttonStyle(.bordered)
             }
             if settings.bilibiliMode != .listen {
+                Button { listenOnly.toggle() } label: {
+                    Label(listenOnly ? "看画面" : "只听声音", systemImage: listenOnly ? "play.rectangle" : "headphones")
+                }
+                .buttonStyle(.bordered)
                 Button { showFullScreen = true } label: {
                     Label("全屏", systemImage: "arrow.up.left.and.arrow.down.right")
                 }

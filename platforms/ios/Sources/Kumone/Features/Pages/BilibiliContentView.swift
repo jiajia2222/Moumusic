@@ -184,6 +184,7 @@ struct BilibiliContentView: View {
         case history = "观看记录"
         case favorites = "收藏夹"
         case messages = "私信"
+        case notices = "消息通知"
 
         var id: String { rawValue }
     }
@@ -204,6 +205,9 @@ struct BilibiliContentView: View {
     @State private var favoriteFolders: [BilibiliAPI.FavoriteFolder] = []
     @State private var favoriteVideos: [BilibiliAPI.Video] = []
     @State private var privateMessages: [BilibiliAPI.PrivateMessageThread] = []
+    @State private var chatThread: BilibiliAPI.PrivateMessageThread?
+    @State private var notices: [BilibiliAPI.FeedNotice] = []
+    @State private var noticeKind: BilibiliAPI.NoticeKind = .reply
     @State private var selectedFavoriteFolderID: Int?
     @State private var accountLoading = false
     @State private var accountError: String?
@@ -584,6 +588,9 @@ struct BilibiliContentView: View {
             .scrollIndicators(.hidden)
             .navigationTitle(accountTab.rawValue)
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(item: $chatThread) { thread in
+                NavigationStack { BilibiliChatView(thread: thread) }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -626,6 +633,9 @@ struct BilibiliContentView: View {
                 HStack(spacing: 10) {
                     accountShortcut(title: "私信", value: unreadMessageCount, icon: "bubble.left.and.bubble.right.fill") {
                         accountTab = .messages
+                    }
+                    accountShortcut(title: "通知", icon: "bell.fill") {
+                        openAccountDetail(.notices)
                     }
                     accountShortcut(title: "记录", icon: "clock.fill") {
                         accountTab = .history
@@ -713,6 +723,7 @@ struct BilibiliContentView: View {
         case .history: return watchHistory.isEmpty
         case .favorites: return favoriteFolders.isEmpty && favoriteVideos.isEmpty
         case .messages: return privateMessages.isEmpty
+        case .notices: return notices.isEmpty
         }
     }
 
@@ -746,11 +757,31 @@ struct BilibiliContentView: View {
             } else {
                 LazyVStack(spacing: 10) {
                     ForEach(privateMessages) { message in
-                        BilibiliMessageRow(message: message)
+                        Button { chatThread = message } label: {
+                            BilibiliMessageRow(message: message)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, Theme.Layout.contentInset)
             }
+        case .notices:
+            VStack(spacing: 12) {
+                Picker("通知类型", selection: $noticeKind) {
+                    ForEach(BilibiliAPI.NoticeKind.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                if notices.isEmpty {
+                    EmptyStateView(icon: "bell", title: "暂无\(noticeKind.rawValue)")
+                        .frame(maxWidth: .infinity, minHeight: 200)
+                } else {
+                    LazyVStack(spacing: 10) {
+                        ForEach(notices) { BilibiliNoticeRow(notice: $0) }
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.Layout.contentInset)
+            .onChange(of: noticeKind) { _ in Task { await loadAccount() } }
         }
     }
 
@@ -819,6 +850,8 @@ struct BilibiliContentView: View {
                 }
             case .messages:
                 privateMessages = try await BilibiliAPI.shared.privateMessages(cookie: bilibili.cookie)
+            case .notices:
+                notices = try await BilibiliAPI.shared.notices(kind: noticeKind, cookie: bilibili.cookie)
             }
         } catch is CancellationError {
             return
