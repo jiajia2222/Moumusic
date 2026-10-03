@@ -367,7 +367,9 @@ final class LXUserAPIService: ObservableObject {
         // request goes out immediately and a hit returns at once); only when that does not satisfy the
         // requested tier, the other platforms (which need a catalogue search each).
         for passIndex in 0..<2 {
-        if passIndex == 1, let held = downgradedFallback, held.quality == "unknown" { break }
+        // A miss costs under a second per lower tier on the same platform, so anything already in hand from
+        // the song's own platform beats paying for catalogue searches on the other platforms.
+        if passIndex == 1, downgradedFallback != nil { break }
         var candidates: [MusicURLCandidate] = []
 
         // Collect all possible source/platform/quality combinations first.
