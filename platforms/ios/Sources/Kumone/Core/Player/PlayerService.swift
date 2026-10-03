@@ -620,6 +620,24 @@ final class PlayerService: ObservableObject {
         }
     }
 
+    /// 相似歌曲: queues NetEase's similar songs (`/v1/discovery/simiSong`) after the current track.
+    func queueSimilarSongs() {
+        guard let track = currentTrack else { return }
+        Task { @MainActor in
+            let source = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
+            var seedID: Int? = (source.isEmpty || ["wy", "163", "netease"].contains(source)) ? track.id : nil
+            if seedID == nil { seedID = try? await NeteaseAPI.matchingSong(for: track, requireDuration: false)?.id }
+            guard let seedID, let songs = try? await NeteaseAPI.similarSongs(id: seedID, limit: 20), !songs.isEmpty else {
+                ToastCenter.shared.show("没有找到相似歌曲")
+                return
+            }
+            let existing = Set((activeQueue + playNextList).map(\.playbackKey))
+            let fresh = songs.map { $0.normalizedForLXPlayback() }.filter { !existing.contains($0.playbackKey) }
+            playNextList.append(contentsOf: fresh)
+            ToastCenter.shared.show("已添加 \(fresh.count) 首相似歌曲到下一首播放")
+        }
+    }
+
     @discardableResult
     func resumeLastPlayback() -> Bool {
         // The persisted queue normally restores `currentTrack` during

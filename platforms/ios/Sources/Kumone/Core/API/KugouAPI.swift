@@ -177,7 +177,8 @@ actor KugouAPI {
             }
             return nil
         }
-        let vip = Self.integer(in: info, keys: ["is_vip", "vip_type", "svip_level", "vip", "m_type", "su_vip", "svip"]) ?? 0
+        var vip = Self.integer(in: info, keys: ["is_vip", "vip_type", "svip_level", "vip", "m_type", "su_vip", "svip"]) ?? 0
+        if vip == 0, await unionVIP(fields: fields) { vip = 1 }
         return Profile(
             id: Self.text(in: info, keys: ["userid", "user_id", "uid"]) ?? userID,
             name: name,
@@ -185,6 +186,34 @@ actor KugouAPI {
             refreshedCookie: nil,
             isVIP: vip > 0
         )
+    }
+
+    /// Membership from kugouvip (`/v1/get_union_vip`, as used by the open-source KuGouMusicApi).
+    private func unionVIP(fields: [String: String]) async -> Bool {
+        guard let root = try? await androidRequest(path: "/v1/get_union_vip", method: "GET",
+                                                    query: ["busi_type": "concept"], body: nil, router: nil,
+                                                    fields: fields, host: "https://kugouvip.kugou.com") else { return false }
+        let preview = String(data: (try? JSONSerialization.data(withJSONObject: root["data"] ?? root, options: [.sortedKeys])) ?? Data(), encoding: .utf8) ?? ""
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .info, category: "Kugou", message: "会员状态", detail: String(preview.prefix(360)))
+        }
+        return Self.hasActiveVIP(root["data"] ?? root)
+    }
+
+    private static func hasActiveVIP(_ value: Any) -> Bool {
+        if let dict = value as? [String: Any] {
+            for (key, item) in dict {
+                let k = key.lowercased()
+                if k == "is_vip" || k == "isvip" || k == "vip_type" || k == "is_svip" {
+                    if let number = item as? NSNumber, number.intValue > 0 { return true }
+                    if let text = item as? String, let number = Int(text), number > 0 { return true }
+                }
+                if hasActiveVIP(item) { return true }
+            }
+        } else if let array = value as? [Any] {
+            return array.contains { hasActiveVIP($0) }
+        }
+        return false
     }
 
     private func legacyProfile(cookie: String) async throws -> Profile {
@@ -473,7 +502,8 @@ actor KugouAPI {
 
     /// Signs and sends a request to the Android gateway (`gateway.kugou.com`).
     private func androidRequest(path: String, method: String, query: [String: String], body: String?,
-                                router: String?, fields: [String: String]) async throws -> [String: Any] {
+                                router: String?, fields: [String: String],
+                                host: String = "https://gateway.kugou.com") async throws -> [String: Any] {
         let clientTime = Int(Date().timeIntervalSince1970)
         var params: [String: String] = [
             "dfid": fields["dfid"] ?? "-",
@@ -488,7 +518,7 @@ actor KugouAPI {
         let joined = params.map { "\($0.key)=\($0.value)" }.sorted().joined()
         params["signature"] = Self.md5(salt + joined + (body ?? "") + salt)
 
-        var request = try Self.request(endpoint: URL(string: "https://gateway.kugou.com\(path)")!, parameters: params)
+        var request = try Self.request(endpoint: URL(string: "\(host)\(path)")!, parameters: params)
         request.httpMethod = method
         request.setValue("Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi", forHTTPHeaderField: "User-Agent")
         if let router { request.setValue(router, forHTTPHeaderField: "x-router") }
@@ -725,7 +755,11 @@ actor KugouAPI {
     /// request that is already being made to KuGou.
     private static func rawRSAHex(_ data: Data) -> String? {
         let modulusBase64 = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDIAG7QOELSYoIJvTFJhMpe1s/gbjDJX51HBNnEl5HXqTW6lQ7LC8jr9fWZTwusknp+sVGzwd40MwP6U5yDE27M/X1+UR4tvOGOqp94TJtQ1EPnWGWXngpeIW5GxoQGao1rmYWAu6oi1z9XkChrsUdC6DJE5E221wf/4WLFxwAtRQIDAQAB"
-        guard let der = Data(base64Encoded: modulusBase64) else { return nil }
+        // The constant is an X.509 SubjectPublicKeyInfo; SecKeyCreateWithData wants the bare
+        // PKCS#1 key, so drop the 22-byte SPKI header. Passing the full SPKI made key creation
+        // fail, every profile request was skipped and the account showed no nickname.
+        guard let spki = Data(base64Encoded: modulusBase64), spki.count > 22 else { return nil }
+        let der = Data(spki.dropFirst(22))
         let attributes: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
             kSecAttrKeyClass as String: kSecAttrKeyClassPublic,

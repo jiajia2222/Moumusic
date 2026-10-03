@@ -88,6 +88,25 @@ enum NeteaseAPI {
         let profile: UserProfile?
     }
 
+    private struct SignInResponse: Decodable {
+        let code: Int
+        let point: Int?
+        let msg: String?
+    }
+
+    /// 每日签到 (`/point/dailyTask`, type 0 = 安卓 3 点经验, 1 = 网页 2 点经验; per NeteaseCloudMusicApi).
+    /// Returns the experience gained, 0 when already signed in today, nil on failure.
+    static func dailySignIn() async -> Int? {
+        var gained = 0
+        var anyOK = false
+        for type in [0, 1] {
+            guard let response = try? await weapi(SignInResponse.self, "/point/dailyTask", ["type": type]) else { continue }
+            if response.code == 200 { anyOK = true; gained += response.point ?? 0 }
+            if response.code == -2 { anyOK = true }
+        }
+        return anyOK ? gained : nil
+    }
+
     static func userAccount() async throws -> UserProfile? {
         try await weapi(AccountResponse.self, "/w/nuser/account/get").profile
     }

@@ -1030,6 +1030,7 @@ struct NowPlayingView: View {
                 }
 #endif
 
+                Button { player.queueSimilarSongs() } label: { Label("播放相似歌曲", systemImage: "wand.and.stars") }
                 SleepTimerMenu(player: player)
 
                 Divider()
@@ -2068,7 +2069,8 @@ private struct CompactTrackHeader: View {
                         Label("歌词设置", systemImage: "textformat")
                     }
 
-                    SleepTimerMenu(player: player)
+                    Button { player.queueSimilarSongs() } label: { Label("播放相似歌曲", systemImage: "wand.and.stars") }
+                SleepTimerMenu(player: player)
 
                     Divider()
 
@@ -2987,7 +2989,8 @@ private struct MinimalTrackInfoRow: View {
                 Label("播放速度", systemImage: "speedometer")
             }
 
-            SleepTimerMenu(player: player)
+            Button { player.queueSimilarSongs() } label: { Label("播放相似歌曲", systemImage: "wand.and.stars") }
+                SleepTimerMenu(player: player)
 
             Divider()
 

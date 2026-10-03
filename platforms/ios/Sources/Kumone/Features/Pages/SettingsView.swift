@@ -44,6 +44,7 @@ struct SettingsView: View {
     @AppStorage("moumusic.vipReminder") private var vipReminder = true
     @AppStorage("moumusic.vipThirdPartyFallback") private var vipThirdPartyFallback = false
     @AppStorage("moumusic.fadeEnabled") private var fadeEnabled = true
+    @AppStorage("moumusic.netease.autoSignIn") private var neteaseAutoSignIn = true
     @AppStorage("moumusic.showDeveloperTools") private var showDeveloperToolsEntry = true
 #endif
     @StateObject private var backupStore = AppDataBackupManager.shared
@@ -110,6 +111,7 @@ struct SettingsView: View {
                         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: options)
                     }
                 Toggle("播放暂停淡入淡出", isOn: $fadeEnabled)
+                Toggle("网易云每日自动签到", isOn: $neteaseAutoSignIn)
                 Toggle("触感反馈", isOn: $hapticsEnabled)
                 Toggle("启动时自动播放上次歌曲", isOn: $autoPlayLast)
                 Toggle("第三方音源播放会员歌时提醒", isOn: $vipReminder)

@@ -656,6 +656,13 @@ struct MyProfileView: View {
                 divider
                 profileRow("最近播放", icon: "clock.fill", tint: .orange, destination: .recents)
                 divider
+                NavigationLink {
+                    ListeningRankView()
+                } label: {
+                    rowLabel("听歌排行", icon: "chart.bar.fill", tint: .purple)
+                }
+                .buttonStyle(.plain)
+                divider
                 profileRow("我的歌单", icon: "music.note.list", tint: Theme.accent, destination: .localPlaylists)
                 divider
                 profileRow("收藏的歌单与专辑", icon: "bookmark.fill", tint: .yellow, destination: .collections)

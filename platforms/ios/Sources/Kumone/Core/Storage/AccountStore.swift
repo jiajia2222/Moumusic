@@ -61,6 +61,17 @@ final class AccountStore: ObservableObject {
 
     /// Membership is fetched after the profile; make sure it is known before premium tiers are
     /// requested or probed, otherwise a VIP account is treated as free and only sees basic tiers.
+    /// Auto 签到 once a day per account (设置 → 播放设置 → 网易云每日自动签到).
+    private func dailySignInIfNeeded(uid: Int) async {
+        guard UserDefaults.standard.object(forKey: "moumusic.netease.autoSignIn") as? Bool ?? true else { return }
+        let day = Calendar.current.startOfDay(for: .now).timeIntervalSince1970
+        let key = "moumusic.netease.signedIn.\(uid)"
+        guard UserDefaults.standard.double(forKey: key) != day else { return }
+        guard let gained = await NeteaseAPI.dailySignIn() else { return }
+        UserDefaults.standard.set(day, forKey: key)
+        if gained > 0 { ToastCenter.shared.show("网易云每日签到成功，经验 +\(gained)") }
+    }
+
     func ensureVIPInfo() async {
         guard hasAuthCookie, vipInfo == nil else { return }
         vipInfo = await NeteaseAPI.vipInfo()
@@ -87,6 +98,7 @@ final class AccountStore: ObservableObject {
             return
         }
         vipInfo = await NeteaseAPI.vipInfo()
+        await dailySignInIfNeeded(uid: profile.userId)
         await refreshLibrary()
         await ListeningSyncStore.shared.refreshRemoteRecords(uid: profile.userId)
     }
