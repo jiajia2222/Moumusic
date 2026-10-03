@@ -146,7 +146,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         guard !clean.isEmpty, !BiliDanmakuSettings.blockWords.contains(where: { clean.localizedCaseInsensitiveContains($0) }) else { return }
         let now = player.currentTime().seconds
         guard now.isFinite, let lane = Self.pickLane(&liveLaneFree, at: now, hold: max(1.6, BiliDanmakuSettings.scrollDuration * 0.3)) else { return }
-        placedDanmaku.append(PlacedDanmaku(text: clean, color: color, start: now, mode: 1, lane: lane))
+        placedDanmaku.append(PlacedDanmaku(text: clean, color: UInt32(truncatingIfNeeded: color), start: now, mode: 1, lane: lane))
         if placedDanmaku.count > 240 { placedDanmaku.removeFirst(placedDanmaku.count - 240) }
     }
 
