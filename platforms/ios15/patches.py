@@ -280,4 +280,5 @@ patch("DesignSystem/Theme.swift", [
 patch("Core/Player/AudioSpectrum.swift", [
     ("        guard let tap = store.makeTap() else { return nil }\n",
      '        guard UserDefaults.standard.bool(forKey: "moumusic.spectrum"), let tap = store.makeTap() else { return nil }\n'),
-])print("iOS 15 patches applied")
+])
+print("iOS 15 patches applied")
