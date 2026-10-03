@@ -104,7 +104,9 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
             "Referer": "https://www.bilibili.com/",
             "User-Agent": userAgent
         ]]
-        let videoAsset = AVURLAsset(url: video, options: options)
+        let videoAsset = video.fragment == "mou-hev1"
+            ? BiliHEVCLoader.asset(for: video, userAgent: userAgent)
+            : AVURLAsset(url: video, options: options)
         guard let audio else { return AVPlayerItem(asset: videoAsset) }
         let audioAsset = AVURLAsset(url: audio, options: options)
         do {
@@ -1032,6 +1034,132 @@ final class BiliDanmakuUIView: UIView {
         weak var owner: BiliDanmakuUIView?
         init(_ owner: BiliDanmakuUIView) { self.owner = owner }
         @objc func tick(_ link: CADisplayLink) { owner?.renderFrame(link) }
+    }
+}
+// MARK: - HEVC tag fix
+
+/// Bilibili's HEVC streams (4K / HDR / 杜比视界) are tagged `hev1`, which AVFoundation refuses
+/// to decode; the bitstream itself is fine. This resource loader proxies the stream and renames
+/// the sample-entry fourcc to `hvc1` in the file header, the same fix as ffmpeg's `-tag:v hvc1`.
+final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate {
+    private static let scheme = "mou-hevc"
+    private static let queue = DispatchQueue(label: "moumusic.bili.hevc-loader")
+    /// Resource loaders keep only a weak delegate; keep each loader alive for its asset.
+    private static var live: [ObjectIdentifier: BiliHEVCLoader] = [:]
+    private static let lock = NSLock()
+
+    private let origin: URL
+    private let userAgent: String
+    private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 3600
+        return URLSession(configuration: configuration)
+    }()
+
+    private init(origin: URL, userAgent: String) {
+        self.origin = origin
+        self.userAgent = userAgent
+    }
+
+    static func asset(for url: URL, userAgent: String) -> AVURLAsset {
+        var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        parts?.fragment = nil
+        let origin = parts?.url ?? url
+        parts?.scheme = scheme
+        let proxied = parts?.url ?? url
+        let asset = AVURLAsset(url: proxied)
+        let loader = BiliHEVCLoader(origin: origin, userAgent: userAgent)
+        asset.resourceLoader.setDelegate(loader, queue: queue)
+        lock.lock(); live[ObjectIdentifier(asset)] = loader; lock.unlock()
+        if live.count > 8 {
+            lock.lock(); live = live.filter { _ in true }.suffix(8).reduce(into: [:]) { $0[$1.key] = $1.value }; lock.unlock()
+        }
+        return asset
+    }
+
+    func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
+                        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
+        let key = ObjectIdentifier(loadingRequest)
+        let task = Task { [weak self] in
+            await self?.serve(loadingRequest)
+        }
+        tasks[key] = task
+        return true
+    }
+
+    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
+        tasks.removeValue(forKey: ObjectIdentifier(loadingRequest))?.cancel()
+    }
+
+    private func serve(_ loadingRequest: AVAssetResourceLoadingRequest) async {
+        let start: Int64
+        var end: Int64?
+        if let dataRequest = loadingRequest.dataRequest {
+            start = dataRequest.requestedOffset
+            if !dataRequest.requestsAllDataToEndOfResource {
+                end = start + Int64(dataRequest.requestedLength) - 1
+            }
+        } else {
+            start = 0
+            end = 1
+        }
+        var request = URLRequest(url: origin)
+        request.setValue("bytes=\(start)-\(end.map(String.init) ?? "")", forHTTPHeaderField: "Range")
+        request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            if let info = loadingRequest.contentInformationRequest, let http = response as? HTTPURLResponse {
+                info.contentType = "public.mpeg-4"
+                info.isByteRangeAccessSupported = true
+                if let range = http.value(forHTTPHeaderField: "Content-Range"),
+                   let total = range.split(separator: "/").last.flatMap({ Int64($0) }) {
+                    info.contentLength = total
+                } else {
+                    info.contentLength = http.expectedContentLength
+                }
+            }
+            guard let dataRequest = loadingRequest.dataRequest else {
+                loadingRequest.finishLoading()
+                return
+            }
+            // Only the header (first 16 KB of the file) can hold the sample entry.
+            let patchLimit: Int64 = 16 * 1024
+            var buffer = Data()
+            buffer.reserveCapacity(64 * 1024)
+            var offset = start
+            var patched = start >= patchLimit
+            for try await byte in bytes {
+                if Task.isCancelled { return }
+                buffer.append(byte)
+                let flushSize = patched ? 64 * 1024 : Int(max(0, patchLimit - start)) + 8
+                if buffer.count >= flushSize {
+                    if !patched { Self.retag(&buffer); patched = true }
+                    dataRequest.respond(with: buffer)
+                    offset += Int64(buffer.count)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+            }
+            if !buffer.isEmpty {
+                if !patched { Self.retag(&buffer) }
+                dataRequest.respond(with: buffer)
+            }
+            loadingRequest.finishLoading()
+        } catch {
+            if !Task.isCancelled { loadingRequest.finishLoading(with: error) }
+        }
+    }
+
+    private static func retag(_ data: inout Data) {
+        let from = Array("hev1".utf8), to = Array("hvc1".utf8)
+        var index = data.startIndex
+        while index + 4 <= data.endIndex {
+            if data[index] == from[0], data[index + 1] == from[1], data[index + 2] == from[2], data[index + 3] == from[3] {
+                data.replaceSubrange(index..<index + 4, with: to)
+            }
+            index += 1
+        }
     }
 }
 #endif

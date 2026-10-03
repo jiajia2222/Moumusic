@@ -662,6 +662,7 @@ struct MyProfileView: View {
                     rowLabel("听歌排行", icon: "chart.bar.fill", tint: .purple)
                 }
                 .buttonStyle(.plain)
+                .frame(minHeight: 52)
                 divider
                 profileRow("我的歌单", icon: "music.note.list", tint: Theme.accent, destination: .localPlaylists)
                 divider

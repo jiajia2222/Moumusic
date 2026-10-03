@@ -1,5 +1,7 @@
 ﻿import CryptoKit
 import Foundation
+import VideoToolbox
+import CoreMedia
 
 /// Bilibili public-content and account client.
 ///
@@ -1293,28 +1295,36 @@ actor BilibiliAPI {
                 : (ids.filter { $0 <= actualQuality }.max() ?? ids.max() ?? actualQuality)
             let candidates = videos.filter { Self.integer($0["id"]) == target }
             func codec(_ row: [String: Any]) -> Int { Self.integer(row["codecid"]) ?? 0 }
-            // Most compatible first: AVC, then HEVC, AV1 last.
+            // Most compatible first: AVC, then HEVC (hev1 is re-tagged on the fly, see
+            // BiliHEVCLoader), AV1 only where the hardware decodes it.
+            let av1OK = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
             func rank(_ row: [String: Any]) -> Int {
-                switch codec(row) { case 7: return 0; case 12: return 1; default: return 2 }
+                switch codec(row) { case 7: return 0; case 12: return 1; case 13: return av1OK ? 2 : 9; default: return 3 }
             }
-            let ordered = candidates.sorted { rank($0) < rank($1) }
+            let ordered = candidates.filter { rank($0) < 9 }.sorted { rank($0) < rank($1) }
             let chosen = ordered.first
+            func tagged(_ url: URL, _ row: [String: Any]) -> URL {
+                let codecs = (Self.text(row["codecs"]) ?? "").lowercased()
+                guard codecs.hasPrefix("hev1"), var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+                parts.fragment = "mou-hev1"
+                return parts.url ?? url
+            }
             func firstURL(_ row: [String: Any]) -> URL? {
                 for key in ["baseUrl", "base_url", "url"] {
-                    if let value = Self.text(row[key]), let url = URL(string: value) { return url }
+                    if let value = Self.text(row[key]), let url = URL(string: value) { return tagged(url, row) }
                 }
                 if let backups = (row["backupUrl"] ?? row["backup_url"]) as? [String] {
-                    for value in backups { if let url = URL(string: value) { return url } }
+                    for value in backups { if let url = URL(string: value) { return tagged(url, row) } }
                 }
                 return nil
             }
             func allURLs(_ row: [String: Any]) -> [URL] {
                 var urls: [URL] = []
                 for key in ["baseUrl", "base_url", "url"] {
-                    if let value = Self.text(row[key]), let url = URL(string: value) { urls.append(url); break }
+                    if let value = Self.text(row[key]), let url = URL(string: value) { urls.append(tagged(url, row)); break }
                 }
                 for value in ((row["backupUrl"] ?? row["backup_url"]) as? [String]) ?? [] {
-                    if let url = URL(string: value) { urls.append(url) }
+                    if let url = URL(string: value) { urls.append(tagged(url, row)) }
                 }
                 return urls
             }
