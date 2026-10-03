@@ -134,10 +134,24 @@ final class NeteaseClient: @unchecked Sendable {
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("https://music.163.com", forHTTPHeaderField: "Referer")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue(cookieHeader(extra: ["os": "pc", "appver": "3.1.17"], overrides: cookieOverrides),
+        request.setValue(cookieHeader(extra: Self.baseCookies, overrides: cookieOverrides),
                          forHTTPHeaderField: "Cookie")
         request.httpBody = Self.encodeForm(form)
         return try await perform(request)
+    }
+
+    /// One random device id per install. The old shared "kumone" id was sent by every user of the
+    /// project and is what NetEase answers with "请切换设备后重试" when posting.
+    static let deviceID: String = {
+        let key = "moumusic.netease.deviceId"
+        if let stored = UserDefaults.standard.string(forKey: key), stored.count == 32 { return stored }
+        let value = (0..<32).map { _ in String(format: "%X", Int.random(in: 0..<16)) }.joined()
+        UserDefaults.standard.set(value, forKey: key)
+        return value
+    }()
+
+    private static var baseCookies: [String: String] {
+        ["os": "pc", "appver": "3.1.17", "deviceId": deviceID, "sDeviceId": deviceID]
     }
 
     /// POST to `https://interface.music.163.com/eapi<path>` with eapi encryption.
@@ -150,7 +164,7 @@ final class NeteaseClient: @unchecked Sendable {
             "os": "pc",
             "appver": "3.1.17",
             "osver": "Version 14.0 (Build 23A344)",
-            "deviceId": "kumone",
+            "deviceId": Self.deviceID,
             "requestId": String(Int.random(in: 20_000_000...30_000_000)),
             "clientSign": "",
             "versioncode": "140",
@@ -170,7 +184,7 @@ final class NeteaseClient: @unchecked Sendable {
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("https://music.163.com", forHTTPHeaderField: "Referer")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue(cookieHeader(extra: ["os": "pc", "appver": "3.1.17"], overrides: cookieOverrides),
+        request.setValue(cookieHeader(extra: Self.baseCookies, overrides: cookieOverrides),
                          forHTTPHeaderField: "Cookie")
         request.httpBody = Self.encodeForm(form)
         return try await perform(request)

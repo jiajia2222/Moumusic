@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 
 /// Typed NetEase Cloud Music API surface, mapped to real weapi/eapi endpoints.
 enum NeteaseAPI {
@@ -751,16 +751,21 @@ enum NeteaseAPI {
 
         let threadID = "R_SO_4_\(songID)"
         // The client-style route first (`threadId` + `content`), then the two older ones.
-        let routes: [(String, [String: Any])] = [
-            ("/resource/comments/add", ["threadId": threadID, "content": trimmed]),
+        // (path, payload, mobile-client eapi?) — the client-style eapi route goes first.
+        let routes: [(String, [String: Any], Bool)] = [
+            ("/resource/comments/add", ["threadId": threadID, "content": trimmed], true),
+            ("/resource/comments/add", ["threadId": threadID, "content": trimmed], false),
             ("/comment/add", ["type": 0, "id": songID, "threadId": threadID, "content": trimmed,
-                              "commentId": 0, "at": "", "atUserIds": ""]),
-            ("/v1/resource/comments/add", ["threadId": threadID, "content": trimmed])
+                              "commentId": 0, "at": "", "atUserIds": ""], false),
+            ("/v1/resource/comments/add", ["threadId": threadID, "content": trimmed], false)
         ]
         var lastError: Error?
-        for (path, payload) in routes {
+        var deviceRejections = 0
+        for (path, payload, viaEAPI) in routes {
             do {
-                let response = try await weapi(CodeOnly.self, path, payload)
+                let response = viaEAPI
+                    ? try await eapi(CodeOnly.self, path, payload)
+                    : try await weapi(CodeOnly.self, path, payload)
                 if response.code == 200 { return }
                 let message = "code=\(response.code)"
                 Task { @MainActor in
@@ -768,12 +773,17 @@ enum NeteaseAPI {
                 }
                 lastError = NeteaseAPIError.business(code: response.code, message: "发表评论失败（\(message)），请稍后重试")
             } catch {
-                // Do not retry a device-security rejection: repeating it can worsen the account risk score.
+                // A device-security rejection is tried once more through the other client route
+                // only; repeating it further can worsen the account risk score.
                 if Self.isDeviceVerificationRejection(error) {
-                    throw NeteaseAPIError.business(
-                        code: 512,
-                        message: "网易云拒绝了当前设备的评论请求，请先在官方网易云客户端完成一次安全验证后再试。"
-                    )
+                    deviceRejections += 1
+                    if deviceRejections >= 2 {
+                        throw NeteaseAPIError.business(
+                            code: 512,
+                            message: "网易云拒绝了当前设备的评论请求，请先在官方网易云客户端完成一次安全验证后再试。"
+                        )
+                    }
+                    continue
                 }
                 let detail = "\(error.localizedDescription)"
                 Task { @MainActor in
@@ -788,6 +798,8 @@ enum NeteaseAPI {
     private static func isDeviceVerificationRejection(_ error: Error) -> Bool {
         let message = error.localizedDescription.lowercased()
         return message.contains("更换设备")
+            || message.contains("切换设备")
+            || message.contains("安全使用")
             || message.contains("换个设备")
             || message.contains("device")
             || message.contains("risk")

@@ -1435,6 +1435,13 @@ final class PlayerService: ObservableObject {
             let verified = self.verifiedServedQuality(providerQuality: providerQualitySnapshot, audioTrack: probed)
             self.servedQuality = verified ?? providerQualitySnapshot
             self.servedQualityTrackKey = track.playbackKey
+            let wanted = self.currentQuality
+            let spatial: [AudioQuality] = [.master, .atmos, .dolby, .surround]
+            let served = (self.servedQuality ?? "").lowercased()
+            let servedSpatial = ["atmos", "dolby", "surround", "master", "sky", "jyeffect", "jymaster", "spatial"].contains { served.contains($0) }
+            if spatial.contains(wanted), !served.isEmpty, !servedSpatial {
+                ToastCenter.shared.show("这首歌没有「\(wanted.displayName)」音源（需歌曲本身提供且账号有对应会员），已按 \(served) 播放")
+            }
             NowPlayingManager.shared.updateResolvedQuality(self.servedQuality, for: track)
 #endif
             if let probed, let mix = AudioSpectrum.shared.makeAudioMix(for: probed) {

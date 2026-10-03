@@ -1014,7 +1014,8 @@ actor BilibiliAPI {
             cid: cid,
             cookie: cookie
         )) ?? base.subtitles
-        return base.replacingSubtitles(Self.uniqueSubtitles(tracks))
+        let matching = tracks.filter { Self.subtitleBelongs($0.url, aid: base.aid, cid: cid) }
+        return base.replacingSubtitles(Self.uniqueSubtitles(matching))
     }
 
     func comments(aid: Int, page: Int = 1, sort: CommentSort = .hot,
@@ -1515,7 +1516,14 @@ actor BilibiliAPI {
             ?? (subtitleData?["list"] as? [[String: Any]])
             ?? (data?["subtitle"] as? [[String: Any]])
             ?? []
-        return rows.compactMap(Self.subtitle)
+        return rows.compactMap(Self.subtitle).filter { Self.subtitleBelongs($0.url, aid: aid, cid: cid) }
+    }
+
+    /// AI subtitles are stored under `ai_subtitle/prod/<aid><cid><hash>`. For guests (and some
+    /// accounts) the player API hands out another video's file; accept only the matching ones.
+    static func subtitleBelongs(_ url: URL, aid: Int, cid: Int) -> Bool {
+        guard url.path.contains("/ai_subtitle/") else { return true }
+        return url.lastPathComponent.hasPrefix("\(aid)\(cid)")
     }
 
     func subtitleCues(for subtitle: Subtitle, cookie: String? = nil) async throws -> [SubtitleCue] {
