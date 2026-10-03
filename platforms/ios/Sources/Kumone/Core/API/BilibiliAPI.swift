@@ -2703,14 +2703,15 @@ extension BilibiliAPI {
     }
 
     /// Sends one scrolling danmaku at the given playback position.
-    func postDanmaku(aid: Int, cid: Int, text: String, progressMs: Int, cookie: String?) async throws {
+    func postDanmaku(aid: Int, cid: Int, text: String, progressMs: Int, color: UInt32 = 0xFFFFFF,
+                     mode: Int = 1, fontSize: Int = 25, cookie: String?) async throws {
         guard cid > 0, let cookie, let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty else {
             throw APIError.unavailable
         }
         _ = try await postFormObject(URL(string: "https://api.bilibili.com/x/v2/dm/post")!, fields: [
             "type": "1", "oid": "\(cid)", "msg": text, "aid": "\(aid)",
-            "progress": "\(max(0, progressMs))", "color": "16777215", "fontsize": "25",
-            "pool": "0", "mode": "1", "rnd": "\(Int(Date().timeIntervalSince1970 * 1_000_000))",
+            "progress": "\(max(0, progressMs))", "color": "\(color)", "fontsize": "\(fontSize)",
+            "pool": "0", "mode": "\(mode)", "rnd": "\(Int(Date().timeIntervalSince1970 * 1_000_000))",
             "plat": "1", "csrf": csrf
         ], cookie: cookie, referer: "https://www.bilibili.com/")
     }

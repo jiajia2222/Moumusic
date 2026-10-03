@@ -1491,7 +1491,6 @@ struct BilibiliVideoDetailView: View {
     @State private var commentPosting = false
 
     @State private var selectedPage: BilibiliAPI.VideoPage?
-    @State private var danmakuDraft = ""
 
     private var activeVideo: BilibiliAPI.Video {
         let base = detail ?? video
@@ -1531,7 +1530,8 @@ struct BilibiliVideoDetailView: View {
                             posterURL: activeVideo.coverURL,
                             audioOnly: listenOnly,
                             title: activeVideo.title,
-                            onFullscreen: { showFullScreen = true }
+                            onFullscreen: { showFullScreen = true },
+                            onSendDanmaku: (bilibili.isLoggedIn && !listenOnly) ? { await sendDanmaku($0) } : nil
                         )
                         if isLoading {
                             VStack(spacing: 8) {
@@ -1635,7 +1635,8 @@ struct BilibiliVideoDetailView: View {
                 onClose: {
                     enteredByRotation = false
                     showFullScreen = false
-                }
+                },
+                onSendDanmaku: (bilibili.isLoggedIn && !listenOnly) ? { await sendDanmaku($0) } : nil
             )
             .ignoresSafeArea()
             .background(Color.black.ignoresSafeArea())
@@ -1862,7 +1863,6 @@ struct BilibiliVideoDetailView: View {
             if !activeVideo.description.isEmpty {
                 Text(activeVideo.description).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            if bilibili.isLoggedIn, !listenOnly { danmakuComposer }
             interactionBar
             HStack(spacing: 10) {
                 Button { Task { await oneClickTriple() } } label: {
@@ -1884,32 +1884,21 @@ struct BilibiliVideoDetailView: View {
         }.padding(.horizontal, 18)
     }
 
-    private var danmakuComposer: some View {
-        HStack(spacing: 8) {
-            TextField("发一条弹幕", text: $danmakuDraft)
-                .textFieldStyle(.roundedBorder)
-                .submitLabel(.send)
-                .onSubmit { Task { await sendDanmaku() } }
-            Button("发送") { Task { await sendDanmaku() } }
-                .buttonStyle(.bordered)
-                .disabled(danmakuDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-    }
-
-    @MainActor private func sendDanmaku() async {
-        let text = danmakuDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, let cid = activeVideo.cid, activeVideo.aid > 0 else { return }
+    @MainActor private func sendDanmaku(_ draft: BiliDanmakuDraft) async -> Bool {
+        guard let cid = activeVideo.cid, activeVideo.aid > 0 else { return false }
         do {
-            try await BilibiliAPI.shared.postDanmaku(aid: activeVideo.aid, cid: cid, text: text,
+            try await BilibiliAPI.shared.postDanmaku(aid: activeVideo.aid, cid: cid, text: draft.text,
                                                      progressMs: Int(playerModel.currentTime * 1000),
+                                                     color: draft.color, mode: draft.mode, fontSize: draft.fontSize,
                                                      cookie: bilibili.cookie)
-            danmakuDraft = ""
             let start = playerModel.currentTime + 0.3
             danmakuCues.append(BilibiliAPI.DanmakuCue(id: "mine-\(UUID().uuidString)", start: start, end: start + 6,
-                                                      text: text, color: 0xFFFFFF, mode: 1))
+                                                      text: draft.text, color: draft.color, mode: draft.mode))
             ToastCenter.shared.show("弹幕已发送")
+            return true
         } catch {
-            ToastCenter.shared.show("弹幕发送失败")
+            ToastCenter.shared.show("弹幕发送失败，请稍后重试")
+            return false
         }
     }
 

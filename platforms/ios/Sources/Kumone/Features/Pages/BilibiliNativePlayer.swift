@@ -707,6 +707,16 @@ struct BiliNativePlayer: View {
     var rotatesInFullscreen = true
     var onFullscreen: (() -> Void)? = nil
     var onClose: (() -> Void)? = nil
+    /// Sends one danmaku; returns true when it was accepted. nil hides the 发弹幕 button.
+    var onSendDanmaku: ((BiliDanmakuDraft) async -> Bool)? = nil
+
+    @State private var showComposer = false
+    @State private var composerText = ""
+    @State private var draftMode = 1
+    @State private var draftColor: UInt32 = 0xFFFFFF
+    @State private var draftSize = 25
+    @State private var sendingDanmaku = false
+    @FocusState private var composerFocused: Bool
 
     @State private var controlsVisible = true
     @State private var hideTask: Task<Void, Never>?
@@ -790,6 +800,7 @@ struct BiliNativePlayer: View {
                     .padding(.top, isFullscreen ? (rotatesInFullscreen ? 10 : 44) : 0)
                     .transition(.opacity)
             }
+            if showComposer { danmakuComposer }
         }
         .clipped()
         .onAppear {
@@ -979,6 +990,7 @@ struct BiliNativePlayer: View {
             if !compact { rateMenu }
             subtitleMenu
             danmakuButton
+            if onSendDanmaku != nil, showDanmaku { sendDanmakuButton }
             if !compact {
                 if model.canPiP { pipButton }
                 BiliRoutePicker().frame(width: 32, height: 32)
@@ -1048,6 +1060,114 @@ struct BiliNativePlayer: View {
                 .frame(width: 32, height: 32)
         }
         .accessibilityLabel("字幕")
+    }
+
+    private var sendDanmakuButton: some View {
+        Button {
+            composerText = ""
+            showComposer = true
+            hideTask?.cancel()
+        } label: {
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: 18))
+                .frame(width: 32, height: 32)
+        }
+        .accessibilityLabel("发弹幕")
+    }
+
+    private static let draftColors: [UInt32] = [0xFFFFFF, 0xFE0302, 0xFF7204, 0xFFAA02, 0xFFFF00, 0x00CD00, 0x00FFFF, 0x4266BE, 0xCC0273]
+
+    /// Bottom input panel like the Bilibili app: text field, send, then position / size / colour chips.
+    private var danmakuComposer: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+                .onTapGesture { closeComposer() }
+            VStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    TextField("发一条友善的弹幕", text: $composerText)
+                        .focused($composerFocused)
+                        .submitLabel(.send)
+                        .onSubmit { submitDanmaku() }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(Color.white.opacity(0.16), in: Capsule())
+                    Button {
+                        submitDanmaku()
+                    } label: {
+                        Text("发送")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background(Theme.accent.opacity(canSubmit ? 1 : 0.4), in: Capsule())
+                    }
+                    .disabled(!canSubmit)
+                }
+                HStack(spacing: 8) {
+                    chip("滚动", selected: draftMode == 1) { draftMode = 1 }
+                    chip("顶部", selected: draftMode == 5) { draftMode = 5 }
+                    chip("底部", selected: draftMode == 4) { draftMode = 4 }
+                    Spacer(minLength: 6)
+                    chip("小", selected: draftSize == 18) { draftSize = 18 }
+                    chip("中", selected: draftSize == 25) { draftSize = 25 }
+                    chip("大", selected: draftSize == 36) { draftSize = 36 }
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(Self.draftColors, id: \.self) { value in
+                            Circle()
+                                .fill(Color(red: Double((value >> 16) & 0xFF) / 255,
+                                            green: Double((value >> 8) & 0xFF) / 255,
+                                            blue: Double(value & 0xFF) / 255))
+                                .frame(width: 26, height: 26)
+                                .overlay(Circle().stroke(Color.white, lineWidth: draftColor == value ? 3 : 0.5))
+                                .onTapGesture { draftColor = value }
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+            }
+            .padding(14)
+            .background(Color.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+        }
+        .onAppear { composerFocused = true }
+    }
+
+    private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(selected ? .white : .white.opacity(0.7))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(selected ? Theme.accent : Color.white.opacity(0.14), in: Capsule())
+        }
+    }
+
+    private var canSubmit: Bool {
+        !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !sendingDanmaku
+    }
+
+    private func closeComposer() {
+        composerFocused = false
+        showComposer = false
+        scheduleHide()
+    }
+
+    private func submitDanmaku() {
+        let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !sendingDanmaku, let onSendDanmaku else { return }
+        sendingDanmaku = true
+        let draft = BiliDanmakuDraft(text: text, mode: draftMode, color: draftColor, fontSize: draftSize)
+        Task { @MainActor in
+            let sent = await onSendDanmaku(draft)
+            sendingDanmaku = false
+            if sent { composerText = ""; closeComposer() }
+        }
     }
 
     private var danmakuButton: some View {
@@ -1545,3 +1665,12 @@ final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionD
     }
 }
 #endif
+
+/// One danmaku as typed in the composer.
+struct BiliDanmakuDraft {
+    let text: String
+    /// 1 scrolling, 4 bottom, 5 top (the Bilibili modes).
+    let mode: Int
+    let color: UInt32
+    let fontSize: Int
+}
