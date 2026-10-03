@@ -1718,13 +1718,17 @@ private struct QualityPickerSheet: View {
             }
             available = AudioQuality.allCases.filter { merged.contains($0) }
             loading = false
-            // The first pass can miss tiers (a source still waking up, a request that failed once):
-            // ask again a moment later and only ever add to the list.
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            guard !Task.isCancelled, player.currentTrack?.playbackKey == trackKey else { return }
-            let second = await player.availableQualitiesForCurrentTrack(forceRefresh: true)
-            guard !Task.isCancelled, player.currentTrack?.playbackKey == trackKey else { return }
-            available = AudioQuality.allCases.filter { merged.contains($0) || second.contains($0) || available.contains($0) }
+            // Live refresh: the first pass can miss tiers (a source still waking up, a request that failed
+            // once). Keep asking a few more times while the sheet is open and add what turns up; the list
+            // only ever grows, so rows appear as soon as the next answer arrives.
+            for delay in [1_200_000_000, 2_500_000_000, 4_000_000_000] as [UInt64] {
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled, player.currentTrack?.playbackKey == trackKey else { return }
+                let later = await player.availableQualitiesForCurrentTrack(forceRefresh: true)
+                guard !Task.isCancelled, player.currentTrack?.playbackKey == trackKey else { return }
+                let grown = AudioQuality.allCases.filter { available.contains($0) || later.contains($0) }
+                if grown != available { available = grown }
+            }
         }
     }
 }

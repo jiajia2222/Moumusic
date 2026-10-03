@@ -416,54 +416,66 @@ final class LXUserAPIService: ObservableObject {
                 failures.append("\(candidate.source.name)/\(candidate.platform): unavailable")
                 continue
             }
-            do {
-                let response = try await request(
-                    source: candidate.platform,
-                    action: "musicUrl",
-                    info: [
-                        "type": protocolQualityToken(candidate.requestedQuality, platform: candidate.platform),
-                        "musicInfo": musicInfo(
-                            for: candidate.track,
-                            platform: candidate.platform,
-                            qualities: candidate.supportedQualities
-                        )
-                    ]
-                )
-                guard let data = response["data"] as? [String: Any],
-                      let rawURL = data["url"] as? String,
-                      let url = URL(string: rawURL),
-                      let scheme = url.scheme?.lowercased(),
-                      scheme == "http" || scheme == "https" else {
-                    failures.append("\(candidate.source.name)/\(candidate.platform): invalid URL")
-                    continue
-                }
-                guard !excludingURLs.contains(url.absoluteString) else {
-                    failures.append("\(candidate.source.name)/\(candidate.platform): preview URL rejected")
-                    continue
-                }
-                guard !Self.isPreviewResponse(data, expectedDuration: candidate.track.duration) else {
-                    failures.append("\(candidate.source.name)/\(candidate.platform): preview response rejected")
-                    continue
-                }
+            let wantedRank = Self.qualityRank(candidate.requestedQuality)
+            // The requested tier first, then every lower tier this source declares, best first: when the
+            // song lacks the requested tier the source is asked for the next best one instead of giving up.
+            var lowerTiers: [String] = []
+            for tier in candidate.supportedQualities.map(Self.normalizedQuality) {
+                let rank = Self.qualityRank(tier)
+                if rank >= 0, rank < wantedRank, !lowerTiers.contains(tier) { lowerTiers.append(tier) }
+            }
+            lowerTiers.sort { Self.qualityRank($0) > Self.qualityRank($1) }
+            for tier in [candidate.requestedQuality] + lowerTiers {
+                do {
+                    let response = try await request(
+                        source: candidate.platform,
+                        action: "musicUrl",
+                        info: [
+                            "type": protocolQualityToken(tier, platform: candidate.platform),
+                            "musicInfo": musicInfo(
+                                for: candidate.track,
+                                platform: candidate.platform,
+                                qualities: candidate.supportedQualities
+                            )
+                        ]
+                    )
+                    guard let data = response["data"] as? [String: Any],
+                          let rawURL = data["url"] as? String,
+                          let url = URL(string: rawURL),
+                          let scheme = url.scheme?.lowercased(),
+                          scheme == "http" || scheme == "https" else {
+                        failures.append("\(candidate.source.name)/\(candidate.platform): invalid URL (\(tier))")
+                        continue
+                    }
+                    guard !excludingURLs.contains(url.absoluteString) else {
+                        failures.append("\(candidate.source.name)/\(candidate.platform): preview URL rejected")
+                        continue
+                    }
+                    guard !Self.isPreviewResponse(data, expectedDuration: candidate.track.duration) else {
+                        failures.append("\(candidate.source.name)/\(candidate.platform): preview response rejected")
+                        continue
+                    }
 
-                let actualQuality = Self.resolvedQuality(
-                    data: data,
-                    requested: candidate.requestedQuality,
-                    available: candidate.supportedQualities.isEmpty ? ["128k"] : candidate.supportedQualities
-                )
-                let resolved = ResolvedURL(url: url, quality: actualQuality)
-                // A source can claim Atmos/Master capability globally while
-                // returning a 128K URL for this particular track. Keep that
-                // URL only as a last resort and continue checking the next
-                // enabled source for the requested real tier.
-                if Self.qualityRank(actualQuality) < Self.qualityRank(candidate.requestedQuality) {
-                    if downgradedFallback == nil { downgradedFallback = resolved }
-                    failures.append("\(candidate.source.name)/\(candidate.platform): returned \(actualQuality), not \(candidate.requestedQuality)")
-                    continue
+                    let actualQuality = Self.resolvedQuality(
+                        data: data,
+                        requested: tier,
+                        available: candidate.supportedQualities.isEmpty ? ["128k"] : candidate.supportedQualities
+                    )
+                    let resolved = ResolvedURL(url: url, quality: actualQuality)
+                    let actualRank = Self.qualityRank(actualQuality)
+                    if actualRank >= wantedRank { return resolved }
+                    // A source can claim Atmos/Master capability globally while returning a lower tier for
+                    // this particular track. Keep the BEST such answer as the last resort and let the other
+                    // enabled sources try for the requested tier.
+                    if downgradedFallback == nil || actualRank > Self.qualityRank(downgradedFallback?.quality ?? "") {
+                        downgradedFallback = resolved
+                    }
+                    failures.append("\(candidate.source.name)/\(candidate.platform): returned \(actualQuality), not \(tier)")
+                    // It served the tier we asked for at this (lower) step: this source cannot do better.
+                    if actualRank >= Self.qualityRank(tier) { break }
+                } catch {
+                    failures.append("\(candidate.source.name)/\(candidate.platform): \(error.localizedDescription)")
                 }
-                return resolved
-            } catch {
-                failures.append("\(candidate.source.name)/\(candidate.platform): \(error.localizedDescription)")
             }
         }
 
