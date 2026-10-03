@@ -173,6 +173,14 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
                 }
             }
         }
+        videoOutput = nil
+        frozenCount = 0
+        lastFrameAt = Date()
+        if expectsPicture {
+            let output = AVPlayerItemVideoOutput(pixelBufferAttributes: nil)
+            item.add(output)
+            videoOutput = output
+        }
         player.replaceCurrentItem(with: item)
         guard autoplay else { return }
         play()
@@ -191,7 +199,44 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     private var lastAdvanceTime: Double = -1
     private var lastAdvanceAt = Date()
 
+    private var videoOutput: AVPlayerItemVideoOutput?
+    private var lastFrameAt = Date()
+    private var frozenCount = 0
+
+    /// The clock can keep running on the audio while the video decoder has stopped producing
+    /// pictures (undecodable stream, starved video segment). A video output on the item tells
+    /// us whether new frames are still arriving.
+    private func checkFrames() {
+        guard expectsPicture, let output = videoOutput, player.timeControlStatus == .playing,
+              !isScrubbing, currentTime > 1 else {
+            lastFrameAt = Date()
+            return
+        }
+        let time = output.itemTime(forHostTime: CACurrentMediaTime())
+        if output.hasNewPixelBuffer(forItemTime: time) {
+            _ = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+            lastFrameAt = Date()
+            return
+        }
+        guard Date().timeIntervalSince(lastFrameAt) > 3 else { return }
+        // Audio ran ahead of the still-buffering picture: re-sync both tracks at the current
+        // position so playback waits for the video instead of running on blind. Only a stream
+        // that never recovers is handed to the codec / CDN fallback.
+        lastFrameAt = Date()
+        frozenCount += 1
+        DiagnosticLogStore.shared.append(level: .warning, category: "哔哩哔哩播放", message: "画面落后于声音，重新同步缓冲",
+                                         detail: String(format: "%.1fs，第 %d 次", currentTime, frozenCount))
+        if frozenCount >= 4 {
+            frozenCount = 0
+            onError?("画面卡住")
+            return
+        }
+        player.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
     private func checkStall() {
+        checkFrames()
         guard player.rate > 0 || player.timeControlStatus == .waitingToPlayAtSpecifiedRate else {
             lastAdvanceAt = Date()
             return
@@ -1232,7 +1277,11 @@ final class BiliHEVCLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionD
         var end: Int64?
         if let dataRequest = loadingRequest.dataRequest {
             start = dataRequest.requestedOffset
-            if !dataRequest.requestsAllDataToEndOfResource {
+            if dataRequest.requestsAllDataToEndOfResource {
+                // Open-ended reads would hog the connection for the whole file and starve the
+                // segment AVPlayer actually needs next; serve windows and let it ask again.
+                end = start + 6 * 1024 * 1024 - 1
+            } else {
                 end = start + Int64(dataRequest.requestedLength) - 1
             }
         } else {

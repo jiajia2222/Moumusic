@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 /// Bilibili has its own settings page so video/audio switches do not get lost
 /// among global playback, lyrics, and LX-source preferences.
@@ -7,6 +7,7 @@ struct BilibiliSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("moumusic.bili.preferredQuality") private var preferredQuality = 80
     @AppStorage("moumusic.bili.autoplay") private var autoplay = true
+    @AppStorage("moumusic.bili.autoFullscreen") private var autoFullscreen = true
     @AppStorage("moumusic.bili.danmaku.opacity") private var danmakuOpacity = 0.9
     @AppStorage("moumusic.bili.danmaku.fontScale") private var danmakuScale = 1.0
     @AppStorage("moumusic.bili.danmaku.area") private var danmakuArea = 0.6
@@ -54,6 +55,7 @@ struct BilibiliSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Toggle("打开视频自动播放", isOn: $autoplay)
+                    Toggle("横屏自动全屏（竖屏视频播放时自动竖屏全屏）", isOn: $autoFullscreen)
                     Toggle("显示弹幕", isOn: $settings.bilibiliDanmakuEnabled)
                     Label("解码：高画质优先 HEVC，其余 H.264，系统硬件解码；音频自动选用杜比/无损/最高码率", systemImage: "cpu")
                         .font(.caption)

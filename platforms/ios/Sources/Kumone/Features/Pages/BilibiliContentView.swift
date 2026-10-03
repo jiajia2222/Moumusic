@@ -1437,6 +1437,10 @@ struct BilibiliVideoDetailView: View {
     @State private var subtitleLoading = false
     @State private var isLoading = true
     @State private var showFullScreen = false
+    @AppStorage("moumusic.bili.autoFullscreen") private var autoFullscreen = true
+    /// True while the full-screen cover was opened by turning the phone (so turning it back closes it).
+    @State private var enteredByRotation = false
+    @State private var autoFullscreenDone: String?
     @State private var showDownloadSheet = false
     @State private var danmakuCues: [BilibiliAPI.DanmakuCue] = []
     @State private var interaction: BilibiliAPI.InteractionState?
@@ -1513,6 +1517,29 @@ struct BilibiliVideoDetailView: View {
             }
             .scrollIndicators(.hidden)
         }
+        .onAppear { UIDevice.current.beginGeneratingDeviceOrientationNotifications() }
+        .onDisappear { UIDevice.current.endGeneratingDeviceOrientationNotifications() }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            guard autoFullscreen, !listenOnly, playerModel.isReady, UIDevice.current.userInterfaceIdiom == .phone else { return }
+            let orientation = UIDevice.current.orientation
+            let horizontalVideo = activeVideo.displayAspectRatio >= 1
+            if orientation.isLandscape, !showFullScreen, horizontalVideo {
+                enteredByRotation = true
+                showFullScreen = true
+            } else if orientation == .portrait, showFullScreen, enteredByRotation, horizontalVideo {
+                showFullScreen = false
+                enteredByRotation = false
+            }
+        }
+        // Vertical videos have nothing to rotate to: go straight to the portrait full screen the
+        // first time playback starts.
+        .onChange(of: playerModel.isPlaying) { playing in
+            guard playing, autoFullscreen, !listenOnly, !showFullScreen,
+                  activeVideo.displayAspectRatio < 1,
+                  autoFullscreenDone != activeVideo.bvid else { return }
+            autoFullscreenDone = activeVideo.bvid
+            showFullScreen = true
+        }
         .navigationTitle("视频详情")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
@@ -1544,7 +1571,10 @@ struct BilibiliVideoDetailView: View {
                 title: activeVideo.title,
                 isFullscreen: true,
                 rotatesInFullscreen: activeVideo.displayAspectRatio >= 1,
-                onClose: { showFullScreen = false }
+                onClose: {
+                    enteredByRotation = false
+                    showFullScreen = false
+                }
             )
             .ignoresSafeArea()
             .background(Color.black.ignoresSafeArea())
