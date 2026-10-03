@@ -1512,9 +1512,10 @@ final class PlayerService: ObservableObject {
            NeteaseClient.shared.isLoggedIn {
             await AccountStore.shared.ensureVIPInfo()
             let hasActiveNeteaseVIP = AccountStore.shared.hasActiveVIP
-            let neteaseCandidates = hasActiveNeteaseVIP
-                ? requestedCandidates
-                : requestedCandidates.filter { !$0.requiresNeteaseVIP }
+            // Never trust the locally detected membership here: a wrongly "非会员" SVIP account used
+            // to have every premium tier and every VIP song filtered out before NetEase was even
+            // asked. The server decides - a full-length URL without `freeTrialInfo` is playable.
+            let neteaseCandidates = requestedCandidates
             var failureNotes: [String] = []
             defer {
                 if !failureNotes.isEmpty {
@@ -1530,7 +1531,6 @@ final class PlayerService: ObservableObject {
                     ids: [track.id], level: candidate.neteaseLevel
                 ))?.first else { failureNotes.append("\(candidate.neteaseLevel):接口无返回"); continue }
                 guard data.freeTrialInfo == nil else { failureNotes.append("\(candidate.neteaseLevel):仅试听"); continue }
-                guard hasActiveNeteaseVIP || data.fee <= 0 else { failureNotes.append("\(candidate.neteaseLevel):需要会员 fee=\(data.fee)"); continue }
                 guard data.time <= 0 || track.duration <= 0
                     || TimeInterval(data.time) / 1000 >= max(45, track.duration * 0.65) else {
                     failureNotes.append("\(candidate.neteaseLevel):时长不足 \(data.time)ms"); continue
