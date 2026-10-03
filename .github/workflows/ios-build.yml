@@ -2,14 +2,14 @@
 
 # Two unsigned IPAs. Never creates a release.
 #   full   : platforms/ios         (Kumone-based Moumusic, iOS 26+, all features)
-#   compat : platforms/ios-compat  (Beans-based compatibility build, iOS 15-18, MOUMUSIC_COMPAT)
+#   compat : platforms/ios + platforms/ios15 (same sources, iOS 15-18)
 on:
   workflow_dispatch:
   push:
     branches: [refactor/beans-ui]
     paths:
       - "platforms/ios/**"
-      - "platforms/ios-compat/**"
+      - "platforms/ios15/**"
       - ".github/workflows/ios-build.yml"
       - ".github/scripts/**"
 
@@ -64,50 +64,55 @@ jobs:
           path: platforms/ios/ios/build.log
 
   compat:
+    # iOS 15-18 build of the very same sources as the iOS 26 app: platforms/ios15 lowers the deployment
+    # target, adds the iOS 15 stand-ins and patches the few spots that need them (CI checkout only).
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
 
+      - name: Prepare iOS 15 tree
+        run: bash platforms/ios15/prepare.sh
+
       - name: Install XcodeGen
         run: HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install xcodegen
 
-      - name: Generate project
-        working-directory: platforms/ios-compat
-        run: xcodegen generate --spec project-compat.yml
+      - name: Generate Xcode project
+        working-directory: platforms/ios/ios
+        run: xcodegen generate
 
       - name: Build (unsigned)
-        working-directory: platforms/ios-compat
+        working-directory: platforms/ios/ios
         run: |
           set -o pipefail
           xcodebuild \
-            -project Moumusic.xcodeproj \
-            -scheme Moumusic \
+            -project KumoneIOS.xcodeproj \
+            -scheme KumoneIOS \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
             build 2>&1 | tee build.log | tail -n 400
 
       - name: Package IPA
-        working-directory: platforms/ios-compat
+        working-directory: platforms/ios/ios
         run: |
-          rm -rf Payload && mkdir Payload
-          cp -R build/Build/Products/Release-iphoneos/Moumusic.app Payload/
-          plutil -p Payload/Moumusic.app/Info.plist | grep -E "CFBundleShortVersionString|CFBundleVersion|MinimumOSVersion"
-          ditto -c -k --sequesterRsrc --keepParent Payload Moumusic-compat-ios15-18-unsigned.ipa
+          mkdir -p dist/Payload
+          cp -R build/Build/Products/Release-iphoneos/MoumusicIOS.app dist/Payload/Moumusic.app
+          plutil -p dist/Payload/Moumusic.app/Info.plist | grep -E "CFBundleShortVersionString|CFBundleVersion|MinimumOSVersion"
+          ditto -c -k --sequesterRsrc --keepParent dist/Payload dist/Moumusic-compat-ios15-18-unsigned.ipa
 
       - uses: actions/upload-artifact@v4
         with:
           name: Moumusic-compat-ios15-18-unsigned
-          path: platforms/ios-compat/Moumusic-compat-ios15-18-unsigned.ipa
+          path: platforms/ios/ios/dist/Moumusic-compat-ios15-18-unsigned.ipa
 
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: build-log-compat-ios15-18
-          path: platforms/ios-compat/build.log
+          path: platforms/ios/ios/build.log
 
   # Every successful build is uploaded to the update host; the app polls its manifest.
   publish:
@@ -134,6 +139,6 @@ jobs:
           FULL_IPA: dl/full/Moumusic-full-ios26-unsigned.ipa
           COMPAT_IPA: dl/compat/Moumusic-compat-ios15-18-unsigned.ipa
         run: |
-          export VERSION="$(grep -m1 'MARKETING_VERSION' platforms/ios-compat/project-compat.yml | sed -E 's/.*"([^"]+)".*/\1/')"
+          export VERSION="$(grep -m1 '^MARKETING_VERSION' platforms/ios/ios/Config/Shared.xcconfig | sed -E 's/.*= *//')"
           export NOTES="$(git log -1 --pretty=%s)"
           python3 .github/scripts/publish_update.py
