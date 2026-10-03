@@ -389,7 +389,7 @@ final class LXUserAPIService: ObservableObject {
                     requestTrack = matched
                 }
 
-                let supported = supportedQualityNames(for: requestTrack, platform: platform)
+                let supported = supportedQualityNamesForPlayback(for: requestTrack, platform: platform)
                 // Capabilities not known yet (source still loading, quality list not refreshed): ask for the
                 // tier the user chose instead of silently falling back to 128k.
                 let requested = supported.isEmpty
@@ -441,7 +441,8 @@ final class LXUserAPIService: ObservableObject {
                             "musicInfo": musicInfo(
                                 for: candidate.track,
                                 platform: candidate.platform,
-                                qualities: candidate.supportedQualities
+                                qualities: candidate.supportedQualities.isEmpty
+                                    ? ["128k", "320k", "flac", "flac24bit"] : candidate.supportedQualities
                             )
                         ]
                     )
@@ -1266,6 +1267,20 @@ final class LXUserAPIService: ObservableObject {
     /// catalogue knows the song.  When it does not, the declaration is only a
     /// probe candidate; `probeQualityNames` must receive a matching URL and
     /// returned quality before the tier reaches the UI.
+    /// Like `supportedQualityNames`, but an unknown capability stays unknown (empty) instead of being
+    /// pretended to be "128k only": playback then asks for the tier the user chose and walks down from there.
+    private func supportedQualityNamesForPlayback(for track: Track, platform: String) -> [String] {
+        let order = Self.qualityOrder
+        let declared = qualityCapabilities[platform, default: []]
+            .map { Self.normalizedQuality($0) }
+            .filter { order.contains($0) }
+        let concrete = Self.qualityNames(for: track)
+        if declared.isEmpty { return order.filter(concrete.contains) }
+        let sourceNames = order.filter(declared.contains)
+        if !concrete.isEmpty { return order.filter { sourceNames.contains($0) && concrete.contains($0) } }
+        return sourceNames
+    }
+
     private func supportedQualityNames(for track: Track, platform: String) -> [String] {
         let order = Self.qualityOrder
         let declared = qualityCapabilities[platform, default: []]
