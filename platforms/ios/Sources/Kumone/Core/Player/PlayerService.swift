@@ -1560,15 +1560,15 @@ final class PlayerService: ObservableObject {
             }
             if !premiumCandidates.isEmpty {
                 let songID = track.id
-                let replies: [(AudioQuality, NeteaseAPI.SongURLData?)] = await withTaskGroup(
-                    of: (AudioQuality, NeteaseAPI.SongURLData?).self
+                let replies: [(AudioQuality, SongURLData?)] = await withTaskGroup(
+                    of: (AudioQuality, SongURLData?).self
                 ) { group in
                     for candidate in premiumCandidates {
                         group.addTask {
                             (candidate, (try? await NeteaseAPI.songURL(ids: [songID], level: candidate.neteaseLevel))?.first)
                         }
                     }
-                    var collected: [(AudioQuality, NeteaseAPI.SongURLData?)] = []
+                    var collected: [(AudioQuality, SongURLData?)] = []
                     for await reply in group { collected.append(reply) }
                     return collected
                 }
