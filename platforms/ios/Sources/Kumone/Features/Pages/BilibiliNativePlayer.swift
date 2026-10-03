@@ -47,6 +47,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     private weak var inlineLayer: AVPlayerLayer?
     private weak var fullscreenLayer: AVPlayerLayer?
     private var timeObserver: Any?
+    private var stallTimer: Timer?
     private var controlObservation: NSKeyValueObservation?
     private var itemObservation: NSKeyValueObservation?
     private var loadTask: Task<Void, Never>?
@@ -64,6 +65,9 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         ) { [weak self] time in
             Task { @MainActor [weak self] in self?.tick(time) }
         }
+        stallTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.checkStall() }
+        }
         controlObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
             let status = player.timeControlStatus
             Task { @MainActor [weak self] in self?.apply(status) }
@@ -71,6 +75,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     }
 
     deinit {
+        stallTimer?.invalidate()
         if let timeObserver { player.removeTimeObserver(timeObserver) }
     }
 
@@ -177,8 +182,38 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         isBuffering = status == .waitingToPlayAtSpecifiedRate
     }
 
+    /// Playback that should be running but has not advanced for a while gets nudged with a
+    /// seek, which makes AVPlayer issue fresh range requests instead of hanging forever.
+    private var lastAdvanceTime: Double = -1
+    private var lastAdvanceAt = Date()
+
+    private func checkStall() {
+        guard player.rate > 0 || player.timeControlStatus == .waitingToPlayAtSpecifiedRate else {
+            lastAdvanceAt = Date()
+            return
+        }
+        if abs(currentTime - lastAdvanceTime) > 0.05 {
+            lastAdvanceTime = currentTime
+            lastAdvanceAt = Date()
+            return
+        }
+        guard Date().timeIntervalSince(lastAdvanceAt) > 8 else { return }
+        lastAdvanceAt = Date()
+        DiagnosticLogStore.shared.append(level: .warning, category: "哔哩哔哩播放", message: "播放卡住，已自动重新缓冲",
+                                         detail: String(format: "%.1fs", currentTime))
+        player.seek(to: CMTime(seconds: currentTime + 0.2, preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .positiveInfinity) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.player.play()
+                self.player.rate = self.isBoosting ? 2 : self.userRate
+            }
+        }
+    }
+
     private func tick(_ time: CMTime) {
         if !isScrubbing, time.isNumeric { currentTime = max(0, time.seconds) }
+        checkStall()
         if let item = player.currentItem, item.duration.isNumeric {
             let value = item.duration.seconds
             if value.isFinite, value > 0, abs(value - duration) > 0.5 { duration = value }
@@ -540,8 +575,8 @@ struct BiliNativePlayer: View {
                     // Landscape: clear the rounded corners; portrait (vertical videos): clear the
                     // status bar / Dynamic Island and the home indicator instead.
                     .padding(.horizontal, isFullscreen ? (rotatesInFullscreen ? 56 : 8) : 0)
-                    .padding(.bottom, isFullscreen ? (rotatesInFullscreen ? 26 : 34) : 0)
-                    .padding(.top, isFullscreen ? (rotatesInFullscreen ? 10 : 54) : 0)
+                    .padding(.bottom, isFullscreen ? (rotatesInFullscreen ? 26 : 10) : 0)
+                    .padding(.top, isFullscreen ? (rotatesInFullscreen ? 10 : 44) : 0)
                     .transition(.opacity)
             }
         }
@@ -1040,20 +1075,28 @@ final class BiliDanmakuUIView: UIView {
         let color = UIColor(red: CGFloat((item.color >> 16) & 0xFF) / 255,
                             green: CGFloat((item.color >> 8) & 0xFF) / 255,
                             blue: CGFloat(item.color & 0xFF) / 255, alpha: 1)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
-            .foregroundColor: color,
-            .strokeColor: UIColor.black.withAlphaComponent(0.95),
-            .strokeWidth: -4,
-            .shadow: Self.danmakuShadow
-        ]
-        let text = NSAttributedString(string: item.text, attributes: attributes)
-        let textSize = text.size()
-        let size = CGSize(width: ceil(textSize.width) + 8, height: ceil(textSize.height) + 6)
+        // Two passes like the official player: a thin dark outline first, then the coloured
+        // glyphs on top, so the outline never eats into the fill (the old single pass with a
+        // thick stroke and blurred shadow made every danmaku look dark and smeared).
+        let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        let outline = NSAttributedString(string: item.text, attributes: [
+            .font: font,
+            .foregroundColor: UIColor.clear,
+            .strokeColor: UIColor.black.withAlphaComponent(0.7),
+            .strokeWidth: 5
+        ])
+        let fill = NSAttributedString(string: item.text, attributes: [
+            .font: font,
+            .foregroundColor: color
+        ])
+        let textSize = fill.size()
+        let size = CGSize(width: ceil(textSize.width) + 6, height: ceil(textSize.height) + 4)
         let format = UIGraphicsImageRendererFormat()
         format.scale = UIScreen.main.scale
+        format.preferredRange = .standard
         let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            text.draw(at: CGPoint(x: 4, y: 2))
+            outline.draw(at: CGPoint(x: 3, y: 2))
+            fill.draw(at: CGPoint(x: 3, y: 2))
         }
         let entry = (rendered.cgImage!, size)
         imageCache[index] = entry
