@@ -34,6 +34,11 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     var onError: ((String) -> Void)?
     /// Catalogue length of the video; keeps the seek bar usable while the stream reports no duration.
     var fallbackDuration: Double = 0
+    /// Per-video key for 续播 (resume where you left off); nil disables it.
+    var resumeKey: String?
+    private var lastSavedResume: Double = 0
+    private var resumeApplied = false
+    private static let resumeStoreKey = "moumusic.bili.resume"
 
     private var pipController: AVPictureInPictureController?
     private weak var inlineLayer: AVPlayerLayer?
@@ -74,6 +79,8 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         loadedKey = key
         loadTask?.cancel()
         isReady = false
+        resumeApplied = false
+        lastSavedResume = 0
         currentTime = 0
         duration = fallbackDuration
         guard let video else {
@@ -118,6 +125,10 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
             return AVPlayerItem(asset: composition)
         } catch {
             // Without the separate audio the picture still plays.
+            let detail = error.localizedDescription
+            Task { @MainActor in
+                DiagnosticLogStore.shared.append(level: .warning, category: "哔哩哔哩播放", message: "音视频合成失败，仅播放画面", detail: detail)
+            }
             return AVPlayerItem(asset: videoAsset)
         }
     }
@@ -132,6 +143,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
                 case .readyToPlay:
                     self.isPreparing = false
                     self.isReady = true
+                    self.applyResumeIfNeeded()
                 case .failed:
                     self.isPreparing = false
                     self.onError?("B 站视频播放失败：\(message ?? "未知错误")")
@@ -160,6 +172,29 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         } else if duration <= 0, fallbackDuration > 0 {
             duration = fallbackDuration
         }
+        saveResumeIfNeeded()
+    }
+
+    // MARK: 续播
+
+    private func applyResumeIfNeeded() {
+        guard !resumeApplied, let key = resumeKey else { return }
+        resumeApplied = true
+        let store = UserDefaults.standard.dictionary(forKey: Self.resumeStoreKey) as? [String: Double] ?? [:]
+        guard let saved = store[key], saved > 10, duration <= 0 || saved < duration - 15 else { return }
+        seek(to: saved)
+        let minutes = Int(saved) / 60, seconds = Int(saved) % 60
+        ToastCenter.shared.show(String(format: "已从上次位置 %d:%02d 继续播放", minutes, seconds))
+    }
+
+    private func saveResumeIfNeeded() {
+        guard let key = resumeKey, resumeApplied, abs(currentTime - lastSavedResume) >= 5 else { return }
+        lastSavedResume = currentTime
+        var store = UserDefaults.standard.dictionary(forKey: Self.resumeStoreKey) as? [String: Double] ?? [:]
+        // Finished videos start from the beginning next time.
+        if duration > 0, currentTime >= duration - 15 { store[key] = nil } else { store[key] = currentTime }
+        if store.count > 300 { store = Dictionary(uniqueKeysWithValues: store.shuffled().prefix(250).map { ($0.key, $0.value) }) }
+        UserDefaults.standard.set(store, forKey: Self.resumeStoreKey)
     }
 
     func play() {
@@ -285,7 +320,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
             switch cue.mode {
             case 4: lane = Self.pickLane(&bottomFree, at: cue.start, hold: 4)
             case 5: lane = Self.pickLane(&topFree, at: cue.start, hold: 4)
-            default: lane = Self.pickLane(&scrollFree, at: cue.start, hold: 2.4)
+            default: lane = Self.pickLane(&scrollFree, at: cue.start, hold: max(1.6, BiliDanmakuSettings.scrollDuration * 0.3))
             }
             guard let lane else { continue }
             out.append(PlacedDanmaku(text: text, color: cue.color, start: cue.start, mode: cue.mode, lane: lane))
@@ -309,16 +344,16 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         guard !list.isEmpty else { return [] }
         var low = 0
         var high = list.count
-        let from = time - 8
+        let from = time - max(BiliDanmakuSettings.scrollDuration, 4)
         while low < high {
             let mid = (low + high) / 2
             if list[mid].start < from { low = mid + 1 } else { high = mid }
         }
         var result: [PlacedDanmaku] = []
         var index = low
-        while index < list.count, list[index].start <= time, result.count < 90 {
+        while index < list.count, list[index].start <= time, result.count < 120 {
             let item = list[index]
-            let life: Double = (item.mode == 4 || item.mode == 5) ? 4 : 8
+            let life: Double = (item.mode == 4 || item.mode == 5) ? 4 : BiliDanmakuSettings.scrollDuration
             if time - item.start <= life { result.append(item) }
             index += 1
         }
@@ -513,45 +548,8 @@ struct BiliNativePlayer: View {
     }
 
     private var danmakuCanvas: some View {
-        let placed = model.placedDanmaku
-        let player = model.player
-        let fullscreen = isFullscreen
-        let controlsShown = controlsVisible
-        return TimelineView(.animation(paused: !model.isPlaying)) { _ in
-            Canvas { context, size in
-                let time = player.currentTime().seconds
-                guard time.isFinite else { return }
-                let fontSize = max(13, min(fullscreen ? 24 : 18, size.height / 15))
-                let laneHeight = fontSize * 1.5
-                let scrollLanes = max(1, Int((size.height * 0.62) / laneHeight))
-                for item in BiliPlayerModel.active(in: placed, at: time) {
-                    let red = Double((item.color >> 16) & 0xFF) / 255
-                    let green = Double((item.color >> 8) & 0xFF) / 255
-                    let blue = Double(item.color & 0xFF) / 255
-                    let font = Font.system(size: fontSize, weight: .semibold)
-                    let shadow = context.resolve(Text(item.text).font(font).foregroundColor(.black.opacity(0.75)))
-                    let main = context.resolve(Text(item.text).font(font).foregroundColor(Color(red: red, green: green, blue: blue)))
-                    let width = main.measure(in: CGSize(width: 2000, height: 200)).width
-                    var x: CGFloat
-                    var y: CGFloat
-                    switch item.mode {
-                    case 4:
-                        x = (size.width - width) / 2
-                        y = size.height - (controlsShown ? 70 : 12) - laneHeight * CGFloat(item.lane + 1)
-                    case 5:
-                        x = (size.width - width) / 2
-                        y = 8 + laneHeight * CGFloat(item.lane)
-                    default:
-                        let progress = CGFloat((time - item.start) / 8.0)
-                        x = size.width - progress * (size.width + width)
-                        y = 8 + laneHeight * CGFloat(item.lane % scrollLanes)
-                    }
-                    context.draw(shadow, at: CGPoint(x: x + 1, y: y + 1), anchor: .topLeading)
-                    context.draw(main, at: CGPoint(x: x, y: y), anchor: .topLeading)
-                }
-            }
-        }
-        .allowsHitTesting(false)
+        BiliDanmakuView(model: model, isFullscreen: isFullscreen, bottomInset: controlsVisible ? 70 : 12)
+            .allowsHitTesting(false)
     }
 
     /// Tap shows/hides the controls, double-tap pauses, press-and-hold plays at 2x.
@@ -786,6 +784,246 @@ struct BiliNativePlayer: View {
               let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
         let mask: UIInterfaceOrientationMask = landscape ? .landscape : .portrait
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
+    }
+}
+// MARK: - Danmaku (Core Animation)
+
+/// User preferences for danmaku, set in 哔哩哔哩设置 (modelled on PiliPlus' options).
+enum BiliDanmakuSettings {
+    static var opacity: Double { value("moumusic.bili.danmaku.opacity", 0.9) }
+    static var fontScale: Double { value("moumusic.bili.danmaku.fontScale", 1.0) }
+    /// Fraction of the picture height used by scrolling danmaku.
+    static var area: Double { value("moumusic.bili.danmaku.area", 0.6) }
+    /// Seconds a scrolling danmaku takes to cross the screen.
+    static var scrollDuration: Double { value("moumusic.bili.danmaku.duration", 8) }
+    static var hideTop: Bool { UserDefaults.standard.bool(forKey: "moumusic.bili.danmaku.hideTop") }
+    static var hideBottom: Bool { UserDefaults.standard.bool(forKey: "moumusic.bili.danmaku.hideBottom") }
+
+    private static func value(_ key: String, _ fallback: Double) -> Double {
+        let stored = UserDefaults.standard.double(forKey: key)
+        return stored > 0 ? stored : fallback
+    }
+}
+
+/// Danmaku drawn as pre-rendered bitmaps in CALayers. Text is laid out once per item; each frame
+/// only moves layers, so it runs at the display's full refresh rate without the per-frame text
+/// layout the old Canvas did.
+struct BiliDanmakuView: UIViewRepresentable {
+    @ObservedObject var model: BiliPlayerModel
+    let isFullscreen: Bool
+    let bottomInset: CGFloat
+
+    func makeUIView(context: Context) -> BiliDanmakuUIView {
+        let view = BiliDanmakuUIView()
+        view.player = model.player
+        return view
+    }
+
+    func updateUIView(_ view: BiliDanmakuUIView, context: Context) {
+        view.player = model.player
+        view.isFullscreen = isFullscreen
+        view.bottomInset = bottomInset
+        view.setItems(model.placedDanmaku)
+    }
+
+    static func dismantleUIView(_ view: BiliDanmakuUIView, coordinator: ()) {
+        view.stop()
+    }
+}
+
+final class BiliDanmakuUIView: UIView {
+    weak var player: AVPlayer?
+    var isFullscreen = false
+    var bottomInset: CGFloat = 12
+
+    private var items: [PlacedDanmaku] = []
+    private var itemsSignature = ""
+    private var layersByIndex: [Int: CALayer] = [:]
+    private var imageCache: [Int: (image: CGImage, size: CGSize)] = [:]
+    private var displayLink: CADisplayLink?
+    private var cachedFontSize: CGFloat = 0
+    private var lastTime: Double = -1
+    private var settingsTick = 0
+    private var opacity: Float = 0.9
+    private var fontScale: CGFloat = 1
+    private var area: CGFloat = 0.6
+    private var scrollDuration: Double = 8
+    private var hideTop = false
+    private var hideBottom = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+        clipsToBounds = true
+        readSettings()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { stop() } else { start() }
+    }
+
+    func setItems(_ newItems: [PlacedDanmaku]) {
+        let signature = "\(newItems.count)-\(newItems.first?.start ?? 0)-\(newItems.last?.text ?? "")"
+        guard signature != itemsSignature else { return }
+        itemsSignature = signature
+        items = newItems
+        clearAll()
+    }
+
+    func start() {
+        guard displayLink == nil else { return }
+        let link = CADisplayLink(target: Proxy(self), selector: #selector(Proxy.tick))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    func stop() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    private func clearAll() {
+        layersByIndex.values.forEach { $0.removeFromSuperlayer() }
+        layersByIndex.removeAll()
+        imageCache.removeAll()
+        lastTime = -1
+    }
+
+    private func readSettings() {
+        opacity = Float(BiliDanmakuSettings.opacity)
+        fontScale = CGFloat(BiliDanmakuSettings.fontScale)
+        area = CGFloat(BiliDanmakuSettings.area)
+        scrollDuration = BiliDanmakuSettings.scrollDuration
+        hideTop = BiliDanmakuSettings.hideTop
+        hideBottom = BiliDanmakuSettings.hideBottom
+    }
+
+    fileprivate func renderFrame(_ link: CADisplayLink) {
+        settingsTick += 1
+        if settingsTick % 60 == 0 {
+            let oldScale = fontScale
+            readSettings()
+            if oldScale != fontScale { clearAll() }
+        }
+        guard let player, bounds.width > 0 else { return }
+        let time = player.currentTime().seconds
+        guard time.isFinite else { return }
+        if time == lastTime { return }
+        // A jump (seek) re-places everything.
+        if lastTime >= 0, abs(time - lastTime) > 1.5 { layersByIndex.values.forEach { $0.removeFromSuperlayer() }; layersByIndex.removeAll() }
+        lastTime = time
+
+        let baseSize = max(13, min(isFullscreen ? 24 : 18, bounds.height / 15))
+        let fontSize = baseSize * fontScale
+        if fontSize != cachedFontSize { cachedFontSize = fontSize; imageCache.removeAll(); clearLayersOnly() }
+        let laneHeight = fontSize * 1.5
+        let scrollLanes = max(1, Int((bounds.height * area) / laneHeight))
+
+        var visible = Set<Int>()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for index in activeIndices(at: time) {
+            let item = items[index]
+            if item.mode == 5, hideTop { continue }
+            if item.mode == 4, hideBottom { continue }
+            if item.mode != 4, item.mode != 5, item.lane >= scrollLanes { continue }
+            visible.insert(index)
+            let rendered = image(for: index, fontSize: fontSize)
+            let layer: CALayer
+            if let existing = layersByIndex[index] {
+                layer = existing
+            } else {
+                layer = CALayer()
+                layer.contents = rendered.image
+                layer.contentsScale = UIScreen.main.scale
+                layer.bounds = CGRect(origin: .zero, size: rendered.size)
+                layer.anchorPoint = .zero
+                self.layer.addSublayer(layer)
+                layersByIndex[index] = layer
+            }
+            layer.opacity = opacity
+            let width = rendered.size.width
+            let origin: CGPoint
+            switch item.mode {
+            case 4:
+                origin = CGPoint(x: (bounds.width - width) / 2,
+                                 y: bounds.height - bottomInset - laneHeight * CGFloat(item.lane + 1))
+            case 5:
+                origin = CGPoint(x: (bounds.width - width) / 2, y: 8 + laneHeight * CGFloat(item.lane))
+            default:
+                let progress = CGFloat((time - item.start) / scrollDuration)
+                origin = CGPoint(x: bounds.width - progress * (bounds.width + width),
+                                 y: 8 + laneHeight * CGFloat(item.lane))
+            }
+            layer.position = origin
+        }
+        for (index, layer) in layersByIndex where !visible.contains(index) {
+            layer.removeFromSuperlayer()
+            layersByIndex[index] = nil
+        }
+        CATransaction.commit()
+        if imageCache.count > 600 { imageCache = imageCache.filter { visible.contains($0.key) } }
+    }
+
+    private func clearLayersOnly() {
+        layersByIndex.values.forEach { $0.removeFromSuperlayer() }
+        layersByIndex.removeAll()
+    }
+
+    private func activeIndices(at time: Double) -> [Int] {
+        guard !items.isEmpty else { return [] }
+        let window = max(scrollDuration, 4)
+        var low = 0, high = items.count
+        while low < high {
+            let mid = (low + high) / 2
+            if items[mid].start < time - window { low = mid + 1 } else { high = mid }
+        }
+        var result: [Int] = []
+        var index = low
+        while index < items.count, items[index].start <= time, result.count < 150 {
+            let item = items[index]
+            let life = (item.mode == 4 || item.mode == 5) ? 4 : scrollDuration
+            if time - item.start <= life { result.append(index) }
+            index += 1
+        }
+        return result
+    }
+
+    private func image(for index: Int, fontSize: CGFloat) -> (image: CGImage, size: CGSize) {
+        if let cached = imageCache[index] { return cached }
+        let item = items[index]
+        let color = UIColor(red: CGFloat((item.color >> 16) & 0xFF) / 255,
+                            green: CGFloat((item.color >> 8) & 0xFF) / 255,
+                            blue: CGFloat(item.color & 0xFF) / 255, alpha: 1)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: color,
+            .strokeColor: UIColor.black.withAlphaComponent(0.8),
+            .strokeWidth: -2.5
+        ]
+        let text = NSAttributedString(string: item.text, attributes: attributes)
+        let textSize = text.size()
+        let size = CGSize(width: ceil(textSize.width) + 4, height: ceil(textSize.height) + 2)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            text.draw(at: CGPoint(x: 2, y: 1))
+        }
+        let entry = (rendered.cgImage!, size)
+        imageCache[index] = entry
+        return entry
+    }
+
+    /// CADisplayLink retains its target; this weak proxy avoids a cycle.
+    private final class Proxy: NSObject {
+        weak var owner: BiliDanmakuUIView?
+        init(_ owner: BiliDanmakuUIView) { self.owner = owner }
+        @objc func tick(_ link: CADisplayLink) { owner?.renderFrame(link) }
     }
 }
 #endif

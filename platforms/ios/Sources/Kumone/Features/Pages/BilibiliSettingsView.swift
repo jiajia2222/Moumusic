@@ -7,6 +7,12 @@ struct BilibiliSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("moumusic.bili.preferredQuality") private var preferredQuality = 80
     @AppStorage("moumusic.bili.autoplay") private var autoplay = true
+    @AppStorage("moumusic.bili.danmaku.opacity") private var danmakuOpacity = 0.9
+    @AppStorage("moumusic.bili.danmaku.fontScale") private var danmakuScale = 1.0
+    @AppStorage("moumusic.bili.danmaku.area") private var danmakuArea = 0.6
+    @AppStorage("moumusic.bili.danmaku.duration") private var danmakuDuration = 8.0
+    @AppStorage("moumusic.bili.danmaku.hideTop") private var hideTopDanmaku = false
+    @AppStorage("moumusic.bili.danmaku.hideBottom") private var hideBottomDanmaku = false
 
     var body: some View {
         ScrollView {
@@ -54,6 +60,24 @@ struct BilibiliSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                settingsCard("弹幕") {
+                    sliderRow("不透明度", value: $danmakuOpacity, range: 0.2...1, text: "\(Int(danmakuOpacity * 100))%")
+                    sliderRow("字号", value: $danmakuScale, range: 0.6...1.6, text: String(format: "%.1fx", danmakuScale))
+                    Picker("显示区域", selection: $danmakuArea) {
+                        Text("1/4 屏").tag(0.25)
+                        Text("半屏").tag(0.5)
+                        Text("3/4 屏").tag(0.75)
+                        Text("全屏").tag(1.0)
+                    }
+                    sliderRow("滚动速度", value: $danmakuDuration, range: 4...14,
+                              text: danmakuDuration < 6.5 ? "快" : (danmakuDuration < 10 ? "中" : "慢"))
+                    Toggle("屏蔽顶部弹幕", isOn: $hideTopDanmaku)
+                    Toggle("屏蔽底部弹幕", isOn: $hideBottomDanmaku)
+                    Text("播放中修改约 1 秒内生效。看过的视频会记住进度，下次打开自动续播。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 settingsCard("首页推荐") {
                     Picker("推荐客户端", selection: $settings.bilibiliRecommendationSource) {
                         ForEach(BilibiliRecommendationSource.allCases) { source in
@@ -91,6 +115,17 @@ struct BilibiliSettingsView: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("完成") { dismiss() }
             }
+        }
+    }
+
+    private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(text).foregroundStyle(.secondary).monospacedDigit()
+            }
+            Slider(value: value, in: range)
         }
     }
 

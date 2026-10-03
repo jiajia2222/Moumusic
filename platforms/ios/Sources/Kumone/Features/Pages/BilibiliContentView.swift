@@ -1551,6 +1551,7 @@ struct BilibiliVideoDetailView: View {
         }
         .task(id: playerSourceKey) {
             playerModel.fallbackDuration = activeVideo.duration
+            playerModel.resumeKey = listenOnly ? nil : "\(activeVideo.bvid)-\(activeVideo.cid ?? 0)"
             playerModel.load(
                 video: activePlaybackURL,
                 audio: listenOnly ? nil : playbackAudioURL,
