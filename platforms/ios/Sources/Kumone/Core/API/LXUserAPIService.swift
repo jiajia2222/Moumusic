@@ -358,8 +358,17 @@ final class LXUserAPIService: ObservableObject {
         guard !playbackSources.isEmpty else { throw LXError.noSource }
 
         let primaryPlatform = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
-        var candidates: [MusicURLCandidate] = []
         var failures: [String] = []
+        var downgradedFallback: ResolvedURL?
+        let startedAt = Date()
+        var anyCandidate = false
+
+        // Two passes, like Beans: first the song's own platform (no catalogue matching, so the very first
+        // request goes out immediately and a hit returns at once); only when that does not satisfy the
+        // requested tier, the other platforms (which need a catalogue search each).
+        for passIndex in 0..<2 {
+        if passIndex == 1, let held = downgradedFallback, held.quality == "unknown" { break }
+        var candidates: [MusicURLCandidate] = []
 
         // Collect all possible source/platform/quality combinations first.
         // This prevents a low-quality result from the preferred source from
@@ -376,6 +385,7 @@ final class LXUserAPIService: ObservableObject {
             }
 
             for platform in platforms {
+                if (platform == primaryPlatform) != (passIndex == 0) { continue }
                 let requestTrack: Track
                 if platform == primaryPlatform {
                     requestTrack = track
@@ -413,8 +423,7 @@ final class LXUserAPIService: ObservableObject {
             return $0.sourcePriority < $1.sourcePriority
         }
 
-        var downgradedFallback: ResolvedURL?
-        let startedAt = Date()
+        anyCandidate = anyCandidate || !candidates.isEmpty
         for candidate in candidates {
             // Already holding a lower-tier answer: do not keep every other source busy for long.
             if downgradedFallback != nil, Date().timeIntervalSince(startedAt) > 6 { break }
@@ -495,9 +504,10 @@ final class LXUserAPIService: ObservableObject {
                 }
             }
         }
+        }
 
         if let downgradedFallback { return downgradedFallback }
-        if candidates.isEmpty && failures.isEmpty {
+        if !anyCandidate && failures.isEmpty {
             throw LXError.sourceUnavailable("No enabled LX source exposes musicUrl")
         }
         throw LXError.resolveFailed(failures)
