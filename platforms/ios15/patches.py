@@ -265,4 +265,5 @@ write(ruby_path, ruby)
 # The iOS 15 build installs the "compat" IPA published on the update host, not the iOS 26 one.
 patch("Core/Storage/ReleaseChecker.swift", [
     ('let full = obj["full"] as? [String: Any]', 'let full = obj["compat"] as? [String: Any]'),
-])print("iOS 15 patches applied")
+])
+print("iOS 15 patches applied")
