@@ -1067,8 +1067,12 @@ struct BilibiliSearchView: View {
                 .padding(.horizontal, Theme.Layout.contentInset)
 
                 if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    EmptyStateView(icon: "magnifyingglass", title: "搜索哔哩哔哩视频、UP 主或合集")
-                        .frame(maxWidth: .infinity, minHeight: 300)
+                    BilibiliSearchSuggestions { keyword in
+                        model.query = keyword
+                        searchFocused = false
+                        BiliSearchHistory.add(keyword)
+                        Task { await model.searchWithRetry(cookie: bilibili.cookie) }
+                    }
                 } else if model.isLoading {
                     ProgressView("正在搜索哔哩哔哩")
                         .frame(maxWidth: .infinity, minHeight: 300)
@@ -1124,6 +1128,7 @@ struct BilibiliSearchView: View {
                 .submitLabel(.search)
                 .onSubmit {
                     searchFocused = false
+                    BiliSearchHistory.add(model.query)
                     Task { @MainActor in
                         // Let UIKit commit marked text from Chinese and
                         // third-party keyboards before reading the query.
@@ -1485,7 +1490,14 @@ struct BilibiliVideoDetailView: View {
     @State private var commentText = ""
     @State private var commentPosting = false
 
-    private var activeVideo: BilibiliAPI.Video { detail ?? video }
+    @State private var selectedPage: BilibiliAPI.VideoPage?
+    @State private var danmakuDraft = ""
+
+    private var activeVideo: BilibiliAPI.Video {
+        let base = detail ?? video
+        if let selectedPage { return base.withPage(selectedPage) }
+        return base
+    }
 
     private var playerSourceKey: String {
         "\(activePlaybackURL?.absoluteString ?? "")|\(listenOnly ? "" : (playbackAudioURL?.absoluteString ?? ""))|\(playerToken.uuidString)"
@@ -1720,6 +1732,25 @@ struct BilibiliVideoDetailView: View {
                     } label: { Label(currentQualityTitle, systemImage: "rectangle.inset.filled") }
                         .buttonStyle(.bordered)
                 }
+                if let pages = detail?.pages, pages.count > 1 {
+                    Menu {
+                        ForEach(pages) { page in
+                            Button {
+                                Task { await switchPage(page) }
+                            } label: {
+                                if page.cid == activeVideo.cid {
+                                    Label(page.title, systemImage: "checkmark")
+                                } else {
+                                    Text(page.title)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("分P \(pages.first(where: { $0.cid == activeVideo.cid })?.page ?? 1)/\(pages.count)",
+                              systemImage: "list.number")
+                    }
+                    .buttonStyle(.bordered)
+                }
                 if !allSubtitles.isEmpty {
                     Menu {
                         Button("关闭字幕") { selectedSubtitle = nil; subtitleCues = [] }
@@ -1831,6 +1862,7 @@ struct BilibiliVideoDetailView: View {
             if !activeVideo.description.isEmpty {
                 Text(activeVideo.description).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
+            if bilibili.isLoggedIn, !listenOnly { danmakuComposer }
             interactionBar
             HStack(spacing: 10) {
                 Button { Task { await oneClickTriple() } } label: {
@@ -1850,6 +1882,52 @@ struct BilibiliVideoDetailView: View {
             }
             if !related.isEmpty { relatedSection }
         }.padding(.horizontal, 18)
+    }
+
+    private var danmakuComposer: some View {
+        HStack(spacing: 8) {
+            TextField("发一条弹幕", text: $danmakuDraft)
+                .textFieldStyle(.roundedBorder)
+                .submitLabel(.send)
+                .onSubmit { Task { await sendDanmaku() } }
+            Button("发送") { Task { await sendDanmaku() } }
+                .buttonStyle(.bordered)
+                .disabled(danmakuDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    @MainActor private func sendDanmaku() async {
+        let text = danmakuDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let cid = activeVideo.cid, activeVideo.aid > 0 else { return }
+        do {
+            try await BilibiliAPI.shared.postDanmaku(aid: activeVideo.aid, cid: cid, text: text,
+                                                     progressMs: Int(playerModel.currentTime * 1000),
+                                                     cookie: bilibili.cookie)
+            danmakuDraft = ""
+            let start = playerModel.currentTime + 0.3
+            danmakuCues.append(BilibiliAPI.DanmakuCue(id: "mine-\(UUID().uuidString)", start: start, end: start + 6,
+                                                      text: text, color: 0xFFFFFF, mode: 1))
+            ToastCenter.shared.show("弹幕已发送")
+        } catch {
+            ToastCenter.shared.show("弹幕发送失败")
+        }
+    }
+
+    @MainActor private func switchPage(_ page: BilibiliAPI.VideoPage) async {
+        selectedPage = page
+        selectedSubtitle = nil
+        subtitleCues = []
+        extraSubtitles = []
+        await loadPlayback(quality: selectedQuality)
+        await loadDanmaku()
+        let current = activeVideo
+        if let cid = current.cid {
+            extraSubtitles = (try? await BilibiliAPI.shared.subtitleTracks(
+                bvid: current.bvid, aid: current.aid, cid: cid, cookie: bilibili.cookie)) ?? []
+        }
+        if let subtitle = preferredSubtitle(in: allSubtitles) {
+            await loadSubtitle(subtitle)
+        }
     }
 
     private var relatedSection: some View {

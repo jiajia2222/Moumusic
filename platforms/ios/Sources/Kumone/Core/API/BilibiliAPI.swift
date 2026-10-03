@@ -112,6 +112,8 @@ actor BilibiliAPI {
         /// Display size after rotation; 0 when the API did not report it.
         var videoWidth: Int = 0
         var videoHeight: Int = 0
+        /// Parts (分P) of a multi-part video; empty for the usual single-part upload.
+        var pages: [VideoPage] = []
 
         var id: String { bvid }
 
@@ -139,9 +141,44 @@ actor BilibiliAPI {
                 publishedAt: publishedAt,
                 subtitles: subtitles,
                 videoWidth: videoWidth,
-                videoHeight: videoHeight
+                videoHeight: videoHeight,
+                pages: pages
             )
         }
+
+        /// The same video pointed at another part: new cid, its own length, no (first-part) subtitles.
+        func withPage(_ page: VideoPage) -> Video {
+            Video(
+                bvid: bvid,
+                aid: aid,
+                cid: page.cid,
+                title: title,
+                coverURL: coverURL,
+                author: author,
+                authorID: authorID,
+                authorAvatarURL: authorAvatarURL,
+                description: description,
+                duration: page.duration > 0 ? page.duration : duration,
+                durationText: durationText,
+                playCount: playCount,
+                commentCount: commentCount,
+                publishedAt: publishedAt,
+                subtitles: [],
+                videoWidth: videoWidth,
+                videoHeight: videoHeight,
+                pages: pages
+            )
+        }
+    }
+
+    struct VideoPage: Identifiable, Hashable, Sendable {
+        let cid: Int
+        let page: Int
+        let part: String
+        let duration: TimeInterval
+
+        var id: Int { cid }
+        var title: String { part.isEmpty ? "P\(page)" : "P\(page) \(part)" }
     }
 
     struct VideoQuality: Identifiable, Hashable, Sendable {
@@ -1759,7 +1796,13 @@ actor BilibiliAPI {
             publishedAt: integer(raw["pubdate"]).map { Date(timeIntervalSince1970: TimeInterval($0)) },
             subtitles: subtitleRows.compactMap(Self.subtitle),
             videoWidth: dimensions.width,
-            videoHeight: dimensions.height
+            videoHeight: dimensions.height,
+            pages: ((raw["pages"] as? [[String: Any]]) ?? []).compactMap { row in
+                guard let cid = integer(row["cid"]), cid > 0 else { return nil }
+                return VideoPage(cid: cid, page: integer(row["page"]) ?? 1,
+                                 part: stripHTML(text(row["part"]) ?? ""),
+                                 duration: TimeInterval(integer(row["duration"]) ?? 0))
+            }
         )
     }
 
@@ -2644,5 +2687,31 @@ extension BilibiliAPI {
                   let end = (segment[1] as? NSNumber)?.doubleValue, end > start else { return nil }
             return (start, end)
         }
+    }
+}
+
+// MARK: - Hot searches and sending danmaku
+
+extension BilibiliAPI {
+    func hotSearchKeywords() async -> [String] {
+        var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/search/square")!
+        components.queryItems = [URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "platform", value: "web")]
+        guard let root = try? await requestObject(components.url!, referer: "https://search.bilibili.com/"),
+              let data = root["data"] as? [String: Any],
+              let list = (data["trending"] as? [String: Any])?["list"] as? [[String: Any]] else { return [] }
+        return list.compactMap { Self.text($0["keyword"]) }.filter { !$0.isEmpty }
+    }
+
+    /// Sends one scrolling danmaku at the given playback position.
+    func postDanmaku(aid: Int, cid: Int, text: String, progressMs: Int, cookie: String?) async throws {
+        guard cid > 0, let cookie, let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty else {
+            throw APIError.unavailable
+        }
+        _ = try await postFormObject(URL(string: "https://api.bilibili.com/x/v2/dm/post")!, fields: [
+            "type": "1", "oid": "\(cid)", "msg": text, "aid": "\(aid)",
+            "progress": "\(max(0, progressMs))", "color": "16777215", "fontsize": "25",
+            "pool": "0", "mode": "1", "rnd": "\(Int(Date().timeIntervalSince1970 * 1_000_000))",
+            "plat": "1", "csrf": csrf
+        ], cookie: cookie, referer: "https://www.bilibili.com/")
     }
 }

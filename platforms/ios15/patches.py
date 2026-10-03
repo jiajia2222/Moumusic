@@ -268,4 +268,16 @@ patch("Core/Storage/ReleaseChecker.swift", [
     ('static let manifestURL = URL(string: "https://yun.nadev.xyz/file/moumusic/latest.json")!',
      'static let manifestURL = URL(string: "https://yun.nadev.xyz/file/moumusic/latest-compat.json")!'),
 ])
-print("iOS 15 patches applied")
+# Performance on older devices: flat surfaces instead of live blur / glass, no per-sample spectrum tap.
+FLAT_FILL = "wallpaper.appWallpaperActive ? Color.clear : Color(uiColor: .secondarySystemBackground).opacity(0.78)"
+patch("DesignSystem/Theme.swift", [
+    ("    private var flatTint: Bool { wallpaper.appWallpaperActive }", "    private var flatTint: Bool { true }"),
+    ("            content.background(Color.clear, in: shape)\n            #else",
+     f"            content.background({FLAT_FILL}, in: shape)\n            #else"),
+    ("        if wallpaper.appWallpaperActive {\n            content.background(Color.clear, in: shape)\n        } else {\n            content.background(material, in: shape)\n        }",
+     f"        content.background({FLAT_FILL}, in: shape)"),
+])
+patch("Core/Player/AudioSpectrum.swift", [
+    ("        guard let tap = store.makeTap() else { return nil }\n",
+     '        guard UserDefaults.standard.bool(forKey: "moumusic.spectrum"), let tap = store.makeTap() else { return nil }\n'),
+])print("iOS 15 patches applied")
