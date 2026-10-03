@@ -1,13 +1,14 @@
-﻿import Foundation
+import Foundation
 
 struct UpdateChecker {
     static let repoPath = "jiajia2222/Moumusic"
-    static let releasePageURL = URL(string: "https://github.com/\(repoPath)/releases/latest")!
-    private static let latestAPI = URL(string: "https://api.github.com/repos/\(repoPath)/releases/latest")!
+    static let releasePageURL = URL(string: "https://yun.nadev.xyz")!
+    private static let latestAPI = URL(string: "https://yun.nadev.xyz/file/moumusic/latest.json")!
     private static let suppressedVersionKey = "beans.updateCheck.suppressedVersion"
 
     struct ReleaseInfo {
         let version: String
+        let build: Int
         let name: String
         let body: String
         let htmlURL: URL
@@ -26,8 +27,12 @@ struct UpdateChecker {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
 
+    static var currentBuild: Int {
+        Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "") ?? 0
+    }
+
     static func checkIfNeeded() async -> ReleaseInfo? {
-        guard let info = try? await fetchLatest(), isNewer(info.version, than: currentVersion) else { return nil }
+        guard let info = try? await fetchLatest(), info.build > currentBuild else { return nil }
         if UserDefaults.standard.string(forKey: suppressedVersionKey) == info.version { return nil }
         return info
     }
@@ -35,7 +40,7 @@ struct UpdateChecker {
     static func checkNow() async -> CheckResult {
         do {
             let info = try await fetchLatest()
-            return isNewer(info.version, than: currentVersion) ? .update(info) : .upToDate
+            return info.build > currentBuild ? .update(info) : .upToDate
         } catch {
             return .failed
         }
@@ -47,29 +52,26 @@ struct UpdateChecker {
     }
 
     static func fetchLatest() async throws -> ReleaseInfo {
-        var request = URLRequest(url: latestAPI)
+        var components = URLComponents(url: latestAPI, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970)))]
+        var request = URLRequest(url: components.url!, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
         request.setValue("Beans-Music/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = json["tag_name"] as? String,
-              let html = json["html_url"] as? String,
-              let url = URL(string: html) else {
+              let short = json["version"] as? String else {
             throw URLError(.cannotParseResponse)
         }
-        let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        let assetURL: URL? = (json["assets"] as? [[String: Any]])?
-            .compactMap { $0["browser_download_url"] as? String }
-            .first(where: { $0.lowercased().hasSuffix(".ipa") })
-            .flatMap { URL(string: $0) }
+        let build = (json["build"] as? Int) ?? Int(json["build"] as? String ?? "") ?? 0
+        let assetURL = ((json["compat"] as? [String: Any])?["url"] as? String).flatMap { URL(string: $0) }
         return ReleaseInfo(
-            version: version,
-            name: json["name"] as? String ?? tag,
-            body: json["body"] as? String ?? "",
-            htmlURL: url,
+            version: build > 0 ? "\(short).\(build)" : short,
+            build: build,
+            name: "Moumusic \(short) (\(build))",
+            body: json["notes"] as? String ?? "",
+            htmlURL: releasePageURL,
             assetURL: assetURL,
             notesImageURL: nil,
             notesTextColorHex: nil

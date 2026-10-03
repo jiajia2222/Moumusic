@@ -991,7 +991,11 @@ enum BiliDanmakuSettings {
     /// Fraction of the picture height used by scrolling danmaku.
     static var area: Double { value("moumusic.bili.danmaku.area", 0.6) }
     /// Seconds a scrolling danmaku takes to cross the screen.
-    static var scrollDuration: Double { value("moumusic.bili.danmaku.duration", 8) }
+/// Fixed scroll speed in points per second: the same on every screen size and orientation
+    /// (the old "seconds to cross" made landscape danmaku far faster than portrait). Slider: right = faster.
+    static var speed: Double { value("moumusic.bili.danmaku.speed", 90) }
+    /// Upper bound of how long a scrolling danmaku stays on screen (widest picture + longest text).
+    static var scrollDuration: Double { 1500 / max(speed, 20) }
     static var hideTop: Bool { UserDefaults.standard.bool(forKey: "moumusic.bili.danmaku.hideTop") }
     static var hideBottom: Bool { UserDefaults.standard.bool(forKey: "moumusic.bili.danmaku.hideBottom") }
 
@@ -1044,6 +1048,7 @@ final class BiliDanmakuUIView: UIView {
     private var fontScale: CGFloat = 1
     private var area: CGFloat = 0.6
     private var scrollDuration: Double = 8
+    private var scrollSpeed: Double = 90
     private var hideTop = false
     private var hideBottom = false
 
@@ -1095,6 +1100,7 @@ final class BiliDanmakuUIView: UIView {
         fontScale = CGFloat(BiliDanmakuSettings.fontScale)
         area = CGFloat(BiliDanmakuSettings.area)
         scrollDuration = BiliDanmakuSettings.scrollDuration
+        scrollSpeed = BiliDanmakuSettings.speed
         hideTop = BiliDanmakuSettings.hideTop
         hideBottom = BiliDanmakuSettings.hideBottom
     }
@@ -1152,8 +1158,8 @@ final class BiliDanmakuUIView: UIView {
             case 5:
                 origin = CGPoint(x: (bounds.width - width) / 2, y: 8 + laneHeight * CGFloat(item.lane))
             default:
-                let progress = CGFloat((time - item.start) / scrollDuration)
-                origin = CGPoint(x: bounds.width - progress * (bounds.width + width),
+                let progress = CGFloat(time - item.start) * CGFloat(scrollSpeed)
+                origin = CGPoint(x: bounds.width - progress,
                                  y: 8 + laneHeight * CGFloat(item.lane))
             }
             layer.position = origin

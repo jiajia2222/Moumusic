@@ -1,6 +1,6 @@
 import Foundation
 
-/// Looks up the latest GitHub release. iOS has no Sparkle, so Settings
+/// Looks up the latest build published on the update host. iOS has no Sparkle, so Settings
 /// offers a manual check that links to the release page for re-sideloading.
 enum ReleaseChecker {
     struct AppIdentity: Equatable {
@@ -19,6 +19,8 @@ enum ReleaseChecker {
 
     struct Release {
         let version: String
+        /// CI run number (CFBundleVersion); updates are decided by this.
+        let build: Int
         /// The release page (fallback download link).
         let url: URL
         /// Direct download URL of the iOS IPA asset, when present.
@@ -28,8 +30,11 @@ enum ReleaseChecker {
         let notes: String?
     }
 
-    private static let repository = "jiajia2222/Moumusic"
-    static let releasesPage = URL(string: "https://github.com/\(repository)/releases/latest")!
+    /// Updates come from the image host (CI uploads every build there, see
+    /// `.github/workflows/ios-build.yml`); nothing is published on GitHub Releases.
+    static let host = URL(string: "https://yun.nadev.xyz")!
+    static let manifestURL = URL(string: "https://yun.nadev.xyz/file/moumusic/latest.json")!
+    static let releasesPage = URL(string: "https://yun.nadev.xyz")!
 
     static var currentIdentity: AppIdentity {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -52,8 +57,10 @@ enum ReleaseChecker {
     }
 
     static func latest() async throws -> Release {
-        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        // The manifest is replaced in place on every build: bypass every cache.
+        var components = URLComponents(url: manifestURL, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970)))]
+        var request = URLRequest(url: components.url!, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
         request.setValue("Moumusic-iOS", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -61,16 +68,16 @@ enum ReleaseChecker {
             throw NeteaseAPIError.decoding("release-http")
         }
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = obj["tag_name"] as? String,
-              let html = obj["html_url"] as? String, let url = URL(string: html)
+              let short = obj["version"] as? String
         else { throw NeteaseAPIError.decoding("release") }
-        let assets = obj["assets"] as? [[String: Any]] ?? []
-        let ipa = assets.first { ($0["name"] as? String)?.lowercased().hasSuffix(".ipa") == true }
-        let ipaURL = (ipa?["browser_download_url"] as? String).flatMap(URL.init)
-        return Release(version: tag.hasPrefix("v") ? String(tag.dropFirst()) : tag,
-                       url: url,
+        let build = (obj["build"] as? Int) ?? Int(obj["build"] as? String ?? "") ?? 0
+        let full = obj["full"] as? [String: Any]
+        let ipaURL = (full?["url"] as? String).flatMap(URL.init)
+        return Release(version: build > 0 ? "\(short).\(build)" : short,
+                       build: build,
+                       url: releasesPage,
                        ipaURL: ipaURL,
-                       notes: (obj["body"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines))
+                       notes: (obj["notes"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// True when `remote` is newer than `local` (numeric dotted compare).

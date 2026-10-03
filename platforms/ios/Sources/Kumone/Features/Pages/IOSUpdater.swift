@@ -42,7 +42,7 @@ final class IOSUpdater: NSObject, ObservableObject {
         Task {
             do {
                 let latest = try await ReleaseChecker.latest()
-                if ReleaseChecker.isNewer(latest.version, than: ReleaseChecker.currentVersion) {
+                if latest.build > (Int(ReleaseChecker.currentBuildNumber) ?? 0) {
                     phase = .available(latest)
                     showSheet = true
                 } else {

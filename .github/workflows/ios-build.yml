@@ -107,3 +107,32 @@ jobs:
         with:
           name: build-log-compat-ios15-18
           path: platforms/ios-compat/build.log
+
+  # Every successful build is uploaded to the update host; the app polls its manifest.
+  publish:
+    needs: [full, compat]
+    if: github.ref == 'refs/heads/refactor/beans-ui'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: Moumusic-full-ios26-unsigned
+          path: dl/full
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: Moumusic-compat-ios15-18-unsigned
+          path: dl/compat
+
+      - name: Upload to yun.nadev.xyz
+        env:
+          IMGBED_TOKEN: ${{ secrets.IMGBED_TOKEN }}
+          BUILD: ${{ github.run_number }}
+          FULL_IPA: dl/full/Moumusic-full-ios26-unsigned.ipa
+          COMPAT_IPA: dl/compat/Moumusic-compat-ios15-18-unsigned.ipa
+        run: |
+          export VERSION="$(grep -m1 'MARKETING_VERSION' platforms/ios-compat/project-compat.yml | sed -E 's/.*"([^"]+)".*/\1/')"
+          export NOTES="$(git log -1 --pretty=%s)"
+          python3 .github/scripts/publish_update.py

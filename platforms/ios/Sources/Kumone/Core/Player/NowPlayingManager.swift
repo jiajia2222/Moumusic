@@ -146,7 +146,20 @@ final class NowPlayingManager {
         MPRemoteCommandCenter.shared().likeCommand.isActive = false
     }
 
+    /// A song starting while a video still owns the system player: hand Now Playing back to the
+    /// music (drop the video session without restoring the stale pre-video info).
+    private func musicTakesOver() {
+        guard external != nil else { return }
+        external = nil
+        externalCover = nil
+        savedMusicInfo = nil
+        let center = MPRemoteCommandCenter.shared()
+        center.skipForwardCommand.isEnabled = false
+        center.skipBackwardCommand.isEnabled = false
+    }
+
     func updateMetadata(for track: Track, duration: TimeInterval) {
+        musicTakesOver()
         currentTrack = track
         baseAlbumTitle = track.album.name
         baseArtist = track.artistNames
