@@ -390,8 +390,11 @@ final class LXUserAPIService: ObservableObject {
                 }
 
                 let supported = supportedQualityNames(for: requestTrack, platform: platform)
-                let requested = Self.lxQuality(for: quality,
-                                               supported: supported.isEmpty ? ["128k"] : supported)
+                // Capabilities not known yet (source still loading, quality list not refreshed): ask for the
+                // tier the user chose instead of silently falling back to 128k.
+                let requested = supported.isEmpty
+                    ? Self.normalizedQuality(Self.requestedToken(for: quality))
+                    : Self.lxQuality(for: quality, supported: supported)
                 candidates.append(MusicURLCandidate(
                     source: source,
                     sourcePriority: sourcePriority,
@@ -420,7 +423,10 @@ final class LXUserAPIService: ObservableObject {
             // The requested tier first, then every lower tier this source declares, best first: when the
             // song lacks the requested tier the source is asked for the next best one instead of giving up.
             var lowerTiers: [String] = []
-            for tier in candidate.supportedQualities.map(Self.normalizedQuality) {
+            let ladder = candidate.supportedQualities.isEmpty
+                ? ["flac24bit", "flac", "320k", "128k"]
+                : candidate.supportedQualities
+            for tier in ladder.map(Self.normalizedQuality) {
                 let rank = Self.qualityRank(tier)
                 if rank >= 0, rank < wantedRank, !lowerTiers.contains(tier) { lowerTiers.append(tier) }
             }
@@ -459,10 +465,16 @@ final class LXUserAPIService: ObservableObject {
                     let actualQuality = Self.resolvedQuality(
                         data: data,
                         requested: tier,
-                        available: candidate.supportedQualities.isEmpty ? ["128k"] : candidate.supportedQualities
+                        available: candidate.supportedQualities.isEmpty ? [tier] : candidate.supportedQualities
                     )
                     let resolved = ResolvedURL(url: url, quality: actualQuality)
                     let actualRank = Self.qualityRank(actualQuality)
+                    if actualQuality == "unknown" {
+                        // The source does not say which tier it served: keep it as a fallback and do not
+                        // spend more requests on this source's lower tiers.
+                        if downgradedFallback == nil { downgradedFallback = resolved }
+                        break
+                    }
                     if actualRank >= wantedRank { return resolved }
                     // A source can claim Atmos/Master capability globally while returning a lower tier for
                     // this particular track. Keep the BEST such answer as the last resort and let the other
@@ -1359,19 +1371,23 @@ final class LXUserAPIService: ObservableObject {
         return true
     }
 
-    private static func lxQuality(for quality: String, supported: [String]) -> String {
-        let requested: String
+    /// The protocol token for a picker tier.
+    private static func requestedToken(for quality: String) -> String {
         switch quality {
-        case "master": requested = "jymaster"
-        case "atmos": requested = "atmos"
-        case "dolby": requested = "dolby"
-        case "surround": requested = "surround"
-        case "standard": requested = "128k"
-        case "higher", "exhigh": requested = "320k"
-        case "lossless": requested = "flac"
-        case "hires": requested = "flac24bit"
-        default: requested = "320k"
+        case "master": return "jymaster"
+        case "atmos": return "atmos"
+        case "dolby": return "dolby"
+        case "surround": return "surround"
+        case "standard": return "128k"
+        case "higher", "exhigh": return "320k"
+        case "lossless": return "flac"
+        case "hires": return "flac24bit"
+        default: return "320k"
         }
+    }
+
+    private static func lxQuality(for quality: String, supported: [String]) -> String {
+        let requested = requestedToken(for: quality)
         guard !supported.isEmpty else { return "128k" }
         let order = Self.qualityOrder
         guard let requestedIndex = order.firstIndex(of: Self.normalizedQuality(requested)) else { return supported[0] }
