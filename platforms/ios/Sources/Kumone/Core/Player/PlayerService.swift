@@ -541,6 +541,17 @@ final class PlayerService: ObservableObject {
                 let seconds = time.seconds
                 guard seconds.isFinite else { return }
 
+                // Self-healing: once no fade is running, the audible state must match what the UI says
+                // (an interrupted fade used to leave the song playing after "pause", or silent after play).
+                if Date() > self.fadeDeadline {
+                    if !self.isPlaying, self.engine.timeControlStatus != .paused {
+                        self.engine.pause()
+                        self.engine.volume = 1
+                    } else if self.isPlaying, self.engine.volume < 0.99 {
+                        self.engine.volume = 1
+                    }
+                }
+
                 // Lyrics need this cadence to stay in sync; the cursor itself
                 // only publishes when the line actually changes.
                 self.updateLyricsCursor(at: seconds)
@@ -705,6 +716,8 @@ final class PlayerService: ObservableObject {
     // MARK: Fade in / out (设置 → 播放设置 → 播放暂停淡入淡出)
 
     private var fadeTask: Task<Void, Never>?
+    /// Until this moment a fade owns the player gain; afterwards the gain / pause state must match `isPlaying`.
+    private var fadeDeadline = Date.distantPast
     private var fadeEnabled: Bool {
         UserDefaults.standard.object(forKey: "moumusic.fadeEnabled") as? Bool ?? true
     }
@@ -712,6 +725,7 @@ final class PlayerService: ObservableObject {
     /// Ramps the player gain; `then` runs only if the ramp was not interrupted.
     private func fadeVolume(to target: Float, duration: Double, then: (@MainActor () -> Void)? = nil) {
         fadeTask?.cancel()
+        fadeDeadline = Date().addingTimeInterval(duration + 0.3)
         guard fadeEnabled, duration > 0 else {
             engine.volume = target
             then?()
@@ -866,18 +880,55 @@ final class PlayerService: ObservableObject {
         updateLyricsCursor(at: livePlaybackTime)
     }
 
+    private var seekInFlight = false
+    private var queuedSeekTarget: TimeInterval?
+    private var queuedSeekCompletions: [@MainActor () -> Void] = []
+
+    /// Chase-style seeking: while one seek is running only the newest target is kept, so scrubbing quickly
+    /// never piles up requests on a streaming asset.
     func seek(to seconds: TimeInterval, completion: (@MainActor () -> Void)? = nil) {
         progress = seconds
         updateLyricsCursor(at: seconds)
-        engine.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
-                    toleranceBefore: .zero, toleranceAfter: .zero) { _ in
-            guard let completion else { return }
-            Task { @MainActor in completion() }
-        }
         NowPlayingManager.shared.updateElapsed(
             seconds,
             rate: isPlaying ? Double(playbackRate) : 0
         )
+        queuedSeekTarget = seconds
+        if let completion { queuedSeekCompletions.append(completion) }
+        drainSeek()
+    }
+
+    private func drainSeek() {
+        guard !seekInFlight, let target = queuedSeekTarget else { return }
+        queuedSeekTarget = nil
+        seekInFlight = true
+        let isLocalFile = (engine.currentItem?.asset as? AVURLAsset)?.url.isFileURL ?? false
+        // Exact seeks only for local files; streamed ones accept a small tolerance (exact seeks need a
+        // full index and can stall for seconds).
+        let tolerance = isLocalFile ? CMTime.zero : CMTime(seconds: 0.4, preferredTimescale: 600)
+        engine.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                    toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.seekInFlight = false
+                if self.queuedSeekTarget == nil {
+                    let completions = self.queuedSeekCompletions
+                    self.queuedSeekCompletions = []
+                    completions.forEach { $0() }
+                    self.restoreAudioAfterSeek()
+                }
+                self.drainSeek()
+            }
+        }
+    }
+
+    /// A seek must never leave the player silent or paused behind the UI's back.
+    private func restoreAudioAfterSeek() {
+        guard isPlaying else { return }
+        fadeTask?.cancel()
+        fadeDeadline = .distantPast
+        if engine.volume < 1 { engine.volume = 1 }
+        if engine.timeControlStatus == .paused { engine.playImmediately(atRate: playbackRate) }
     }
 
     func toggleShuffle() {
@@ -1393,9 +1444,9 @@ final class PlayerService: ObservableObject {
                 "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
             ]])
         } else {
-            // Precise timing: without it VBR MP3 seeks land at an estimated byte offset, so after a
-            // few lyric taps the reported time and the audio drift apart.
-            asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+            // No "precise duration and timing": on a remote file it makes AVPlayer scan the stream before
+            // a seek can land, which is what froze fast scrubbing (no sound, seek bar stuck).
+            asset = AVURLAsset(url: url)
         }
         // Start streaming immediately: AVPlayer buffers while it plays. The audio track is
         // probed in the background afterwards (spectrum tap + verified quality) instead of
@@ -1543,12 +1594,17 @@ final class PlayerService: ObservableObject {
             let neteaseCandidates = requestedCandidates.filter { !$0.requiresNeteaseVIP }
             let premiumCandidates = requestedCandidates.filter(\.requiresNeteaseVIP)
             var failureNotes: [String] = []
+            var obtainedAudio = false
             defer {
                 if !failureNotes.isEmpty {
                     let joined = failureNotes.joined(separator: " | ")
                     lastOfficialFailure = joined
+                    let obtained = obtainedAudio
                     Task { @MainActor in
-                        DiagnosticLogStore.shared.append(level: .warning, category: "网易云账号音源", message: "《\(track.name)》未取得完整音频", detail: "会员=\(hasActiveNeteaseVIP) \(joined)")
+                        DiagnosticLogStore.shared.append(
+                            level: obtained ? .info : .warning, category: "网易云账号音源",
+                            message: obtained ? "《\(track.name)》部分档位网易云未提供，已用较低档位" : "《\(track.name)》未取得完整音频",
+                            detail: "会员=\(hasActiveNeteaseVIP) \(joined)")
                     }
                 }
             }
@@ -1580,6 +1636,7 @@ final class PlayerService: ObservableObject {
                         || TimeInterval(data.time) / 1000 >= max(45, track.duration * 0.65) else {
                         failureNotes.append("\(candidate.neteaseLevel):时长不足 \(data.time)ms"); continue
                     }
+                    obtainedAudio = true
                     return OfficialAudio(
                         url: url,
                         quality: NeteaseAPI.officialQuality(for: data)?.lxType ?? candidate.lxType,
@@ -1599,6 +1656,7 @@ final class PlayerService: ObservableObject {
                 guard let rawURL = data.url, let url = validAudioURL(rawURL) else {
                     failureNotes.append("\(candidate.neteaseLevel):无地址 fee=\(data.fee)"); continue
                 }
+                obtainedAudio = true
                 return OfficialAudio(
                     url: url,
                     quality: NeteaseAPI.officialQuality(for: data)?.lxType ?? "unknown",
