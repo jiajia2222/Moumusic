@@ -1469,7 +1469,10 @@ final class PlayerService: ObservableObject {
                                              "flac24bit", "flac24", "hires", "highres", "jymaster", "jyeffect", "sky"]
             if verified == nil, !servedByOfficialAccount,
                let claimed = providerQualitySnapshot?.lowercased(), claimedTiers.contains(claimed) {
-                shown = await Self.estimatedQuality(of: asset, duration: track.duration > 0 ? track.duration : self.duration) ?? "128k"
+                // If the size cannot be read, keep the source's own label rather than inventing "128k".
+                if let measured = await Self.estimatedQuality(of: asset, duration: track.duration > 0 ? track.duration : self.duration) {
+                    shown = measured
+                }
             }
             guard generation == self.resolveGeneration, self.engine.currentItem === item else { return }
             self.servedQuality = shown
@@ -1848,11 +1851,21 @@ final class PlayerService: ObservableObject {
     /// Bitrate from `Content-Length` / duration, bucketed with the same thresholds as the verifier.
     private static func estimatedQuality(of asset: AVAsset, duration: TimeInterval) async -> String? {
         guard let url = (asset as? AVURLAsset)?.url, duration > 20 else { return nil }
+        // A one-byte ranged GET: many CDNs refuse HEAD, but all answer Content-Range with the total size.
         var request = URLRequest(url: url)
-        request.httpMethod = "HEAD"
+        request.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+        request.timeoutInterval = 10
         guard let (_, response) = try? await URLSession.shared.data(for: request),
-              response.expectedContentLength > 0 else { return nil }
-        let rate = Double(response.expectedContentLength) * 8 / duration
+              let http = response as? HTTPURLResponse else { return nil }
+        var total: Int64 = 0
+        if let range = http.value(forHTTPHeaderField: "Content-Range"),
+           let size = range.split(separator: "/").last.flatMap({ Int64($0) }) {
+            total = size
+        } else if http.statusCode == 200, response.expectedContentLength > 2 {
+            total = response.expectedContentLength
+        }
+        guard total > 200_000 else { return nil }
+        let rate = Double(total) * 8 / duration
         switch Int(rate) {
         case 1_800_000...: return "flac24bit"
         case 600_000..<1_800_000: return "flac"
