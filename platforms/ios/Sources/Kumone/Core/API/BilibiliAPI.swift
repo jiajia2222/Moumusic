@@ -1953,7 +1953,7 @@ actor BilibiliAPI {
 
     private static func uniqueSubtitles(_ subtitles: [Subtitle]) -> [Subtitle] {
         var seen = Set<String>()
-        return subtitles.filter { seen.insert($0.id).inserted }
+        return subtitles.filter { seen.insert("\($0.language.lowercased())|\($0.isAIGenerated)|\($0.isTranslated)").inserted }
     }
 
     private static func user(_ raw: [String: Any]) -> User? {

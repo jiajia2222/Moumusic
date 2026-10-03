@@ -1435,6 +1435,7 @@ enum LXCatalogService {
     }
 
     private static func searchQQSonglists(_ keyword: String, page: Int, limit: Int) async throws -> [LXPlaylistSummary] {
+        let limit = min(limit, 30)
         let modern = await searchQQSonglistsMusicu(keyword, page: page, limit: limit)
         if !modern.isEmpty { return modern }
         var components = URLComponents(string: "https://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist")!

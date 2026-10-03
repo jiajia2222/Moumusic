@@ -27,6 +27,7 @@ struct SongCommentsSheet: View {
     @State private var isPosting = false
     @State private var postStatus: String?
     @State private var postStatusIsError = false
+    @State private var showWebComment = false
 
     private var visibleComments: [DisplayComment] {
         let selected = sort == .hot ? hotComments : latestComments
@@ -172,6 +173,18 @@ struct SongCommentsSheet: View {
                     .font(.caption)
                     .foregroundStyle(postStatusIsError ? .red : .secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if postStatusIsError, postStatus.contains("拒绝了当前设备"), let songID = neteaseSongID {
+                    Button {
+                        showWebComment = true
+                    } label: {
+                        Label("改用网易云网页版发表（可完成验证）", systemImage: "safari")
+                            .font(.caption.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .sheet(isPresented: $showWebComment) {
+                        NeteaseWebCommentSheet(songID: songID)
+                    }
+                }
             }
 
             if canPost {

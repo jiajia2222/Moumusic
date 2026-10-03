@@ -1809,7 +1809,7 @@ final class PlayerService: ObservableObject {
                 // (it is the one that lists AI subtitles) and merge, Chinese first.
                 var tracks = video.subtitles
                 if let extra = try? await BilibiliAPI.shared.subtitleTracks(bvid: video.bvid, aid: video.aid, cid: cid, cookie: cookie) {
-                    for item in extra where !tracks.contains(where: { $0.url == item.url }) { tracks.append(item) }
+                    for item in extra where !tracks.contains(where: { $0.language == item.language && $0.isAIGenerated == item.isAIGenerated && $0.isTranslated == item.isTranslated }) { tracks.append(item) }
                 }
                 let ranked = tracks.sorted { lhs, rhs in
                     func score(_ s: BilibiliAPI.Subtitle) -> Int {

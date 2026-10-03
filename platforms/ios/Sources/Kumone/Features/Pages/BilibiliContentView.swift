@@ -1453,7 +1453,7 @@ struct BilibiliVideoDetailView: View {
 
     private var allSubtitles: [BilibiliAPI.Subtitle] {
         var seen = Set<String>()
-        return (activeVideo.subtitles + extraSubtitles).filter { seen.insert($0.url.absoluteString).inserted }
+        return (activeVideo.subtitles + extraSubtitles).filter { seen.insert("\($0.language.lowercased())|\($0.isAIGenerated)|\($0.isTranslated)").inserted }
     }
     @State private var audioPlaybackURL: URL?
     @State private var audioQualities: [BilibiliAPI.BilibiliAudioQuality] = []
