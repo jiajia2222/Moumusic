@@ -1,4 +1,4 @@
-﻿#if os(iOS)
+#if os(iOS)
 import SwiftUI
 import UIKit
 import WebKit
@@ -1552,6 +1552,7 @@ struct BilibiliVideoDetailView: View {
         .task(id: playerSourceKey) {
             playerModel.fallbackDuration = activeVideo.duration
             playerModel.expectsPicture = !listenOnly
+            playerModel.nowPlayingMeta = (activeVideo.title, activeVideo.author, activeVideo.coverURL)
             playerModel.resumeKey = listenOnly ? nil : "\(activeVideo.bvid)-\(activeVideo.cid ?? 0)"
             let aid = activeVideo.aid, cid = activeVideo.cid ?? 0, cookie = bilibili.cookie
             playerModel.onProgressReport = { seconds in

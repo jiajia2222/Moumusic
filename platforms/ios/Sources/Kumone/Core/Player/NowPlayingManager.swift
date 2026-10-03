@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 import MediaPlayer
 
 /// System Now Playing integration: media keys, Control Center, lock-screen metadata.
@@ -16,22 +16,103 @@ final class NowPlayingManager {
 
     private init() {}
 
+    // MARK: External sessions (Bilibili videos)
+
+    struct ExternalHandler {
+        let play: () -> Void
+        let pause: () -> Void
+        let toggle: () -> Void
+        let seek: (Double) -> Void
+        let skip: (Double) -> Void
+    }
+
+    /// While a video owns the system player, remote commands go to it and music metadata
+    /// updates are held back; the music info is restored when the video ends.
+    private(set) var external: ExternalHandler?
+    private var savedMusicInfo: [String: Any]?
+    private var externalCover: String?
+
+    func updateExternal(title: String, artist: String, coverURL: String?, elapsed: Double,
+                        duration: Double, rate: Double, handler: ExternalHandler) {
+        if external == nil { savedMusicInfo = info }
+        external = handler
+        var videoInfo: [String: Any] = [
+            MPMediaItemPropertyTitle: title,
+            MPMediaItemPropertyArtist: artist,
+            MPMediaItemPropertyAlbumTitle: "哔哩哔哩",
+            MPMediaItemPropertyPlaybackDuration: duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed,
+            MPNowPlayingInfoPropertyPlaybackRate: rate,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.video.rawValue
+        ]
+        if let artwork = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork],
+           externalCover == coverURL {
+            videoInfo[MPMediaItemPropertyArtwork] = artwork
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = videoInfo
+        MPNowPlayingInfoCenter.default().playbackState = rate > 0 ? .playing : .paused
+        let center = MPRemoteCommandCenter.shared()
+        center.skipForwardCommand.isEnabled = true
+        center.skipBackwardCommand.isEnabled = true
+        center.skipForwardCommand.preferredIntervals = [15]
+        center.skipBackwardCommand.preferredIntervals = [15]
+        if externalCover != coverURL {
+            externalCover = coverURL
+            if let coverURL, let url = coverURL.resizedImageURL(768) {
+                Task { @MainActor in
+                    guard let image = await ImageCache.shared.image(for: url), self.external != nil,
+                          self.externalCover == coverURL else { return }
+                    var current = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+                    current[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                    MPNowPlayingInfoCenter.default().nowPlayingInfo = current
+                }
+            }
+        }
+    }
+
+    func endExternal() {
+        guard external != nil else { return }
+        external = nil
+        externalCover = nil
+        let center = MPRemoteCommandCenter.shared()
+        center.skipForwardCommand.isEnabled = false
+        center.skipBackwardCommand.isEnabled = false
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = savedMusicInfo ?? info
+        MPNowPlayingInfoCenter.default().playbackState = player?.isPlaying == true ? .playing : .paused
+        savedMusicInfo = nil
+    }
+
     func attach(to player: PlayerService) {
         self.player = player
         let center = MPRemoteCommandCenter.shared()
 
-        center.playCommand.addTarget { [weak player] _ in
+        center.skipForwardCommand.isEnabled = false
+        center.skipBackwardCommand.isEnabled = false
+        center.skipForwardCommand.addTarget { [weak self] event in
+            guard let external = self?.external else { return .noActionableNowPlayingItem }
+            external.skip((event as? MPSkipIntervalCommandEvent)?.interval ?? 15)
+            return .success
+        }
+        center.skipBackwardCommand.addTarget { [weak self] event in
+            guard let external = self?.external else { return .noActionableNowPlayingItem }
+            external.skip(-((event as? MPSkipIntervalCommandEvent)?.interval ?? 15))
+            return .success
+        }
+        center.playCommand.addTarget { [weak player, weak self] _ in
+            if let external = self?.external { external.play(); return .success }
             guard let player, player.resumeLastPlayback() else {
                 return .noActionableNowPlayingItem
             }
             return .success
         }
-        center.pauseCommand.addTarget { [weak player] _ in
+        center.pauseCommand.addTarget { [weak player, weak self] _ in
+            if let external = self?.external { external.pause(); return .success }
             guard let player, player.hasCurrentTrack else { return .noActionableNowPlayingItem }
             if player.isPlaying { player.togglePlayPause() }
             return .success
         }
-        center.togglePlayPauseCommand.addTarget { [weak player] _ in
+        center.togglePlayPauseCommand.addTarget { [weak player, weak self] _ in
+            if let external = self?.external { external.toggle(); return .success }
             guard let player else { return .noActionableNowPlayingItem }
             if !player.hasCurrentTrack {
                 return player.resumeLastPlayback() ? .success : .noActionableNowPlayingItem
@@ -47,8 +128,9 @@ final class NowPlayingManager {
             player?.previous()
             return .success
         }
-        center.changePlaybackPositionCommand.addTarget { [weak player] event in
+        center.changePlaybackPositionCommand.addTarget { [weak player, weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            if let external = self?.external { external.seek(event.positionTime); return .success }
             player?.seek(to: event.positionTime)
             return .success
         }
@@ -80,7 +162,7 @@ final class NowPlayingManager {
             // complete now-playing app (best-effort hardening for #36/#40).
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
         ]
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        if external == nil { MPNowPlayingInfoCenter.default().nowPlayingInfo = info }
         // Restoring metadata must not pretend that a terminated/paused app is
         // already playing. This keeps Apple's default Play affordance visible
         // and lets the next remote Play command resume the saved track.
@@ -126,7 +208,7 @@ final class NowPlayingManager {
             }()
             let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
             self.info[MPMediaItemPropertyArtwork] = artwork
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = self.info
+            if self.external == nil { MPNowPlayingInfoCenter.default().nowPlayingInfo = self.info }
             await self.applyAnimatedArtwork(image: image, track: track)
         }
     }
@@ -137,7 +219,7 @@ final class NowPlayingManager {
         let keys = MPNowPlayingInfoCenter.supportedAnimatedArtworkKeys
         for key in keys { info[key] = nil }
         guard SettingsManager.shared.lockScreenImmersiveArtwork else {
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+            if external == nil { MPNowPlayingInfoCenter.default().nowPlayingInfo = info }
             return
         }
         let artworks = await LockScreenAnimatedArtwork.artworks(for: image, key: track.playbackKey)
@@ -146,7 +228,7 @@ final class NowPlayingManager {
         for (name, artwork) in artworks {
             if let key = keys.first(where: { $0.lowercased().contains(name) }) { info[key] = artwork }
         }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        if external == nil { MPNowPlayingInfoCenter.default().nowPlayingInfo = info }
     }
 
     #if os(iOS)
@@ -192,7 +274,7 @@ final class NowPlayingManager {
         guard value != currentLyric else { return }
         currentLyric = value
         info[MPMediaItemPropertyArtist] = value.isEmpty ? baseArtist : value
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        if external == nil { MPNowPlayingInfoCenter.default().nowPlayingInfo = info }
     }
     #endif
 
@@ -213,7 +295,7 @@ final class NowPlayingManager {
     func updateElapsed(_ elapsed: TimeInterval, rate: Double) {
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
         info[MPNowPlayingInfoPropertyPlaybackRate] = rate
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        if external == nil { MPNowPlayingInfoCenter.default().nowPlayingInfo = info }
         MPNowPlayingInfoCenter.default().playbackState = rate > 0 ? .playing : .paused
     }
 }

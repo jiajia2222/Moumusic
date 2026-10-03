@@ -36,6 +36,9 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     var fallbackDuration: Double = 0
     /// Per-video key for 续播 (resume where you left off); nil disables it.
     var resumeKey: String?
+    /// Title / UP / cover shown on the lock screen and in Control Center while the video plays.
+    var nowPlayingMeta: (title: String, author: String, cover: String?)?
+    private var lastNowPlayingPush: Double = -10
     /// Called about every 15 s of playback and on stop, to sync 观看历史 to the account.
     var onProgressReport: ((Int) -> Void)?
     private var lastReported: Double = -100
@@ -180,6 +183,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     private func apply(_ status: AVPlayer.TimeControlStatus) {
         isPlaying = status != .paused
         isBuffering = status == .waitingToPlayAtSpecifiedRate
+        publishNowPlaying(force: true)
     }
 
     /// Playback that should be running but has not advanced for a while gets nudged with a
@@ -221,6 +225,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
             duration = fallbackDuration
         }
         saveResumeIfNeeded()
+        publishNowPlaying()
         if isPlaying, abs(currentTime - lastReported) >= 15 {
             lastReported = currentTime
             onProgressReport?(Int(currentTime))
@@ -261,6 +266,22 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         UserDefaults.standard.set(store, forKey: Self.resumeStoreKey)
     }
 
+    private func publishNowPlaying(force: Bool = false) {
+        guard let meta = nowPlayingMeta else { return }
+        guard force || abs(currentTime - lastNowPlayingPush) >= 1 else { return }
+        lastNowPlayingPush = currentTime
+        NowPlayingManager.shared.updateExternal(
+            title: meta.title, artist: meta.author, coverURL: meta.cover,
+            elapsed: currentTime, duration: duration, rate: isPlaying ? Double(player.rate) : 0,
+            handler: .init(
+                play: { [weak self] in self?.play() },
+                pause: { [weak self] in self?.pause() },
+                toggle: { [weak self] in self?.togglePlay() },
+                seek: { [weak self] in self?.seek(to: $0) },
+                skip: { [weak self] in self?.skip(by: $0) }
+            ))
+    }
+
     func play() {
         activateAudioSession()
         if PlayerService.shared.isPlaying { PlayerService.shared.pause() }
@@ -278,6 +299,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
     }
 
     func stop() {
+        if !isPiPActive { NowPlayingManager.shared.endExternal() }
         if currentTime > 1 { onProgressReport?(Int(currentTime)) }
         loadTask?.cancel()
         if !isPiPActive { player.pause() }
@@ -716,95 +738,11 @@ struct BiliNativePlayer: View {
                 .tint(Theme.accent)
                 .padding(.horizontal, 12)
 
-                HStack(spacing: 14) {
-                    Button { model.togglePlay(); scheduleHide() } label: {
-                        Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 20, weight: .semibold))
-                            .frame(width: 32, height: 32)
-                    }
-                    .accessibilityLabel(model.isPlaying ? "暂停" : "播放")
-
-                    Text("\(Self.format(model.currentTime)) / \(Self.format(model.duration))")
-                        .font(.system(size: 11, weight: .medium).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.85))
-
-                    Spacer(minLength: 0)
-
-                    Menu {
-                        ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { value in
-                            Button {
-                                model.setRate(Float(value))
-                            } label: {
-                                if Float(value) == model.rate {
-                                    Label("\(Self.rateText(value))x", systemImage: "checkmark")
-                                } else {
-                                    Text("\(Self.rateText(value))x")
-                                }
-                            }
-                        }
-                    } label: {
-                        Text("\(Self.rateText(Double(model.rate)))x")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(minWidth: 32, minHeight: 32)
-                    }
-
-                    Menu {
-                        Button { onSelectSubtitle(nil) } label: {
-                            if selectedSubtitleID == nil {
-                                Label("关闭字幕", systemImage: "checkmark")
-                            } else {
-                                Text("关闭字幕")
-                            }
-                        }
-                        if subtitles.isEmpty {
-                            Text("该视频没有字幕")
-                        }
-                        ForEach(subtitles) { subtitle in
-                            Button { onSelectSubtitle(subtitle) } label: {
-                                if subtitle.id == selectedSubtitleID {
-                                    Label(subtitle.displayTitle, systemImage: "checkmark")
-                                } else {
-                                    Text(subtitle.displayTitle)
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: selectedSubtitleID == nil ? "captions.bubble" : "captions.bubble.fill")
-                            .font(.system(size: 18))
-                            .frame(width: 32, height: 32)
-                    }
-                    .accessibilityLabel("字幕")
-
-                    Button {
-                        showDanmaku.toggle()
-                        scheduleHide()
-                    } label: {
-                        Image(systemName: showDanmaku ? "text.bubble.fill" : "text.bubble")
-                            .font(.system(size: 18))
-                            .frame(width: 32, height: 32)
-                    }
-                    .accessibilityLabel(showDanmaku ? "关闭弹幕" : "开启弹幕")
-
-                    if model.canPiP {
-                        Button { model.togglePiP() } label: {
-                            Image(systemName: model.isPiPActive ? "pip.exit" : "pip.enter")
-                                .font(.system(size: 18))
-                                .frame(width: 32, height: 32)
-                        }
-                        .accessibilityLabel("画中画")
-                    }
-
-                    BiliRoutePicker()
-                        .frame(width: 32, height: 32)
-
-                    Button {
-                        if isFullscreen { onClose?() } else { onFullscreen?() }
-                    } label: {
-                        Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 18))
-                            .frame(width: 32, height: 32)
-                    }
-                    .accessibilityLabel(isFullscreen ? "退出全屏" : "全屏")
+                // Wide players show every button; narrow ones (vertical videos, small inline
+                // players) keep the essentials and move speed / PiP / AirPlay into 更多.
+                ViewThatFits(in: .horizontal) {
+                    controlRow(compact: false)
+                    controlRow(compact: true)
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
@@ -813,6 +751,130 @@ struct BiliNativePlayer: View {
             .padding(.top, 14)
             .background(LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom))
         }
+    }
+
+    @ViewBuilder
+    private func controlRow(compact: Bool) -> some View {
+        HStack(spacing: compact ? 6 : 14) {
+            Button { model.togglePlay(); scheduleHide() } label: {
+                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(width: 32, height: 32)
+            }
+            .accessibilityLabel(model.isPlaying ? "暂停" : "播放")
+
+            Text("\(Self.format(model.currentTime)) / \(Self.format(model.duration))")
+                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+                .fixedSize()
+
+            Spacer(minLength: 0)
+
+            if !compact { rateMenu }
+            subtitleMenu
+            danmakuButton
+            if !compact {
+                if model.canPiP { pipButton }
+                BiliRoutePicker().frame(width: 32, height: 32)
+            } else {
+                Menu {
+                    Section("倍速") {
+                        ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { value in
+                            Button { model.setRate(Float(value)) } label: {
+                                if Float(value) == model.rate {
+                                    Label("\(Self.rateText(value))x", systemImage: "checkmark")
+                                } else {
+                                    Text("\(Self.rateText(value))x")
+                                }
+                            }
+                        }
+                    }
+                    if model.canPiP {
+                        Button { model.togglePiP() } label: { Label("画中画", systemImage: "pip.enter") }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 18))
+                        .frame(width: 32, height: 32)
+                }
+                .accessibilityLabel("更多")
+            }
+            fullscreenButton
+        }
+    }
+
+    private var rateMenu: some View {
+        Menu {
+            ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { value in
+                Button { model.setRate(Float(value)) } label: {
+                    if Float(value) == model.rate {
+                        Label("\(Self.rateText(value))x", systemImage: "checkmark")
+                    } else {
+                        Text("\(Self.rateText(value))x")
+                    }
+                }
+            }
+        } label: {
+            Text("\(Self.rateText(Double(model.rate)))x")
+                .font(.system(size: 13, weight: .semibold))
+                .frame(minWidth: 32, minHeight: 32)
+        }
+    }
+
+    private var subtitleMenu: some View {
+        Menu {
+            Button { onSelectSubtitle(nil) } label: {
+                if selectedSubtitleID == nil { Label("关闭字幕", systemImage: "checkmark") } else { Text("关闭字幕") }
+            }
+            if subtitles.isEmpty { Text("该视频没有字幕") }
+            ForEach(subtitles) { subtitle in
+                Button { onSelectSubtitle(subtitle) } label: {
+                    if subtitle.id == selectedSubtitleID {
+                        Label(subtitle.displayTitle, systemImage: "checkmark")
+                    } else {
+                        Text(subtitle.displayTitle)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: selectedSubtitleID == nil ? "captions.bubble" : "captions.bubble.fill")
+                .font(.system(size: 18))
+                .frame(width: 32, height: 32)
+        }
+        .accessibilityLabel("字幕")
+    }
+
+    private var danmakuButton: some View {
+        Button {
+            showDanmaku.toggle()
+            scheduleHide()
+        } label: {
+            Image(systemName: showDanmaku ? "text.bubble.fill" : "text.bubble")
+                .font(.system(size: 18))
+                .frame(width: 32, height: 32)
+        }
+        .accessibilityLabel(showDanmaku ? "关闭弹幕" : "开启弹幕")
+    }
+
+    private var pipButton: some View {
+        Button { model.togglePiP() } label: {
+            Image(systemName: model.isPiPActive ? "pip.exit" : "pip.enter")
+                .font(.system(size: 18))
+                .frame(width: 32, height: 32)
+        }
+        .accessibilityLabel("画中画")
+    }
+
+    private var fullscreenButton: some View {
+        Button {
+            if isFullscreen { onClose?() } else { onFullscreen?() }
+        } label: {
+            Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 18))
+                .frame(width: 32, height: 32)
+        }
+        .accessibilityLabel(isFullscreen ? "退出全屏" : "全屏")
     }
 
     // MARK: Helpers
