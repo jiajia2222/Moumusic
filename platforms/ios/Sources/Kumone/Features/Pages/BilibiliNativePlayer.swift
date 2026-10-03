@@ -400,6 +400,9 @@ struct BiliNativePlayer: View {
     @State private var controlsVisible = true
     @State private var hideTask: Task<Void, Never>?
     @State private var showDanmaku = true
+    /// Target time while the user drags horizontally on the picture to seek.
+    @State private var swipeSeekTarget: Double?
+    @State private var swipeSeekStart: Double = 0
 
     private var danmakuKey: String { "\(danmaku.count)-\(danmaku.first?.id ?? "")" }
 
@@ -454,6 +457,15 @@ struct BiliNativePlayer: View {
                     Spacer()
                 }
                 .allowsHitTesting(false)
+            }
+            if let target = swipeSeekTarget {
+                Text("\(Self.format(target)) / \(Self.format(model.duration))")
+                    .font(.system(size: isFullscreen ? 22 : 17, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.black.opacity(0.65), in: Capsule())
+                    .allowsHitTesting(false)
             }
             gestureLayer
             if controlsVisible {
@@ -544,6 +556,33 @@ struct BiliNativePlayer: View {
 
     /// Tap shows/hides the controls, double-tap pauses, press-and-hold plays at 2x.
     private var gestureLayer: some View {
+        GeometryReader { proxy in
+            tapLayer
+                .simultaneousGesture(
+                    // Horizontal swipe on the picture scrubs: a full-width swipe moves up to
+                    // two minutes (or the whole video when it is shorter).
+                    DragGesture(minimumDistance: 14)
+                        .onChanged { value in
+                            guard model.duration > 0, !model.isBoosting else { return }
+                            if swipeSeekTarget == nil {
+                                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                                swipeSeekStart = model.currentTime
+                            }
+                            let span = min(model.duration, 120)
+                            let delta = Double(value.translation.width / max(proxy.size.width, 1)) * span
+                            swipeSeekTarget = min(max(0, swipeSeekStart + delta), model.duration)
+                            hideTask?.cancel()
+                        }
+                        .onEnded { _ in
+                            if let target = swipeSeekTarget { model.seek(to: target) }
+                            swipeSeekTarget = nil
+                            scheduleHide()
+                        }
+                )
+        }
+    }
+
+    private var tapLayer: some View {
         Color.clear
             .contentShape(Rectangle())
             .onTapGesture(count: 2) {

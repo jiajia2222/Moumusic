@@ -136,8 +136,13 @@ final class NowPlayingManager {
         guard #available(iOS 26.0, *) else { return }
         let keys = MPNowPlayingInfoCenter.supportedAnimatedArtworkKeys
         for key in keys { info[key] = nil }
+        guard SettingsManager.shared.lockScreenImmersiveArtwork else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+            return
+        }
         let artworks = await LockScreenAnimatedArtwork.artworks(for: image, key: track.playbackKey)
-        guard !Task.isCancelled, currentTrack?.playbackKey == track.playbackKey else { return }
+        guard !Task.isCancelled, currentTrack?.playbackKey == track.playbackKey,
+              SettingsManager.shared.lockScreenImmersiveArtwork else { return }
         for (name, artwork) in artworks {
             if let key = keys.first(where: { $0.lowercased().contains(name) }) { info[key] = artwork }
         }
@@ -145,8 +150,10 @@ final class NowPlayingManager {
     }
 
     #if os(iOS)
-    /// Immersive lock-screen artwork is always on: high-resolution cover for every track.
-    private var lockScreenArtworkSize: Int { 1024 }
+    /// 锁屏沉浸封面 on: high-resolution (and animated) cover for every track; off: small cover only.
+    private var lockScreenArtworkSize: Int {
+        SettingsManager.shared.lockScreenImmersiveArtwork ? 1024 : 256
+    }
 
     /// A generated square cover (track-tinted gradient with the first letter) for songs
     /// without a usable picture.

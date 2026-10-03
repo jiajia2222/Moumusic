@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 @MainActor
 final class ExploreViewModel: ObservableObject {
@@ -250,20 +250,8 @@ struct ExploreView: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
                 Spacer()
-#if os(iOS)
-                if settings.bilibiliMode != .disabled {
-                    Button {
-                        showBilibili = true
-                    } label: {
-                        Label("哔哩哔哩", systemImage: "play.rectangle.fill")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.accent)
-                    .frame(minHeight: 44)
-                }
-#endif
             }
+            .padding(.horizontal, Theme.Layout.contentInset)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(LXCatalogPlatform.catalogueCases.filter { $0 != .aggregate }) { platform in
@@ -279,6 +267,25 @@ struct ExploreView: View {
                         .buttonStyle(.plain)
                         .frame(minHeight: 44)
                     }
+#if os(iOS)
+                    // Bilibili sits in the same chip row instead of floating at the far right.
+                    if settings.bilibiliMode != .disabled {
+                        Button { showBilibili = true } label: {
+                            HStack(spacing: 5) {
+                                BrandIconView(name: "BrandBilibili").frame(width: 16, height: 16)
+                                Text("哔哩哔哩")
+                            }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.secondary.opacity(0.12))
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .frame(minHeight: 44)
+                    }
+#endif
                 }
                 .padding(.horizontal, Theme.Layout.contentInset)
             }

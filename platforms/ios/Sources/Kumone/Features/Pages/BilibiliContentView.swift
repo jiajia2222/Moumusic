@@ -1411,6 +1411,7 @@ struct BilibiliVideoDetailView: View {
     @State private var playbackAudioURL: URL?
     @State private var triedMuxedFallback = false
     @State private var qualityFallbackDepth = 0
+    @State private var alternateVideoURLs: [URL] = []
     /// Tracks from the player endpoint (includes AI subtitles when signed in).
     @State private var extraSubtitles: [BilibiliAPI.Subtitle] = []
 
@@ -1558,6 +1559,13 @@ struct BilibiliVideoDetailView: View {
         }
         .onAppear {
             playerModel.onError = { message in
+                DiagnosticLogStore.shared.append(level: .warning, category: "哔哩哔哩播放", message: "画质 \(selectedQuality.map(String.init) ?? "-") 打开失败", detail: message)
+                // Same quality first: another codec or a backup CDN usually plays.
+                if !listenOnly, !alternateVideoURLs.isEmpty {
+                    playbackURL = alternateVideoURLs.removeFirst()
+                    playerToken = UUID()
+                    return
+                }
                 // DASH (separate video/audio) can fail on odd streams: retry once with the
                 // muxed MP4 before reporting an error.
                 // A tier this device cannot decode (8K, Dolby Vision, ...) fails to open: step down
@@ -1566,7 +1574,7 @@ struct BilibiliVideoDetailView: View {
                    let current = selectedQuality,
                    let lower = qualities.map(\.code).filter({ $0 < current }).max() {
                     qualityFallbackDepth += 1
-                    ToastCenter.shared.show("当前画质无法在本机播放，已自动降到较低画质")
+                    ToastCenter.shared.show("该画质打开失败（\(message)），已降到较低画质")
                     Task { await loadPlayback(quality: lower) }
                     return
                 }
@@ -1984,6 +1992,7 @@ struct BilibiliVideoDetailView: View {
             selectedQuality = playback.quality > 0 ? playback.quality : nil
             playbackURL = playback.url
             playbackAudioURL = playback.audioURL
+            alternateVideoURLs = playback.alternateURLs
             playerToken = UUID()
             errorMessage = nil
             isLoading = false

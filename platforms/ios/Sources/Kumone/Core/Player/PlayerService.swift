@@ -1281,7 +1281,9 @@ final class PlayerService: ObservableObject {
                 "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
             ]])
         } else {
-            asset = AVURLAsset(url: url)
+            // Precise timing: without it VBR MP3 seeks land at an estimated byte offset, so after a
+            // few lyric taps the reported time and the audio drift apart.
+            asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         }
         // Start streaming immediately: AVPlayer buffers while it plays. The audio track is
         // probed in the background afterwards (spectrum tap + verified quality) instead of

@@ -107,11 +107,17 @@ actor QQMusicAPI {
     }
 
     private static func containsVIPFlag(_ value: Any) -> Bool {
-        let names: Set<String> = ["isvip", "is_vip", "vip", "svip", "isgreen", "green", "greenvip", "is_green_vip",
-                                  "isgreenvip", "musicvip", "issvip", "is_svip", "vipflag", "vip_flag"]
+        // QQ uses Hungarian names such as iVipFlag / iSuperVip / iGreenVip / iMusicVip: any
+        // "vip"/"green" flag above zero means a membership; time stamps are ignored.
+        func isFlagKey(_ key: String) -> Bool {
+            let k = key.lowercased()
+            guard k.contains("vip") || k.contains("green") else { return false }
+            return !(k.contains("time") || k.contains("end") || k.contains("start") || k.contains("expire")
+                     || k.contains("pay") || k.contains("url") || k.contains("icon") || k.contains("desc"))
+        }
         if let dictionary = value as? [String: Any] {
             for (key, item) in dictionary {
-                if names.contains(key.lowercased()) {
+                if isFlagKey(key) {
                     if let number = item as? NSNumber, number.intValue > 0 { return true }
                     if let text = item as? String, let number = Int(text), number > 0 { return true }
                 }

@@ -243,6 +243,8 @@ actor BilibiliAPI {
         let qualities: [VideoQuality]
         /// Separate audio track when the stream is DASH (video-only `url`).
         var audioURL: URL? = nil
+        /// Same quality in other codecs / backup CDNs, tried before lowering the quality.
+        var alternateURLs: [URL] = []
     }
 
     struct LiveArea: Identifiable, Hashable, Sendable {
@@ -1281,11 +1283,12 @@ actor BilibiliAPI {
                 : (ids.filter { $0 <= actualQuality }.max() ?? ids.max() ?? actualQuality)
             let candidates = videos.filter { Self.integer($0["id"]) == target }
             func codec(_ row: [String: Any]) -> Int { Self.integer(row["codecid"]) ?? 0 }
-            // HEVC for high-end tiers, AVC otherwise; AV1 only as a last resort.
-            let chosen = (target >= 112 ? candidates.first(where: { codec($0) == 12 }) : nil)
-                ?? candidates.first(where: { codec($0) == 7 })
-                ?? candidates.first(where: { codec($0) == 12 })
-                ?? candidates.first
+            // Most compatible first: AVC, then HEVC, AV1 last.
+            func rank(_ row: [String: Any]) -> Int {
+                switch codec(row) { case 7: return 0; case 12: return 1; default: return 2 }
+            }
+            let ordered = candidates.sorted { rank($0) < rank($1) }
+            let chosen = ordered.first
             func firstURL(_ row: [String: Any]) -> URL? {
                 for key in ["baseUrl", "base_url", "url"] {
                     if let value = Self.text(row[key]), let url = URL(string: value) { return url }
@@ -1295,14 +1298,27 @@ actor BilibiliAPI {
                 }
                 return nil
             }
+            func allURLs(_ row: [String: Any]) -> [URL] {
+                var urls: [URL] = []
+                for key in ["baseUrl", "base_url", "url"] {
+                    if let value = Self.text(row[key]), let url = URL(string: value) { urls.append(url); break }
+                }
+                for value in ((row["backupUrl"] ?? row["backup_url"]) as? [String]) ?? [] {
+                    if let url = URL(string: value) { urls.append(url) }
+                }
+                return urls
+            }
             if let chosen, let videoURL = firstURL(chosen) {
+                var alternates = ordered.flatMap(allURLs)
+                var seenURLs = Set<String>()
+                alternates = alternates.filter { $0 != videoURL && seenURLs.insert($0.absoluteString).inserted }
                 let dolby = ((dash["dolby"] as? [String: Any])?["audio"] as? [[String: Any]])?.first
                 let flac = (dash["flac"] as? [String: Any])?["audio"] as? [String: Any]
                 let aac = (dash["audio"] as? [[String: Any]])?
                     .max { (Self.integer($0["id"]) ?? 0) < (Self.integer($1["id"]) ?? 0) }
                 let audioRow = dolby ?? flac ?? aac
                 return Playback(url: videoURL, quality: target, qualities: available,
-                                audioURL: audioRow.flatMap(firstURL))
+                                audioURL: audioRow.flatMap(firstURL), alternateURLs: alternates)
             }
         }
 
