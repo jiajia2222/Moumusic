@@ -676,14 +676,45 @@ actor QQMusicAPI {
             ?? dataObject["profile"] as? [String: Any]
             ?? dataObject
         let id = Self.text(in: info, keys: ["uin", "uid", "user_id", "loginUin"]) ?? accountID
-        let name = Self.text(in: info, keys: ["nick", "nickname", "name", "nickName"])
-            ?? "QQ 音乐用户 \(Self.normalizedAccountID(accountID))"
-        let avatar = Self.text(in: info, keys: ["logo", "avatar", "avatarUrl", "avatar_url"])
-        return Profile(id: id, name: name, avatarURL: avatar,
+        var name = Self.text(in: info, keys: ["nick", "nickname", "name", "nickName"])
+        var avatar = Self.text(in: info, keys: ["logo", "avatar", "avatarUrl", "avatar_url"])
+        // Legacy endpoint returned no nickname (code 1000): ask the base-info service, the way
+        // the open-source listen1 client resolves QQ users.
+        if name == nil || avatar == nil,
+           let base = await baseUserInfo(uin: Self.normalizedAccountID(accountID), cookie: cookie) {
+            name = name ?? base.nick
+            avatar = avatar ?? base.avatar
+        }
+        let finalName = name ?? "QQ 音乐用户 \(Self.normalizedAccountID(accountID))"
+        return Profile(id: id, name: finalName, avatarURL: avatar,
                        refreshedCookie: Self.mergedCookie(
                         original: cookie,
                         response: response as? HTTPURLResponse
                        ))
+    }
+
+    private func baseUserInfo(uin: String, cookie: String) async -> (nick: String?, avatar: String?)? {
+        guard !uin.isEmpty else { return nil }
+        let payload: [String: Any] = [
+            "comm": ["ct": 24, "cv": 0],
+            "base": ["module": "userInfo.BaseUserInfoServer", "method": "get_user_baseinfo_v2",
+                     "param": ["vec_uin": [uin]]]
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+        var request = URLRequest(url: URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.httpBody = body
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await session.data(for: request),
+              let root = Self.jsonObject(from: data),
+              let map = ((root["base"] as? [String: Any])?["data"] as? [String: Any])?["map_userinfo"] as? [String: Any],
+              let info = (map[uin] as? [String: Any]) ?? (map.values.first as? [String: Any]) else { return nil }
+        let nick = Self.text(in: info, keys: ["nick", "nickname"])
+        let avatar = Self.text(in: info, keys: ["headurl", "logo"])?.replacingOccurrences(of: "http://", with: "https://")
+        return (nick, avatar)
     }
 
     private static func jsonObject(from data: Data) -> [String: Any]? {
