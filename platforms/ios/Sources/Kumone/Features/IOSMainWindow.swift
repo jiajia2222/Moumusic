@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 #if os(iOS)
 public struct IOSMainWindow: View {
@@ -83,6 +83,11 @@ public struct IOSMainWindow: View {
                 }
             }
             .onChange(of: selectedTab) { _ in Haptics.tap() }
+            .onChange(of: player.pendingDestination) { destination in
+                guard let destination else { return }
+                push(destination)
+                player.pendingDestination = nil
+            }
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
                 Task { @MainActor in
@@ -366,6 +371,17 @@ public struct IOSMainWindow: View {
             tabStack(.profile) { MyProfileView() }
         case .settings:
             tabStack(.settings) { SettingsView() }
+        }
+    }
+
+    private func push(_ destination: Destination) {
+        switch selectedTab {
+        case .home: homePath.append(destination)
+        case .explore: explorePath.append(destination)
+        case .search: searchPath.append(destination)
+        case .playlists: playlistsPath.append(destination)
+        case .profile: profilePath.append(destination)
+        case .settings: settingsPath.append(destination)
         }
     }
 

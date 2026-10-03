@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 #if os(iOS)
 import MediaPlayer
 import UIKit
@@ -907,10 +907,7 @@ struct NowPlayingView: View {
                         VIPBadge()
                     }
                 }
-                Text(player.currentTrack?.artistNames ?? "")
-                    .font(.system(size: 13.5))
-                    .foregroundStyle(.white.opacity(0.65))
-                    .lineLimit(1)
+                PlayerArtistLink(font: .system(size: 13.5), opacity: 0.65)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -935,10 +932,7 @@ struct NowPlayingView: View {
                     VIPBadge()
                 }
             }
-            Text(player.currentTrack?.artistNames ?? "")
-                .font(.system(size: 13.5))
-                .foregroundStyle(.white.opacity(0.65))
-                .lineLimit(1)
+            PlayerArtistLink(font: .system(size: 13.5), opacity: 0.65)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1979,10 +1973,7 @@ private struct CompactTrackHeader: View {
                         VIPBadge()
                     }
                 }
-                Text(player.currentTrack?.artistNames ?? "")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.62))
-                    .lineLimit(1)
+                PlayerArtistLink(font: .subheadline, opacity: 0.62)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .offset(
@@ -2893,10 +2884,7 @@ private struct MinimalTrackInfoRow: View {
                     VIPBadge()
                 }
             }
-            Text(player.currentTrack?.artistNames ?? "")
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.62))
-                .lineLimit(1)
+            PlayerArtistLink(font: .footnote, opacity: 0.62)
         }
         .multilineTextAlignment(textAlignment)
         .accessibilityElement(children: .contain)
@@ -3402,5 +3390,35 @@ struct MiniLyricsView: View {
         .padding(.horizontal, 28)
         .id(line?.id)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+}
+
+/// The artist line of the player: one tap opens the artist page (a menu when there are several).
+struct PlayerArtistLink: View {
+    @EnvironmentObject private var player: PlayerService
+    let font: Font
+    let opacity: Double
+
+    var body: some View {
+        if let track = player.currentTrack, !track.artists.isEmpty {
+            let label = Text(track.artistNames)
+                .font(font)
+                .foregroundStyle(.white.opacity(opacity))
+                .lineLimit(1)
+            if track.artists.count == 1 {
+                Button { player.openArtist(track.artists[0], for: track) } label: { label }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("打开歌手页")
+            } else {
+                Menu {
+                    ForEach(track.artists) { artist in
+                        Button(artist.name) { player.openArtist(artist, for: track) }
+                    }
+                } label: { label }
+                .accessibilityHint("选择歌手并打开歌手页")
+            }
+        } else {
+            Text("")
+        }
     }
 }

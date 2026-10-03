@@ -64,7 +64,7 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         player.automaticallyWaitsToMinimizeStalling = true
         player.allowsExternalPlayback = true
         timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
+            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
             Task { @MainActor [weak self] in self?.tick(time) }
         }
@@ -153,15 +153,23 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
             guard let sourceVideo = videoTracks.first, let sourceAudio = audioTracks.first else {
                 return AVPlayerItem(asset: videoAsset)
             }
-            let length = (audioDuration.isNumeric && audioDuration > .zero)
-                ? CMTimeMinimum(videoDuration, audioDuration) : videoDuration
+            // Keep each track's own start time: DASH segments often begin a few tens of
+            // milliseconds apart, and forcing both to zero is what made sound and picture drift.
+            let videoRange = try await sourceVideo.load(.timeRange)
+            let audioRange = try await sourceAudio.load(.timeRange)
+            let base = CMTimeMinimum(videoRange.start, audioRange.start)
+            let available = CMTimeMinimum(videoRange.duration, audioRange.duration)
+            let length = (audioDuration.isNumeric && audioDuration > .zero && videoDuration.isNumeric)
+                ? CMTimeMinimum(CMTimeMinimum(videoDuration, audioDuration), available) : available
             let composition = AVMutableComposition()
             if let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
-                try videoTrack.insertTimeRange(CMTimeRange(start: .zero, duration: length), of: sourceVideo, at: .zero)
+                try videoTrack.insertTimeRange(CMTimeRange(start: videoRange.start, duration: length), of: sourceVideo,
+                                               at: CMTimeSubtract(videoRange.start, base))
                 videoTrack.preferredTransform = try await sourceVideo.load(.preferredTransform)
             }
             if let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-                try audioTrack.insertTimeRange(CMTimeRange(start: .zero, duration: length), of: sourceAudio, at: .zero)
+                try audioTrack.insertTimeRange(CMTimeRange(start: audioRange.start, duration: length), of: sourceAudio,
+                                               at: CMTimeSubtract(audioRange.start, base))
             }
             return AVPlayerItem(asset: composition)
         } catch {
@@ -618,7 +626,7 @@ struct BiliNativePlayer: View {
 
     private var currentSubtitle: String? {
         guard selectedSubtitleID != nil else { return nil }
-        let now = model.currentTime
+        let now = model.currentTime + 0.08
         return cues.first(where: { $0.start <= now && now <= $0.end })?.text
     }
 
@@ -692,6 +700,7 @@ struct BiliNativePlayer: View {
         }
         .clipped()
         .onAppear {
+            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
             showDanmaku = danmakuEnabled
             model.setDanmaku(danmaku)
             scheduleHide()
@@ -701,12 +710,27 @@ struct BiliNativePlayer: View {
             hideTask?.cancel()
             if isFullscreen { Self.rotate(landscape: false) }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            handleDeviceRotation()
+        }
         .onChange(of: danmakuKey) { _ in model.setDanmaku(danmaku) }
         .onChange(of: danmakuEnabled) { showDanmaku = $0 }
         .onChange(of: model.isPlaying) { playing in
             if playing { scheduleHide() } else { revealControls() }
         }
         .statusBarHidden(isFullscreen)
+    }
+
+    /// Turning the phone sideways opens the full screen by itself; turning it back closes it.
+    private func handleDeviceRotation() {
+        guard UIDevice.current.userInterfaceIdiom == .phone, !audioOnly,
+              UserDefaults.standard.object(forKey: "moumusic.bili.autoFullscreen") as? Bool ?? true else { return }
+        let orientation = UIDevice.current.orientation
+        if !isFullscreen, orientation.isLandscape, model.isReady, let onFullscreen {
+            onFullscreen()
+        } else if isFullscreen, rotatesInFullscreen, orientation == .portrait, let onClose {
+            onClose()
+        }
     }
 
     // MARK: Pieces

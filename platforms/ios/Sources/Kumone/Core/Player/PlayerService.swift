@@ -246,6 +246,33 @@ final class PlayerService: ObservableObject {
     @Published private(set) var lyrics: ParsedLyrics?
     @Published var activePanel: RightPanel?
     @Published var showNowPlaying = false
+    /// Set by the player screen (tap on the artist); the main window pushes it onto the current tab.
+    @Published var pendingDestination: Destination?
+
+    /// Opens the artist page of one of the current track's artists and closes the player.
+    func openArtist(_ artist: ArtistRef, for track: Track) {
+        let source = (track.source ?? track.sourceMetadata["source"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let destination: Destination
+        switch source {
+        case "bili":
+            ToastCenter.shared.show("哔哩哔哩 UP 主请在 B 站页面里查看")
+            return
+        case "", "wy", "163", "netease", "neteasecloudmusic", "cloudmusic":
+            destination = artist.id > 0
+                ? .artist(artist.id)
+                : .lxArtist(source: .wy, name: artist.name, avatarURL: artist.picUrl)
+        default:
+            let key = ["qq", "qqmusic", "qq-music"].contains(source) ? "tx" : (source == "kugou" ? "kg" : source)
+            guard let platform = LXCatalogPlatform(rawValue: key) else {
+                ToastCenter.shared.show("暂不支持打开该平台的歌手页")
+                return
+            }
+            destination = .lxArtist(source: platform, name: artist.name, avatarURL: artist.picUrl)
+        }
+        pendingDestination = destination
+        showNowPlaying = false
+    }
 
     /// The list the player is walking through (shuffled or ordered).
     var activeQueue: [Track] { shuffleEnabled ? shuffledQueue : queue }
