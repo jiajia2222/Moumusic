@@ -1216,6 +1216,14 @@ final class PlayerService: ObservableObject {
         lyricsTask = Task { [weak self] in
             guard let self else { return }
             await self.loadLyrics(for: track, generation: generation)
+            // A lyric lookup that came back empty is often just a failed request: try again twice more.
+            for delay in [2_500_000_000, 6_000_000_000] as [UInt64] {
+                guard !Task.isCancelled, generation == self.resolveGeneration,
+                      self.lyrics == nil || self.lyrics?.isEmpty == true else { return }
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled, generation == self.resolveGeneration else { return }
+                await self.loadLyrics(for: track, generation: generation)
+            }
         }
     }
 
@@ -1549,7 +1557,10 @@ final class PlayerService: ObservableObject {
             }
             NowPlayingManager.shared.updateResolvedQuality(self.servedQuality, for: track)
 #endif
-            if let probed, let mix = AudioSpectrum.shared.makeAudioMix(for: probed) {
+            // The spectrum tap is decoration: attach it only to plain stereo lossy streams. On lossless /
+            // hi-res / multichannel audio a tap can leave playback silent.
+            if let probed, await Self.spectrumTapIsSafe(for: probed),
+               let mix = AudioSpectrum.shared.makeAudioMix(for: probed) {
                 item.audioMix = mix
             }
         }
@@ -1936,6 +1947,12 @@ final class PlayerService: ObservableObject {
         return StreamFacts(format: basic.mFormatID, sampleRate: basic.mSampleRate,
                            channels: Int(basic.mChannelsPerFrame), bits: Int(basic.mBitsPerChannel),
                            bitrate: Double(rate))
+    }
+
+    private static func spectrumTapIsSafe(for track: AVAssetTrack) async -> Bool {
+        guard let facts = await streamFacts(of: track) else { return false }
+        let lossless = facts.format == kAudioFormatFLAC || facts.format == kAudioFormatAppleLossless
+        return !lossless && facts.channels <= 2 && facts.sampleRate <= 48_000
     }
 
     /// Quality label derived from the stream's real properties (nil when the track cannot be read).
