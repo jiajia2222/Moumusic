@@ -476,9 +476,9 @@ enum NeteaseAPI {
         guard id > 0 else { return [] }
         let allProbes: [AudioQuality] = [.master, .atmos, .dolby, .surround,
                                          .hires, .lossless, .exhigh, .standard]
-        let probes = allowPremium
-            ? allProbes
-            : allProbes.filter { !$0.requiresNeteaseVIP }
+        // Premium tiers are always probed, whatever the local membership flag says (it can be wrong for an
+        // SVIP account): the response level below decides what the song really offers.
+        let probes = allProbes
         var available = Set<String>()
         // These requests are independent. Launch them together so an expired
         // session or a slow tier cannot multiply the wait by eight.
@@ -501,8 +501,7 @@ enum NeteaseAPI {
                   let url = URL(string: rawURL),
                   let scheme = url.scheme?.lowercased(),
                    ["http", "https"].contains(scheme),
-                   data.freeTrialInfo == nil,
-                   allowPremium || data.fee <= 0 else { continue }
+                   data.freeTrialInfo == nil else { continue }
             if let duration, duration > 0, data.time > 0,
                TimeInterval(data.time) / 1000 < max(45, duration * 0.65) {
                 continue
