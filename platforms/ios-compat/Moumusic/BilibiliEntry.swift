@@ -128,19 +128,70 @@ final class MoumusicAppDelegate: NSObject, UIApplicationDelegate {
     }
 }
 #else
-/// 适配版（iOS 15–18）不包含哔哩哔哩模块：入口全部为空操作。
+/// 适配版（iOS 15–18）：自带的哔哩哔哩模块（视频、直播、弹幕、搜索、账号），全屏打开。
 @MainActor
 final class BilibiliPresenter: ObservableObject {
     static let shared = BilibiliPresenter()
-    func open() {}
-    func close() {}
+    @Published var isPresented = false
+    func open() { isPresented = true }
+    func close() { isPresented = false }
+}
+
+struct BilibiliHostModifier: ViewModifier {
+    @ObservedObject private var presenter = BilibiliPresenter.shared
+
+    func body(content: Content) -> some View {
+        content
+            .fullScreenCover(isPresented: $presenter.isPresented) {
+                CompatBilibiliRootView(onClose: { presenter.close() })
+            }
+    }
 }
 
 struct BilibiliEntryCard: View {
     var body: some View { EmptyView() }
 }
 
+/// 账号登录面板里的哔哩哔哩卡片：登录和退出都在哔哩哔哩模块内完成。
+struct BilibiliAccountCard: View {
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button {
+            BeansHaptics.tap()
+            onOpen()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { BilibiliPresenter.shared.open() }
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "play.tv")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(Color(red: 0.0, green: 0.63, blue: 0.84), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("哔哩哔哩")
+                        .font(BeansFont.appFont(15, .semibold))
+                        .foregroundStyle(Color.beansLabel)
+                    Text("扫码或网页登录，在哔哩哔哩模块内管理账号")
+                        .font(BeansFont.appFont(12))
+                        .foregroundStyle(Color.beansComment)
+                }
+                Spacer()
+                Text("打开")
+                    .font(BeansFont.appFont(13, .semibold))
+                    .foregroundStyle(Color.beansAmber)
+                    .padding(.horizontal, 14).padding(.vertical, 7)
+                    .background { BeansGlass(shape: Capsule()) }
+            }
+            .padding(14)
+            .background { BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+    }
+}
+
 extension View {
-    func bilibiliHost() -> some View { self }
+    func bilibiliHost() -> some View { modifier(BilibiliHostModifier()) }
 }
 #endif

@@ -50,11 +50,7 @@ enum SearchProvider: String, CaseIterable, Identifiable, Hashable {
 
     /// 适配版（iOS 15-18）不包含哔哩哔哩模块，不出现在平台列表里。
     static var allCases: [SearchProvider] {
-        #if MOUMUSIC_COMPAT
-        return [.netease, .qq, .kugou, .kuwo, .migu]
-        #else
         return [.netease, .qq, .kugou, .kuwo, .migu, .bilibili]
-        #endif
     }
 
     /// 视频平台：不走歌曲搜索 / 榜单，点击后全屏打开对应模块。
