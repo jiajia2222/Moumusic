@@ -1,4 +1,4 @@
-import CryptoKit
+﻿import CryptoKit
 import Foundation
 import SwiftUI
 
@@ -26,16 +26,18 @@ actor ImageCache {
         if let existing = inflight[key] {
             return await existing.value
         }
-        let task = Task<PlatformImage?, Never> { [diskURL] in
+        // Detached: disk reads and bitmap decoding must not serialise on this actor, and the
+        // image is decoded here so scrolling never pays for decompression on the main thread.
+        let task = Task.detached(priority: .userInitiated) { [diskURL] () -> PlatformImage? in
             let fileURL = diskURL.appendingPathComponent(key)
             if let data = try? Data(contentsOf: fileURL), let image = PlatformImage(data: data) {
-                return image
+                return Self.decoded(image)
             }
             guard let (data, response) = try? await URLSession.shared.data(from: url),
                   (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
                   let image = PlatformImage(data: data) else { return nil }
             try? data.write(to: fileURL, options: .atomic)
-            return image
+            return Self.decoded(image)
         }
         inflight[key] = task
         let result = await task.value
@@ -69,7 +71,15 @@ actor ImageCache {
         try? FileManager.default.createDirectory(at: diskURL, withIntermediateDirectories: true)
     }
 
-    private static func cacheKey(for url: URL) -> String {
+    private nonisolated static func decoded(_ image: PlatformImage) -> PlatformImage {
+        #if os(iOS)
+        return image.preparingForDisplay() ?? image
+        #else
+        return image
+        #endif
+    }
+
+    private nonisolated static func cacheKey(for url: URL) -> String {
         let digest = Insecure.MD5.hash(data: Data(url.absoluteString.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
