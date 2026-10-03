@@ -140,18 +140,13 @@ final class NeteaseClient: @unchecked Sendable {
         return try await perform(request)
     }
 
-    /// One random device id per install. The old shared "kumone" id was sent by every user of the
-    /// project and is what NetEase answers with "请切换设备后重试" when posting.
-    static let deviceID: String = {
-        let key = "moumusic.netease.deviceId"
-        if let stored = UserDefaults.standard.string(forKey: key), stored.count == 32 { return stored }
-        let value = (0..<32).map { _ in String(format: "%X", Int.random(in: 0..<16)) }.joined()
-        UserDefaults.standard.set(value, forKey: key)
-        return value
-    }()
+    /// The device id NetEase has always accepted for this client. A random per-install id was tried to
+    /// fix comment posting, but NetEase then treated every request as untrusted: premium tiers were
+    /// answered with "exhigh" even for SVIP accounts and lyric / quality lookups failed.
+    static let deviceID = "kumone"
 
     private static var baseCookies: [String: String] {
-        ["os": "pc", "appver": "3.1.17", "deviceId": deviceID, "sDeviceId": deviceID]
+        ["os": "pc", "appver": "3.1.17"]
     }
 
     /// POST to `https://interface.music.163.com/eapi<path>` with eapi encryption.

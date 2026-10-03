@@ -905,7 +905,8 @@ final class PlayerService: ObservableObject {
         let isLocalFile = (engine.currentItem?.asset as? AVURLAsset)?.url.isFileURL ?? false
         // Exact seeks only for local files; streamed ones accept a small tolerance (exact seeks need a
         // full index and can stall for seconds).
-        let tolerance = isLocalFile ? CMTime.zero : CMTime(seconds: 0.4, preferredTimescale: 600)
+        // Dragging the slider chases loosely; the final (or a lyric-tap) seek is exact so lyrics stay in sync.
+        let tolerance = (isLocalFile || !isScrubbing) ? CMTime.zero : CMTime(seconds: 0.4, preferredTimescale: 600)
         engine.seek(to: CMTime(seconds: target, preferredTimescale: 600),
                     toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
             Task { @MainActor in
@@ -1444,9 +1445,14 @@ final class PlayerService: ObservableObject {
                 "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
             ]])
         } else {
-            // No "precise duration and timing": on a remote file it makes AVPlayer scan the stream before
-            // a seek can land, which is what froze fast scrubbing (no sound, seek bar stuck).
-            asset = AVURLAsset(url: url)
+            // Precise timing only for MP3 (VBR seeks otherwise land on an estimated byte offset and the
+            // lyrics drift); on other remote formats it makes AVPlayer scan the stream first, which froze
+            // loading and fast scrubbing.
+            if url.pathExtension.lowercased() == "mp3" {
+                asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+            } else {
+                asset = AVURLAsset(url: url)
+            }
         }
         // Start streaming immediately: AVPlayer buffers while it plays. The audio track is
         // probed in the background afterwards (spectrum tap + verified quality) instead of
