@@ -577,7 +577,8 @@ struct HomeView: View {
             HStack(spacing: 10) {
                 Image(systemName: model.activePlatform == .wy ? "flame.fill" : "waveform")
                     .foregroundStyle(Theme.accent)
-                Text(model.activePlatform == .wy ? "网易云热门歌曲" : "\(model.activePlatform.displayName) 推荐")
+                // The page title already says 推荐: other platforms show just their name here.
+                Text(model.activePlatform == .wy ? "网易云热门歌曲" : model.activePlatform.displayName)
                     .font(.title3.weight(.semibold))
                 Spacer()
             }

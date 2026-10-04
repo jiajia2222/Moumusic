@@ -56,6 +56,23 @@ def upload(path, name):
     return HOST + src
 
 
+def upload_exact(path, name):
+    """The host never overwrites by name and sometimes keeps the old file a moment after the delete, then stores
+    the new one as "name(1)": remove both and try again until it is stored under the exact name."""
+    for _ in range(6):
+        delete(name)
+        time.sleep(2)
+        try:
+            return upload(path, name)
+        except RuntimeError as error:
+            if "renamed" not in str(error):
+                raise
+            renamed = urllib.parse.unquote(str(error).rsplit(" to ", 1)[-1]).split("/")[-1]
+            delete(renamed)
+            time.sleep(4)
+    raise RuntimeError(f"could not store {name} under its exact name")
+
+
 def delete(name):
     try:
         call("DELETE", f"{HOST}/api/manage/delete/{FOLDER}/{urllib.parse.quote(name)}", retries=1)
@@ -65,9 +82,8 @@ def delete(name):
 
 ipa_path = os.environ["IPA"]
 ipa_name = f"{cfg['ipa']}-b{BUILD}.ipa"
-delete(ipa_name)
 entry = {
-    "url": upload(ipa_path, ipa_name),
+    "url": upload_exact(ipa_path, ipa_name),
     "size": os.path.getsize(ipa_path),
     "sha256": hashlib.sha256(open(ipa_path, "rb").read()).hexdigest(),
 }
@@ -84,8 +100,7 @@ for manifest_name in cfg["manifests"]:
     with open(manifest_name, "w", encoding="utf-8") as handle:
         handle.write(json.dumps(manifest, ensure_ascii=False, indent=2))
     # The host never overwrites by name: remove the old manifest first.
-    delete(manifest_name)
-    upload(manifest_name, manifest_name)
+    upload_exact(manifest_name, manifest_name)
     check = None
     for _ in range(12):
         try:
