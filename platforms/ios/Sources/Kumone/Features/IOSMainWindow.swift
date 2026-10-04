@@ -113,7 +113,7 @@ public struct IOSMainWindow: View {
             // Launch check of the selected source's audio tiers (switching sources re-checks by itself).
             .task {
                 try? await Task.sleep(nanoseconds: 2_500_000_000)
-                LXUserAPIService.shared.ensureSelectedSourceLoaded()
+                LXUserAPIService.shared.refreshAllSourceSupport()
                 QualitySupport.normalizeSelection()
             }
             .overlay {

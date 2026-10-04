@@ -99,10 +99,14 @@ struct SettingsView: View {
                             .tag(quality)
                     }
                 }
-                .onAppear { QualitySupport.normalizeSelection() }
+                .onAppear {
+                    LXUserAPIService.shared.recomputeCombinedSupport()
+                    if !LXUserAPIService.shared.sourceSupportKnown { LXUserAPIService.shared.refreshAllSourceSupport() }
+                    QualitySupport.normalizeSelection()
+                }
                 .onChange(of: settings.playbackSourceMode) { _ in QualitySupport.normalizeSelection() }
                 .onChange(of: lxSupport.sourceTierSupport) { _ in QualitySupport.normalizeSelection() }
-                Text("自动模式先尝试对应平台已登录账号的官方音源；账号不可用时再按顺序回退到 LX。最终显示以接口实际返回的音质为准，不会把请求档位当成真实音质。")
+                Text("上面只列出已启用的音源（或已登录账号）声明支持的音质，各音源声明的内容可在诊断日志「音源能力」里查看。自动模式先尝试对应平台已登录账号的官方音源；账号不可用时再按顺序回退到 LX。最终显示以接口实际返回的音质为准，不会把请求档位当成真实音质。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

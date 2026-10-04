@@ -82,22 +82,65 @@ final class LXUserAPIService: ObservableObject {
             tiers.insert("128k")
             for name in names { tiers.insert(Self.normalizedQuality(name)) }
         }
-        sourceTierSupport = tiers
-        sourceSupportKnown = true
         if let id = loadedID {
             UserDefaults.standard.set(Array(tiers), forKey: "moumusic.lx.tierSupport.\(id)")
         }
+        recomputeCombinedSupport()
         let readable = AudioQuality.allCases.filter { tiers.contains($0.lxType) }
             .reduce(into: [String]()) { list, quality in
                 if !list.contains(quality.sourceDisplayName.components(separatedBy: " / ").last ?? "") {
                     list.append(quality.sourceDisplayName.components(separatedBy: " / ").last ?? "")
                 }
             }
+        let sourceName = LXSourceStore.shared.sources.first { $0.id == loadedID }?.name ?? "音源"
         DiagnosticLogStore.shared.append(level: .info, category: "音源能力",
-                                         message: "音源支持的音质：\(readable.joined(separator: "、"))",
-                                         detail: "已检查（切换音源 / 启动时）；不支持的音质不会在列表中显示。")
+                                         message: "\(sourceName) 声明支持：\(readable.joined(separator: "、"))",
+                                         detail: "已启用音源合计：\(AudioQuality.allCases.filter { sourceTierSupport.contains($0.lxType) }.map(\.displayName).joined(separator: "、"))。不被任何已启用音源声明的音质不会在列表中显示。")
         QualitySupport.normalizeSelection()
     }
+
+    /// The tiers of ALL enabled sources together (playback tries them in turn), from what each one declared at its
+    /// last check. Unknown until every enabled source has been checked once.
+    func recomputeCombinedSupport() {
+        let enabled = LXSourceStore.shared.playbackSources
+        guard !enabled.isEmpty else {
+            sourceTierSupport = []
+            sourceSupportKnown = true
+            return
+        }
+        var union = Set<String>()
+        var allKnown = true
+        for source in enabled {
+            if let stored = UserDefaults.standard.array(forKey: "moumusic.lx.tierSupport.\(source.id)") as? [String] {
+                union.formUnion(stored)
+            } else {
+                allKnown = false
+            }
+        }
+        sourceTierSupport = union
+        sourceSupportKnown = allKnown
+    }
+
+    /// Launch / "a source was enabled" check: load every enabled source once to read what it declares, then put
+    /// the preferred one back.
+    func refreshAllSourceSupport() {
+        supportRefreshTask?.cancel()
+        supportRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for source in LXSourceStore.shared.playbackSources {
+                guard !Task.isCancelled else { return }
+                _ = await self.activate(source, waitTime: 5)
+            }
+            guard !Task.isCancelled else { return }
+            if let preferred = LXSourceStore.shared.selectedSource, self.loadedID != preferred.id {
+                self.load(preferred)
+            }
+            self.recomputeCombinedSupport()
+            QualitySupport.normalizeSelection()
+        }
+    }
+
+    private var supportRefreshTask: Task<Void, Never>?
 
     func loadSelectedSource() {
         load(LXSourceStore.shared.selectedSource)
@@ -132,14 +175,7 @@ final class LXUserAPIService: ObservableObject {
         loadedID = source?.id
         capabilities = [:]
         qualityCapabilities = [:]
-        if let id = source?.id,
-           let cached = UserDefaults.standard.array(forKey: "moumusic.lx.tierSupport.\(id)") as? [String] {
-            sourceTierSupport = Set(cached)
-            sourceSupportKnown = true
-        } else {
-            sourceTierSupport = []
-            sourceSupportKnown = source == nil
-        }
+        recomputeCombinedSupport()
         statusMessage = source == nil ? "未选择音源" : "正在加载音源"
         guard let source,
               let preloadURL = Bundle.module.url(forResource: "LXUserAPIPreload", withExtension: "js"),
