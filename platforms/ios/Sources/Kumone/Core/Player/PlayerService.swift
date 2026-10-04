@@ -1600,7 +1600,7 @@ final class PlayerService: ObservableObject {
             // that byte range before anything plays, and starting only after it finished left playback hanging
             // until the user nudged it. Seek loosely and start right away; AVPlayer applies the seek as data arrives.
             engine.automaticallyWaitsToMinimizeStalling = false
-            engine.seek(to: CMTime(seconds: seekPosition, preferredTimescale: 600))
+            engine.seek(to: CMTime(seconds: seekPosition, preferredTimescale: 600), completionHandler: { _ in })
             engine.playImmediately(atRate: playbackRate)
         } else {
             // Pure online streaming: start as soon as the first data arrives instead of
