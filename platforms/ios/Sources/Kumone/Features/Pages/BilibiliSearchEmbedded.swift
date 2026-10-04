@@ -242,7 +242,7 @@ struct BilibiliUserVideosView: View {
             .padding(.top, 8)
             PlayerClearanceSpacer()
         }
-        .refreshable { await load() }
+        .refreshable { await Task { @MainActor in await load() }.value }
         .navigationTitle(user.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }

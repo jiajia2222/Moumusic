@@ -69,6 +69,7 @@ private final class BilibiliLiveViewModel: ObservableObject {
             }
             if rooms.isEmpty { errorMessage = "暂时没有可展示的直播间" }
         } catch is CancellationError {
+            isLoading = false
             return
         } catch {
             errorMessage = error.localizedDescription
@@ -122,7 +123,14 @@ struct BilibiliLiveView: View {
             }
             .scrollIndicators(.hidden)
             .refreshable {
-                await model.reload(cookie: bilibili.cookie)
+                let cookie = bilibili.cookie
+                await Task { @MainActor in
+                    if model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        await model.reload(cookie: cookie)
+                    } else {
+                        await model.search(cookie: cookie)
+                    }
+                }.value
             }
         }
         .navigationTitle(embedded ? "哔哩哔哩 · 直播" : "B 站直播")

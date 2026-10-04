@@ -918,7 +918,10 @@ struct BilibiliContentView: View {
             .padding(.top, 12)
         }
         .scrollIndicators(.hidden)
-        .refreshable { await model.refresh(cookie: bilibili.cookie) }
+        .refreshable {
+            let cookie = bilibili.cookie
+            await Task { @MainActor in await model.refresh(cookie: cookie) }.value
+        }
     }
 
     private func surfaceIcon(_ value: Surface) -> String {
@@ -1095,10 +1098,16 @@ struct BilibiliSearchView: View {
                     ProgressView("正在搜索哔哩哔哩")
                         .frame(maxWidth: .infinity, minHeight: 300)
                 } else if let errorMessage = model.errorMessage {
-                    ErrorStateView(message: errorMessage) {
-                        Task { await model.searchWithRetry(cookie: bilibili.cookie) }
+                    if errorMessage == "没有找到相关内容" {
+                        // Nothing matched: that is an answer, not a failure.
+                        EmptyStateView(icon: "magnifyingglass", title: "没有找到相关内容")
+                            .frame(maxWidth: .infinity, minHeight: 260)
+                    } else {
+                        ErrorStateView(message: errorMessage) {
+                            Task { await model.searchWithRetry(cookie: bilibili.cookie) }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 260)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 260)
                 } else {
                     results
                 }

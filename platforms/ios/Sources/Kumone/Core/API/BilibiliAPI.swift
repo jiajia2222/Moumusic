@@ -701,9 +701,10 @@ actor BilibiliAPI {
         let headers = [
             "app-key": "android_hd",
             "env": "prod",
-            "session_id": "11111111",
-            "fp_local": String(repeating: "1", count: 64),
-            "fp_remote": String(repeating: "1", count: 64),
+            // A fixed session / fingerprint made the server hand back the same batch on every pull.
+            "session_id": String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).lowercased(),
+            "fp_local": Self.deviceFingerprint(),
+            "fp_remote": Self.deviceFingerprint(),
             "bili-http-engine": "cronet",
             "x-bili-trace-id": "Moumusic-\(UUID().uuidString)"
         ]
@@ -968,6 +969,53 @@ actor BilibiliAPI {
     }
 
     func searchVideos(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> SearchPage {
+        try await fuzzy(keyword, isEmpty: { $0.videos.isEmpty }) {
+            try await self.searchVideosExact(keyword: $0, page: page, cookie: cookie)
+        }
+    }
+
+    func searchUsers(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> [User] {
+        try await fuzzy(keyword, isEmpty: { $0.isEmpty }) {
+            try await self.searchUsersExact(keyword: $0, page: page, cookie: cookie)
+        }
+    }
+
+    func searchCollections(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> [Collection] {
+        try await fuzzy(keyword, isEmpty: { $0.isEmpty }) {
+            try await self.searchCollectionsExact(keyword: $0, page: page, cookie: cookie)
+        }
+    }
+
+    /// Approximate search: when the exact keyword finds nothing, retry without spaces and with the
+    /// keyword Bilibili itself suggests for it (typos, half-remembered names), first hit wins.
+    private func fuzzy<T>(_ keyword: String, isEmpty: (T) -> Bool,
+                          _ run: (String) async throws -> T) async throws -> T {
+        let first = try await run(keyword)
+        guard isEmpty(first) else { return first }
+        var tried: Set<String> = [keyword]
+        var candidates: [String] = []
+        let squeezed = keyword.filter { !$0.isWhitespace }
+        if squeezed != keyword { candidates.append(squeezed) }
+        candidates += await suggestKeywords(keyword).prefix(3)
+        for candidate in candidates where tried.insert(candidate).inserted {
+            if let result = try? await run(candidate), !isEmpty(result) { return result }
+        }
+        return first
+    }
+
+    func suggestKeywords(_ keyword: String) async -> [String] {
+        var components = URLComponents(string: "https://s.search.bilibili.com/main/suggest")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: keyword),
+            URLQueryItem(name: "main_ver", value: "v1"),
+            URLQueryItem(name: "highlight", value: "")
+        ]
+        guard let root = try? await requestObject(components.url!, referer: "https://search.bilibili.com/"),
+              let tags = (root["result"] as? [String: Any])?["tag"] as? [[String: Any]] else { return [] }
+        return tags.compactMap { Self.text($0["value"]) }.filter { !$0.isEmpty }
+    }
+
+    private func searchVideosExact(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> SearchPage {
         let root = try await searchObject([
             URLQueryItem(name: "keyword", value: keyword),
             URLQueryItem(name: "search_type", value: "video"),
@@ -1005,7 +1053,7 @@ actor BilibiliAPI {
         }
     }
 
-    func searchUsers(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> [User] {
+    private func searchUsersExact(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> [User] {
         let root = try await searchObject([
             URLQueryItem(name: "keyword", value: keyword),
             URLQueryItem(name: "search_type", value: "bili_user"),
@@ -1017,7 +1065,7 @@ actor BilibiliAPI {
         return rows.compactMap(Self.user)
     }
 
-    func searchCollections(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> [Collection] {
+    private func searchCollectionsExact(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> [Collection] {
         // "Collections" are Bilibili's series catalogues: anime (bangumi) and film / TV (ft). Ask both and
         // merge; only fail when neither answers.
         var merged: [Collection] = []
@@ -1737,13 +1785,33 @@ actor BilibiliAPI {
     /// and fall back to the plain endpoint if the keys cannot be fetched or the signed call fails.
     private func searchObject(_ items: [URLQueryItem], cookie: String?) async throws -> [String: Any] {
         let referer = "https://search.bilibili.com/"
-        if let signed = await wbiSignedURL("https://api.bilibili.com/x/web-interface/wbi/search/type", items) {
-            if let root = try? await requestObject(signed, cookie: cookie, referer: referer) { return root }
-            wbiMixinKey = nil
+        func hasResults(_ root: [String: Any]) -> Bool {
+            !(((root["data"] as? [String: Any])?["result"] as? [[String: Any]]) ?? []).isEmpty
         }
+        var plainError: Error?
+        var plain: [String: Any]?
         var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/search/type")!
         components.queryItems = items
-        return try await requestObject(components.url!, cookie: cookie, referer: referer)
+        do { plain = try await requestObject(components.url!, cookie: cookie, referer: referer) }
+        catch { plainError = error }
+        if let plain, hasResults(plain) { return plain }
+        // The plain endpoint failed (-412) or came back empty: try the WBI-signed one and keep whichever
+        // actually has results.
+        if let signed = await wbiSignedURL("https://api.bilibili.com/x/web-interface/wbi/search/type", items),
+           let root = try? await requestObject(signed, cookie: cookie, referer: referer), hasResults(root) {
+            return root
+        }
+        if let plain { return plain }
+        throw plainError ?? APIError.requestFailed
+    }
+
+    private static func deviceFingerprint() -> String {
+        let key = "moumusic.bili.fingerprint"
+        if let stored = UserDefaults.standard.string(forKey: key), stored.count == 64 { return stored }
+        let value = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()
+        let fingerprint = String(value.prefix(64))
+        UserDefaults.standard.set(fingerprint, forKey: key)
+        return fingerprint
     }
 
     private func invalidateVisitorCookies() {
