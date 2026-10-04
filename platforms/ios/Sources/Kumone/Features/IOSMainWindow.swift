@@ -110,12 +110,7 @@ public struct IOSMainWindow: View {
             .sheet(isPresented: $updateLog.isPresented) {
                 IOSUpdateLogSheet()
             }
-            // Launch check of the selected source's audio tiers (switching sources re-checks by itself).
-            .task {
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
-                LXUserAPIService.shared.refreshAllSourceSupport()
-                QualitySupport.normalizeSelection()
-            }
+            .task { QualitySupport.normalizeSelection() }
             .overlay {
                 if !startup.isReady {
                     IOSStartupSplashView(coordinator: startup)

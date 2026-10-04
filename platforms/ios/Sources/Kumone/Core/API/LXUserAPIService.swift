@@ -175,7 +175,6 @@ final class LXUserAPIService: ObservableObject {
         loadedID = source?.id
         capabilities = [:]
         qualityCapabilities = [:]
-        recomputeCombinedSupport()
         statusMessage = source == nil ? "未选择音源" : "正在加载音源"
         guard let source,
               let preloadURL = Bundle.module.url(forResource: "LXUserAPIPreload", withExtension: "js"),
@@ -951,7 +950,6 @@ final class LXUserAPIService: ObservableObject {
                     guard let value = pair.value as? [String: Any] else { return }
                     result[pair.key] = value["qualitys"] as? [String] ?? []
                 }
-                updateSourceSupport()
                 let active = capabilities
                     .filter { !$0.value.isEmpty }
                     .map { "\($0.key): \($0.value.joined(separator: ", "))" }

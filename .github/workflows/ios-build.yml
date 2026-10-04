@@ -155,7 +155,7 @@ jobs:
   publish-ios26:
     needs: [full]
     # A commit whose message contains [compat-only] updates the compatibility channel only.
-    if: github.ref == 'refs/heads/refactor/beans-ui' && !contains(github.event.head_commit.message, '[compat-only]')
+    if: github.ref == 'refs/heads/refactor/beans-ui' && !contains(github.event.head_commit.message, '[compat-only]') && !contains(github.event.head_commit.message, '[no-publish]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -178,7 +178,7 @@ jobs:
 
   publish-compat:
     needs: [compat]
-    if: github.ref == 'refs/heads/refactor/beans-ui'
+    if: github.ref == 'refs/heads/refactor/beans-ui' && !contains(github.event.head_commit.message, '[no-publish]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

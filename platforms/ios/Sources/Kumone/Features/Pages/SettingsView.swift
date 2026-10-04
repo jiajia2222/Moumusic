@@ -23,8 +23,6 @@ struct SettingsView: View {
     @State private var cacheSummaries: [String: AppCacheManager.Summary] = [:]
     @State private var showEqualizer = false
     @ObservedObject private var equalizer = MoumusicEqualizer.shared
-    /// Re-renders the quality list when the selected source's capability check finishes.
-    @ObservedObject private var lxSupport = LXUserAPIService.shared
 #if os(iOS)
     @State private var showSourceManager = false
     @State private var showDownloads = false
@@ -93,20 +91,13 @@ struct SettingsView: View {
                     get: { settings.audioQuality },
                     set: { settings.audioQuality = $0; QualitySupport.rememberChoice($0) }
                 )) {
-                    // Only tiers the selected source / accounts can actually deliver.
-                    ForEach(QualitySupport.audioQualities(for: settings.playbackSourceMode)) { quality in
+                    ForEach(AudioQuality.allCases) { quality in
                         Text("\(quality.displayName) · \(quality.sourceDisplayName)")
                             .tag(quality)
                     }
                 }
-                .onAppear {
-                    LXUserAPIService.shared.recomputeCombinedSupport()
-                    if !LXUserAPIService.shared.sourceSupportKnown { LXUserAPIService.shared.refreshAllSourceSupport() }
-                    QualitySupport.normalizeSelection()
-                }
-                .onChange(of: settings.playbackSourceMode) { _ in QualitySupport.normalizeSelection() }
-                .onChange(of: lxSupport.sourceTierSupport) { _ in QualitySupport.normalizeSelection() }
-                Text("上面只列出已启用的音源（或已登录账号）声明支持的音质，各音源声明的内容可在诊断日志「音源能力」里查看。自动模式先尝试对应平台已登录账号的官方音源；账号不可用时再按顺序回退到 LX。最终显示以接口实际返回的音质为准，不会把请求档位当成真实音质。")
+
+                Text("自动模式先尝试对应平台已登录账号的官方音源；账号不可用时再按顺序回退到 LX。最终显示以接口实际返回的音质为准，不会把请求档位当成真实音质。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

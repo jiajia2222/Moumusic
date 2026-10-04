@@ -202,8 +202,6 @@ final class LXSourceStore: ObservableObject {
     /// to a source the user turned off.
     func setEnabled(_ id: String, enabled: Bool) {
         guard sources.contains(where: { $0.id == id }) else { return }
-        // The set of enabled sources changed: what the quality lists may offer changes with it.
-        defer { LXUserAPIService.shared.refreshAllSourceSupport() }
         if enabled {
             guard !enabledIDs.contains(id) else { return }
             enabledIDs.append(id)

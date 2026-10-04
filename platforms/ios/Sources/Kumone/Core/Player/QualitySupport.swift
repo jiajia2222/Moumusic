@@ -1,73 +1,29 @@
 import Foundation
 
-/// Which audio tiers may be offered at all, given the playback mode, the selected LX source and the logged-in
-/// accounts. A tier the source (or an account) cannot deliver is never shown; the per-track picker then only
-/// adds what a real probe confirmed on top of this.
+/// Audio tiers are no longer filtered by a source-capability check: every tier can be chosen. Whether a song
+/// really has a tier is decided when it is played (and by the per-song probe in the quality picker).
 @MainActor
 enum QualitySupport {
     private static let preferredKey = "moumusic.audioQuality.preferred"
 
-    /// Canonical tier names (`AudioQuality.lxType`) that can be offered right now.
     static func allowedTiers(for mode: PlaybackSourceMode, track: Track? = nil) -> Set<String> {
-        var tiers: Set<String> = ["128k"]
-        if mode != .official, LXSourceStore.shared.selectedSource != nil {
-            let service = LXUserAPIService.shared
-            if service.sourceSupportKnown {
-                tiers.formUnion(service.sourceTierSupport)
-            } else {
-                // The selected source has not answered yet (first launch with it): hide nothing until it has.
-                tiers.formUnion(AudioQuality.allCases.map(\.lxType))
-            }
-        }
-        if mode != .thirdParty {
-            if NeteaseClient.shared.isLoggedIn { tiers.formUnion(AudioQuality.allCases.map(\.lxType)) }
-            if QQMusicSessionStore.shared.isLoggedIn {
-                // 臻品母带 / Hi-Res / 全景声 / 杜比 are asked for with QQ's own file names; the per-track probe
-                // confirms which of them this song and account really have.
-                tiers.formUnion(["jymaster", "flac24bit", "atmos", "dolby", "flac", "320k", "128k"])
-            }
-            if KugouSessionStore.shared.isLoggedIn {
-                tiers.formUnion(["jymaster", "atmos", "dolby", "flac24bit", "flac", "320k", "128k"])
-            }
-        }
-        // Migu's public route serves its own tiers for Migu songs (no account needed).
-        if mode != .thirdParty,
-           let source = (track?.source ?? track?.sourceMetadata["source"])?.lowercased(),
-           ["mg", "migu"].contains(source) {
-            tiers.formUnion(["jymaster", "atmos", "flac24bit", "flac", "320k", "128k"])
-        }
-        return tiers
+        Set(AudioQuality.allCases.map(\.lxType))
     }
 
-    /// Best to worst, one entry per tier (the two "320 kbps" cases collapse into one).
     static func audioQualities(for mode: PlaybackSourceMode) -> [AudioQuality] {
-        let allowed = allowedTiers(for: mode)
-        var seen = Set<String>()
-        return AudioQuality.allCases.filter { allowed.contains($0.lxType) && seen.insert($0.lxType).inserted }
+        AudioQuality.allCases
     }
 
-    /// Remembers what the user picked in settings, so a tier that is unavailable for now (another source,
-    /// signed out) is restored when it becomes available again.
     static func rememberChoice(_ quality: AudioQuality) {
         UserDefaults.standard.set(quality.rawValue, forKey: preferredKey)
     }
 
-    /// The selected default quality must be one that can be offered: otherwise use the best supported tier
-    /// at or below the user's own choice.
+    /// An earlier version lowered the default quality when a source did not declare it; put the user's own
+    /// choice back.
     static func normalizeSelection() {
         let settings = SettingsManager.shared
-        let defaults = UserDefaults.standard
-        let preferred = defaults.string(forKey: preferredKey).flatMap(AudioQuality.init(rawValue:))
-            ?? settings.audioQuality
-        if defaults.string(forKey: preferredKey) == nil { rememberChoice(preferred) }
-
-        let allowed = audioQualities(for: settings.playbackSourceMode)
-        guard !allowed.isEmpty else { return }
-        let order = AudioQuality.allCases
-        let wanted = order.firstIndex(of: preferred) ?? 0
-        let target = allowed.first(where: { $0.lxType == preferred.lxType })
-            ?? allowed.first(where: { (order.firstIndex(of: $0) ?? 0) > wanted })
-            ?? allowed.last!
-        if settings.audioQuality != target { settings.audioQuality = target }
+        guard let stored = UserDefaults.standard.string(forKey: preferredKey).flatMap(AudioQuality.init(rawValue:)),
+              stored != settings.audioQuality else { return }
+        settings.audioQuality = stored
     }
 }
