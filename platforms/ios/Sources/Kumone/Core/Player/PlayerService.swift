@@ -1878,7 +1878,7 @@ final class PlayerService: ObservableObject {
                 ? track.sourceMetadata["strMediaMid"]
                 : track.sourceMetadata["media_mid"]
             let results = await withTaskGroup(of: String?.self) { group in
-                for requested in ["flac", "320k", "128k"] {
+                for requested in ["jymaster", "flac24bit", "atmos", "dolby", "flac", "320k", "128k"] {
                     group.addTask {
                         guard let resolved = await Self.withQualityProbeTimeout(operation: {
                             try? await QQMusicAPI.shared.musicURL(
@@ -1957,7 +1957,12 @@ final class PlayerService: ObservableObject {
 
     private func qqQualityToken(for quality: AudioQuality) -> String {
         switch quality {
-        case .master, .atmos, .dolby, .surround, .hires, .lossless: return "flac"
+        case .master: return "jymaster"
+        case .hires: return "flac24bit"
+        case .atmos: return "atmos"
+        case .surround: return "surround"
+        case .dolby: return "dolby"
+        case .lossless: return "flac"
         case .exhigh, .higher: return "320k"
         case .standard: return "128k"
         }

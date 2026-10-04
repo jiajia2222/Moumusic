@@ -1097,9 +1097,20 @@ actor QQMusicAPI {
         }
     }
 
+    /// QQ's file-name prefixes per tier (as used by the open-source QQMusicApi client): AI00 臻品母带,
+    /// Q000 臻品音质 (Hi-Res), Q001 臻品全景声 5.1, D004 杜比全景声 (mp4), F000 FLAC, M800 / M500 MP3.
+    /// A tier the song or the account does not have simply comes back without a URL.
     private static func filename(for quality: String, mediaMid: String) -> String {
         switch quality.lowercased() {
-        case "master", "atmos", "dolby", "surround", "hires", "flac", "lossless":
+        case "master", "jymaster":
+            return "AI00\(mediaMid).flac"
+        case "hires", "flac24bit", "flac24":
+            return "Q000\(mediaMid).flac"
+        case "atmos", "surround":
+            return "Q001\(mediaMid).flac"
+        case "dolby":
+            return "D004\(mediaMid).mp4"
+        case "flac", "lossless":
             return "F000\(mediaMid).flac"
         case "exhigh", "higher", "320k", "320":
             return "M800\(mediaMid).mp3"
@@ -1110,6 +1121,10 @@ actor QQMusicAPI {
 
     private static func quality(forFilename filename: String) -> String {
         let value = filename.uppercased()
+        if value.hasPrefix("AI00") { return "jymaster" }
+        if value.hasPrefix("Q000") { return "flac24bit" }
+        if value.hasPrefix("Q001") { return "atmos" }
+        if value.hasPrefix("D004") { return "dolby" }
         if value.hasPrefix("F000") { return "flac" }
         if value.hasPrefix("M800") { return "320k" }
         if value.hasPrefix("C600") { return "192k" }

@@ -21,7 +21,11 @@ enum QualitySupport {
         }
         if mode != .thirdParty {
             if NeteaseClient.shared.isLoggedIn { tiers.formUnion(AudioQuality.allCases.map(\.lxType)) }
-            if QQMusicSessionStore.shared.isLoggedIn { tiers.formUnion(["flac", "320k", "128k"]) }
+            if QQMusicSessionStore.shared.isLoggedIn {
+                // 臻品母带 / Hi-Res / 全景声 / 杜比 are asked for with QQ's own file names; the per-track probe
+                // confirms which of them this song and account really have.
+                tiers.formUnion(["jymaster", "flac24bit", "atmos", "dolby", "flac", "320k", "128k"])
+            }
             if KugouSessionStore.shared.isLoggedIn {
                 tiers.formUnion(["jymaster", "atmos", "dolby", "flac24bit", "flac", "320k", "128k"])
             }

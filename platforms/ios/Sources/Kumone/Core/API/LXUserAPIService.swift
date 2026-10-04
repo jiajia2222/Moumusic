@@ -1255,7 +1255,7 @@ final class LXUserAPIService: ObservableObject {
             let mediaMid = track.sourceMetadata["strMediaMid"]?.isEmpty == false
                 ? track.sourceMetadata["strMediaMid"]
                 : track.sourceMetadata["media_mid"]
-            for requested in ["flac", "320k", "128k"] {
+            for requested in ["jymaster", "flac24bit", "atmos", "dolby", "flac", "320k", "128k"] {
                 if let audio = try? await QQMusicAPI.shared.musicURL(
                     songMid: songMid, mediaMid: mediaMid, quality: requested, cookie: cookie
                 ), isValidAudioURL(audio.url) {
