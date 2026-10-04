@@ -151,6 +151,32 @@ def patch(relative, pairs):
     write(path, text)
 
 
+# Navigation destinations: SwiftUI never ran DestinationsModifier.body on the NavigationView-based stack, so
+# a destination registered inside it was never known and every pushed page stayed blank. Register when the
+# modifier is created instead (that always happens) and keep the page mapping in a static function.
+patch("Features/Navigation.swift", [
+    ("""    func body(content: Content) -> some View {
+        content.ios15Destination(for: Destination.self) { destination in
+            Group {
+""", """    init() {
+        IOS15DestinationRegistry.shared.register(Destination.self) { DestinationsModifier.page(for: $0) }
+    }
+
+    func body(content: Content) -> some View { content }
+
+    @ViewBuilder static func page(for destination: Destination) -> some View {
+            Group {
+"""),
+    ("""            }
+            .playerContentInset()
+        }
+    }
+}""", """            }
+            .playerContentInset()
+    }
+}"""),
+])
+
 # Theme: the toolbar-background fallback has no iOS 15 counterpart.
 patch("DesignSystem/Theme.swift", [
     ("            toolbarBackground(.hidden, for: .navigationBar)\n", "            self\n"),
