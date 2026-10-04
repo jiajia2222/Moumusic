@@ -586,7 +586,9 @@ final class LXUserAPIService: ObservableObject {
                                 qualities: candidate.supportedQualities.isEmpty
                                     ? ["128k", "320k", "flac", "flac24bit"] : candidate.supportedQualities
                             )
-                        ]
+                        ],
+                        // A tier the source never declared is only a try: do not let a slow refusal hold playback.
+                        timeout: (!candidate.supportedQualities.isEmpty && !declaredLadder.contains(Self.normalizedQuality(tier))) ? 3 : 20
                     )
                     guard let data = response["data"] as? [String: Any],
                           let rawURL = data["url"] as? String,
@@ -1547,9 +1549,12 @@ final class LXUserAPIService: ObservableObject {
     /// exact token advertised by the active source.
     private func protocolQualityToken(_ quality: String, platform: String) -> String {
         let canonical = Self.normalizedQuality(quality)
-        return qualityCapabilities[platform, default: []].first {
-            Self.normalizedQuality($0) == canonical
-        } ?? quality
+        if let declared = qualityCapabilities[platform, default: []].first(where: { Self.normalizedQuality($0) == canonical }) {
+            return declared
+        }
+        // Not declared by the source: LX's current protocol names the top tier `master` (`jymaster` is NetEase's
+        // old spelling), which is what sources accept for Kuwo / Kugou / QQ / Migu.
+        return canonical == "jymaster" ? "master" : quality
     }
 
     private func musicInfo(for track: Track, platform: String,
