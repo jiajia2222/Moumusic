@@ -134,6 +134,11 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         let key = "\(video?.absoluteString ?? "")|\(audio?.absoluteString ?? "")|\(dash == nil ? "c" : "h")"
         guard key != loadedKey else { return }
         loadedKey = key
+        let storedRate = UserDefaults.standard.double(forKey: "moumusic.bili.defaultRate")
+        if storedRate > 0, abs(Float(storedRate) - userRate) > 0.001, !isLive {
+            userRate = Float(storedRate)
+            rate = userRate
+        }
         usingHLS = dash != nil
         isLive = video?.absoluteString.lowercased().contains(".m3u8") == true
         player.automaticallyWaitsToMinimizeStalling = true
@@ -733,6 +738,10 @@ struct BiliNativePlayer: View {
     var title: String? = nil
     var isFullscreen = false
     var rotatesInFullscreen = true
+    /// 0 none, 1 light (default), 2 strong: the dark fade behind the control bars.
+    @AppStorage("moumusic.bili.controlScrim") private var scrimLevel = 1
+    private var scrimTop: Double { [0, 0.28, 0.6][min(max(scrimLevel, 0), 2)] }
+    private var scrimBottom: Double { [0, 0.34, 0.7][min(max(scrimLevel, 0), 2)] }
     var onFullscreen: (() -> Void)? = nil
     var onClose: (() -> Void)? = nil
     /// Sends one danmaku; returns true when it was accepted. nil hides the 发弹幕 button.
@@ -847,7 +856,7 @@ struct BiliNativePlayer: View {
             showDanmaku = danmakuEnabled
             model.setDanmaku(danmaku)
             scheduleHide()
-            if isFullscreen { Self.rotate(landscape: rotatesInFullscreen) }
+            if isFullscreen { Self.rotateReliably(landscape: rotatesInFullscreen) }
         }
         .onDisappear {
             hideTask?.cancel()
@@ -969,7 +978,7 @@ struct BiliNativePlayer: View {
             .padding(.horizontal, 10)
             .padding(.top, 6)
             .frame(maxWidth: .infinity)
-            .background(LinearGradient(colors: [.black.opacity(isFullscreen ? 0.6 : 0), .clear], startPoint: .top, endPoint: .bottom))
+            .background(LinearGradient(colors: [.black.opacity(isFullscreen ? scrimTop : 0), .clear], startPoint: .top, endPoint: .bottom))
 
             Spacer(minLength: 0)
 
@@ -1004,7 +1013,7 @@ struct BiliNativePlayer: View {
                 .padding(.bottom, 6)
             }
             .padding(.top, 14)
-            .background(LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom))
+            .background(LinearGradient(colors: [.clear, .black.opacity(scrimBottom)], startPoint: .top, endPoint: .bottom))
         }
     }
 
@@ -1270,6 +1279,26 @@ struct BiliNativePlayer: View {
         value == value.rounded() ? String(format: "%.1f", value) : String(format: "%g", value)
     }
 
+    /// The first rotation request is sometimes swallowed while the full-screen cover is still animating in
+    /// (the window turns, the content stays portrait). Ask again until the scene really is in the wanted
+    /// orientation, and nudge the presented views to lay out for the new size.
+    private static func rotateReliably(landscape: Bool) {
+        rotate(landscape: landscape)
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+        for delay in [0.2, 0.6, 1.2] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
+                if scene.interfaceOrientation.isLandscape != landscape { rotate(landscape: landscape) }
+                var controller = scene.windows.first(where: \.isKeyWindow)?.rootViewController
+                while let current = controller {
+                    current.view.setNeedsLayout()
+                    current.view.layoutIfNeeded()
+                    controller = current.presentedViewController
+                }
+            }
+        }
+    }
+
     private static func rotate(landscape: Bool) {
         guard UIDevice.current.userInterfaceIdiom == .phone,
               let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
@@ -1390,8 +1419,7 @@ final class BiliDanmakuUIView: UIView {
     func start() {
         guard displayLink == nil else { return }
         let link = CADisplayLink(target: Proxy(self), selector: #selector(Proxy.tick))
-        // 60 fps is plenty for text drifting at ~90 pt/s and leaves the decoder room on 4K video.
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         displayLink = link
     }

@@ -464,6 +464,7 @@ actor BilibiliAPI {
     private let session: URLSession
     /// WBI mixin key for signed endpoints (search), refreshed hourly.
     private var wbiMixinKey: (key: String, fetchedAt: Date)?
+    private var cidCache: [String: Int] = [:]
     private let cookieStorage: HTTPCookieStorage
     private let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
     // The first search used to fail intermittently because the old boolean
@@ -1663,6 +1664,31 @@ actor BilibiliAPI {
 
     /// Resolves a fresh, signed DASH audio URL immediately before a download.
     /// Bilibili media URLs expire, so callers should not cache this URL.
+    /// The first part's cid from the tiny pagelist endpoint (cached): listening needs nothing else from the
+    /// video page, so it skips the video-detail and subtitle requests.
+    func firstCID(bvid: String, cookie: String? = nil) async throws -> Int {
+        if let cached = cidCache[bvid] { return cached }
+        var components = URLComponents(string: "https://api.bilibili.com/x/player/pagelist")!
+        components.queryItems = [URLQueryItem(name: "bvid", value: bvid)]
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://www.bilibili.com/video/\(bvid)")
+        guard let first = (root["data"] as? [[String: Any]])?.first,
+              let cid = Self.integer(first["cid"]), cid > 0 else { throw APIError.invalidResponse }
+        cidCache[bvid] = cid
+        return cid
+    }
+
+    func audioPlayback(bvid: String, cid: Int, quality: Int? = nil,
+                       cookie: String? = nil) async throws -> AudioPlayback {
+        let candidates = try await audioCandidates(bvid: bvid, cid: cid, quality: quality, cookie: cookie)
+        let selected = quality.flatMap { requested in
+            candidates.first(where: { $0.quality.code == requested })
+        } ?? candidates.first
+        guard let selected else { throw APIError.unavailable }
+        return AudioPlayback(url: selected.url, quality: selected.quality,
+                             qualities: candidates.map(\.quality), dash: selected.dash)
+    }
+
     func audioPlayback(for video: Video, quality: Int? = nil,
                        cookie: String? = nil) async throws -> AudioPlayback {
         let candidates = try await audioCandidates(for: video, quality: quality, cookie: cookie)
@@ -1713,9 +1739,13 @@ actor BilibiliAPI {
 
     private func audioCandidates(for video: Video, quality: Int?, cookie: String?) async throws -> [AudioCandidate] {
         guard let cid = video.cid else { throw APIError.invalidResponse }
+        return try await audioCandidates(bvid: video.bvid, cid: cid, quality: quality, cookie: cookie)
+    }
+
+    private func audioCandidates(bvid: String, cid: Int, quality: Int?, cookie: String?) async throws -> [AudioCandidate] {
         var components = URLComponents(string: "https://api.bilibili.com/x/player/playurl")!
         components.queryItems = [
-            URLQueryItem(name: "bvid", value: video.bvid),
+            URLQueryItem(name: "bvid", value: bvid),
             URLQueryItem(name: "cid", value: "\(cid)"),
             URLQueryItem(name: "qn", value: "\(quality ?? 120)"),
             URLQueryItem(name: "fnval", value: "4048"),
@@ -1723,7 +1753,7 @@ actor BilibiliAPI {
             URLQueryItem(name: "fourk", value: "1")
         ]
         let root = try await requestObject(components.url!, cookie: cookie,
-                                           referer: "https://www.bilibili.com/video/\(video.bvid)")
+                                           referer: "https://www.bilibili.com/video/\(bvid)")
         guard let data = root["data"] as? [String: Any],
               let dash = data["dash"] as? [String: Any],
               let rows = dash["audio"] as? [[String: Any]],

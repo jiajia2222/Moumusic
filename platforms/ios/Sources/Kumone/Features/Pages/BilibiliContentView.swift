@@ -2001,7 +2001,8 @@ struct BilibiliVideoDetailContent: View {
             extraSubtitles = (try? await BilibiliAPI.shared.subtitleTracks(
                 bvid: current.bvid, aid: current.aid, cid: cid, cookie: bilibili.cookie)) ?? []
         }
-        if let subtitle = preferredSubtitle(in: allSubtitles) {
+        if UserDefaults.standard.object(forKey: "moumusic.bili.autoSubtitle") as? Bool ?? true,
+           let subtitle = preferredSubtitle(in: allSubtitles) {
             await loadSubtitle(subtitle)
         }
     }
@@ -2101,7 +2102,8 @@ struct BilibiliVideoDetailContent: View {
                 extraSubtitles = (try? await BilibiliAPI.shared.subtitleTracks(
                     bvid: loaded.bvid, aid: loaded.aid, cid: cid, cookie: bilibili.cookie)) ?? []
             }
-            if let subtitle = preferredSubtitle(in: allSubtitles) {
+            if UserDefaults.standard.object(forKey: "moumusic.bili.autoSubtitle") as? Bool ?? true,
+               let subtitle = preferredSubtitle(in: allSubtitles) {
                 await loadSubtitle(subtitle)
             }
         } catch {

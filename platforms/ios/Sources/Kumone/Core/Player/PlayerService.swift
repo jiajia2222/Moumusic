@@ -1295,9 +1295,11 @@ final class PlayerService: ObservableObject {
             // same player as every other song.
             do {
                 let cookie = BilibiliSessionStore.shared.cookie
-                let video = try await BilibiliAPI.shared.videoDetail(
-                    bvid: track.sourceMetadata["bvid"] ?? "", cookie: cookie)
-                let audio = try await BilibiliAPI.shared.audioPlayback(for: video, cookie: cookie)
+                // Listening only needs the cid and the audio streams: two small requests instead of the full
+                // video page plus its subtitle lookup.
+                let bvid = track.sourceMetadata["bvid"] ?? ""
+                let cid = try await BilibiliAPI.shared.firstCID(bvid: bvid, cookie: cookie)
+                let audio = try await BilibiliAPI.shared.audioPlayback(bvid: bvid, cid: cid, cookie: cookie)
                 resolvedURL = audio.url
                 biliAudioDash = audio.dash
                 servedByLXQuality = audio.quality.title

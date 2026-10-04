@@ -9,6 +9,9 @@ struct BilibiliSettingsView: View {
     @AppStorage("moumusic.bili.autoplay") private var autoplay = true
     @AppStorage("moumusic.bili.autoFullscreen") private var autoFullscreen = true
     @AppStorage("moumusic.bili.sponsorBlock") private var sponsorBlock = true
+    @AppStorage("moumusic.bili.autoSubtitle") private var autoSubtitle = true
+    @AppStorage("moumusic.bili.defaultRate") private var defaultRate = 1.0
+    @AppStorage("moumusic.bili.controlScrim") private var controlScrim = 1
     @AppStorage("moumusic.bili.danmaku.blocklist") private var danmakuBlocklist = ""
     @AppStorage("moumusic.bili.danmaku.opacity") private var danmakuOpacity = 0.9
     @AppStorage("moumusic.bili.danmaku.fontScale") private var danmakuScale = 1.0
@@ -62,6 +65,23 @@ struct BilibiliSettingsView: View {
                     Toggle("打开视频自动播放", isOn: $autoplay)
                     Toggle("横屏自动全屏（竖屏视频播放时自动竖屏全屏）", isOn: $autoFullscreen)
                     Toggle("显示弹幕", isOn: $settings.bilibiliDanmakuEnabled)
+                    Toggle("默认开启字幕（有字幕时自动选择）", isOn: $autoSubtitle)
+                    Picker("默认播放速度", selection: $defaultRate) {
+                        Text("0.75x").tag(0.75)
+                        Text("1.0x").tag(1.0)
+                        Text("1.25x").tag(1.25)
+                        Text("1.5x").tag(1.5)
+                        Text("2.0x").tag(2.0)
+                    }
+                    Picker("播放器控件背景", selection: $controlScrim) {
+                        Text("无").tag(0)
+                        Text("淡").tag(1)
+                        Text("深").tag(2)
+                    }
+                    .pickerStyle(.segmented)
+                    Text("控件背景是按钮后面的暗色渐变；选「无」时画面最干净，按钮靠自带阴影保持清晰。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Label("解码：高画质优先 HEVC，其余 H.264，系统硬件解码；音频自动选用杜比/无损/最高码率", systemImage: "cpu")
                         .font(.caption)
                         .foregroundStyle(.secondary)
