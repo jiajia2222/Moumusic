@@ -44,6 +44,20 @@ private final class BilibiliContentViewModel: ObservableObject {
         }
     }
 
+    /// Pull to refresh: ask for a fresh batch of whatever is on screen.
+    private var refreshIndex = 1
+    func refresh(cookie: String?) async {
+        if isSearching, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            await searchWithRetry(cookie: cookie)
+        } else if feed == .ranking {
+            do { videos = try await BilibiliAPI.shared.rankedVideos(categoryID: Self.rankingIDs[rankingCategory] ?? 0, cookie: cookie) }
+            catch { if videos.isEmpty { errorMessage = error.localizedDescription } }
+        } else {
+            refreshIndex += 1
+            await loadCategory(category, cookie: cookie, page: refreshIndex)
+        }
+    }
+
     func selectCategory(_ value: String, cookie: String?) {
         Task { @MainActor [weak self] in await self?.loadCategory(value, cookie: cookie) }
     }
@@ -124,7 +138,7 @@ private final class BilibiliContentViewModel: ObservableObject {
         Task { await search(cookie: cookie) }
     }
 
-    private func loadCategory(_ value: String, cookie: String?) async {
+    private func loadCategory(_ value: String, cookie: String?, page: Int = 1) async {
         category = value
         feed = value == "推荐" ? .recommend : .partition
         query = ""
@@ -133,10 +147,13 @@ private final class BilibiliContentViewModel: ObservableObject {
         errorMessage = nil
         do {
             if value == "推荐" {
-                videos = try await BilibiliAPI.shared.recommendedVideos(
+                let fresh = try await BilibiliAPI.shared.recommendedVideos(
                     source: recommendationSource,
+                    page: recommendationSource == .web ? page : 1,
                     cookie: cookie
                 )
+                // A refresh that comes back empty keeps what is on screen.
+                videos = fresh.isEmpty && page > 1 ? videos : fresh
             } else if let categoryID = Self.categoryIDs[value] {
                 videos = try await BilibiliAPI.shared.rankedVideos(categoryID: categoryID, cookie: cookie)
             } else {
@@ -901,6 +918,7 @@ struct BilibiliContentView: View {
             .padding(.top, 12)
         }
         .scrollIndicators(.hidden)
+        .refreshable { await model.refresh(cookie: bilibili.cookie) }
     }
 
     private func surfaceIcon(_ value: Surface) -> String {

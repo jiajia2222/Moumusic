@@ -457,6 +457,8 @@ actor BilibiliAPI {
     }
 
     private let session: URLSession
+    /// WBI mixin key for signed endpoints (search), refreshed hourly.
+    private var wbiMixinKey: (key: String, fetchedAt: Date)?
     private let cookieStorage: HTTPCookieStorage
     private let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
     // The first search used to fail intermittently because the old boolean
@@ -789,16 +791,13 @@ actor BilibiliAPI {
                          cookie: String? = nil) async throws -> [LiveRoom] {
         let cleaned = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return try await popularLiveRooms(cookie: cookie) }
-        var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/wbi/search/type")!
-        components.queryItems = [
+        let root = try await searchObject([
             URLQueryItem(name: "keyword", value: cleaned),
             URLQueryItem(name: "search_type", value: "live_room"),
             URLQueryItem(name: "page", value: "\(max(1, page))"),
             URLQueryItem(name: "order", value: "online"),
             URLQueryItem(name: "highlight", value: "0")
-        ]
-        let root = try await requestObject(components.url!, cookie: cookie,
-                                           referer: "https://search.bilibili.com/")
+        ], cookie: cookie)
         let rooms = Self.uniqueLiveRooms(Self.liveRoomRows(root["data"])
             .compactMap(Self.liveRoom))
         return rooms
@@ -969,15 +968,13 @@ actor BilibiliAPI {
     }
 
     func searchVideos(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> SearchPage {
-        var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/search/type")!
-        components.queryItems = [
+        let root = try await searchObject([
             URLQueryItem(name: "keyword", value: keyword),
             URLQueryItem(name: "search_type", value: "video"),
             URLQueryItem(name: "page", value: "\(max(1, page))"),
             URLQueryItem(name: "order", value: "totalrank"),
             URLQueryItem(name: "highlight", value: "0")
-        ]
-        let root = try await requestObject(components.url!, cookie: cookie, referer: "https://search.bilibili.com/")
+        ], cookie: cookie)
         let data = root["data"] as? [String: Any]
         let rows = data?["result"] as? [[String: Any]] ?? []
         return SearchPage(
@@ -1009,28 +1006,24 @@ actor BilibiliAPI {
     }
 
     func searchUsers(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> [User] {
-        var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/search/type")!
-        components.queryItems = [
+        let root = try await searchObject([
             URLQueryItem(name: "keyword", value: keyword),
             URLQueryItem(name: "search_type", value: "bili_user"),
             URLQueryItem(name: "page", value: "\(max(1, page))"),
             URLQueryItem(name: "order", value: "fans")
-        ]
-        let root = try await requestObject(components.url!, cookie: cookie, referer: "https://search.bilibili.com/")
+        ], cookie: cookie)
         let data = root["data"] as? [String: Any]
         let rows = data?["result"] as? [[String: Any]] ?? []
         return rows.compactMap(Self.user)
     }
 
     func searchCollections(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> [Collection] {
-        var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/search/type")!
-        components.queryItems = [
+        let root = try await searchObject([
             URLQueryItem(name: "keyword", value: keyword),
             URLQueryItem(name: "search_type", value: "media_bangumi"),
             URLQueryItem(name: "page", value: "\(max(1, page))"),
             URLQueryItem(name: "order", value: "totalrank")
-        ]
-        let root = try await requestObject(components.url!, cookie: cookie, referer: "https://search.bilibili.com/")
+        ], cookie: cookie)
         let data = root["data"] as? [String: Any]
         let rows = data?["result"] as? [[String: Any]] ?? []
         return rows.compactMap(Self.collection)
@@ -1677,6 +1670,65 @@ actor BilibiliAPI {
                 try? await Task.sleep(for: .milliseconds(300 * attempt))
             }
         }
+    }
+
+    // MARK: WBI-signed search
+
+    private static let wbiMixinTable = [
+        46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39,
+        12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63,
+        57, 62, 11, 36, 20, 34, 44, 52
+    ]
+
+    private func wbiKey() async -> String? {
+        if let cached = wbiMixinKey, Date().timeIntervalSince(cached.fetchedAt) < 3600 { return cached.key }
+        await ensureVisitorCookies()
+        var request = URLRequest(url: URL(string: "https://api.bilibili.com/x/web-interface/nav")!)
+        applyHeaders(to: &request, referer: "https://www.bilibili.com/")
+        let cookies = mergedRequestCookieHeader(nil)
+        if !cookies.isEmpty { request.setValue(cookies, forHTTPHeaderField: "Cookie") }
+        // Signed-out visitors get code -101 here but still receive the wbi_img keys.
+        guard let (data, _) = try? await session.data(for: request),
+              let root = Self.object(data),
+              let image = (root["data"] as? [String: Any])?["wbi_img"] as? [String: Any],
+              let imgURL = image["img_url"] as? String, let subURL = image["sub_url"] as? String else { return nil }
+        func stem(_ value: String) -> String {
+            (value as NSString).lastPathComponent.components(separatedBy: ".").first ?? ""
+        }
+        let source = Array(stem(imgURL) + stem(subURL))
+        guard source.count >= 64 else { return nil }
+        let key = String(Self.wbiMixinTable.prefix(32).map { source[$0] })
+        wbiMixinKey = (key, Date())
+        return key
+    }
+
+    private func wbiSignedURL(_ base: String, _ items: [URLQueryItem]) async -> URL? {
+        guard let key = await wbiKey() else { return nil }
+        var pairs = items.map { ($0.name, $0.value ?? "") }
+        pairs.append(("wts", String(Int(Date().timeIntervalSince1970))))
+        pairs.sort { $0.0 < $1.0 }
+        let unsafe = Set("!'()*")
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~")
+        func encode(_ value: String) -> String {
+            let cleaned = String(value.filter { !unsafe.contains($0) })
+            return cleaned.addingPercentEncoding(withAllowedCharacters: allowed) ?? cleaned
+        }
+        let query = pairs.map { "\($0.0)=\(encode($0.1))" }.joined(separator: "&")
+        let sign = Insecure.MD5.hash(data: Data((query + key).utf8)).map { String(format: "%02x", $0) }.joined()
+        return URL(string: "\(base)?\(query)&w_rid=\(sign)")
+    }
+
+    /// Search endpoints reject unsigned requests more and more often (-412): sign them with WBI first,
+    /// and fall back to the plain endpoint if the keys cannot be fetched or the signed call fails.
+    private func searchObject(_ items: [URLQueryItem], cookie: String?) async throws -> [String: Any] {
+        let referer = "https://search.bilibili.com/"
+        if let signed = await wbiSignedURL("https://api.bilibili.com/x/web-interface/wbi/search/type", items) {
+            if let root = try? await requestObject(signed, cookie: cookie, referer: referer) { return root }
+            wbiMixinKey = nil
+        }
+        var components = URLComponents(string: "https://api.bilibili.com/x/web-interface/search/type")!
+        components.queryItems = items
+        return try await requestObject(components.url!, cookie: cookie, referer: referer)
     }
 
     private func invalidateVisitorCookies() {
