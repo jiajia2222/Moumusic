@@ -188,6 +188,8 @@ struct BilibiliUserVideosView: View {
     @State private var errorMessage: String?
     @State private var selected: BilibiliAPI.Video?
     @State private var selectedUser: BilibiliAPI.User?
+    @State private var following: Bool?
+    @State private var followBusy = false
 
     var body: some View {
         ScrollView {
@@ -203,6 +205,18 @@ struct BilibiliUserVideosView: View {
                         }
                     }
                     Spacer(minLength: 0)
+                    if bilibili.isLoggedIn, let following {
+                        Button { toggleFollow() } label: {
+                            Text(following ? "已关注" : "+ 关注")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .foregroundStyle(following ? Color.secondary : Color.white)
+                                .background(following ? Color.secondary.opacity(0.18) : Theme.accent, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(followBusy)
+                    }
                 }
                 if isLoading {
                     ProgressView().frame(maxWidth: .infinity, minHeight: 200)
@@ -243,6 +257,7 @@ struct BilibiliUserVideosView: View {
             PlayerClearanceSpacer()
         }
         .refreshable { await Task { @MainActor in await load() }.value }
+        .task { following = await BilibiliAPI.shared.isFollowing(mid: user.mid, cookie: bilibili.cookie) }
         .navigationTitle(user.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
@@ -253,6 +268,21 @@ struct BilibiliUserVideosView: View {
                     .environmentObject(bilibili)
                     .environmentObject(settings)
             }
+        }
+    }
+
+    private func toggleFollow() {
+        guard let current = following, !followBusy else { return }
+        followBusy = true
+        Task { @MainActor in
+            do {
+                try await BilibiliAPI.shared.setFollow(mid: user.mid, follow: !current, cookie: bilibili.cookie)
+                following = !current
+                ToastCenter.shared.show(current ? "已取消关注" : "已关注")
+            } catch {
+                ToastCenter.shared.show("操作失败，请稍后重试")
+            }
+            followBusy = false
         }
     }
 

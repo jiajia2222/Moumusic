@@ -1502,6 +1502,7 @@ struct BilibiliVideoDetailContent: View {
     @Environment(\.dismiss) private var dismiss
     let video: BilibiliAPI.Video
     var onOpenRelated: ((BilibiliAPI.Video) -> Void)? = nil
+    @State private var showUploader = false
 
     @State private var detail: BilibiliAPI.Video?
     @StateObject private var playerModel = BiliPlayerModel()
@@ -1664,6 +1665,15 @@ struct BilibiliVideoDetailContent: View {
         }
         .sheet(item: $relatedSelection) { item in
             NavigationStack { BilibiliVideoDetailView(video: item) }
+        }
+        .sheet(isPresented: $showUploader) {
+            NavigationStack {
+                BilibiliUserVideosView(user: BilibiliAPI.User(
+                    mid: activeVideo.authorID, name: activeVideo.author,
+                    avatarURL: activeVideo.authorAvatarURL, signature: "", followerCount: 0))
+                    .environmentObject(bilibili)
+                    .environmentObject(settings)
+            }
         }
         .onChange(of: settings.bilibiliMode) { _ in
             Task { await reloadForCurrentMode() }
@@ -1920,7 +1930,23 @@ struct BilibiliVideoDetailContent: View {
     private var introduction: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(activeVideo.title).font(.title3.weight(.semibold))
-            Text("\(Formatters.playCount(activeVideo.playCount)) 次播放 · \(activeVideo.author)").font(.subheadline).foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Text("\(Formatters.playCount(activeVideo.playCount)) 次播放 ·").foregroundStyle(.secondary)
+                // Tap the uploader to open their page (videos, follow).
+                Button {
+                    playerModel.pause()
+                    showUploader = true
+                } label: {
+                    HStack(spacing: 2) {
+                        Text(activeVideo.author)
+                        Image(systemName: "chevron.right").font(.caption2.weight(.bold))
+                    }
+                    .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .disabled(activeVideo.authorID <= 0)
+            }
+            .font(.subheadline)
             if !activeVideo.description.isEmpty {
                 Text(activeVideo.description).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }

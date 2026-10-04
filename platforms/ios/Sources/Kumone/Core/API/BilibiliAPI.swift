@@ -1015,6 +1015,27 @@ actor BilibiliAPI {
         return first
     }
 
+    /// Whether the signed-in account follows this uploader.
+    func isFollowing(mid: Int, cookie: String?) async -> Bool {
+        guard mid > 0, cookie != nil else { return false }
+        var components = URLComponents(string: "https://api.bilibili.com/x/relation")!
+        components.queryItems = [URLQueryItem(name: "fid", value: "\(mid)")]
+        guard let root = try? await requestObject(components.url!, cookie: cookie,
+                                                  referer: "https://space.bilibili.com/\(mid)"),
+              let attribute = Self.integer((root["data"] as? [String: Any])?["attribute"]) else { return false }
+        // 2 = following, 6 = mutual follow.
+        return attribute == 2 || attribute == 6
+    }
+
+    func setFollow(mid: Int, follow: Bool, cookie: String?) async throws {
+        guard mid > 0, let cookie, let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty else {
+            throw APIError.unavailable
+        }
+        _ = try await postFormObject(URL(string: "https://api.bilibili.com/x/relation/modify")!, fields: [
+            "fid": "\(mid)", "act": follow ? "1" : "2", "re_src": "11", "csrf": csrf
+        ], cookie: cookie, referer: "https://space.bilibili.com/\(mid)")
+    }
+
     func suggestKeywords(_ keyword: String) async -> [String] {
         var components = URLComponents(string: "https://s.search.bilibili.com/main/suggest")!
         components.queryItems = [
