@@ -13,6 +13,9 @@ final class NowPlayingManager {
     private var baseArtist = ""
     private var currentLyric = ""
     private var currentTrack: Track?
+    /// The full-size cover of the current track, kept so the immersive switch can apply without a download.
+    private var fullImage: UIImage?
+    private var fullImageKey: String?
 
     private init() {}
 
@@ -188,10 +191,41 @@ final class NowPlayingManager {
     /// Rebuilds the artwork object without resetting playback position or
     /// lyric metadata. iOS uses the artwork's bounds and resolution when the
     /// Lock Screen player is expanded, so this is also the live setting hook.
+    /// The switch was flipped: re-apply right now from the cached full-size cover (static cover first, the
+    /// animated one follows as soon as it is rendered; turning it off clears the animation immediately).
+    func applyImmersiveSettingNow() {
+        guard let track = currentTrack else { return }
+        guard let image = fullImage, fullImageKey == track.playbackKey else {
+            refreshArtworkMode()
+            return
+        }
+        artworkTask?.cancel()
+        let on = SettingsManager.shared.lockScreenImmersiveArtwork
+        let shown = on ? image : Self.downscaled(image, side: 256)
+        info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: shown.size) { _ in shown }
+        if #available(iOS 26.0, *), !on {
+            for key in MPNowPlayingInfoCenter.supportedAnimatedArtworkKeys { info[key] = nil }
+        }
+        if external == nil { MPNowPlayingInfoCenter.default().nowPlayingInfo = info }
+        artworkTask = Task { [weak self] in
+            await self?.applyAnimatedArtwork(image: image, track: track)
+        }
+    }
+
+    private static func downscaled(_ image: UIImage, side: CGFloat) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
+            image.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
+        }
+    }
+
     func refreshArtworkMode() {
         guard let track = currentTrack else { return }
         artworkTask?.cancel()
-        let artworkSize = lockScreenArtworkSize
+        // Always fetch the large cover: the "off" look is just a downscaled copy, so flipping the
+        // switch never has to wait for a download.
+        let artworkSize = 1024
         artworkTask = Task { [weak self] in
             let url: URL?
             if let directURL = track.album.picUrl?.resizedImageURL(artworkSize) {
@@ -219,7 +253,10 @@ final class NowPlayingManager {
                 guard let cropped = cg.cropping(to: rect) else { return loaded }
                 return UIImage(cgImage: cropped, scale: s, orientation: loaded.imageOrientation)
             }()
-            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            self.fullImage = image
+            self.fullImageKey = track.playbackKey
+            let shown = SettingsManager.shared.lockScreenImmersiveArtwork ? image : Self.downscaled(image, side: 256)
+            let artwork = MPMediaItemArtwork(boundsSize: shown.size) { _ in shown }
             self.info[MPMediaItemPropertyArtwork] = artwork
             if self.external == nil { MPNowPlayingInfoCenter.default().nowPlayingInfo = self.info }
             await self.applyAnimatedArtwork(image: image, track: track)

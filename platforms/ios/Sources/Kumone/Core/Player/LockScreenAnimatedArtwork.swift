@@ -17,9 +17,14 @@ enum LockScreenAnimatedArtwork {
     /// Animated artwork keyed by variant name ("3x4", "1x1").
     static func artworks(for image: UIImage, key: String) async -> [String: MPMediaItemAnimatedArtwork] {
         var result: [String: MPMediaItemAnimatedArtwork] = [:]
-        for variant in variants {
+        // Both loops are rendered at the same time (they used to be rendered one after the other).
+        let first = variants[0], second = variants[1]
+        async let firstURL = renderVideo(image: image, size: first.size, identifier: "\(stableHash(key))-\(first.name)")
+        async let secondURL = renderVideo(image: image, size: second.size, identifier: "\(stableHash(key))-\(second.name)")
+        let rendered = await [firstURL, secondURL]
+        for (variant, rendered) in zip(variants, rendered) {
             let identifier = "\(stableHash(key))-\(variant.name)"
-            guard let url = await renderVideo(image: image, size: variant.size, identifier: identifier) else { continue }
+            guard let url = rendered else { continue }
             let preview = aspectFill(image, size: variant.size, scale: 1)
             let artwork = MPMediaItemAnimatedArtwork(
                 artworkID: identifier,

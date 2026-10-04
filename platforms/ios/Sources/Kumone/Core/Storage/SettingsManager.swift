@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 enum AudioQuality: String, CaseIterable, Identifiable, Sendable {
     // allCases is used by the player and download pickers. Keep the order
@@ -433,7 +433,7 @@ final class SettingsManager: ObservableObject {
     @Published var lockScreenImmersiveArtwork: Bool {
         didSet {
             UserDefaults.standard.set(lockScreenImmersiveArtwork, forKey: Keys.lockScreenImmersiveArtwork)
-            NowPlayingManager.shared.refreshArtworkMode()
+            NowPlayingManager.shared.applyImmersiveSettingNow()
         }
     }
     #endif

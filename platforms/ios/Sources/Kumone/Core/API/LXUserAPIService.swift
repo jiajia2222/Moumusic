@@ -1275,17 +1275,22 @@ final class LXUserAPIService: ObservableObject {
             // The file itself is the evidence: read its header (FLAC sample rate / bit depth) or work out
             // the real bitrate from its size. Only when the file cannot be inspected does the source's
             // own label count.
-            if let measured = await RemoteAudioInspector.measuredQuality(of: url, duration: track.duration) {
-                return measured
-            }
-            // Without a returned tier there is no evidence that the requested
-            // high-quality URL is real. Keep it unknown instead of displaying
-            // a false lossless badge.
-            return Self.resolvedQuality(
+            let label = Self.resolvedQuality(
                 data: data,
                 requested: requested,
                 available: requestedQualities
             )
+            let measured = await RemoteAudioInspector.measuredQuality(of: url, duration: track.duration)
+            DiagnosticLogStore.shared.append(
+                level: .info, category: "音质探测",
+                message: "\(track.name) · 请求 \(requested)",
+                detail: "音源标签：\(label)\n文件实测：\(measured ?? "无法读取")\n地址：\(url.host ?? "-") · .\(url.pathExtension.isEmpty ? "-" : url.pathExtension.lowercased())"
+            )
+            if let measured { return measured }
+            // A lossless claim is a claim about the file, and the file could not be read: do not list it.
+            // (Spatial / Dolby cannot be checked from the header at all; for those the label is all there is.)
+            if label == "flac" || label == "flac24bit" { return nil }
+            return label
         } catch {
             return nil
         }
