@@ -23,8 +23,11 @@ struct IOS15NavigationPath {
 
 final class IOS15StackRouter: ObservableObject {
     private var builders: [ObjectIdentifier: (AnyHashable) -> AnyView] = [:]
+    private(set) var registeredNames: [String] = []
 
     func register<D: Hashable, C: View>(_ type: D.Type, _ destination: @escaping (D) -> C) {
+        let name = String(describing: type)
+        if !registeredNames.contains(name) { registeredNames.append(name) }
         builders[ObjectIdentifier(type)] = { item in
             guard let value = item.base as? D else { return AnyView(EmptyView()) }
             return AnyView(destination(value))
@@ -103,6 +106,19 @@ private struct IOS15StackLevel: View {
     @ViewBuilder private var next: some View {
         if let items = path?.wrappedValue.items, depth < items.count, let view = router.view(for: items[depth]) {
             IOS15StackLevel(depth: depth + 1, content: view)
+        } else if let items = path?.wrappedValue.items, depth < items.count {
+            // Never a silent blank page: say what was pushed and what is registered.
+            VStack(spacing: 8) {
+                Text("无法打开该页面").font(.headline)
+                Text("目标类型：\(String(describing: type(of: items[depth].base)))").font(.footnote)
+                Text("已注册：\(router.registeredNames.joined(separator: ", "))").font(.footnote)
+            }
+            .padding()
+            .onAppear {
+                DiagnosticLogStore.shared.append(
+                    level: .error, category: "导航", message: "页面未注册",
+                    detail: "目标 \(String(describing: type(of: items[depth].base)))；已注册 \(router.registeredNames.joined(separator: ", "))")
+            }
         } else {
             EmptyView()
         }
