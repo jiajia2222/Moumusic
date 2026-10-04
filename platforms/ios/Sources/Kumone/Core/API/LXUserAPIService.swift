@@ -51,6 +51,8 @@ final class LXUserAPIService: ObservableObject {
     private static let qualityProbeTimeout: TimeInterval = 1.8
 
     private let session: URLSession
+    /// Confirmed probe answers per song / platform / tier, so opening the picker again does not re-request them.
+    private var qualityProbeCache: [String: (value: String, at: Date)] = [:]
     private var context: JSContext?
     private var key = ""
     private var loadedID: String?
@@ -1252,6 +1254,8 @@ final class LXUserAPIService: ObservableObject {
         requested: String,
         requestedQualities: [String]
     ) async -> String? {
+        let cacheKey = "\(track.playbackKey)|\(platform)|\(Self.normalizedQuality(requested))"
+        if let hit = qualityProbeCache[cacheKey], Date().timeIntervalSince(hit.at) < 600 { return hit.value }
         do {
             let response = try await request(
                 source: platform,
@@ -1286,10 +1290,14 @@ final class LXUserAPIService: ObservableObject {
                 message: "\(track.name) · 请求 \(requested)",
                 detail: "音源标签：\(label)\n文件实测：\(measured ?? "无法读取")\n地址：\(url.host ?? "-") · .\(url.pathExtension.isEmpty ? "-" : url.pathExtension.lowercased())"
             )
-            if let measured { return measured }
+            if let measured {
+                qualityProbeCache[cacheKey] = (measured, Date())
+                return measured
+            }
             // A lossless claim is a claim about the file, and the file could not be read: do not list it.
             // (Spatial / Dolby cannot be checked from the header at all; for those the label is all there is.)
             if label == "flac" || label == "flac24bit" { return nil }
+            if label != "unknown" { qualityProbeCache[cacheKey] = (label, Date()) }
             return label
         } catch {
             return nil
@@ -1303,16 +1311,47 @@ final class LXUserAPIService: ObservableObject {
         declared: [String]
     ) async -> Set<String> {
         guard await activate(source, waitTime: Self.qualityProbeTimeout) else { return [] }
-        let requestedQualities = declared.isEmpty ? ["128k"] : declared
+        let all = declared.isEmpty ? ["128k"] : declared
+        let startedAt = Date()
+        let premiumFloor = Self.qualityRank("flac")
+        let premium = all.filter { Self.qualityRank($0) >= premiumFloor }
+        let everyday = all.filter { Self.qualityRank($0) < premiumFloor }
 
-        // Every tier is probed (request + a look at the real file) at the same time, and the whole probe
-        // is capped at two seconds: whatever has been confirmed by then is the answer.
-        guard !requestedQualities.isEmpty else { return [] }
-        let box = QualityProbeBox(count: requestedQualities.count)
+        var verified = Set<String>()
+        // Stage 1: the tiers worth knowing about. A lossless / Hi-Res / Spatial file answers for every lower
+        // tier too, so 320k and 128k are not probed (and not logged) at all when one of these is confirmed.
+        if !premium.isEmpty {
+            verified = await probeBatch(source: source, platform: platform, track: track, tiers: premium,
+                                        allDeclared: all, budget: everyday.isEmpty ? 2.0 : 1.4)
+            if verified.contains(where: { Self.qualityRank($0) >= premiumFloor }) {
+                verified.formUnion(everyday.map(Self.normalizedQuality))
+                return verified
+            }
+        }
+        // Stage 2: nothing premium: find out which of the everyday tiers the song really has.
+        let remaining = max(0.6, 2.0 - Date().timeIntervalSince(startedAt))
+        verified.formUnion(await probeBatch(source: source, platform: platform, track: track,
+                                            tiers: everyday.isEmpty ? all : everyday,
+                                            allDeclared: all, budget: remaining))
+        return verified
+    }
+
+    /// Probes the given tiers at the same time and returns what has been confirmed when all answered or the
+    /// budget (seconds) ran out.
+    private func probeBatch(
+        source: LXSourceStore.Source,
+        platform: String,
+        track: Track,
+        tiers: [String],
+        allDeclared: [String],
+        budget: TimeInterval
+    ) async -> Set<String> {
+        guard !tiers.isEmpty else { return [] }
+        let box = QualityProbeBox(count: tiers.count)
         var tasks: [Task<Void, Never>] = []
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             box.continuation = continuation
-            for requested in requestedQualities {
+            for requested in tiers {
                 tasks.append(Task { @MainActor [weak self] in
                     if let self, !Task.isCancelled,
                        let actual = await self.probeQualityName(
@@ -1320,7 +1359,7 @@ final class LXUserAPIService: ObservableObject {
                         platform: platform,
                         track: track,
                         requested: requested,
-                        requestedQualities: requestedQualities
+                        requestedQualities: allDeclared
                        ) {
                         box.verified.insert(actual)
                     }
@@ -1329,7 +1368,7 @@ final class LXUserAPIService: ObservableObject {
                 })
             }
             tasks.append(Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                try? await Task.sleep(nanoseconds: UInt64(budget * 1_000_000_000))
                 box.finish()
             })
         }
