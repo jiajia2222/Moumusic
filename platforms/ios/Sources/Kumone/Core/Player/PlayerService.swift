@@ -308,7 +308,7 @@ final class PlayerService: ObservableObject {
         let known = knownQualityTiers[cacheKey] ?? []
         let refuted: Set<String> = []
         // Never offer a tier the selected source / signed-in accounts cannot deliver at all.
-        let allowed = QualitySupport.allowedTiers(for: playbackMode)
+        let allowed = QualitySupport.allowedTiers(for: playbackMode, track: track)
         if !forceRefresh, let cached = qualityAvailabilityCache[cacheKey], cached.expiresAt > Date() {
             // A probe can finish before playback resolves the real URL and
             // cache only the safe 128K fallback. Merge the verified result for
@@ -333,6 +333,7 @@ final class PlayerService: ObservableObject {
                                                   "neteasecloudmusic", "cloudmusic"].contains(source)
         let isQQMusic = ["tx", "qq", "qqmusic", "qq-music"].contains(source)
         let isKugou = ["kg", "kugou"].contains(source)
+        let isMigu = ["mg", "migu"].contains(source)
         var qualityTasks: [Task<[String], Never>] = []
         if playbackMode != .official {
             qualityTasks.append(Task { @MainActor in
@@ -363,6 +364,12 @@ final class PlayerService: ObservableObject {
            isKugou {
             qualityTasks.append(Task { @MainActor in
                 await officialQualityNames(for: track)
+            })
+        }
+        if playbackMode != .thirdParty, isMigu,
+           let copyrightId = track.sourceMetadata["copyrightId"], !copyrightId.isEmpty {
+            qualityTasks.append(Task {
+                await MiguAPI.shared.availableQualities(copyrightId: copyrightId)
             })
         }
         // The picker is a convenience probe, not a reason to hold the sheet
@@ -1320,10 +1327,13 @@ final class PlayerService: ObservableObject {
                                                            "neteasecloudmusic", "cloudmusic"].contains(sourceValue)
             let isQQMusic = ["tx", "qq", "qqmusic", "qq-music"].contains(sourceValue)
             let isKugou = ["kg", "kugou"].contains(sourceValue)
+            // Migu's public listen route needs no account.
+            let isMigu = ["mg", "migu"].contains(sourceValue)
             let playbackMode = SettingsManager.shared.playbackSourceMode
             let hasOfficialAccount = (isNativeNetease && NeteaseClient.shared.isLoggedIn)
                 || (isQQMusic && QQMusicSessionStore.shared.isLoggedIn)
                 || (isKugou && KugouSessionStore.shared.isLoggedIn)
+                || isMigu
             let hasLXSource = !LXSourceStore.shared.playbackSources.isEmpty
             guard hasLXSource || (playbackMode != .thirdParty && hasOfficialAccount) else {
                 guard generation == resolveGeneration else { return }
@@ -1851,6 +1861,26 @@ final class PlayerService: ObservableObject {
                     quality: actual.lxType,
                     sourceLabel: "酷狗音乐官方账号音源"
                 )
+            }
+        }
+
+        if ["mg", "migu"].contains(source) {
+            let copyrightId = track.sourceMetadata["copyrightId"] ?? ""
+            if !copyrightId.isEmpty {
+                var attempted = Set<String>()
+                for candidate in requestedCandidates {
+                    let token = candidate.lxType
+                    guard attempted.insert(token).inserted,
+                          let resolved = try? await MiguAPI.shared.musicURL(
+                            copyrightId: copyrightId, contentId: nil, quality: token
+                          ),
+                          let actual = AudioQuality(lxType: resolved.quality) else { continue }
+                    return OfficialAudio(
+                        url: resolved.url,
+                        quality: actual.lxType,
+                        sourceLabel: "咪咕音乐官方接口"
+                    )
+                }
             }
         }
 

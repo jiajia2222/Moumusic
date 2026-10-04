@@ -8,7 +8,7 @@ enum QualitySupport {
     private static let preferredKey = "moumusic.audioQuality.preferred"
 
     /// Canonical tier names (`AudioQuality.lxType`) that can be offered right now.
-    static func allowedTiers(for mode: PlaybackSourceMode) -> Set<String> {
+    static func allowedTiers(for mode: PlaybackSourceMode, track: Track? = nil) -> Set<String> {
         var tiers: Set<String> = ["128k"]
         if mode != .official, LXSourceStore.shared.selectedSource != nil {
             let service = LXUserAPIService.shared
@@ -29,6 +29,12 @@ enum QualitySupport {
             if KugouSessionStore.shared.isLoggedIn {
                 tiers.formUnion(["jymaster", "atmos", "dolby", "flac24bit", "flac", "320k", "128k"])
             }
+        }
+        // Migu's public route serves its own tiers for Migu songs (no account needed).
+        if mode != .thirdParty,
+           let source = (track?.source ?? track?.sourceMetadata["source"])?.lowercased(),
+           ["mg", "migu"].contains(source) {
+            tiers.formUnion(["jymaster", "atmos", "flac24bit", "flac", "320k", "128k"])
         }
         return tiers
     }

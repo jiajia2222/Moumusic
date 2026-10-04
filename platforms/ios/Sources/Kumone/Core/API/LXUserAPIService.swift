@@ -335,6 +335,23 @@ final class LXUserAPIService: ObservableObject {
                 }
             }
             throw lastError ?? LXError.sourceUnavailable("酷狗音乐账号没有可用音质")
+        case "mg":
+            guard let copyrightId = track.sourceMetadata["copyrightId"], !copyrightId.isEmpty else {
+                throw LXError.sourceUnavailable("咪咕歌曲缺少 copyrightId，无法使用官方接口")
+            }
+            var lastError: Error?
+            let requestedQualities = [quality, "exhigh", "standard"].reduce(into: [String]()) { result, item in
+                if !result.contains(item) { result.append(item) }
+            }
+            for requestedQuality in requestedQualities {
+                do {
+                    let audio = try await MiguAPI.shared.musicURL(copyrightId: copyrightId, quality: requestedQuality)
+                    return ResolvedURL(url: audio.url, quality: audio.quality)
+                } catch {
+                    lastError = error
+                }
+            }
+            throw lastError ?? LXError.sourceUnavailable("咪咕官方接口没有可用音质")
         default:
             break
         }
@@ -373,6 +390,8 @@ final class LXUserAPIService: ObservableObject {
             return NeteaseClient.shared.isLoggedIn
         case "kg":
             return KugouSessionStore.shared.isLoggedIn && KugouSessionStore.shared.cookie != nil
+        case "mg":
+            return true   // public route, no account
         default:
             return false
         }
@@ -1193,6 +1212,8 @@ final class LXUserAPIService: ObservableObject {
                 available.formUnion(await officialQualityNames(for: track, platform: "tx"))
             } else if primaryPlatform == "kg", KugouSessionStore.shared.isLoggedIn {
                 available.formUnion(await officialQualityNames(for: track, platform: "kg"))
+            } else if primaryPlatform == "mg", let copyrightId = track.sourceMetadata["copyrightId"], !copyrightId.isEmpty {
+                available.formUnion(await MiguAPI.shared.availableQualities(copyrightId: copyrightId))
             }
         }
         for source in playbackSources {
