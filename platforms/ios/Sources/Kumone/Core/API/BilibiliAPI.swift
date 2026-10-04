@@ -346,6 +346,9 @@ actor BilibiliAPI {
         let coverURL: String?
         let subtitle: String
         let itemCount: Int
+        /// Uploader collections (合集 / 系列) carry the owner and open into a video list.
+        var mid: Int = 0
+        var isUGC: Bool = false
     }
 
     struct SearchPage: Sendable {
@@ -1068,6 +1071,7 @@ actor BilibiliAPI {
     private func searchCollectionsExact(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> [Collection] {
         // "Collections" are Bilibili's series catalogues: anime (bangumi) and film / TV (ft). Ask both and
         // merge; only fail when neither answers.
+        let ugc = await ugcCollections(keyword: keyword, cookie: cookie)
         var merged: [Collection] = []
         var lastError: Error?
         var answered = false
@@ -1088,8 +1092,95 @@ actor BilibiliAPI {
                 lastError = error
             }
         }
-        if !answered, let lastError { throw lastError }
-        return merged
+        if !answered, let lastError, ugc.isEmpty { throw lastError }
+        return ugc + merged
+    }
+
+    // MARK: Uploader collections (合集 / 系列)
+
+    /// Bilibili has no collection search endpoint. Mirror what the site does: find the matching
+    /// uploaders, list their collections, keep the ones that match the keyword (or all of them when the
+    /// keyword is the uploader's name).
+    private func ugcCollections(keyword: String, cookie: String?) async -> [Collection] {
+        let needle = keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty,
+              let users = try? await searchUsersExact(keyword: keyword, page: 1, cookie: cookie) else { return [] }
+        var result: [Collection] = []
+        for user in users.prefix(3) {
+            let name = user.name.lowercased()
+            let isTheUploader = !name.isEmpty && (name.contains(needle) || needle.contains(name))
+            let lists = await userCollections(user: user, cookie: cookie)
+            let picked = isTheUploader
+                ? Array(lists.prefix(12))
+                : lists.filter { $0.title.lowercased().contains(needle) }
+            for item in picked where !result.contains(where: { $0.id == item.id }) { result.append(item) }
+        }
+        return result
+    }
+
+    func userCollections(user: User, cookie: String?) async -> [Collection] {
+        var components = URLComponents(string: "https://api.bilibili.com/x/polymer/web-space/seasons_series_list")!
+        components.queryItems = [
+            URLQueryItem(name: "mid", value: "\(user.mid)"),
+            URLQueryItem(name: "page_num", value: "1"),
+            URLQueryItem(name: "page_size", value: "30")
+        ]
+        guard let root = try? await requestObject(components.url!, cookie: cookie,
+                                                  referer: "https://space.bilibili.com/\(user.mid)"),
+              let lists = (root["data"] as? [String: Any])?["items_lists"] as? [String: Any] else { return [] }
+        var result: [Collection] = []
+        for (key, prefix, idKey) in [("seasons_list", "season", "season_id"), ("series_list", "series", "series_id")] {
+            for row in (lists[key] as? [[String: Any]]) ?? [] {
+                guard let meta = row["meta"] as? [String: Any],
+                      let id = Self.integer(meta[idKey]), id > 0,
+                      let name = Self.text(meta["name"]), !name.isEmpty else { continue }
+                result.append(Collection(
+                    id: "\(prefix)-\(id)",
+                    title: name,
+                    coverURL: Self.imageURL(Self.text(meta["cover"])),
+                    subtitle: "\(user.name) · \(prefix == "season" ? "合集" : "系列")",
+                    itemCount: Self.integer(meta["total"]) ?? 0,
+                    mid: user.mid,
+                    isUGC: true
+                ))
+            }
+        }
+        return result
+    }
+
+    func collectionVideos(_ collection: Collection, owner: String, cookie: String?) async throws -> [Video] {
+        let parts = collection.id.split(separator: "-", maxSplits: 1).map(String.init)
+        guard collection.isUGC, parts.count == 2, let id = Int(parts[1]) else { return [] }
+        var components: URLComponents
+        if parts[0] == "season" {
+            components = URLComponents(string: "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list")!
+            components.queryItems = [
+                URLQueryItem(name: "mid", value: "\(collection.mid)"),
+                URLQueryItem(name: "season_id", value: "\(id)"),
+                URLQueryItem(name: "sort_reverse", value: "false"),
+                URLQueryItem(name: "page_num", value: "1"),
+                URLQueryItem(name: "page_size", value: "100")
+            ]
+        } else {
+            components = URLComponents(string: "https://api.bilibili.com/x/series/archives")!
+            components.queryItems = [
+                URLQueryItem(name: "mid", value: "\(collection.mid)"),
+                URLQueryItem(name: "series_id", value: "\(id)"),
+                URLQueryItem(name: "only_normal", value: "true"),
+                URLQueryItem(name: "sort", value: "desc"),
+                URLQueryItem(name: "pn", value: "1"),
+                URLQueryItem(name: "ps", value: "100")
+            ]
+        }
+        let root = try await requestObject(components.url!, cookie: cookie,
+                                           referer: "https://space.bilibili.com/\(collection.mid)")
+        let rows = ((root["data"] as? [String: Any])?["archives"] as? [[String: Any]]) ?? []
+        return rows.compactMap { raw in
+            var normalized = raw
+            normalized["owner"] = ["name": owner, "mid": collection.mid, "face": ""]
+            if normalized["pubdate"] == nil { normalized["pubdate"] = raw["ctime"] }
+            return Self.video(normalized)
+        }
     }
 
     /// Loads the video detail and then asks x/player/v2 for subtitle tracks.

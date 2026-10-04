@@ -1069,6 +1069,7 @@ struct BilibiliSearchView: View {
     @StateObject private var model = BilibiliContentViewModel()
     @State private var selectedVideo: BilibiliAPI.Video?
     @State private var selectedUser: BilibiliAPI.User?
+    @State private var selectedCollection: BilibiliAPI.Collection?
     @EnvironmentObject private var player: PlayerService
     @FocusState private var searchFocused: Bool
 
@@ -1129,6 +1130,14 @@ struct BilibiliSearchView: View {
         .sheet(item: $selectedUser) { user in
             NavigationStack {
                 BilibiliUserVideosView(user: user)
+                    .environmentObject(bilibili)
+                    .environmentObject(settings)
+                    .environmentObject(player)
+            }
+        }
+        .sheet(item: $selectedCollection) { collection in
+            NavigationStack {
+                BilibiliCollectionVideosView(collection: collection)
                     .environmentObject(bilibili)
                     .environmentObject(settings)
                     .environmentObject(player)
@@ -1227,7 +1236,14 @@ struct BilibiliSearchView: View {
             } else {
                 LazyVStack(spacing: 10) {
                     ForEach(model.collections) { collection in
-                        BilibiliCollectionRow(collection: collection)
+                        if collection.isUGC {
+                            Button { selectedCollection = collection } label: {
+                                BilibiliCollectionRow(collection: collection).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            BilibiliCollectionRow(collection: collection)
+                        }
                     }
                 }
                 .padding(.horizontal, Theme.Layout.contentInset)

@@ -274,4 +274,97 @@ struct BilibiliUserVideosView: View {
             errorMessage = error.localizedDescription
         }
     }
-}#endif
+}
+
+/// The videos of one uploader collection (合集 / 系列), opened from a collection search result.
+struct BilibiliCollectionVideosView: View {
+    let collection: BilibiliAPI.Collection
+
+    @EnvironmentObject private var bilibili: BilibiliSessionStore
+    @EnvironmentObject private var settings: SettingsManager
+    @EnvironmentObject private var player: PlayerService
+    @Environment(\.dismiss) private var dismiss
+    @State private var videos: [BilibiliAPI.Video] = []
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+    @State private var selected: BilibiliAPI.Video?
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                Text(collection.subtitle).font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                if isLoading {
+                    ProgressView().frame(maxWidth: .infinity, minHeight: 200)
+                } else if let errorMessage, videos.isEmpty {
+                    ErrorStateView(message: errorMessage) { Task { await load() } }
+                        .frame(maxWidth: .infinity, minHeight: 200)
+                } else if videos.isEmpty {
+                    EmptyStateView(icon: "rectangle.stack", title: "这个合集还没有视频")
+                        .frame(maxWidth: .infinity, minHeight: 200)
+                } else {
+                    ForEach(videos) { video in
+                        Button { open(video) } label: {
+                            HStack(spacing: 12) {
+                                CachedAsyncImage(url: video.coverURL?.resizedImageURL(240), animated: false) {
+                                    Color.secondary.opacity(0.15)
+                                }
+                                .frame(width: 112, height: 70)
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(video.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                    Text("\(Formatters.playCount(video.playCount)) 播放 · \(video.durationText)")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: settings.bilibiliMode == .listen ? "headphones" : "play.rectangle")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.Layout.contentInset)
+            .padding(.top, 8)
+            PlayerClearanceSpacer()
+        }
+        .refreshable { await Task { @MainActor in await load() }.value }
+        .navigationTitle(collection.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        .task { await load() }
+        .sheet(item: $selected) { video in
+            NavigationStack {
+                BilibiliVideoDetailView(video: video)
+                    .environmentObject(bilibili)
+                    .environmentObject(settings)
+            }
+        }
+    }
+
+    private func open(_ video: BilibiliAPI.Video) {
+        if settings.bilibiliMode == .listen {
+            player.play(tracks: videos.map(Track.bilibili), source: .none, startAt: Track.bilibili(video))
+        } else {
+            selected = video
+        }
+    }
+
+    @MainActor private func load() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            let owner = collection.subtitle.components(separatedBy: " · ").first ?? ""
+            videos = BilibiliContentFilter.videos(
+                try await BilibiliAPI.shared.collectionVideos(collection, owner: owner, cookie: bilibili.cookie))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+#endif
