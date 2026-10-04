@@ -483,6 +483,8 @@ final class LXUserAPIService: ObservableObject {
         let crossPlatformDeadline: TimeInterval = 2
         var crossStartedAt: Date?
         for passIndex in 0..<3 {
+        // 设置里的「跨平台补音质」(default off): other platforms are only asked when the user allows it.
+        if passIndex == 1, !UserDefaults.standard.bool(forKey: "moumusic.crossPlatformQuality") { continue }
         if passIndex == 1 { crossStartedAt = Date() }
         if passIndex == 2, downgradedFallback != nil { break }
         var candidates: [MusicURLCandidate] = []
@@ -612,6 +614,7 @@ final class LXUserAPIService: ObservableObject {
                         requested: tier,
                         available: candidate.supportedQualities.isEmpty ? [tier] : candidate.supportedQualities
                     )
+                    DiagnosticLogStore.shared.append(level: .info, category: "音源请求", message: "\(candidate.platform) 请求 \(tier) → 返回 \(actualQuality)", detail: "音源：\(candidate.source.name)　轮次：\(passIndex)　返回字段 type=\((data["type"] as? String) ?? "-")")
                     // The same song can come back as Atmos on one request and as FLAC on the next (the source
                     // itself is inconsistent). Before settling for a lower tier, ask for the requested one again
                     // a couple of times: each retry costs a fraction of a second.
@@ -673,6 +676,7 @@ final class LXUserAPIService: ObservableObject {
                     // so do not hammer its lower tiers. Lower tiers are only tried after a failed request.
                     break
                 } catch {
+                    DiagnosticLogStore.shared.append(level: .warning, category: "音源请求", message: "\(candidate.platform) 请求 \(tier) 失败", detail: "音源：\(candidate.source.name)　轮次：\(passIndex)　\(error.localizedDescription)")
                     failures.append("\(candidate.source.name)/\(candidate.platform): \(error.localizedDescription)")
                 }
             }

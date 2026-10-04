@@ -1596,13 +1596,12 @@ final class PlayerService: ObservableObject {
         let seekPosition = pendingSeek
         pendingSeek = nil
         if let seekPosition, seekPosition > 0 {
-            engine.seek(to: CMTime(seconds: seekPosition, preferredTimescale: 600),
-                        toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self, generation == self.resolveGeneration else { return }
-                    self.engine.playImmediately(atRate: self.playbackRate)
-                }
-            }
+            // Resuming at a position after a quality switch: an exact seek on a freshly attached stream waits for
+            // that byte range before anything plays, and starting only after it finished left playback hanging
+            // until the user nudged it. Seek loosely and start right away; AVPlayer applies the seek as data arrives.
+            engine.automaticallyWaitsToMinimizeStalling = false
+            engine.seek(to: CMTime(seconds: seekPosition, preferredTimescale: 600))
+            engine.playImmediately(atRate: playbackRate)
         } else {
             // Pure online streaming: start as soon as the first data arrives instead of
             // waiting for AVPlayer to buffer ahead; nothing is written to disk.
@@ -1632,7 +1631,11 @@ final class PlayerService: ObservableObject {
             // AVFoundation often cannot read a streamed FLAC in time: then read the file header itself.
             let fileTier: String? = measured == nil
                 ? await RemoteAudioInspector.measuredQuality(of: url, duration: track.duration) : nil
-            let shown = measured ?? fileTier ?? providerQualitySnapshot
+            // When the file cannot be measured and the source gave no label, the file name still says a lot (QQ
+            // prefixes every tier, .flac is lossless).
+            let providerUnknown = providerQualitySnapshot == nil || AudioQuality.isUnknownResolvedQuality(providerQualitySnapshot ?? "")
+            let urlTier = providerUnknown ? Self.tierFromURL(url) : nil
+            let shown = measured ?? fileTier ?? urlTier ?? providerQualitySnapshot
             guard generation == self.resolveGeneration, self.engine.currentItem === item else { return }
             self.servedQualityMeasured = (measured != nil || fileTier != nil)
             self.servedQuality = shown
@@ -2185,6 +2188,12 @@ final class PlayerService: ObservableObject {
         DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "\(track.name)：歌词改用 \(servedPlatform) 平台的版本",
                                          detail: "音频取自 \(servedPlatform)，与歌曲自身平台的版本时长不同，歌词按实际播放的版本对齐。")
 #endif
+    }
+
+    private static func tierFromURL(_ url: URL) -> String? {
+        let guess = QQMusicAPI.quality(forFilename: url.lastPathComponent)
+        if guess != "unknown", guess != "192k" { return guess }
+        return url.pathExtension.lowercased() == "flac" ? "flac" : nil
     }
 
     private func loadLyrics(for track: Track, generation: Int) async {

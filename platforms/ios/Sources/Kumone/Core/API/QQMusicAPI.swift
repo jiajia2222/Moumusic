@@ -1119,7 +1119,7 @@ actor QQMusicAPI {
         }
     }
 
-    private static func quality(forFilename filename: String) -> String {
+    static func quality(forFilename filename: String) -> String {
         let value = filename.uppercased()
         if value.hasPrefix("AI00") { return "jymaster" }
         if value.hasPrefix("Q000") { return "flac24bit" }
