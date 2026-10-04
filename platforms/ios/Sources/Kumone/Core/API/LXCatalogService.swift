@@ -660,6 +660,18 @@ enum LXCatalogService {
             metadata["lx.quality.\(quality).size"] = value
         }
 
+        // VIP marker, only where the provider's own data says so: QQ `pay.pay_month/pay_play`, Kugou
+        // `privilege == 10` (even the 128k file needs VIP). Kuwo flags nearly every song and Migu sends
+        // nothing usable, so those two get no badge rather than a guessed one.
+        switch source {
+        case .tx:
+            let pay = item["pay"] as? [String: Any]
+            if int(pay?["pay_month"]) == 1 || int(pay?["pay_play"]) == 1 { metadata["vip"] = "1" }
+        case .kg:
+            if int(item["privilege"]) == 10 { metadata["vip"] = "1" }
+        default: break
+        }
+
         switch source {
         case .kw:
             let pattern = #"bitrate:(\d+),format:\w+,size:([\w.]+)"#
@@ -1548,6 +1560,7 @@ enum LXCatalogService {
     // MARK: - Songlist details
 
     static func playlistDetail(source: LXCatalogPlatform, id: String) async throws -> LXPlaylistDetail {
+        if id.hasPrefix("top:") { return try await toplistDetail(source: source, id: String(id.dropFirst(4))) }
         switch source {
         case .wy:
             guard let neteaseID = Int(id) else { throw LXCatalogError.invalidResponse }
@@ -1828,5 +1841,124 @@ enum LXCatalogService {
               match.numberOfRanges > 1,
               let range = Range(match.range(at: 1), in: text) else { return nil }
         return String(text[range])
+    }
+}
+
+// MARK: - Official toplists
+
+extension LXCatalogService {
+    /// Each platform's own chart list (QQ 巅峰榜, 酷狗 / 酷我 排行榜, 网易云 榜单). Ids are prefixed with `top:` so
+    /// `playlistDetail` can tell them from ordinary playlists. Migu has no verified chart endpoint: returns [].
+    static func officialToplists(platform: LXCatalogPlatform) async -> [LXPlaylistSummary] {
+        switch platform {
+        case .wy:
+            let lists = (try? await NeteaseAPI.toplists()) ?? []
+            return lists.map {
+                LXPlaylistSummary(id: String($0.id), name: $0.name, coverURL: $0.coverImgUrl, playCount: $0.playCount,
+                                  trackCount: 0, description: $0.updateFrequency, author: nil, source: .wy)
+            }
+        case .tx:
+            let body = try? JSONSerialization.data(withJSONObject: [
+                "comm": ["ct": 24, "cv": 0],
+                "toplist": ["module": "musicToplist.ToplistInfoServer", "method": "GetAll", "param": [String: Any]()],
+            ] as [String: Any])
+            guard let root = try? await fetchObject(URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg")!, method: "POST",
+                                                    body: body, headers: ["Content-Type": "application/json",
+                                                                          "Referer": "https://y.qq.com/"]) as? [String: Any],
+                  let groups = ((root["toplist"] as? [String: Any])?["data"] as? [String: Any])?["group"] as? [[String: Any]]
+            else { return [] }
+            return groups.flatMap { $0["toplist"] as? [[String: Any]] ?? [] }.compactMap { item in
+                guard let id = firstInt(item["topId"]), let title = text(item["title"]), !title.isEmpty else { return nil }
+                return LXPlaylistSummary(id: "top:\(id)", name: title,
+                                         coverURL: normalizedImageURL(firstText(item["headPicUrl"], item["frontPicUrl"])),
+                                         playCount: int(item["listenNum"]) ?? 0, trackCount: 0,
+                                         description: text(item["updateTips"]), author: nil, source: .tx)
+            }
+        case .kg:
+            guard let root = try? await fetchObject(URL(string: "http://mobilecdnbj.kugou.com/api/v3/rank/list?version=9108&plat=0&showtype=2&parentid=0&apiver=6&area_code=1&withsong=1")!) as? [String: Any],
+                  let info = (root["data"] as? [String: Any])?["info"] as? [[String: Any]] else { return [] }
+            return info.compactMap { item in
+                guard let id = firstText(item["rankid"]), let name = text(item["rankname"]), !name.isEmpty else { return nil }
+                return LXPlaylistSummary(id: "top:\(id)", name: name,
+                                         coverURL: normalizedImageURL(firstText(item["imgurl"], item["img_cover"], item["banner7url"])),
+                                         playCount: int(item["play_times"]) ?? 0, trackCount: 0,
+                                         description: text(item["update_frequency"]), author: nil, source: .kg)
+            }
+        case .kw:
+            guard let root = try? await fetchObject(URL(string: "http://qukudata.kuwo.cn/q.k?op=query&cont=tree&node=2&pn=0&rn=1000&fmt=json&level=2")!) as? [String: Any],
+                  let children = root["child"] as? [[String: Any]] else { return [] }
+            return children.compactMap { item in
+                guard let id = firstText(item["sourceid"]), !id.isEmpty, let name = firstText(item["disname"], item["name"]) else { return nil }
+                return LXPlaylistSummary(id: "top:\(id)", name: name, coverURL: normalizedImageURL(text(item["pic"])),
+                                         playCount: int(item["listen"]) ?? 0, trackCount: 0,
+                                         description: text(item["info"]), author: nil, source: .kw)
+            }
+        case .mg, .sd, .aggregate:
+            return []
+        }
+    }
+
+    /// Songs of one official chart (`id` without the `top:` prefix).
+    static func toplistDetail(source: LXCatalogPlatform, id: String) async throws -> LXPlaylistDetail {
+        switch source {
+        case .tx:
+            guard let topID = Int(id) else { throw LXCatalogError.invalidResponse }
+            let body = try JSONSerialization.data(withJSONObject: [
+                "comm": ["ct": 24, "cv": 0],
+                "detail": ["module": "musicToplist.ToplistInfoServer", "method": "GetDetail",
+                           "param": ["topId": topID, "offset": 0, "num": 100, "period": ""] as [String: Any]],
+            ] as [String: Any])
+            let root = try await fetchObject(URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg")!, method: "POST", body: body,
+                                             headers: ["Content-Type": "application/json", "Referer": "https://y.qq.com/"]) as? [String: Any]
+            let data = ((root?["detail"] as? [String: Any])?["data"] as? [String: Any])
+            let songs = data?["songInfoList"] as? [[String: Any]] ?? []
+            let tracks = qqTracks(from: ["songlist": songs])
+            guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
+            let inner = data?["data"] as? [String: Any]
+            return LXPlaylistDetail(id: "top:\(id)", name: firstText(inner?["title"], data?["title"]) ?? "QQ 音乐榜单",
+                                    coverURL: normalizedImageURL(firstText(inner?["headPicUrl"], inner?["frontPicUrl"], data?["headPicUrl"])),
+                                    description: firstText(inner?["intro"], inner?["titleDetail"]), author: nil,
+                                    playCount: int(inner?["listenNum"]) ?? 0, tracks: tracks, source: .tx)
+        case .kg:
+            let url = URL(string: "http://mobilecdnbj.kugou.com/api/v3/rank/song?version=9108&ranktype=1&plat=0&pagesize=100&rankid=\(id)&page=1")!
+            let root = try await fetchObject(url) as? [String: Any]
+            let rows = (root?["data"] as? [String: Any])?["info"] as? [[String: Any]] ?? []
+            let tracks: [Track] = rows.compactMap { row in
+                var item = row
+                // Chart rows carry "歌手 - 歌名" in `filename` and the other quality hashes under different keys.
+                let parts = (text(row["filename"]) ?? "").components(separatedBy: " - ")
+                if parts.count >= 2 {
+                    item["singername"] = parts[0]
+                    item["songname"] = parts.dropFirst().joined(separator: " - ")
+                }
+                if let hash = text(row["320hash"]), !hash.isEmpty { item["hash_320"] = hash }
+                if let hash = text(row["sqhash"]), !hash.isEmpty { item["hash_flac"] = hash }
+                if let cover = text(row["album_sizable_cover"]) { item["img"] = cover }
+                return track(from: item, source: .kg)
+            }
+            guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
+            let listObject = (try? await fetchObject(URL(string: "http://mobilecdnbj.kugou.com/api/v3/rank/list?version=9108&plat=0&showtype=2&parentid=0&apiver=6&area_code=1&withsong=0")!)) as? [String: Any]
+            let meta = ((listObject?["data"] as? [String: Any])?["info"] as? [[String: Any]])?.first { text($0["rankid"]) == id }
+            return LXPlaylistDetail(id: "top:\(id)", name: text(meta?["rankname"]) ?? "酷狗排行榜",
+                                    coverURL: normalizedImageURL(firstText(meta?["imgurl"], meta?["img_cover"])),
+                                    description: text(meta?["intro"]), author: nil, playCount: int(meta?["play_times"]) ?? 0,
+                                    tracks: tracks, source: .kg)
+        case .kw:
+            let url = URL(string: "http://kbangserver.kuwo.cn/ksong.s?from=pc&fmt=json&type=bang&data=content&id=\(id)&pn=0&rn=100&show_copyright_off=0&pcmp4=1&isbang=1&userid=0&httpsStatus=1&plat=web_www")!
+            let root = try await fetchObject(url) as? [String: Any]
+            let rows = root?["musiclist"] as? [[String: Any]] ?? []
+            let tracks: [Track] = rows.compactMap { row in
+                var item = row
+                if let seconds = text(row["song_duration"]) { item["duration"] = seconds }   // `duration` is the chart delta here
+                return track(from: item, source: .kw)
+            }
+            guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
+            return LXPlaylistDetail(id: "top:\(id)", name: text(root?["name"]) ?? "酷我排行榜",
+                                    coverURL: normalizedImageURL(firstText(root?["pic"], root?["v9_pic2"])),
+                                    description: text(root?["info"]), author: nil, playCount: 0,
+                                    tracks: tracks, source: .kw)
+        case .wy, .mg, .sd, .aggregate:
+            throw LXCatalogError.unsupported
+        }
     }
 }

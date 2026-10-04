@@ -37,6 +37,8 @@ final class HomeViewModel: ObservableObject {
     @Published private(set) var activePlatform: LXCatalogPlatform = .wy
     @Published var recommendTracks: [Track] = []
     @Published var lxRecommendPlaylists: [LXPlaylistSummary] = []
+    /// The platform's own official charts (shown instead of the recommended-playlist shelf).
+    @Published var lxToplists: [LXPlaylistSummary] = []
     private struct LoadRequest: Equatable {
         let loggedIn: Bool
         let mode: HomeRecommendationMode
@@ -71,6 +73,7 @@ final class HomeViewModel: ObservableObject {
         dailyFirstCover = nil
         recommendTracks = []
         lxRecommendPlaylists = []
+        lxToplists = []
     }
 
     private func apply(_ snapshot: HomeRecommendationCache.Snapshot) {
@@ -215,8 +218,11 @@ final class HomeViewModel: ObservableObject {
         if mode == .lx {
             // LX recommendations are catalogue-only. The selected source is
             // still the only component allowed to resolve audio on iOS.
+            async let toplistsTask = LXCatalogService.officialToplists(platform: platform)
             let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30, variety: variety)
+            let charts = await toplistsTask
             guard generation == loadGeneration else { return }
+            lxToplists = charts
             lxRecommendPlaylists = content.playlists
             var tracks = content.tracks
 
@@ -574,15 +580,21 @@ struct HomeView: View {
 #if os(macOS)
             homePlatformPicker
 #endif
-            HStack(spacing: 10) {
-                Image(systemName: model.activePlatform == .wy ? "flame.fill" : "waveform")
-                    .foregroundStyle(Theme.accent)
-                // The page title already says 推荐: other platforms show just their name here.
-                Text(model.activePlatform == .wy ? "网易云热门歌曲" : model.activePlatform.displayName)
-                    .font(.title3.weight(.semibold))
-                Spacer()
+            #if os(iOS)
+            if platformSignedIn {
+                NavigationLink(value: Destination.daily) {
+                    FeatureCard(
+                        title: "每日推荐",
+                        subtitle: "根据你的口味生成",
+                        icon: "calendar",
+                        coverURL: model.dailyFirstCover?.resizedImageURL(512),
+                        showsDate: true
+                    )
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, Theme.Layout.contentInset)
             }
-            .padding(.horizontal, Theme.Layout.contentInset)
+            #endif
 
             #if os(iOS)
             // QQ 音乐 home has no 我的歌单 shelf; account playlists live on the account page.
@@ -591,8 +603,15 @@ struct HomeView: View {
             }
             #endif
 
-            if !model.lxRecommendPlaylists.isEmpty {
-                Shelf(title: model.activePlatform == .wy ? "推荐歌单" : "官方推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+            // Official charts; a platform without a verified chart endpoint (Migu) keeps its recommended playlists.
+            if !model.lxToplists.isEmpty {
+                Shelf(title: "官方排行榜", rowHeight: Theme.Layout.coverShelfHeight) {
+                    ForEach(model.lxToplists) { chart in
+                        lxPlaylistCard(chart)
+                    }
+                }
+            } else if !model.lxRecommendPlaylists.isEmpty {
+                Shelf(title: "官方推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
                     ForEach(model.lxRecommendPlaylists.prefix(12)) { playlist in
                         lxPlaylistCard(playlist)
                     }
@@ -676,6 +695,18 @@ struct HomeView: View {
         settings.homeRecommendationPlatform = platform
     }
 
+    #if os(iOS)
+    /// 每日推荐 shows on every platform that has a signed-in account (Kuwo and Migu have none in the app).
+    private var platformSignedIn: Bool {
+        switch model.activePlatform {
+        case .wy: return account.isLoggedIn
+        case .tx: return qqMusic.isLoggedIn
+        case .kg: return kugou.isLoggedIn
+        default: return false
+        }
+    }
+    #endif
+
     private func lxPlaylistCard(_ playlist: LXPlaylistSummary) -> some View {
         NavigationLink(value: Destination.lxPlaylist(source: playlist.source, id: playlist.id)) {
             CoverCardBody(
@@ -711,14 +742,6 @@ struct HomeView: View {
             featureCards
                 .padding(.top, 8)
 
-            if !model.recommendPlaylists.isEmpty {
-                Shelf(title: "推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
-                    ForEach(Array(model.recommendPlaylists.prefix(12).enumerated()), id: \.element.id) { index, playlist in
-                        playlistCard(playlist)
-                            .staggeredAppearance(index: index, id: "home-rec-\(playlist.id)")
-                    }
-                }
-            }
 
             if !model.recommendTracks.isEmpty {
                 SectionHeader(title: "热门歌曲")

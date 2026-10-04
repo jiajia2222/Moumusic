@@ -36,7 +36,7 @@ struct PlayerBar: View {
                 HStack(spacing: 6) {
                     MarqueeText(text: player.currentTrack?.name ?? String(localized: "未在播放"))
                         .frame(height: 17)
-                    if player.currentTrack?.fee == 1 {
+                    if player.currentTrack?.isVIP == true {
                         VIPBadge()
                     }
                 }

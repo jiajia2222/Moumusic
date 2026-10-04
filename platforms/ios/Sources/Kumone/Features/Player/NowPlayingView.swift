@@ -876,7 +876,7 @@ struct NowPlayingView: View {
                     .font(.system(size: 21, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                if player.currentTrack?.fee == 1 {
+                if player.currentTrack?.isVIP == true {
                     VIPBadge()
                 }
             }
@@ -903,7 +903,7 @@ struct NowPlayingView: View {
                         .font(.system(size: 21, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                    if player.currentTrack?.fee == 1 {
+                    if player.currentTrack?.isVIP == true {
                         VIPBadge()
                     }
                 }
@@ -928,7 +928,7 @@ struct NowPlayingView: View {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                if player.currentTrack?.fee == 1 {
+                if player.currentTrack?.isVIP == true {
                     VIPBadge()
                 }
             }
@@ -1989,7 +1989,7 @@ private struct CompactTrackHeader: View {
                         .font(.headline.weight(.bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                    if player.currentTrack?.fee == 1 {
+                    if player.currentTrack?.isVIP == true {
                         VIPBadge()
                     }
                 }
@@ -2900,7 +2900,7 @@ private struct MinimalTrackInfoRow: View {
                     .font(.body.weight(.bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                if player.currentTrack?.fee == 1 {
+                if player.currentTrack?.isVIP == true {
                     VIPBadge()
                 }
             }

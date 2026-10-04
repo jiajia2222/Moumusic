@@ -76,7 +76,7 @@ struct FMView: View {
                     Text(track?.name ?? String(localized: "私人漫游"))
                         .font(.system(size: 22, weight: .bold))
                         .lineLimit(1)
-                    if track?.fee == 1 {
+                    if track?.isVIP == true {
                         VIPBadge()
                     }
                 }

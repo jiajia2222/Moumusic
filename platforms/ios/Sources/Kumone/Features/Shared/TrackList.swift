@@ -42,11 +42,7 @@ struct TrackRow: View {
     private var isPlayable: Bool { playability == .playable }
     private var showsArtwork: Bool { style != .albumTrack }
     private var showsVIPBadge: Bool {
-        #if os(iOS)
-        return lxStore.selectedSource == nil && track.fee == 1
-        #else
-        return track.fee == 1
-        #endif
+        track.isVIP
     }
 
     private var hidesLeadingIndex: Bool {

@@ -79,6 +79,9 @@ struct Track: Codable, Hashable, Identifiable {
 
     var artistNames: String { artists.map(\.name).joined(separator: " / ") }
     var duration: TimeInterval { TimeInterval(durationMS) / 1000 }
+    /// NetEase flags VIP songs with `fee == 1`; other catalogues carry the provider's own flag in
+    /// `sourceMetadata["vip"]` (set where the provider exposes one).
+    var isVIP: Bool { fee == 1 || sourceMetadata["vip"] == "1" }
     var subtitle: String? { transNames.first ?? alias.first }
 
     /// Queue identity must include the catalogue platform. NetEase, QQ and
