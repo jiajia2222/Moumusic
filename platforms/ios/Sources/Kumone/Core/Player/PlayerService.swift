@@ -1295,6 +1295,7 @@ final class PlayerService: ObservableObject {
         var biliAudioDash: BiliDashTrack?
         var servedByLXQuality: String?
         var servedBySourceLabel: String?
+        var servedByPlatform: String?
 #if os(macOS)
         var data: SongURLData?
 #endif
@@ -1427,6 +1428,7 @@ final class PlayerService: ObservableObject {
                 resolvedURL = resolved.url
                 servedByLXQuality = resolved.quality
                 servedBySourceLabel = "LX 第三方音源"
+                servedByPlatform = resolved.platform
                 if let officialFallback,
                    let officialRank = Self.qualityRank(officialFallback.quality),
                    let thirdRank = Self.qualityRank(resolved.quality), thirdRank >= officialRank {
@@ -1434,6 +1436,7 @@ final class PlayerService: ObservableObject {
                     resolvedURL = officialFallback.url
                     servedByLXQuality = officialFallback.quality
                     servedBySourceLabel = officialFallback.sourceLabel
+                    servedByPlatform = nil
                 }
                 // Only the account-mode fallback is worth a notice: with a third-party source chosen
                 // on purpose, "会员歌曲将通过第三方音源播放" is just noise.
@@ -1613,6 +1616,7 @@ final class PlayerService: ObservableObject {
 
         let providerQualitySnapshot = servedByLXQuality
         let sourceLabelSnapshot = servedBySourceLabel
+        let servedPlatformSnapshot = servedByPlatform
         let resolveSeconds = Date().timeIntervalSince(resolveStartedAt)
         let urlHost = url.host ?? "-"
         let urlExtension = url.pathExtension.isEmpty ? "-" : url.pathExtension.lowercased()
@@ -1663,13 +1667,24 @@ final class PlayerService: ObservableObject {
                 let note = abs(gap) > 2.5 ? "（相差 \(String(format: "%+.1f", gap)) 秒：可能是另一个版本，歌词可能对不上）" : ""
                 return String(format: "时长：音频 %.1f 秒 / 歌曲信息 %.1f 秒", audioSeconds, catalogue) + note
             }()
+            let ownPlatform = (track.source ?? track.sourceMetadata["source"] ?? "wy").lowercased()
+            // The audio came from another platform and is not the same length as this song's own entry: lyrics from
+            // the song's platform are timed for a different cut. Take them from the platform that served the audio.
+            if let served = servedPlatformSnapshot, served != ownPlatform, audioSeconds.isFinite, audioSeconds > 0,
+               abs(audioSeconds - track.duration) > 0.25 {
+                Task { [weak self] in await self?.realignLyrics(for: track, servedPlatform: served, generation: generation) }
+            }
+            let platformNote: String = {
+                guard let served = servedPlatformSnapshot, served != ownPlatform else { return "" }
+                return "（这首歌在\(ownPlatform)没有该音质，音频取自 \(served) 平台的同一首歌）"
+            }()
             DiagnosticLogStore.shared.append(
                 level: wasDowngraded ? .warning : .info,
                 category: "播放音质",
                 message: "\(track.name) → \(usedLabel)\(wasDowngraded ? "（已降级）" : "")",
                 detail: [
                     "歌曲：\(track.name) · \(track.artistNames)",
-                    "平台：\(track.source ?? "wy")　来源：\(sourceLabelSnapshot ?? "-")",
+                    "平台：\(track.source ?? "wy")　来源：\(sourceLabelSnapshot ?? "-")" + platformNote,
                     "播放模式：\(SettingsManager.shared.playbackSourceMode.rawValue)",
                     "请求音质：\(requestedLabel)",
                     "音源返回标签：\(providerQualitySnapshot ?? "无")",
@@ -2156,6 +2171,20 @@ final class PlayerService: ObservableObject {
         if facts.channels >= 6 { return "surround" }
         if lossless { return hiRes ? "flac24bit" : "flac" }
         return facts.bitrate >= 224_000 ? "320k" : "128k"
+    }
+
+    /// Lyrics of the same song from the platform that actually served the audio (its cut can differ in length).
+    private func realignLyrics(for track: Track, servedPlatform: String, generation: Int) async {
+#if os(iOS)
+        guard let matched = await LXCatalogService.matchingTrack(track, on: servedPlatform),
+              let native = try? await LXCatalogService.nativeLyrics(for: matched) else { return }
+        let parsed = LyricsParser.parseLX(lyric: native.lyric, tlyric: native.tlyric,
+                                           rlyric: native.rlyric, lxlyric: native.lxlyric)
+        guard !parsed.isEmpty, !Task.isCancelled, generation == resolveGeneration else { return }
+        publishLyrics(parsed, for: track, generation: generation)
+        DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "\(track.name)：歌词改用 \(servedPlatform) 平台的版本",
+                                         detail: "音频取自 \(servedPlatform)，与歌曲自身平台的版本时长不同，歌词按实际播放的版本对齐。")
+#endif
     }
 
     private func loadLyrics(for track: Track, generation: Int) async {

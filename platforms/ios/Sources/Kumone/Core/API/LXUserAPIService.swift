@@ -12,6 +12,9 @@ final class LXUserAPIService: ObservableObject {
     struct ResolvedURL {
         let url: URL
         let quality: String
+        /// The catalogue platform that really served the file (differs from the song's own platform when a
+        /// cross-platform match supplied it). nil = the song's own platform.
+        var platform: String? = nil
     }
 
     struct ResolvedLyrics {
@@ -648,7 +651,7 @@ final class LXUserAPIService: ObservableObject {
                             if Self.qualityRank(bestQuality) >= wantedRank { break }
                         }
                     }
-                    let resolved = ResolvedURL(url: bestURL, quality: bestQuality)
+                    let resolved = ResolvedURL(url: bestURL, quality: bestQuality, platform: candidate.platform)
                     let actualRank = Self.qualityRank(bestQuality)
                     if bestQuality == "unknown" {
                         // The source does not say which tier it served: keep it as a fallback and do not
