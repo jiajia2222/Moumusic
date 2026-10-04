@@ -483,6 +483,9 @@ final class LXUserAPIService: ObservableObject {
         let crossPlatformDeadline: TimeInterval = 2
         var crossStartedAt: Date?
         for passIndex in 0..<3 {
+        // Each song only uses its own platform's tiers: borrowing the same song from another platform (a different
+        // cut, other lyrics timing) is off unless the hidden key is set.
+        if passIndex == 1, !UserDefaults.standard.bool(forKey: "moumusic.crossPlatformQuality") { continue }
         if passIndex == 1 { crossStartedAt = Date() }
         if passIndex == 2, downgradedFallback != nil { break }
         var candidates: [MusicURLCandidate] = []
