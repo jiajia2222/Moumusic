@@ -1267,6 +1267,7 @@ final class PlayerService: ObservableObject {
     private func resolveAndLoad(_ track: Track, generation: Int,
                                 requestedQuality: AudioQuality) async {
         guard !Task.isCancelled, generation == resolveGeneration else { return }
+        let resolveStartedAt = Date()
         let quality = requestedQuality.rawValue
 #if os(macOS)
         let isLXCatalogTrack = track.source != nil
@@ -1572,6 +1573,10 @@ final class PlayerService: ObservableObject {
         isPlaying = true
 
         let providerQualitySnapshot = servedByLXQuality
+        let sourceLabelSnapshot = servedBySourceLabel
+        let resolveSeconds = Date().timeIntervalSince(resolveStartedAt)
+        let urlHost = url.host ?? "-"
+        let urlExtension = url.pathExtension.isEmpty ? "-" : url.pathExtension.lowercased()
         Task { [weak self, weak item] in
             guard let self else { return }
             let probed = await self.loadAudioTrack(from: asset, timeout: 6)
@@ -1585,6 +1590,42 @@ final class PlayerService: ObservableObject {
             guard generation == self.resolveGeneration, self.engine.currentItem === item else { return }
             self.servedQuality = shown
             self.servedQualityTrackKey = track.playbackKey
+            // One log entry per played song: what was asked, what the source said, what the file really is.
+            let facts: StreamFacts? = await {
+                guard let probed else { return nil }
+                return await Self.streamFacts(of: probed)
+            }()
+            func fourCC(_ value: UInt32) -> String {
+                let bytes = [24, 16, 8, 0].map { UInt8((value >> UInt32($0)) & 0xFF) }
+                let text = String(bytes: bytes, encoding: .ascii) ?? ""
+                return text.trimmingCharacters(in: .whitespaces).isEmpty ? String(value) : text
+            }
+            let factsLine = facts.map {
+                "\(fourCC($0.format)) · \(Int($0.sampleRate)) Hz · \($0.bits > 0 ? "\($0.bits) bit · " : "")\($0.channels) 声道 · \(Int($0.bitrate / 1000)) kbps"
+            } ?? "无法读取（沿用音源标签）"
+            let requestedLabel = requestedQuality.displayName
+            let usedLabel = shown.flatMap(AudioQuality.init(lxType:))?.displayName ?? (shown ?? "未知")
+            let wasDowngraded: Bool = {
+                guard let wantedRank = Self.qualityRank(requestedQuality.lxType),
+                      let gotRank = Self.qualityRank(shown) else { return false }
+                return gotRank > wantedRank
+            }()
+            DiagnosticLogStore.shared.append(
+                level: wasDowngraded ? .warning : .info,
+                category: "播放音质",
+                message: "\(track.name) → \(usedLabel)\(wasDowngraded ? "（已降级）" : "")",
+                detail: [
+                    "歌曲：\(track.name) · \(track.artistNames)",
+                    "平台：\(track.source ?? "wy")　来源：\(sourceLabelSnapshot ?? "-")",
+                    "播放模式：\(SettingsManager.shared.playbackSourceMode.rawValue)",
+                    "请求音质：\(requestedLabel)",
+                    "音源返回标签：\(providerQualitySnapshot ?? "无")",
+                    "文件实测：\(factsLine)",
+                    "实际使用：\(usedLabel)",
+                    "地址：\(urlHost) · .\(urlExtension)",
+                    String(format: "解析耗时：%.2f 秒", resolveSeconds),
+                ].joined(separator: "\n")
+            )
             let wanted = self.currentQuality
             let spatial: [AudioQuality] = [.master, .atmos, .dolby, .surround]
             let served = (self.servedQuality ?? "").lowercased()
