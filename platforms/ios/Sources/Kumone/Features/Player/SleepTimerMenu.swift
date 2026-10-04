@@ -18,7 +18,7 @@ struct SleepTimerMenu: View {
             }
 
             ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
-                Button(String(localized: "睡眠定时 (minutes) 分钟")) {
+                Button("\(minutes) 分钟") {
                     sleepTimer.schedule(afterMinutes: minutes)
                 }
                 .disabled(!player.hasCurrentTrack)
@@ -38,7 +38,10 @@ struct SleepTimerMenu: View {
                 }
             }
         } label: {
-            Label(menuTitle, systemImage: sleepTimer.state.isActive ? "timer.circle.fill" : "timer")
+            // Re-evaluated every second so the remaining time counts down on screen.
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                Label(menuTitle, systemImage: sleepTimer.state.isActive ? "timer.circle.fill" : "timer")
+            }
         }
         .disabled(!player.hasCurrentTrack && !sleepTimer.state.isActive)
     }
