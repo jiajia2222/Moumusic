@@ -1650,8 +1650,8 @@ final class PlayerService: ObservableObject {
             let factsLine = facts.map {
                 "\(fourCC($0.format)) · \(Int($0.sampleRate)) Hz · \($0.bits > 0 ? "\($0.bits) bit · " : "")\($0.channels) 声道 · \(Int($0.bitrate / 1000)) kbps"
             } ?? "无法读取（沿用音源标签）"
-            let requestedLabel = requestedQuality.displayName
-            let usedLabel = shown.flatMap(AudioQuality.init(lxType:))?.displayName ?? (shown ?? "未知")
+            let requestedLabel = requestedQuality.platformLabel(track.source)
+            let usedLabel = shown.flatMap(AudioQuality.init(lxType:))?.platformLabel(track.source) ?? (shown ?? "未知")
             let wasDowngraded: Bool = {
                 guard let wantedRank = Self.qualityRank(requestedQuality.lxType),
                       let gotRank = Self.qualityRank(shown) else { return false }

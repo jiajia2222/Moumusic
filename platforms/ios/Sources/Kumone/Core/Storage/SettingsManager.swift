@@ -71,8 +71,53 @@ enum AudioQuality: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    init?(lxType: String) {
-        switch lxType.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
+    /// The tier's name on the song's own platform (QQ 臻品 / 酷狗 蝰蛇 / 咪咕 PQ·HQ·SQ·ZQ ...); NetEase and
+    /// anything else keep the app's generic names.
+    func platformLabel(_ source: String?) -> String {
+        switch (source ?? "").lowercased() {
+        case "tx", "qq", "qqmusic", "qq-music":
+            switch self {
+            case .master: return "臻品母带"
+            case .atmos: return "臻品全景声"
+            case .dolby: return "杜比全景声"
+            case .surround: return "臻品全景声 5.1"
+            case .hires: return "Hi-Res 臻品音质"
+            case .lossless: return "SQ 无损品质"
+            case .exhigh, .higher: return "HQ 高品质"
+            case .standard: return "标准音质"
+            }
+        case "kg", "kugou":
+            switch self {
+            case .master: return "蝰蛇母带"
+            case .atmos: return "蝰蛇全景声"
+            case .dolby, .surround: return "蝰蛇超清音质"
+            case .hires: return "Hi-Res 超清音质"
+            case .lossless: return "无损音质"
+            case .exhigh, .higher: return "高品质"
+            case .standard: return "标准音质"
+            }
+        case "mg", "migu":
+            switch self {
+            case .master: return "ZQ 臻品母带"
+            case .atmos, .dolby, .surround: return "3D 臻品全景声"
+            case .hires: return "ZQ Hi-Res"
+            case .lossless: return "SQ 无损"
+            case .exhigh, .higher: return "HQ 高品"
+            case .standard: return "PQ 标准"
+            }
+        case "kw", "kuwo":
+            switch self {
+            case .master, .atmos, .dolby, .surround, .hires: return "Hi-Res 无损"
+            case .lossless: return "无损音质"
+            case .exhigh, .higher: return "超品音质"
+            case .standard: return "标准音质"
+            }
+        default:
+            return sourceDisplayName
+        }
+    }
+
+    init?(lxType: String) {        switch lxType.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
         case "master", "jymaster", "master_quality", "master-quality": self = .master
         case "atmos", "immersive": self = .atmos
         case "dolby", "dolby-atmos", "dolbyatmos": self = .dolby

@@ -1603,7 +1603,7 @@ private struct QualityPickerSheet: View {
     }
 
     private var qualityWarningText: String {
-        let requested = player.currentQuality.sourceDisplayName
+        let requested = player.currentQuality.platformLabel(player.currentTrack?.source)
         let source = player.servedSourceLabel ?? "未知音源"
         let accountWarning = nonVIPNeteaseWarning ?? ""
         guard let served = player.servedQuality else {
@@ -1657,7 +1657,7 @@ private struct QualityPickerSheet: View {
                             } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text(quality.sourceDisplayName)
+                                        Text(quality.platformLabel(player.currentTrack?.source))
                                             .font(.body.weight(.medium))
                                         if quality.isPlatformSpecific {
                                             Text("由当前播放来源实时探测，最终以返回地址为准")
