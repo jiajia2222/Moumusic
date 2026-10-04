@@ -1614,7 +1614,10 @@ private struct QualityPickerSheet: View {
         }
         let actual = AudioQuality.resolvedDisplayName(served)
         if !servedQualityIsDowngraded {
-            return "\(accountWarning)接口实际返回：\(actual)。实际来源：\(source)。这是音源返回的元数据，不是对音频文件做的独立编码检测。"
+            if player.servedQualityMeasured {
+                return "\(accountWarning)实测：\(actual)。实际来源：\(source)。已核对音频文件本身。"
+            }
+            return "\(accountWarning)接口实际返回：\(actual)。实际来源：\(source)。这是音源返回的元数据，文件本身无法读取，没有独立检测。"
         }
         return "\(accountWarning)请求音质：\(requested)；接口实际返回：\(actual)，实际来源：\(source)，已自动降级。"
     }

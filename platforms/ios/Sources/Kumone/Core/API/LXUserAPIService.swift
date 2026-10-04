@@ -1698,8 +1698,14 @@ enum RemoteAudioInspector {
         // FLAC: "fLaC", then the STREAMINFO block carries sample rate, channels and bit depth.
         if bytes.starts(with: [0x66, 0x4C, 0x61, 0x43]) {
             let rate = (Int(bytes[18]) << 12) | (Int(bytes[19]) << 4) | (Int(bytes[20]) >> 4)
+            let channels = ((Int(bytes[20]) >> 1) & 7) + 1
             let bits = (((Int(bytes[20]) & 1) << 4) | (Int(bytes[21]) >> 4)) + 1
             guard rate > 0 else { return nil }
+            // Only what the header proves: more than two channels is surround, 24-bit at 176.4 kHz or
+            // above is Master-class, any other 24-bit / high-rate file is Hi-Res, the rest is CD lossless.
+            // A stereo 24-bit FLAC is never "Spatial", whatever the source calls it.
+            if channels >= 3 { return "surround" }
+            if bits >= 24, rate >= 176_400 { return "jymaster" }
             return (bits >= 24 || rate > 48_000) ? "flac24bit" : "flac"
         }
 
@@ -1707,10 +1713,9 @@ enum RemoteAudioInspector {
         let total = totalLength(of: http, received: data.count)
         guard duration >= 30, let total, total > 0 else { return nil }
         let bitrate = Double(total) * 8 / duration
+        // MP3 only: an MP4 can hold AAC, ALAC or Dolby (E-AC-3) and the size alone cannot tell them apart.
         let isMP3 = bytes.starts(with: [0x49, 0x44, 0x33]) || (bytes[0] == 0xFF && bytes[1] & 0xE0 == 0xE0)
-        let isMP4 = bytes.count > 8 && bytes[4...7].elementsEqual([0x66, 0x74, 0x79, 0x70])
-        guard isMP3 || isMP4 else { return nil }
-        if isMP4 && bitrate >= 600_000 { return "flac" }            // ALAC
+        guard isMP3 else { return nil }
         if bitrate >= 280_000 { return "320k" }
         return "128k"
     }

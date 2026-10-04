@@ -167,6 +167,8 @@ final class PlayerService: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var isBuffering = false
     @Published private(set) var duration: TimeInterval = 0
+    /// True when the shown tier was checked against the audio file itself (not just the source's label).
+    @Published private(set) var servedQualityMeasured = false
     @Published private(set) var servedQuality: String?
     /// The route that supplied the playable URL for the current track. This
     /// is intentionally separate from `servedQuality`: a third-party source
@@ -1525,6 +1527,7 @@ final class PlayerService: ObservableObject {
         guard generation == resolveGeneration else { return }
 
 #if os(iOS)
+        servedQualityMeasured = false
         servedQuality = verifiedServedQuality(
             providerQuality: servedByLXQuality,
             audioTrack: nil
@@ -1586,8 +1589,12 @@ final class PlayerService: ObservableObject {
             // the track AVFoundation decodes. A tier the source claims is only shown when those facts
             // support it; when the track cannot be read at all the source's own label stays (unverified).
             let measured = await Self.measuredQuality(claimed: providerQualitySnapshot, track: probed)
-            let shown = measured ?? providerQualitySnapshot
+            // AVFoundation often cannot read a streamed FLAC in time: then read the file header itself.
+            let fileTier: String? = measured == nil
+                ? await RemoteAudioInspector.measuredQuality(of: url, duration: track.duration) : nil
+            let shown = measured ?? fileTier ?? providerQualitySnapshot
             guard generation == self.resolveGeneration, self.engine.currentItem === item else { return }
+            self.servedQualityMeasured = (measured != nil || fileTier != nil)
             self.servedQuality = shown
             self.servedQualityTrackKey = track.playbackKey
             // One log entry per played song: what was asked, what the source said, what the file really is.
@@ -1621,6 +1628,7 @@ final class PlayerService: ObservableObject {
                     "请求音质：\(requestedLabel)",
                     "音源返回标签：\(providerQualitySnapshot ?? "无")",
                     "文件实测：\(factsLine)",
+                    "文件头实测：\(fileTier ?? "无")",
                     "实际使用：\(usedLabel)",
                     "地址：\(urlHost) · .\(urlExtension)",
                     String(format: "解析耗时：%.2f 秒", resolveSeconds),
@@ -2045,7 +2053,8 @@ final class PlayerService: ObservableObject {
         case "master", "jymaster", "master_quality", "master-quality":
             if lossless, facts.sampleRate >= 176_400 { return "jymaster" }
         case "atmos", "immersive", "spatial", "spatial-audio", "jyeffect":
-            if hiRes { return "atmos" }
+            // A Hi-Res stereo file is just Hi-Res: Spatial needs more than two channels.
+            if facts.channels >= 3 { return "atmos" }
         case "dolby", "dolby-atmos", "dolbyatmos":
             if dolby { return "dolby" }
         case "surround", "sky":
