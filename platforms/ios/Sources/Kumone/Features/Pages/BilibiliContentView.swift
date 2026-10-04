@@ -1437,11 +1437,28 @@ private struct BilibiliCollectionRow: View {
     }
 }
 
+/// The video page. Opening a related video swaps this page's content for the new video (a fresh page
+/// with its own player) instead of stacking another sheet on top, so closing it returns to where the
+/// first video was opened from.
 struct BilibiliVideoDetailView: View {
+    @State private var current: BilibiliAPI.Video
+
+    init(video: BilibiliAPI.Video) {
+        _current = State(initialValue: video)
+    }
+
+    var body: some View {
+        BilibiliVideoDetailContent(video: current, onOpenRelated: { current = $0 })
+            .id(current.bvid)
+    }
+}
+
+struct BilibiliVideoDetailContent: View {
     @EnvironmentObject private var bilibili: BilibiliSessionStore
     @EnvironmentObject private var settings: SettingsManager
     @Environment(\.dismiss) private var dismiss
     let video: BilibiliAPI.Video
+    var onOpenRelated: ((BilibiliAPI.Video) -> Void)? = nil
 
     @State private var detail: BilibiliAPI.Video?
     @StateObject private var playerModel = BiliPlayerModel()
@@ -1604,11 +1621,6 @@ struct BilibiliVideoDetailView: View {
         }
         .sheet(item: $relatedSelection) { item in
             NavigationStack { BilibiliVideoDetailView(video: item) }
-        }
-        // A related video opens on top of this page, which stays alive underneath: stop this one so
-        // the two never play at once.
-        .onChange(of: relatedSelection?.bvid) { opened in
-            if opened != nil { playerModel.pause() }
         }
         .onChange(of: settings.bilibiliMode) { _ in
             Task { await reloadForCurrentMode() }
@@ -1929,7 +1941,10 @@ struct BilibiliVideoDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("相关推荐").font(.headline)
             ForEach(related.prefix(15)) { item in
-                Button { relatedSelection = item } label: {
+                Button {
+                    playerModel.stop()
+                    if let onOpenRelated { onOpenRelated(item) } else { relatedSelection = item }
+                } label: {
                     HStack(spacing: 10) {
                         CachedAsyncImage(url: item.coverURL?.resizedImageURL(320), animated: false)
                             .frame(width: 120, height: 68)
