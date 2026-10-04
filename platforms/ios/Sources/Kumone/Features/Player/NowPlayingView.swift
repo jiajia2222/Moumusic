@@ -1561,6 +1561,12 @@ private struct LyricPresentationSheet: View {
 }
 
 private struct QualityPickerSheet: View {
+    /// Two catalogue tiers can share one label ("320 kbps"): list each label once.
+    static func uniqueTiers(_ tiers: [AudioQuality]) -> [AudioQuality] {
+        var seen = Set<String>()
+        return tiers.filter { seen.insert($0.lxType).inserted }
+    }
+
     @EnvironmentObject private var player: PlayerService
     @Environment(\.dismiss) private var dismiss
     @State private var available: [AudioQuality] = []
@@ -1716,7 +1722,7 @@ private struct QualityPickerSheet: View {
                !merged.contains(actual) {
                 merged.append(actual)
             }
-            available = AudioQuality.allCases.filter { merged.contains($0) }
+            available = Self.uniqueTiers(AudioQuality.allCases.filter { merged.contains($0) })
             loading = false
             // Live refresh: the first pass can miss tiers (a source still waking up, a request that failed
             // once). Keep asking a few more times while the sheet is open and add what turns up; the list
@@ -1726,7 +1732,7 @@ private struct QualityPickerSheet: View {
                 guard !Task.isCancelled, player.currentTrack?.playbackKey == trackKey else { return }
                 let later = await player.availableQualitiesForCurrentTrack(forceRefresh: true)
                 guard !Task.isCancelled, player.currentTrack?.playbackKey == trackKey else { return }
-                let grown = AudioQuality.allCases.filter { available.contains($0) || later.contains($0) }
+                let grown = Self.uniqueTiers(AudioQuality.allCases.filter { available.contains($0) || later.contains($0) })
                 if grown != available { available = grown }
             }
         }
