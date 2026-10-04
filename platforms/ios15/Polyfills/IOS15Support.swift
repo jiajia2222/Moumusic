@@ -21,7 +21,12 @@ struct IOS15NavigationPath {
     mutating func truncate(to depth: Int) { if items.count > depth { items.removeLast(items.count - depth) } }
 }
 
-final class IOS15StackRouter: ObservableObject {
+/// Destination builders by value type. Global on purpose: a destination is registered the moment
+/// `ios15Destination` is applied (while the parent's body is evaluated), instead of relying on a nested
+/// modifier body running with the right environment object, which left the table empty and every pushed
+/// page blank.
+final class IOS15DestinationRegistry {
+    static let shared = IOS15DestinationRegistry()
     private var builders: [ObjectIdentifier: (AnyHashable) -> AnyView] = [:]
     private(set) var registeredNames: [String] = []
 
@@ -36,6 +41,14 @@ final class IOS15StackRouter: ObservableObject {
 
     func view(for item: AnyHashable) -> AnyView? {
         builders[ObjectIdentifier(type(of: item.base))]?(item)
+    }
+}
+
+final class IOS15StackRouter: ObservableObject {
+    var registeredNames: [String] { IOS15DestinationRegistry.shared.registeredNames }
+
+    func view(for item: AnyHashable) -> AnyView? {
+        IOS15DestinationRegistry.shared.view(for: item)
     }
 }
 
@@ -143,19 +156,10 @@ struct IOS15StackLink<Label: View, V: Hashable>: View {
     }
 }
 
-private struct IOS15DestinationModifier<D: Hashable, C: View>: ViewModifier {
-    @EnvironmentObject private var router: IOS15StackRouter
-    let destination: (D) -> C
-
-    func body(content: Content) -> some View {
-        let _ = router.register(D.self, destination)
-        return content
-    }
-}
-
 extension View {
     func ios15Destination<D: Hashable, C: View>(for type: D.Type, @ViewBuilder destination: @escaping (D) -> C) -> some View {
-        modifier(IOS15DestinationModifier(destination: destination))
+        IOS15DestinationRegistry.shared.register(type, destination)
+        return self
     }
 
     func ios15Destination<C: View>(isPresented: Binding<Bool>, @ViewBuilder destination: () -> C) -> some View {
