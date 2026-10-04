@@ -1018,15 +1018,30 @@ actor BilibiliAPI {
     }
 
     func searchCollections(keyword: String, page: Int = 1, cookie: String? = nil) async throws -> [Collection] {
-        let root = try await searchObject([
-            URLQueryItem(name: "keyword", value: keyword),
-            URLQueryItem(name: "search_type", value: "media_bangumi"),
-            URLQueryItem(name: "page", value: "\(max(1, page))"),
-            URLQueryItem(name: "order", value: "totalrank")
-        ], cookie: cookie)
-        let data = root["data"] as? [String: Any]
-        let rows = data?["result"] as? [[String: Any]] ?? []
-        return rows.compactMap(Self.collection)
+        // "Collections" are Bilibili's series catalogues: anime (bangumi) and film / TV (ft). Ask both and
+        // merge; only fail when neither answers.
+        var merged: [Collection] = []
+        var lastError: Error?
+        var answered = false
+        for type in ["media_bangumi", "media_ft"] {
+            do {
+                let root = try await searchObject([
+                    URLQueryItem(name: "keyword", value: keyword),
+                    URLQueryItem(name: "search_type", value: type),
+                    URLQueryItem(name: "page", value: "\(max(1, page))"),
+                    URLQueryItem(name: "order", value: "totalrank")
+                ], cookie: cookie)
+                answered = true
+                let rows = (root["data"] as? [String: Any])?["result"] as? [[String: Any]] ?? []
+                for item in rows.compactMap(Self.collection) where !merged.contains(where: { $0.id == item.id }) {
+                    merged.append(item)
+                }
+            } catch {
+                lastError = error
+            }
+        }
+        if !answered, let lastError { throw lastError }
+        return merged
     }
 
     /// Loads the video detail and then asks x/player/v2 for subtitle tracks.
