@@ -111,6 +111,13 @@ jobs:
           xcrun simctl io "$UDID" screenshot shots/home-50s.png
           xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process == "MoumusicIOS"' > shots/app.log || true
 
+      - name: UI navigation screenshots
+        continue-on-error: true
+        working-directory: platforms/ios/ios
+        run: |
+          mkdir -p shots
+          TEST_RUNNER_SHOT_DIR="$PWD/shots" xcodebuild test             -project KumoneIOS.xcodeproj             -scheme KumoneIOS             -destination "id=$UDID"             -derivedDataPath build             -only-testing:KumoneIOSUITests/CompatNavigationShots             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= 2>&1 | tail -n 60
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
