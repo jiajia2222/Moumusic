@@ -517,9 +517,17 @@ final class LXUserAPIService: ObservableObject {
                 let supported = supportedQualityNamesForPlayback(for: requestTrack, platform: platform)
                 // Capabilities not known yet (source still loading, quality list not refreshed): ask for the
                 // tier the user chose instead of silently falling back to 128k.
-                let requested = supported.isEmpty
+                var requested = supported.isEmpty
                     ? Self.normalizedQuality(Self.requestedToken(for: quality))
                     : Self.lxQuality(for: quality, supported: supported)
+                // Only NetEase's protocol table lists the top tiers; other platforms stop at Hi-Res there. A
+                // script may still serve more, so ask for the tier the user chose anyway (own platform, first
+                // pass); if it refuses, the step-down pass falls back to what the source declares.
+                let wanted = Self.normalizedQuality(Self.requestedToken(for: quality))
+                if platform != "wy", !supported.isEmpty,
+                   Self.qualityRank(wanted) > Self.qualityRank(requested) {
+                    requested = wanted
+                }
                 candidates.append(MusicURLCandidate(
                     source: source,
                     sourcePriority: sourcePriority,
@@ -558,7 +566,10 @@ final class LXUserAPIService: ObservableObject {
                 if rank >= 0, rank < wantedRank, !lowerTiers.contains(tier) { lowerTiers.append(tier) }
             }
             lowerTiers.sort { Self.qualityRank($0) > Self.qualityRank($1) }
-            for tier in [candidate.requestedQuality] + (passIndex == 2 ? lowerTiers : []) {
+            // The step-down pass does not repeat an undeclared tier that pass 0 already asked for.
+            let declaredLadder = ladder.map(Self.normalizedQuality)
+            let firstTier = passIndex == 2 && !declaredLadder.contains(candidate.requestedQuality) ? [] : [candidate.requestedQuality]
+            for tier in firstTier + (passIndex == 2 ? lowerTiers : []) {
                 if passIndex == 1, let began = crossStartedAt, Date().timeIntervalSince(began) > crossPlatformDeadline { break }
                 do {
                     let response = try await request(
