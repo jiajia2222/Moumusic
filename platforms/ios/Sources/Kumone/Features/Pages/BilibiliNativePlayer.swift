@@ -1346,7 +1346,12 @@ final class BiliDanmakuUIView: UIView {
     private var items: [PlacedDanmaku] = []
     private var itemsSignature = ""
     private var layersByIndex: [Int: CALayer] = [:]
-    private var imageCache: [Int: (image: CGImage, size: CGSize)] = [:]
+    private let imageStore = DanmakuImageStore()
+    private let renderQueue = DispatchQueue(label: "moumusic.danmaku.render", qos: .userInitiated)
+    private var frameCounter = 0
+    /// Playback position advanced by the display's own clock between the player's (frame-rate) updates.
+    private var smoothTime: Double = 0
+    private var lastHostTime: CFTimeInterval = 0
     private var displayLink: CADisplayLink?
     private var cachedFontSize: CGFloat = 0
     private var lastTime: Double = -1
@@ -1385,7 +1390,8 @@ final class BiliDanmakuUIView: UIView {
     func start() {
         guard displayLink == nil else { return }
         let link = CADisplayLink(target: Proxy(self), selector: #selector(Proxy.tick))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+        // 60 fps is plenty for text drifting at ~90 pt/s and leaves the decoder room on 4K video.
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
         link.add(to: .main, forMode: .common)
         displayLink = link
     }
@@ -1398,8 +1404,9 @@ final class BiliDanmakuUIView: UIView {
     private func clearAll() {
         layersByIndex.values.forEach { $0.removeFromSuperlayer() }
         layersByIndex.removeAll()
-        imageCache.removeAll()
+        imageStore.reset(fontSize: cachedFontSize)
         lastTime = -1
+        lastHostTime = 0
     }
 
     private func readSettings() {
@@ -1420,16 +1427,30 @@ final class BiliDanmakuUIView: UIView {
             if oldScale != fontScale { clearAll() }
         }
         guard let player, bounds.width > 0 else { return }
-        let time = player.currentTime().seconds
-        guard time.isFinite else { return }
-        if time == lastTime { return }
+        let playerTime = player.currentTime().seconds
+        guard playerTime.isFinite else { return }
+        // The player reports its time once per video frame, which makes danmaku step in jumps on a 60 Hz
+        // display. While playing, advance the time with the display clock and only nudge it toward the
+        // player's value (a big gap means a seek: snap).
+        let rate = Double(player.rate)
+        var time = playerTime
+        if rate > 0, lastHostTime > 0 {
+            let predicted = smoothTime + (link.timestamp - lastHostTime) * rate
+            let drift = playerTime - predicted
+            time = abs(drift) > 0.5 ? playerTime : predicted + drift * 0.08
+        }
+        smoothTime = time
+        lastHostTime = link.timestamp
+        if rate == 0, time == lastTime { return }
         // A jump (seek) re-places everything.
         if lastTime >= 0, abs(time - lastTime) > 1.5 { layersByIndex.values.forEach { $0.removeFromSuperlayer() }; layersByIndex.removeAll() }
         lastTime = time
 
         let baseSize = max(13, min(isFullscreen ? 24 : 18, bounds.height / 15))
         let fontSize = baseSize * fontScale
-        if fontSize != cachedFontSize { cachedFontSize = fontSize; imageCache.removeAll(); clearLayersOnly() }
+        if fontSize != cachedFontSize { cachedFontSize = fontSize; imageStore.reset(fontSize: fontSize); clearLayersOnly() }
+        frameCounter += 1
+        if frameCounter % 15 == 1 { prefetchImages(from: time, fontSize: fontSize) }
         let laneHeight = fontSize * 1.5
         let scrollLanes = max(1, Int((bounds.height * area) / laneHeight))
 
@@ -1476,7 +1497,33 @@ final class BiliDanmakuUIView: UIView {
             layersByIndex[index] = nil
         }
         CATransaction.commit()
-        if imageCache.count > 600 { imageCache = imageCache.filter { visible.contains($0.key) } }
+        imageStore.trim(keeping: visible)
+    }
+
+    /// Draws the text bitmaps of the danmaku that start within the next three seconds on a background queue,
+    /// so a burst of new danmaku never costs the main thread a frame.
+    private func prefetchImages(from time: Double, fontSize: CGFloat) {
+        var low = 0, high = items.count
+        while low < high {
+            let mid = (low + high) / 2
+            if items[mid].start < time { low = mid + 1 } else { high = mid }
+        }
+        let scale = UIScreen.main.scale
+        let store = imageStore
+        var queued = 0
+        var index = low
+        while index < items.count, items[index].start <= time + 3, queued < 80 {
+            if store.claim(index) {
+                queued += 1
+                let item = items[index]
+                let target = index
+                renderQueue.async {
+                    let entry = Self.render(item: item, fontSize: fontSize, scale: scale)
+                    store.put(target, entry, fontSize: fontSize)
+                }
+            }
+            index += 1
+        }
     }
 
     private func clearLayersOnly() {
@@ -1512,14 +1559,19 @@ final class BiliDanmakuUIView: UIView {
     }()
 
     private func image(for index: Int, fontSize: CGFloat) -> (image: CGImage, size: CGSize) {
-        if let cached = imageCache[index] { return cached }
-        let item = items[index]
+        if let cached = imageStore.get(index) { return cached }
+        let entry = Self.render(item: items[index], fontSize: fontSize, scale: UIScreen.main.scale)
+        imageStore.put(index, entry, fontSize: fontSize)
+        return entry
+    }
+
+    nonisolated private static func render(item: PlacedDanmaku, fontSize: CGFloat,
+                                           scale: CGFloat) -> (image: CGImage, size: CGSize) {
         let color = UIColor(red: CGFloat((item.color >> 16) & 0xFF) / 255,
                             green: CGFloat((item.color >> 8) & 0xFF) / 255,
                             blue: CGFloat(item.color & 0xFF) / 255, alpha: 1)
         // Two passes like the official player: a thin dark outline first, then the coloured
-        // glyphs on top, so the outline never eats into the fill (the old single pass with a
-        // thick stroke and blurred shadow made every danmaku look dark and smeared).
+        // glyphs on top, so the outline never eats into the fill.
         let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
         let outline = NSAttributedString(string: item.text, attributes: [
             .font: font,
@@ -1534,15 +1586,13 @@ final class BiliDanmakuUIView: UIView {
         let textSize = fill.size()
         let size = CGSize(width: ceil(textSize.width) + 6, height: ceil(textSize.height) + 4)
         let format = UIGraphicsImageRendererFormat()
-        format.scale = UIScreen.main.scale
+        format.scale = scale
         format.preferredRange = .standard
         let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
             outline.draw(at: CGPoint(x: 3, y: 2))
             fill.draw(at: CGPoint(x: 3, y: 2))
         }
-        let entry = (rendered.cgImage!, size)
-        imageCache[index] = entry
-        return entry
+        return (rendered.cgImage!, size)
     }
 
     /// CADisplayLink retains its target; this weak proxy avoids a cycle.
@@ -1710,4 +1760,46 @@ struct BiliDanmakuDraft {
     let mode: Int
     let color: UInt32
     let fontSize: Int
+}
+
+/// Thread-safe store of the pre-rendered danmaku bitmaps (filled from a background queue).
+private final class DanmakuImageStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var images: [Int: (image: CGImage, size: CGSize)] = [:]
+    private var pending = Set<Int>()
+    private var fontSize: CGFloat = 0
+
+    func reset(fontSize: CGFloat) {
+        lock.lock()
+        images.removeAll()
+        pending.removeAll()
+        self.fontSize = fontSize
+        lock.unlock()
+    }
+
+    func get(_ index: Int) -> (image: CGImage, size: CGSize)? {
+        lock.lock(); defer { lock.unlock() }
+        return images[index]
+    }
+
+    /// True when the caller should render this item (it is neither cached nor already being rendered).
+    func claim(_ index: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if images[index] != nil || pending.contains(index) { return false }
+        pending.insert(index)
+        return true
+    }
+
+    func put(_ index: Int, _ entry: (image: CGImage, size: CGSize), fontSize: CGFloat) {
+        lock.lock()
+        if fontSize == self.fontSize { images[index] = entry }
+        pending.remove(index)
+        lock.unlock()
+    }
+
+    func trim(keeping visible: Set<Int>) {
+        lock.lock()
+        if images.count > 600 { images = images.filter { visible.contains($0.key) } }
+        lock.unlock()
+    }
 }

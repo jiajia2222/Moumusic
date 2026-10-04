@@ -29,6 +29,24 @@ jobs:
         working-directory: platforms/ios/ios
         run: xcodegen generate
 
+      - name: Package Xcode project (ios26)
+        run: |
+          cat > platforms/ios/README-Xcode.txt <<'EOF'
+          Moumusic - Xcode project (iOS 26, all features)
+
+          1. Unzip, open  ios/KumoneIOS.xcodeproj  in Xcode 26 (macOS 26 or later).
+          2. Target KumoneIOS > Signing & Capabilities: choose your Team and a unique Bundle Identifier.
+          3. Pick your iPhone (or a simulator) and Run.
+          The Swift package  Sources/Kumone  (KumoneCore) is referenced by relative path: keep the folder layout.
+          To regenerate the project after editing  ios/project.yml : brew install xcodegen && cd ios && xcodegen generate
+          EOF
+          ditto -c -k --keepParent platforms/ios Moumusic-xcode-ios26.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Moumusic-xcode-ios26
+          path: Moumusic-xcode-ios26.zip
+
       - name: Build (unsigned)
         working-directory: platforms/ios/ios
         run: |
@@ -79,6 +97,24 @@ jobs:
       - name: Generate Xcode project
         working-directory: platforms/ios/ios
         run: xcodegen generate
+
+      - name: Package Xcode project (compat)
+        run: |
+          cat > platforms/ios/README-Xcode.txt <<'EOF'
+          Moumusic - Xcode project (iOS 15-18 compatibility build, already patched)
+
+          1. Unzip, open  ios/KumoneIOS.xcodeproj  in Xcode 26 (macOS 26 or later).
+          2. Target KumoneIOS > Signing & Capabilities: choose your Team and a unique Bundle Identifier.
+          3. Pick your iPhone (or a simulator) and Run.
+          The Swift package  Sources/Kumone  (KumoneCore) is referenced by relative path: keep the folder layout.
+          To regenerate the project after editing  ios/project.yml : brew install xcodegen && cd ios && xcodegen generate
+          EOF
+          ditto -c -k --keepParent platforms/ios Moumusic-xcode-compat.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Moumusic-xcode-compat
+          path: Moumusic-xcode-compat.zip
 
       - name: Build (unsigned)
         working-directory: platforms/ios/ios
