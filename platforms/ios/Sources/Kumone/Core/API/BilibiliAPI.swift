@@ -996,11 +996,20 @@ actor BilibiliAPI {
         let first = try await run(keyword)
         guard isEmpty(first) else { return first }
         var tried: Set<String> = [keyword]
-        var candidates: [String] = []
         let squeezed = keyword.filter { !$0.isWhitespace }
-        if squeezed != keyword { candidates.append(squeezed) }
-        candidates += await suggestKeywords(keyword).prefix(3)
-        for candidate in candidates where tried.insert(candidate).inserted {
+        let chars = Array(squeezed)
+        // A wrong last letters is the usual slip: shorter prefixes of the keyword ("linksphotos" ->
+        // "linksphoto" finds the uploader), then what Bilibili suggests for the keyword / its prefixes.
+        let prefixes: [String] = (1...4).compactMap { cut in
+            chars.count - cut >= max(2, chars.count / 2) ? String(chars.dropLast(cut)) : nil
+        }
+        var queue: [String] = []
+        if squeezed != keyword { queue.append(squeezed) }
+        queue += prefixes.prefix(2)
+        queue += await suggestKeywords(keyword).prefix(2)
+        if let shortest = prefixes.first { queue += await suggestKeywords(shortest).prefix(2) }
+        queue += prefixes.dropFirst(2)
+        for candidate in queue.prefix(10) where !candidate.isEmpty && tried.insert(candidate).inserted {
             if let result = try? await run(candidate), !isEmpty(result) { return result }
         }
         return first
