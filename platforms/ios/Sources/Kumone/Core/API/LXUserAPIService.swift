@@ -1259,29 +1259,36 @@ final class LXUserAPIService: ObservableObject {
         guard await activate(source, waitTime: Self.qualityProbeTimeout) else { return [] }
         let requestedQualities = declared.isEmpty ? ["128k"] : declared
 
-        // Probing each tier is independent. A structured group propagates
-        // cancellation from the picker task, so closing the sheet no longer
-        // leaves a set of stale requests running in the background.
-        return await withTaskGroup(of: String?.self, returning: Set<String>.self) { group in
+        // Every tier is probed (request + a look at the real file) at the same time, and the whole probe
+        // is capped at two seconds: whatever has been confirmed by then is the answer.
+        guard !requestedQualities.isEmpty else { return [] }
+        let box = QualityProbeBox(count: requestedQualities.count)
+        var tasks: [Task<Void, Never>] = []
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            box.continuation = continuation
             for requested in requestedQualities {
-                group.addTask { @MainActor [weak self] in
-                    guard !Task.isCancelled, let self else { return nil }
-                    return await self.probeQualityName(
+                tasks.append(Task { @MainActor [weak self] in
+                    if let self, !Task.isCancelled,
+                       let actual = await self.probeQualityName(
                         source: source,
                         platform: platform,
                         track: track,
                         requested: requested,
                         requestedQualities: requestedQualities
-                    )
-                }
+                       ) {
+                        box.verified.insert(actual)
+                    }
+                    box.remaining -= 1
+                    if box.remaining <= 0 { box.finish() }
+                })
             }
-
-            var verified = Set<String>()
-            for await actual in group {
-                if let actual { verified.insert(actual) }
-            }
-            return verified
+            tasks.append(Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                box.finish()
+            })
         }
+        tasks.forEach { $0.cancel() }
+        return box.verified
     }
 
     private func isValidAudioURL(_ url: URL) -> Bool {
@@ -1630,5 +1637,23 @@ enum RemoteAudioInspector {
             return Int(response.expectedContentLength)
         }
         return nil
+    }
+}
+
+/// Collects probe answers and lets the first of "all done" / "time is up" release the waiting caller.
+@MainActor
+private final class QualityProbeBox {
+    var verified = Set<String>()
+    var remaining: Int
+    var continuation: CheckedContinuation<Void, Never>?
+    private var finished = false
+
+    init(count: Int) { remaining = count }
+
+    func finish() {
+        guard !finished else { return }
+        finished = true
+        continuation?.resume()
+        continuation = nil
     }
 }
