@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 import Security
 import CommonCrypto
 import CryptoKit
@@ -686,8 +686,8 @@ actor KugouAPI {
         case "lossless", "flac": return "flac"
         case "hires", "flac24bit", "highres": return "high"
         case "atmos": return "viper_atmos"
-        case "master", "jymaster": return "viper_tape"
-        case "dolby", "surround": return "viper_clear"
+        case "master", "jymaster": return "viper_clear"
+        case "dolby", "surround": return "dolby"
         default: return value
         }
     }
@@ -699,8 +699,8 @@ actor KugouAPI {
         case "flac", "lossless": return "flac"
         case "high", "hires", "flac24", "flac24bit": return "flac24bit"
         case "viper_atmos", "atmos": return "atmos"
-        case "viper_tape", "master": return "jymaster"
-        case "viper_clear", "dolby": return "dolby"
+        case "viper_clear", "master": return "jymaster"
+        case "dolby": return "dolby"
         default: return value
         }
     }

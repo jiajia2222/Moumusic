@@ -88,7 +88,7 @@ enum AudioQuality: String, CaseIterable, Identifiable, Sendable {
             }
         case "kg", "kugou":
             switch self {
-            case .master: return "蝰蛇母带"
+            case .master: return "蝰蛇超清母带"
             case .atmos: return "蝰蛇全景声"
             case .dolby, .surround: return "蝰蛇超清音质"
             case .hires: return "Hi-Res 超清音质"

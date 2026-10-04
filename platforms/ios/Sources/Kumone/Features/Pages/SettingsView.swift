@@ -43,7 +43,6 @@ struct SettingsView: View {
     @AppStorage("moumusic.autoPlayLast") private var autoPlayLast = false
     @AppStorage("moumusic.vipReminder") private var vipReminder = true
     @AppStorage("moumusic.qualityDowngradeNotice") private var qualityDowngradeNotice = true
-    @AppStorage("moumusic.crossPlatformQuality") private var crossPlatformQuality = false
     @AppStorage("moumusic.vipThirdPartyFallback") private var vipThirdPartyFallback = false
     @AppStorage("moumusic.fadeEnabled") private var fadeEnabled = true
     @AppStorage("moumusic.netease.autoSignIn") private var neteaseAutoSignIn = true
@@ -121,10 +120,6 @@ struct SettingsView: View {
                 Toggle("触感反馈", isOn: $hapticsEnabled)
                 Toggle("启动时自动播放上次歌曲", isOn: $autoPlayLast)
                 Toggle("第三方音源播放会员歌时提醒", isOn: $vipReminder)
-                Toggle("跨平台补音质", isOn: $crossPlatformQuality)
-                Text("关闭（默认）：每首歌只用自己平台的音质，没有就在本平台降一档。打开：本平台没有所选音质时，会去别的平台找同一首歌的该音质（可能是不同版本，歌词会随之改用那个平台的）。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 Toggle("音质降级时提示", isOn: $qualityDowngradeNotice)
                 Text("所选音质（如母带、环绕声）这首歌没有、改按较低音质播放时，是否弹出提示。关闭后只在诊断日志里记录。")
                     .font(.caption)

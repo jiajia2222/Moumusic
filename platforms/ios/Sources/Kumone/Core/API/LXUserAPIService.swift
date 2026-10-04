@@ -483,8 +483,6 @@ final class LXUserAPIService: ObservableObject {
         let crossPlatformDeadline: TimeInterval = 2
         var crossStartedAt: Date?
         for passIndex in 0..<3 {
-        // 设置里的「跨平台补音质」(default off): other platforms are only asked when the user allows it.
-        if passIndex == 1, !UserDefaults.standard.bool(forKey: "moumusic.crossPlatformQuality") { continue }
         if passIndex == 1 { crossStartedAt = Date() }
         if passIndex == 2, downgradedFallback != nil { break }
         var candidates: [MusicURLCandidate] = []
@@ -519,7 +517,12 @@ final class LXUserAPIService: ObservableObject {
                     requestTrack = matched
                 }
 
-                let supported = supportedQualityNamesForPlayback(for: requestTrack, platform: platform)
+                var supported = supportedQualityNamesForPlayback(for: requestTrack, platform: platform)
+                // QQ / Kugou publish which files a song really has: name only those tiers (no doomed requests).
+                let songTiers = (platform == "tx" || platform == "kg") ? await PlatformQualityInfo.shared.tiers(for: requestTrack) : nil
+                if let songTiers, !songTiers.isEmpty {
+                    supported = Self.qualityOrder.filter(songTiers.contains)
+                }
                 // Capabilities not known yet (source still loading, quality list not refreshed): ask for the
                 // tier the user chose instead of silently falling back to 128k.
                 var requested = supported.isEmpty
@@ -529,7 +532,7 @@ final class LXUserAPIService: ObservableObject {
                 // script may still serve more, so ask for the tier the user chose anyway (own platform, first
                 // pass); if it refuses, the step-down pass falls back to what the source declares.
                 let wanted = Self.normalizedQuality(Self.requestedToken(for: quality))
-                if platform != "wy", !supported.isEmpty,
+                if platform != "wy", !supported.isEmpty, songTiers == nil,
                    Self.qualityRank(wanted) > Self.qualityRank(requested) {
                     requested = wanted
                 }
@@ -1271,6 +1274,10 @@ final class LXUserAPIService: ObservableObject {
         let playbackSources = Array(LXSourceStore.shared.playbackSources.prefix(3))
         let primaryPlatform = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
         var available = Set<String>()
+        if let songTiers = await PlatformQualityInfo.shared.tiers(for: track) {
+            // The platform's own file table is exact: no per-song probing needed.
+            return Self.qualityOrder.reversed().filter(songTiers.contains)
+        }
         if SettingsManager.shared.playbackSourceMode != .thirdParty {
             if primaryPlatform == "wy", NeteaseClient.shared.isLoggedIn {
                 await AccountStore.shared.ensureVIPInfo()
