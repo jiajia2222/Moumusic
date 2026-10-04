@@ -487,9 +487,50 @@ final class LXUserAPIService: ObservableObject {
                         requested: tier,
                         available: candidate.supportedQualities.isEmpty ? [tier] : candidate.supportedQualities
                     )
-                    let resolved = ResolvedURL(url: url, quality: actualQuality)
-                    let actualRank = Self.qualityRank(actualQuality)
-                    if actualQuality == "unknown" {
+                    // The same song can come back as Atmos on one request and as FLAC on the next (the source
+                    // itself is inconsistent). Before settling for a lower tier, ask for the requested one again
+                    // a couple of times: each retry costs a fraction of a second.
+                    var bestURL = url
+                    var bestQuality = actualQuality
+                    if actualQuality != "unknown", passIndex == 0, Self.qualityRank(actualQuality) < wantedRank {
+                        for _ in 0..<2 {
+                            try? await Task.sleep(nanoseconds: 150_000_000)
+                            guard let again = try? await request(
+                                source: candidate.platform,
+                                action: "musicUrl",
+                                info: [
+                                    "type": protocolQualityToken(tier, platform: candidate.platform),
+                                    "musicInfo": musicInfo(
+                                        for: candidate.track,
+                                        platform: candidate.platform,
+                                        qualities: candidate.supportedQualities.isEmpty
+                                            ? ["128k", "320k", "flac", "flac24bit"] : candidate.supportedQualities
+                                    )
+                                ]
+                            ),
+                                  let againData = again["data"] as? [String: Any],
+                                  let againRaw = againData["url"] as? String,
+                                  let againURL = URL(string: againRaw),
+                                  let againScheme = againURL.scheme?.lowercased(),
+                                  againScheme == "http" || againScheme == "https",
+                                  !excludingURLs.contains(againURL.absoluteString),
+                                  !Self.isPreviewResponse(againData, expectedDuration: candidate.track.duration) else { continue }
+                            let againQuality = Self.resolvedQuality(
+                                data: againData,
+                                requested: tier,
+                                available: candidate.supportedQualities.isEmpty ? [tier] : candidate.supportedQualities
+                            )
+                            if againQuality != "unknown",
+                               Self.qualityRank(againQuality) > Self.qualityRank(bestQuality) {
+                                bestURL = againURL
+                                bestQuality = againQuality
+                            }
+                            if Self.qualityRank(bestQuality) >= wantedRank { break }
+                        }
+                    }
+                    let resolved = ResolvedURL(url: bestURL, quality: bestQuality)
+                    let actualRank = Self.qualityRank(bestQuality)
+                    if bestQuality == "unknown" {
                         // The source does not say which tier it served: keep it as a fallback and do not
                         // spend more requests on this source's lower tiers.
                         if downgradedFallback == nil { downgradedFallback = resolved }

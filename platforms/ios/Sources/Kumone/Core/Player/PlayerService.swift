@@ -175,9 +175,7 @@ final class PlayerService: ObservableObject {
     /// The resolved quality belongs to one concrete track. Keeping the key
     /// next to the label prevents a late resolver from making the next song
     /// appear to have the previous song's quality.
-    @Published private(set) var servedQualityTrackKey: String? {
-        didSet { noteDowngradeIfAny() }
-    }
+    @Published private(set) var servedQualityTrackKey: String?
     /// A selection made from the now-playing quality picker applies only to
     /// this playing track. The Settings value remains the default for the
     /// next track and is never overwritten by an in-player tap.
@@ -306,10 +304,7 @@ final class PlayerService: ObservableObject {
         // Every tier a probe ever confirmed for this track stays on the list: a probe that times out or
         // fails once must not make a tier disappear (and the next open bring it back).
         let known = knownQualityTiers[cacheKey] ?? []
-        // Tiers that playback actually asked for on this track and did not get are not offered again
-        // (for a while): the list must not promise what the source just failed to deliver.
-        let refuted = Set(refutedQualityTiers[cacheKey, default: [:]]
-            .filter { Date().timeIntervalSince($0.value) < 6 * 3600 }.keys)
+        let refuted: Set<String> = []
         if !forceRefresh, let cached = qualityAvailabilityCache[cacheKey], cached.expiresAt > Date() {
             // A probe can finish before playback resolves the real URL and
             // cache only the safe 128K fallback. Merge the verified result for
@@ -468,20 +463,6 @@ final class PlayerService: ObservableObject {
         let qualities: [AudioQuality]
     }
     private var qualityAvailabilityCache: [String: QualityAvailabilityCacheEntry] = [:]
-    /// Tiers playback requested for a track but did not get, per track key (value = when).
-    private var refutedQualityTiers: [String: [String: Date]] = [:]
-
-    private func noteDowngradeIfAny() {
-#if os(iOS)
-        guard let key = servedQualityTrackKey, let track = currentTrack, track.playbackKey == key,
-              let served = servedQuality.flatMap(AudioQuality.init(lxType:)) else { return }
-        let requested = currentQuality
-        guard let wanted = Self.qualityRank(requested.lxType),
-              let got = Self.qualityRank(served.lxType), wanted < got else { return }
-        let cacheKey = qualityAvailabilityCacheKey(for: track, mode: SettingsManager.shared.playbackSourceMode)
-        refutedQualityTiers[cacheKey, default: [:]][requested.lxType] = Date()
-#endif
-    }
     /// Tiers confirmed per track (and source / account state), kept across launches.
     private var knownQualityTiers: [String: Set<String>] = {
         let stored = UserDefaults.standard.dictionary(forKey: "moumusic.knownQualityTiers") as? [String: [String]] ?? [:]
