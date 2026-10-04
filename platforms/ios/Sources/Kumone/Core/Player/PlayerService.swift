@@ -307,6 +307,8 @@ final class PlayerService: ObservableObject {
         // fails once must not make a tier disappear (and the next open bring it back).
         let known = knownQualityTiers[cacheKey] ?? []
         let refuted: Set<String> = []
+        // Never offer a tier the selected source / signed-in accounts cannot deliver at all.
+        let allowed = QualitySupport.allowedTiers(for: playbackMode)
         if !forceRefresh, let cached = qualityAvailabilityCache[cacheKey], cached.expiresAt > Date() {
             // A probe can finish before playback resolves the real URL and
             // cache only the safe 128K fallback. Merge the verified result for
@@ -319,7 +321,8 @@ final class PlayerService: ObservableObject {
             }
             return AudioQuality.allCases.filter {
                 $0.lxType == servedType
-                    || ((cached.qualities.contains($0) || known.contains($0.lxType)) && !refuted.contains($0.lxType))
+                    || ((cached.qualities.contains($0) || known.contains($0.lxType))
+                        && !refuted.contains($0.lxType) && allowed.contains($0.lxType))
             }
         }
         var names: Set<String> = []
@@ -392,7 +395,7 @@ final class PlayerService: ObservableObject {
             ? servedQuality.flatMap(AudioQuality.init(lxType:))?.lxType : nil
         let available = AudioQuality.allCases.filter {
             names.contains($0.lxType)
-                && ($0.lxType == servedNow || !refuted.contains($0.lxType))
+                && ($0.lxType == servedNow || (!refuted.contains($0.lxType) && allowed.contains($0.lxType)))
                 && seenTypes.insert($0.lxType).inserted
         }
         let result = available.isEmpty ? [.standard] : available

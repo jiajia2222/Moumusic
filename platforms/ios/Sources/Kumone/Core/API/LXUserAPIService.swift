@@ -63,12 +63,40 @@ final class LXUserAPIService: ObservableObject {
     @Published private(set) var capabilities: [String: [String]] = [:]
     @Published private(set) var qualityCapabilities: [String: [String]] = [:]
     @Published private(set) var statusMessage = "未加载音源"
+    /// Tiers the selected source declares for a platform it can serve (musicUrl). Checked whenever a source
+    /// is loaded (switching sources, app launch) and remembered per source for the next launch.
+    @Published private(set) var sourceTierSupport: Set<String> = []
+    @Published private(set) var sourceSupportKnown = false
 
     private init() {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 30
         session = URLSession(configuration: configuration)
+    }
+
+    /// What the source itself says it can play, per platform that has a musicUrl action.
+    private func updateSourceSupport() {
+        var tiers = Set<String>()
+        for (platform, names) in qualityCapabilities where capabilities[platform]?.contains("musicUrl") == true {
+            tiers.insert("128k")
+            for name in names { tiers.insert(Self.normalizedQuality(name)) }
+        }
+        sourceTierSupport = tiers
+        sourceSupportKnown = true
+        if let id = loadedID {
+            UserDefaults.standard.set(Array(tiers), forKey: "moumusic.lx.tierSupport.\(id)")
+        }
+        let readable = AudioQuality.allCases.filter { tiers.contains($0.lxType) }
+            .reduce(into: [String]()) { list, quality in
+                if !list.contains(quality.sourceDisplayName.components(separatedBy: " / ").last ?? "") {
+                    list.append(quality.sourceDisplayName.components(separatedBy: " / ").last ?? "")
+                }
+            }
+        DiagnosticLogStore.shared.append(level: .info, category: "音源能力",
+                                         message: "音源支持的音质：\(readable.joined(separator: "、"))",
+                                         detail: "已检查（切换音源 / 启动时）；不支持的音质不会在列表中显示。")
+        QualitySupport.normalizeSelection()
     }
 
     func loadSelectedSource() {
@@ -104,6 +132,14 @@ final class LXUserAPIService: ObservableObject {
         loadedID = source?.id
         capabilities = [:]
         qualityCapabilities = [:]
+        if let id = source?.id,
+           let cached = UserDefaults.standard.array(forKey: "moumusic.lx.tierSupport.\(id)") as? [String] {
+            sourceTierSupport = Set(cached)
+            sourceSupportKnown = true
+        } else {
+            sourceTierSupport = []
+            sourceSupportKnown = source == nil
+        }
         statusMessage = source == nil ? "未选择音源" : "正在加载音源"
         guard let source,
               let preloadURL = Bundle.module.url(forResource: "LXUserAPIPreload", withExtension: "js"),
@@ -860,6 +896,7 @@ final class LXUserAPIService: ObservableObject {
                     guard let value = pair.value as? [String: Any] else { return }
                     result[pair.key] = value["qualitys"] as? [String] ?? []
                 }
+                updateSourceSupport()
                 let active = capabilities
                     .filter { !$0.value.isEmpty }
                     .map { "\($0.key): \($0.value.joined(separator: ", "))" }
