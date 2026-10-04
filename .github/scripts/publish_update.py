@@ -51,6 +51,7 @@ def upload(path, name):
     reply = json.loads(call("POST", f"{HOST}/upload?{query}", payload,
                             {"Content-Type": f"multipart/form-data; boundary={boundary}"}))
     src = reply[0]["src"]
+    print("upload", name, "->", src)
     if urllib.parse.unquote(src).split("/")[-1] != name:
         raise RuntimeError(f"host renamed {name} to {src}")
     return HOST + src
@@ -75,9 +76,10 @@ def upload_exact(path, name):
 
 def delete(name):
     try:
-        call("DELETE", f"{HOST}/api/manage/delete/{FOLDER}/{urllib.parse.quote(name)}", retries=1)
-    except Exception:  # noqa: BLE001  (missing file is fine)
-        pass
+        reply = call("DELETE", f"{HOST}/api/manage/delete/{FOLDER}/{urllib.parse.quote(name)}", retries=1)
+        print("delete", name, "->", reply[:160])
+    except Exception as error:  # noqa: BLE001  (missing file is fine)
+        print("delete", name, "failed:", error)
 
 
 ipa_path = os.environ["IPA"]
