@@ -1630,10 +1630,20 @@ enum LXCatalogService {
             }
             let rawTracks = dictionaryArray(root, keys: ["musiclist", "songlist", "tracks", "list", "data"])
             guard !rawTracks.isEmpty else { throw LXCatalogError.invalidResponse }
-            let tracks = rawTracks.compactMap { track(from: $0, source: .kw) }
+            // Rows without a cover get one from Kuwo's picture service (same as the charts).
+            let missing = rawTracks.compactMap { row -> String? in
+                let hasPic = [row["albumpic"], row["web_albumpic_short"], row["MVPIC"], row["PICPATH"]].contains { !(text($0) ?? "").isEmpty }
+                return hasPic ? nil : text(row["id"]) ?? text(row["songmid"])
+            }
+            let extraCovers = missing.isEmpty ? [:] : await kuwoCovers(ids: missing)
+            let tracks = rawTracks.compactMap { row -> Track? in
+                var item = row
+                if let rid = text(row["id"]) ?? text(row["songmid"]), let cover = extraCovers[rid] { item["albumpic"] = cover }
+                return track(from: item, source: .kw)
+            }
             guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
             return LXPlaylistDetail(id: id, name: text(root?["name"]) ?? text(root?["title"]) ?? "酷我歌单",
-                                    coverURL: normalizedImageURL(text(root?["pic"])), description: text(root?["intro"]),
+                                    coverURL: kuwoImageURL(root?["pic"]) ?? tracks.first?.album.picUrl, description: text(root?["intro"]),
                                     author: text(root?["uname"]), playCount: int(root?["playnum"]) ?? 0,
                                     tracks: tracks, source: .kw)
         case .tx:

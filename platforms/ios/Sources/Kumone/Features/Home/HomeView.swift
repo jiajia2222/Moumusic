@@ -613,7 +613,14 @@ struct HomeView: View {
                         lxPlaylistCard(chart)
                     }
                 }
-            } else if !model.lxRecommendPlaylists.isEmpty {
+            }
+            if model.activePlatform == .wy, !model.lxRecommendPlaylists.isEmpty {
+                Shelf(title: "推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+                    ForEach(model.lxRecommendPlaylists.prefix(12)) { playlist in
+                        lxPlaylistCard(playlist)
+                    }
+                }
+            } else if model.lxToplists.isEmpty, !model.lxRecommendPlaylists.isEmpty {
                 Shelf(title: "官方推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
                     ForEach(model.lxRecommendPlaylists.prefix(12)) { playlist in
                         lxPlaylistCard(playlist)
@@ -702,9 +709,8 @@ struct HomeView: View {
     /// 每日推荐 shows on every platform that has a signed-in account (Kuwo and Migu have none in the app).
     private var platformSignedIn: Bool {
         switch model.activePlatform {
+        // Only NetEase has a personalised daily list in the app; QQ / Kugou would only repeat their feed.
         case .wy: return account.isLoggedIn
-        case .tx: return qqMusic.isLoggedIn
-        case .kg: return kugou.isLoggedIn
         default: return false
         }
     }
@@ -745,6 +751,15 @@ struct HomeView: View {
             featureCards
                 .padding(.top, 8)
 
+
+            if !model.recommendPlaylists.isEmpty {
+                Shelf(title: "推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+                    ForEach(Array(model.recommendPlaylists.prefix(12).enumerated()), id: \.element.id) { index, playlist in
+                        playlistCard(playlist)
+                            .staggeredAppearance(index: index, id: "home-rec-\(playlist.id)")
+                    }
+                }
+            }
 
             if !model.recommendTracks.isEmpty {
                 SectionHeader(title: "热门歌曲")
