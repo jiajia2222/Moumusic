@@ -244,6 +244,8 @@ actor BilibiliAPI {
         let url: URL
         let quality: BilibiliAudioQuality
         let qualities: [BilibiliAudioQuality]
+        /// The same track with its init / index ranges, for audio-only HLS (nil when Bilibili gives no index).
+        var dash: BiliDashTrack? = nil
     }
 
     struct Subtitle: Identifiable, Hashable, Sendable {
@@ -1673,13 +1675,40 @@ actor BilibiliAPI {
         return AudioPlayback(
             url: selected.url,
             quality: selected.quality,
-            qualities: candidates.map(\.quality)
+            qualities: candidates.map(\.quality),
+            dash: selected.dash
         )
     }
 
     private struct AudioCandidate: Sendable {
         let url: URL
         let quality: BilibiliAudioQuality
+        var dash: BiliDashTrack? = nil
+    }
+
+    private static func audioDashTrack(_ row: [String: Any]) -> BiliDashTrack? {
+        func range(_ value: Any?) -> ClosedRange<Int>? {
+            guard let text = Self.text(value) else { return nil }
+            let parts = text.split(separator: "-").compactMap { Int($0) }
+            guard parts.count == 2, parts[0] <= parts[1] else { return nil }
+            return parts[0]...parts[1]
+        }
+        let base = (row["segment_base"] ?? row["SegmentBase"]) as? [String: Any]
+        var urls: [URL] = []
+        for key in ["baseUrl", "base_url", "url"] {
+            if let value = Self.text(row[key]), let url = URL(string: value) { urls.append(Self.officialCDN(url)); break }
+        }
+        for value in ((row["backupUrl"] ?? row["backup_url"]) as? [String]) ?? [] {
+            if let url = URL(string: value) { urls.append(Self.officialCDN(url)) }
+        }
+        urls = urls.filter { !Self.isPCDN($0) } + urls.filter { Self.isPCDN($0) }
+        guard !urls.isEmpty,
+              let initRange = range(base?["initialization"] ?? base?["Initialization"]),
+              let indexRange = range(base?["index_range"] ?? base?["indexRange"]) else { return nil }
+        return BiliDashTrack(urls: urls, initRange: initRange, indexRange: indexRange,
+                             codecs: Self.text(row["codecs"]) ?? "mp4a.40.2",
+                             bandwidth: Self.integer(row["bandwidth"]) ?? 0,
+                             width: 0, height: 0, frameRate: nil)
     }
 
     private func audioCandidates(for video: Video, quality: Int?, cookie: String?) async throws -> [AudioCandidate] {
@@ -1732,7 +1761,8 @@ actor BilibiliAPI {
                     requiresVIP: requiresVIP,
                     isHiRes: isHiRes,
                     isDolby: isDolby
-                )
+                ),
+                dash: Self.audioDashTrack(row)
             ))
         }
 

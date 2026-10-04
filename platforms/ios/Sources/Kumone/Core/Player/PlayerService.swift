@@ -1275,6 +1275,7 @@ final class PlayerService: ObservableObject {
         let isLXCatalogTrack = track.source != nil
 #endif
         var resolvedURL: URL?
+        var biliAudioDash: BiliDashTrack?
         var servedByLXQuality: String?
         var servedBySourceLabel: String?
 #if os(macOS)
@@ -1298,6 +1299,7 @@ final class PlayerService: ObservableObject {
                     bvid: track.sourceMetadata["bvid"] ?? "", cookie: cookie)
                 let audio = try await BilibiliAPI.shared.audioPlayback(for: video, cookie: cookie)
                 resolvedURL = audio.url
+                biliAudioDash = audio.dash
                 servedByLXQuality = audio.quality.title
                 servedBySourceLabel = "哔哩哔哩"
             } catch {
@@ -1507,10 +1509,20 @@ final class PlayerService: ObservableObject {
         // back to its decorative animation.
         let asset: AVURLAsset
         if (track.source ?? "").lowercased() == "bili" {
+            let biliUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+#if os(iOS)
+            // Listen mode plays the DASH audio as audio-only HLS (like the video player does): a raw .m4s URL
+            // handed to AVPlayer often never loads (time stays at 0:00), and gives no real duration or seeking.
+            if let biliAudioDash {
+                asset = BiliHLSLoader.audioAsset(for: biliAudioDash, userAgent: biliUserAgent)
+            } else {
+                asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": [
+                    "Referer": "https://www.bilibili.com/", "User-Agent": biliUserAgent]])
+            }
+#else
             asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": [
-                "Referer": "https://www.bilibili.com/",
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
-            ]])
+                "Referer": "https://www.bilibili.com/", "User-Agent": biliUserAgent]])
+#endif
         } else {
             // Precise timing only for MP3 (VBR seeks otherwise land on an estimated byte offset and the
             // lyrics drift); on other remote formats it makes AVPlayer scan the stream first, which froze

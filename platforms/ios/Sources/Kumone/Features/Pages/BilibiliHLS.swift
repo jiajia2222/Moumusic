@@ -43,6 +43,8 @@ final class BiliHLSLoader: NSObject, AVAssetResourceLoaderDelegate {
 
     private let source: BiliDashSource
     private let userAgent: String
+    /// Listen mode: the master playlist carries the audio rendition only.
+    private let audioOnly: Bool
     private let session: URLSession
     private var cache: [String: Data] = [:]
     private var pending: [String: [AVAssetResourceLoadingRequest]] = [:]
@@ -50,13 +52,31 @@ final class BiliHLSLoader: NSObject, AVAssetResourceLoaderDelegate {
     private var prepared: [Kind: Task<Prepared, Error>] = [:]
     private let stateLock = NSLock()
 
-    private init(source: BiliDashSource, userAgent: String) {
+    private init(source: BiliDashSource, userAgent: String, audioOnly: Bool = false) {
         self.source = source
         self.userAgent = userAgent
+        self.audioOnly = audioOnly
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 60
         configuration.httpMaximumConnectionsPerHost = 6
         session = URLSession(configuration: configuration)
+    }
+
+    /// Listen mode: one DASH audio track played as audio-only HLS (real duration, buffering and seeking,
+    /// which a raw `.m4s` URL handed to AVPlayer does not give).
+    static func audioAsset(for track: BiliDashTrack, userAgent: String) -> AVURLAsset {
+        let url = URL(string: "\(scheme)://stream/master.m3u8")!
+        let headers = ["Referer": "https://www.bilibili.com/", "User-Agent": userAgent]
+        let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        let loader = BiliHLSLoader(source: BiliDashSource(video: track, audio: track), userAgent: userAgent, audioOnly: true)
+        asset.resourceLoader.setDelegate(loader, queue: queue)
+        lock.lock()
+        let key = ObjectIdentifier(asset)
+        live[key] = loader
+        order.append(key)
+        while order.count > 8 { live[order.removeFirst()] = nil }
+        lock.unlock()
+        return asset
     }
 
     static func asset(for source: BiliDashSource, userAgent: String) -> AVURLAsset {
@@ -153,6 +173,12 @@ final class BiliHLSLoader: NSObject, AVAssetResourceLoaderDelegate {
     }
 
     private func masterPlaylist() -> String {
+        if audioOnly, let audio = source.audio {
+            let codecs = audio.codecs.isEmpty ? "mp4a.40.2" : audio.codecs
+            return ["#EXTM3U", "#EXT-X-VERSION:7", "#EXT-X-INDEPENDENT-SEGMENTS",
+                    "#EXT-X-STREAM-INF:BANDWIDTH=\(max(audio.bandwidth, 64_000)),CODECS=\"\(codecs)\"",
+                    "\(Self.scheme)://stream/audio.m3u8"].joined(separator: "\n") + "\n"
+        }
         func codec(_ value: String) -> String {
             value.lowercased().hasPrefix("hev1") ? "hvc1" + value.dropFirst(4) : value
         }
