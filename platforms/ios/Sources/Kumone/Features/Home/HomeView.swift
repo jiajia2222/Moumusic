@@ -85,6 +85,7 @@ final class HomeViewModel: ObservableObject {
         dailyFirstCover = snapshot.dailyFirstCover
         recommendTracks = snapshot.recommendTracks
         lxRecommendPlaylists = snapshot.lxRecommendPlaylists
+        lxToplists = snapshot.lxToplists ?? []
         state = snapshot.hasContent ? .loaded : .idle
     }
 
@@ -100,7 +101,8 @@ final class HomeViewModel: ObservableObject {
                 topArtists: topArtists,
                 dailyFirstCover: dailyFirstCover,
                 recommendTracks: recommendTracks,
-                lxRecommendPlaylists: lxRecommendPlaylists
+                lxRecommendPlaylists: lxRecommendPlaylists,
+                lxToplists: lxToplists
             ),
             for: cacheKey(for: activeRequest)
         )
@@ -123,7 +125,8 @@ final class HomeViewModel: ObservableObject {
             activePlatform = mode == .netease ? .wy : platform
             if let snapshot = recommendationCache.snapshot(for: requestKey) {
                 apply(snapshot)
-                lastLoadedAt = snapshot.savedAt
+                // An old snapshot without charts is shown, then refreshed in place.
+                lastLoadedAt = (mode == .lx && snapshot.lxToplists == nil) ? nil : snapshot.savedAt
             } else {
                 resetContent()
                 lastLoadedAt = nil

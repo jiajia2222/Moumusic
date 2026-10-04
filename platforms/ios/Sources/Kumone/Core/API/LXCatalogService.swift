@@ -645,6 +645,8 @@ enum LXCatalogService {
               !value.isEmpty else { return nil }
         if value.hasPrefix("//") { value = "https:" + value }
         value = value.replacingOccurrences(of: "http://", with: "https://")
+        // Kuwo's CDN host name has no valid certificate over https; the same files are served from *.kuwo.cn.
+        value = value.replacingOccurrences(of: ".kwcdn.kuwo.cn", with: ".kuwo.cn")
         value = value.replacingOccurrences(of: "{size}", with: String(size))
         return URL(string: value) == nil ? nil : value
     }
@@ -1947,9 +1949,11 @@ extension LXCatalogService {
             let url = URL(string: "http://kbangserver.kuwo.cn/ksong.s?from=pc&fmt=json&type=bang&data=content&id=\(id)&pn=0&rn=100&show_copyright_off=0&pcmp4=1&isbang=1&userid=0&httpsStatus=1&plat=web_www")!
             let root = try await fetchObject(url) as? [String: Any]
             let rows = root?["musiclist"] as? [[String: Any]] ?? []
+            let covers = await kuwoCovers(ids: rows.compactMap { text($0["id"]) })
             let tracks: [Track] = rows.compactMap { row in
                 var item = row
                 if let seconds = text(row["song_duration"]) { item["duration"] = seconds }   // `duration` is the chart delta here
+                if let id = text(row["id"]), let cover = covers[id] { item["albumpic"] = cover }
                 return track(from: item, source: .kw)
             }
             guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
@@ -1959,6 +1963,34 @@ extension LXCatalogService {
                                     tracks: tracks, source: .kw)
         case .wy, .mg, .sd, .aggregate:
             throw LXCatalogError.unsupported
+        }
+    }
+
+    /// Kuwo chart rows carry no cover; its picture service answers with the image URL for a song id. Fetched
+    /// together, with a short overall deadline so a slow answer never holds the chart page back.
+    private static func kuwoCovers(ids: [String]) async -> [String: String] {
+        await withTaskGroup(of: (String, String)?.self) { group in
+            for id in ids {
+                group.addTask {
+                    guard let url = URL(string: "https://artistpicserver.kuwo.cn/pic.web?corp=kuwo&type=rid_pic&pictype=500&size=500&rid=\(id)"),
+                          let data = try? await fetchData(url),
+                          let body = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          body.hasPrefix("http") else { return nil }
+                    return (id, body)
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                return ("", "")
+            }
+            var found: [String: String] = [:]
+            for await item in group {
+                guard let item else { continue }
+                if item.0.isEmpty { group.cancelAll(); break }
+                found[item.0] = item.1
+                if found.count == ids.count { group.cancelAll(); break }
+            }
+            return found
         }
     }
 }

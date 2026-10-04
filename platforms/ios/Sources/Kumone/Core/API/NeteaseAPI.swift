@@ -451,7 +451,17 @@ enum NeteaseAPI {
         let idString = "[" + ids.map(String.init).joined(separator: ",") + "]"
         var payload: [String: Any] = ["ids": idString, "level": level, "encodeType": "flac"]
         if level == "sky" { payload["immerseType"] = "c51" }
-        return try await eapi(SongURLResponse.self, "/song/enhance/player/url/v1", payload).data
+        let first = try await eapi(SongURLResponse.self, "/song/enhance/player/url/v1", payload).data
+        // Dolby Atmos is not always served as FLAC: when the plain request does not come back as the dolby
+        // level, ask again for the MP4 container it is delivered in.
+        if level == "dolby", first.first?.level?.lowercased() != "dolby" || first.first?.url == nil {
+            payload["encodeType"] = "mp4"
+            if let retry = try? await eapi(SongURLResponse.self, "/song/enhance/player/url/v1", payload).data,
+               retry.first?.level?.lowercased() == "dolby", retry.first?.url != nil {
+                return retry
+            }
+        }
+        return first
     }
 
     /// Quality availability is advisory UI data. Keep a slow or unavailable

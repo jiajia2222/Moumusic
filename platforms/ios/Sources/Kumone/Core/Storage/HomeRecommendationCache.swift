@@ -28,6 +28,8 @@ final class HomeRecommendationCache {
         let dailyFirstCover: String?
         let recommendTracks: [Track]
         let lxRecommendPlaylists: [LXPlaylistSummary]
+        /// nil in snapshots saved before the official charts existed.
+        let lxToplists: [LXPlaylistSummary]?
 
         var hasContent: Bool {
             !recommendPlaylists.isEmpty || !toplists.isEmpty || !newAlbums.isEmpty
