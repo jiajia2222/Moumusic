@@ -36,6 +36,11 @@ def call(method, url, data=None, headers=None, retries=4):
                 return resp.read()
         except Exception as error:  # noqa: BLE001
             last = error
+            if hasattr(error, "read"):
+                try:
+                    last = f"{error} body={error.read()[:300]!r}"
+                except Exception:  # noqa: BLE001
+                    pass
             time.sleep(3 * (attempt + 1))
     raise RuntimeError(f"{method} {url} failed: {last}")
 
