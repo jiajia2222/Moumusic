@@ -78,6 +78,7 @@ struct IOS15NavigationStack<Root: View>: View {
     }
 
     init(path: Binding<IOS15NavigationPath>, @ViewBuilder root: () -> Root) {
+        NSLog("IOS15NAV stack init root=%@", String(describing: Root.self))
         self.root = root()
         self.externalPath = path
     }
@@ -162,6 +163,7 @@ struct IOS15StackLink<Label: View, V: Hashable>: View {
 
 extension View {
     func ios15Destination<D: Hashable, C: View>(for type: D.Type, @ViewBuilder destination: @escaping (D) -> C) -> some View {
+        NSLog("IOS15NAV ios15Destination applied for %@", String(describing: type))
         IOS15DestinationRegistry.shared.register(type, destination)
         return self
     }
