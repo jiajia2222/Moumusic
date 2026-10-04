@@ -44,6 +44,7 @@ struct SettingsView: View {
     @AppStorage("moumusic.hapticsEnabled") private var hapticsEnabled = true
     @AppStorage("moumusic.autoPlayLast") private var autoPlayLast = false
     @AppStorage("moumusic.vipReminder") private var vipReminder = true
+    @AppStorage("moumusic.qualityDowngradeNotice") private var qualityDowngradeNotice = true
     @AppStorage("moumusic.vipThirdPartyFallback") private var vipThirdPartyFallback = false
     @AppStorage("moumusic.fadeEnabled") private var fadeEnabled = true
     @AppStorage("moumusic.netease.autoSignIn") private var neteaseAutoSignIn = true
@@ -124,6 +125,10 @@ struct SettingsView: View {
                 Toggle("触感反馈", isOn: $hapticsEnabled)
                 Toggle("启动时自动播放上次歌曲", isOn: $autoPlayLast)
                 Toggle("第三方音源播放会员歌时提醒", isOn: $vipReminder)
+                Toggle("音质降级时提示", isOn: $qualityDowngradeNotice)
+                Text("所选音质（如母带、环绕声）这首歌没有、改按较低音质播放时，是否弹出提示。关闭后只在诊断日志里记录。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("账号模式下用第三方音源播放会员歌曲", isOn: $vipThirdPartyFallback)
                 Text("仅在播放来源为「账号音源（官方）」、账号不是会员、而歌曲需要会员时生效；会员账号始终使用账号音源播放会员歌曲。")
                     .font(.caption)

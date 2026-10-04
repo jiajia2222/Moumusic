@@ -1655,7 +1655,9 @@ final class PlayerService: ObservableObject {
             let spatial: [AudioQuality] = [.master, .atmos, .dolby, .surround]
             let served = (self.servedQuality ?? "").lowercased()
             let servedSpatial = ["atmos", "dolby", "surround", "master", "sky", "jyeffect", "jymaster", "spatial"].contains { served.contains($0) }
-            if spatial.contains(wanted), !served.isEmpty, !servedSpatial {
+            // "音质降级时提示" in settings turns this notice off (the log entry and the picker still say it).
+            if spatial.contains(wanted), !served.isEmpty, !servedSpatial,
+               UserDefaults.standard.object(forKey: "moumusic.qualityDowngradeNotice") as? Bool ?? true {
                 ToastCenter.shared.show("这首歌没有「\(wanted.displayName)」音源（需歌曲本身提供且账号有对应会员），已按 \(served) 播放")
             }
             NowPlayingManager.shared.updateResolvedQuality(self.servedQuality, for: track)
