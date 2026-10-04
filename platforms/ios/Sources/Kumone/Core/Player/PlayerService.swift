@@ -301,18 +301,21 @@ final class PlayerService: ObservableObject {
 #if os(iOS)
         let playbackMode = SettingsManager.shared.playbackSourceMode
         let cacheKey = qualityAvailabilityCacheKey(for: track, mode: playbackMode)
+        // Every tier a probe ever confirmed for this track stays on the list: a probe that times out or
+        // fails once must not make a tier disappear (and the next open bring it back).
+        let known = knownQualityTiers[cacheKey] ?? []
         if !forceRefresh, let cached = qualityAvailabilityCache[cacheKey], cached.expiresAt > Date() {
             // A probe can finish before playback resolves the real URL and
             // cache only the safe 128K fallback. Merge the verified result for
             // this exact track into that cache hit so the picker does not stay
             // stuck on the earlier, incomplete answer.
-            guard servedQualityTrackKey == trackKey,
-                  let servedQuality,
-                  let actualQuality = AudioQuality(lxType: servedQuality) else {
-                return cached.qualities
+            var servedType: String?
+            if servedQualityTrackKey == trackKey, let servedQuality,
+               let actualQuality = AudioQuality(lxType: servedQuality) {
+                servedType = actualQuality.lxType
             }
             return AudioQuality.allCases.filter {
-                cached.qualities.contains($0) || $0 == actualQuality
+                cached.qualities.contains($0) || known.contains($0.lxType) || $0.lxType == servedType
             }
         }
         var names: Set<String> = []
@@ -369,6 +372,7 @@ final class PlayerService: ObservableObject {
             return []
         }
         names.formUnion(probedNames)
+        names.formUnion(known)
         // A provider may return the playable URL before its capability probe
         // finishes (or expose only a lower fallback tier in the probe). Keep
         // the quality actually served for this track visible in the picker,
@@ -378,6 +382,7 @@ final class PlayerService: ObservableObject {
            let actualQuality = AudioQuality(lxType: servedQuality) {
             names.insert(actualQuality.lxType)
         }
+        rememberQualityTiers(names, for: cacheKey)
         var seenTypes = Set<String>()
         let available = AudioQuality.allCases.filter {
             names.contains($0.lxType) && seenTypes.insert($0.lxType).inserted
@@ -452,6 +457,23 @@ final class PlayerService: ObservableObject {
         let qualities: [AudioQuality]
     }
     private var qualityAvailabilityCache: [String: QualityAvailabilityCacheEntry] = [:]
+    /// Tiers confirmed per track (and source / account state), kept across launches.
+    private var knownQualityTiers: [String: Set<String>] = {
+        let stored = UserDefaults.standard.dictionary(forKey: "moumusic.knownQualityTiers") as? [String: [String]] ?? [:]
+        return stored.mapValues(Set.init)
+    }()
+
+    private func rememberQualityTiers(_ names: Set<String>, for key: String) {
+        guard !names.isEmpty else { return }
+        let before = knownQualityTiers[key] ?? []
+        let after = before.union(names)
+        guard after != before else { return }
+        knownQualityTiers[key] = after
+        if knownQualityTiers.count > 400 {
+            for stale in knownQualityTiers.keys.prefix(100) where stale != key { knownQualityTiers[stale] = nil }
+        }
+        UserDefaults.standard.set(knownQualityTiers.mapValues { Array($0) }, forKey: "moumusic.knownQualityTiers")
+    }
     private var pendingSeek: TimeInterval?
     private var consecutiveFailures = 0
     private var scrobbled = false
