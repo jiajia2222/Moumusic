@@ -17,6 +17,19 @@ jobs:
       - name: Prepare iOS 15 tree
         run: bash platforms/ios15/prepare.sh
 
+      - name: Force the iOS 15-18 interface (the simulator is iOS 26)
+        run: |
+          python3 - <<'EOF'
+          import pathlib
+          path = pathlib.Path("platforms/ios/Sources/Kumone/Features/IOSMainWindow.swift")
+          text = path.read_text(encoding="utf-8-sig")
+          old = "        if #available(iOS 26.0, *) {
+            iOS26TabInterface"
+          assert old in text
+          path.write_text(text.replace(old, "        if false, #available(iOS 26.0, *) {
+            iOS26TabInterface"), encoding="utf-8")
+          EOF
+
       - name: Install XcodeGen
         run: HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install xcodegen
 
@@ -68,7 +81,7 @@ jobs:
           BUNDLE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")
           echo "app=$APP bundle=$BUNDLE runtime=$RUNTIME"
           xcrun simctl install "$UDID" "$APP"
-          xcrun simctl launch "$UDID" "$BUNDLE"
+          xcrun simctl launch "$UDID" "$BUNDLE" -moumusic.skipUpdateCheck YES
           mkdir -p shots
           for second in 8 20 40; do
             sleep $((second == 8 ? 8 : (second == 20 ? 12 : 20)))

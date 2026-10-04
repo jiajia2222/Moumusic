@@ -33,6 +33,8 @@ final class IOSUpdater: NSObject, ObservableObject {
     private var progressContinuation: CheckedContinuation<URL, Error>?
 
     func check(interactive: Bool) {
+        // Test hook for the simulator screenshot workflow: `-moumusic.skipUpdateCheck YES` on launch.
+        if UserDefaults.standard.bool(forKey: "moumusic.skipUpdateCheck") { return }
         guard ReleaseChecker.currentIdentity.isValid else {
             phase = .failed(String(localized: "当前安装包版本信息无效"))
             if interactive { showSheet = true }
