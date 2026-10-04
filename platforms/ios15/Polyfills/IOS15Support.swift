@@ -32,6 +32,7 @@ final class IOS15DestinationRegistry {
 
     func register<D: Hashable, C: View>(_ type: D.Type, _ destination: @escaping (D) -> C) {
         let name = String(describing: type)
+        NSLog("IOS15NAV register %@", name)
         if !registeredNames.contains(name) { registeredNames.append(name) }
         builders[ObjectIdentifier(type)] = { item in
             guard let value = item.base as? D else { return AnyView(EmptyView()) }
@@ -40,7 +41,9 @@ final class IOS15DestinationRegistry {
     }
 
     func view(for item: AnyHashable) -> AnyView? {
-        builders[ObjectIdentifier(type(of: item.base))]?(item)
+        let found = builders[ObjectIdentifier(type(of: item.base))] != nil
+        NSLog("IOS15NAV lookup %@ found=%d registered=%@", String(describing: type(of: item.base)), found ? 1 : 0, registeredNames.joined(separator: ","))
+        return builders[ObjectIdentifier(type(of: item.base))]?(item)
     }
 }
 
@@ -98,7 +101,8 @@ private struct IOS15StackLevel: View {
     @EnvironmentObject private var router: IOS15StackRouter
 
     var body: some View {
-        content.background(
+        let _ = NSLog("IOS15NAV level body depth=%d pathCount=%d", depth, path?.wrappedValue.count ?? -1)
+        return content.background(
             NavigationLink(
                 isActive: Binding(
                     get: { (path?.wrappedValue.count ?? 0) > depth },
