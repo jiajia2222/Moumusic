@@ -334,6 +334,7 @@ final class PlayerService: ObservableObject {
         let isQQMusic = ["tx", "qq", "qqmusic", "qq-music"].contains(source)
         let isKugou = ["kg", "kugou"].contains(source)
         let isMigu = ["mg", "migu"].contains(source)
+        let isKuwo = ["kw", "kuwo"].contains(source)
         var qualityTasks: [Task<[String], Never>] = []
         if playbackMode != .official {
             qualityTasks.append(Task { @MainActor in
@@ -370,6 +371,12 @@ final class PlayerService: ObservableObject {
            let copyrightId = track.sourceMetadata["copyrightId"], !copyrightId.isEmpty {
             qualityTasks.append(Task {
                 await MiguAPI.shared.availableQualities(copyrightId: copyrightId)
+            })
+        }
+        if playbackMode != .thirdParty, isKuwo,
+           let songID = track.sourceMetadata["songmid"], !songID.isEmpty {
+            qualityTasks.append(Task {
+                await KuwoAPI.shared.availableQualities(songID: songID)
             })
         }
         // The picker is a convenience probe, not a reason to hold the sheet
@@ -1329,11 +1336,13 @@ final class PlayerService: ObservableObject {
             let isKugou = ["kg", "kugou"].contains(sourceValue)
             // Migu's public listen route needs no account.
             let isMigu = ["mg", "migu"].contains(sourceValue)
+            let isKuwo = ["kw", "kuwo"].contains(sourceValue)
             let playbackMode = SettingsManager.shared.playbackSourceMode
             let hasOfficialAccount = (isNativeNetease && NeteaseClient.shared.isLoggedIn)
                 || (isQQMusic && QQMusicSessionStore.shared.isLoggedIn)
                 || (isKugou && KugouSessionStore.shared.isLoggedIn)
                 || isMigu
+                || isKuwo
             let hasLXSource = !LXSourceStore.shared.playbackSources.isEmpty
             guard hasLXSource || (playbackMode != .thirdParty && hasOfficialAccount) else {
                 guard generation == resolveGeneration else { return }
@@ -1892,6 +1901,22 @@ final class PlayerService: ObservableObject {
                         sourceLabel: "咪咕音乐官方接口"
                     )
                 }
+            }
+        }
+
+        if ["kw", "kuwo"].contains(source),
+           let songID = track.sourceMetadata["songmid"], !songID.isEmpty {
+            var attempted = Set<String>()
+            for candidate in requestedCandidates {
+                let token = candidate.lxType
+                guard attempted.insert(token).inserted,
+                      let resolved = try? await KuwoAPI.shared.musicURL(songID: songID, quality: token),
+                      let actual = AudioQuality(lxType: resolved.quality) else { continue }
+                return OfficialAudio(
+                    url: resolved.url,
+                    quality: actual.lxType,
+                    sourceLabel: "酷我音乐官方接口"
+                )
             }
         }
 
