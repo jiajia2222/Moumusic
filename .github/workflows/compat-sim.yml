@@ -23,11 +23,10 @@ jobs:
           import pathlib
           path = pathlib.Path("platforms/ios/Sources/Kumone/Features/IOSMainWindow.swift")
           text = path.read_text(encoding="utf-8-sig")
-          old = "        if #available(iOS 26.0, *) {
-            iOS26TabInterface"
+          old = "if #available(iOS 26.0, *) {\n            iOS26TabInterface"
+          new = "if false, #available(iOS 26.0, *) {\n            iOS26TabInterface"
           assert old in text
-          path.write_text(text.replace(old, "        if false, #available(iOS 26.0, *) {
-            iOS26TabInterface"), encoding="utf-8")
+          path.write_text(text.replace(old, new), encoding="utf-8")
           EOF
 
       - name: Install XcodeGen
