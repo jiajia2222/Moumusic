@@ -62,21 +62,23 @@ def upload(path, name):
     return HOST + src
 
 
-def upload_exact(path, name):
-    """The host never overwrites by name and sometimes keeps the old file a moment after the delete, then stores
-    the new one as "name(1)": remove both and try again until it is stored under the exact name."""
-    for _ in range(6):
+def upload_exact(path, name, existing=False):
+    """Stores `path` under exactly `name`. The host never overwrites by name (it stores "name(1)" instead) and its
+    deletes are metered (a Cloudflare KV daily quota), so delete as little as possible: only a file that is known
+    to exist (the manifest) is removed first; a brand-new name is uploaded straight away."""
+    if existing:
         delete(name)
-        time.sleep(2)
+        time.sleep(1)
+    for attempt in range(2):
         try:
             return upload(path, name)
         except RuntimeError as error:
-            if "renamed" not in str(error):
+            if "renamed" not in str(error) or attempt == 1:
                 raise
             renamed = urllib.parse.unquote(str(error).rsplit(" to ", 1)[-1]).split("/")[-1]
             delete(renamed)
-            time.sleep(4)
-    raise RuntimeError(f"could not store {name} under its exact name")
+            delete(name)
+            time.sleep(3)
 
 
 def delete(name):
@@ -107,7 +109,7 @@ for manifest_name in cfg["manifests"]:
     with open(manifest_name, "w", encoding="utf-8") as handle:
         handle.write(json.dumps(manifest, ensure_ascii=False, indent=2))
     # The host never overwrites by name: remove the old manifest first.
-    upload_exact(manifest_name, manifest_name)
+    upload_exact(manifest_name, manifest_name, existing=True)
     check = None
     for _ in range(12):
         try:
