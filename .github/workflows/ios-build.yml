@@ -154,7 +154,8 @@ jobs:
   # (a failed or skipped build of one never changes what the other serves).
   publish-ios26:
     needs: [full]
-    if: github.ref == 'refs/heads/refactor/beans-ui'
+    # A commit whose message contains [compat-only] updates the compatibility channel only.
+    if: github.ref == 'refs/heads/refactor/beans-ui' && !contains(github.event.head_commit.message, '[compat-only]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

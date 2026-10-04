@@ -1,0 +1,83 @@
+name: compat simulator check
+
+# Manual diagnosis aid: builds the iOS 15-18 compatibility tree for the simulator, launches it on the oldest
+# available iPhone runtime and uploads screenshots, so blank screens can be seen without a device.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sim:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Prepare iOS 15 tree
+        run: bash platforms/ios15/prepare.sh
+
+      - name: Install XcodeGen
+        run: HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: platforms/ios/ios
+        run: xcodegen generate
+
+      - name: Pick the oldest iPhone simulator
+        run: |
+          xcrun simctl list runtimes
+          python3 - <<'EOF' > sim.env
+          import json, subprocess
+          runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "--json"]))["runtimes"]
+          devices = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"]))["devices"]
+          def version(rt):
+              return tuple(int(p) for p in rt["version"].split("."))
+          usable = [r for r in runtimes if r.get("isAvailable") and r["identifier"].split(".")[-1].startswith("iOS")]
+          usable.sort(key=version)
+          for rt in usable:
+              phones = [d for d in devices.get(rt["identifier"], []) if "iPhone" in d["name"]]
+              if phones:
+                  print("UDID=" + phones[-1]["udid"])
+                  print("RUNTIME=" + rt["version"])
+                  break
+          EOF
+          cat sim.env
+          cat sim.env >> "$GITHUB_ENV"
+
+      - name: Build for the simulator
+        working-directory: platforms/ios/ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project KumoneIOS.xcodeproj \
+            -scheme KumoneIOS \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "id=$UDID" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
+            build 2>&1 | tail -n 60
+
+      - name: Launch and take screenshots
+        working-directory: platforms/ios/ios
+        run: |
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          APP=$(ls -d build/Build/Products/Debug-iphonesimulator/*.app | head -1)
+          BUNDLE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")
+          echo "app=$APP bundle=$BUNDLE runtime=$RUNTIME"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" "$BUNDLE"
+          mkdir -p shots
+          for second in 8 20 40; do
+            sleep $((second == 8 ? 8 : (second == 20 ? 12 : 20)))
+            xcrun simctl io "$UDID" screenshot "shots/home-${second}s.png"
+          done
+          xcrun simctl spawn "$UDID" log show --last 2m --style compact --predicate 'process == "MoumusicIOS"' > shots/app.log || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compat-sim-shots
+          path: platforms/ios/ios/shots
