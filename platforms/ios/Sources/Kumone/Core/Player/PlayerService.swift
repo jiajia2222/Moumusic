@@ -473,6 +473,8 @@ final class PlayerService: ObservableObject {
         engine.actionAtItemEnd = .pause
         sleepTimer.onDeadlineReached = { [weak self] in
             self?.pause()
+            // Bilibili videos / lives play through their own player.
+            NotificationCenter.default.post(name: .moumusicSleepTimerFired, object: nil)
         }
 #if os(iOS)
         volume = 1
@@ -538,7 +540,9 @@ final class PlayerService: ObservableObject {
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
             MainActor.assumeIsolated {
-                guard let self, !self.isScrubbing else { return }
+                guard let self else { return }
+                self.sleepTimer.fireIfDue()
+                guard !self.isScrubbing else { return }
                 let seconds = time.seconds
                 guard seconds.isFinite else { return }
                 // While a seek is pending the player still reports the old position: following it

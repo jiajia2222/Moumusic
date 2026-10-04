@@ -1605,6 +1605,11 @@ struct BilibiliVideoDetailView: View {
         .sheet(item: $relatedSelection) { item in
             NavigationStack { BilibiliVideoDetailView(video: item) }
         }
+        // A related video opens on top of this page, which stays alive underneath: stop this one so
+        // the two never play at once.
+        .onChange(of: relatedSelection?.bvid) { opened in
+            if opened != nil { playerModel.pause() }
+        }
         .onChange(of: settings.bilibiliMode) { _ in
             Task { await reloadForCurrentMode() }
         }

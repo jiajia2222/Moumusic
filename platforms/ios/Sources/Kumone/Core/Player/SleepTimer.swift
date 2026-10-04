@@ -49,6 +49,17 @@ final class SleepTimer: ObservableObject {
         }
     }
 
+    /// Called from the player's periodic clock as well: a sleeping `Task` can fire late (or not at all)
+    /// when the process was suspended, a wall-clock deadline cannot.
+    func fireIfDue() {
+        guard case .countdown(let deadline) = state, Date() >= deadline else { return }
+        generation += 1
+        deadlineTask?.cancel()
+        deadlineTask = nil
+        state = .inactive
+        onDeadlineReached?()
+    }
+
     func scheduleAtEndOfCurrentTrack() {
         generation += 1
         deadlineTask?.cancel()
@@ -68,4 +79,8 @@ final class SleepTimer: ObservableObject {
         cancel()
         return true
     }
+}
+
+extension Notification.Name {
+    static let moumusicSleepTimerFired = Notification.Name("moumusic.sleepTimerFired")
 }

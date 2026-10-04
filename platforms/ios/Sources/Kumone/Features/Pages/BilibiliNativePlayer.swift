@@ -78,6 +78,9 @@ final class BiliPlayerModel: NSObject, ObservableObject, AVPictureInPictureContr
         // iOS suspends video playback in the background while a layer shows the player; detaching
         // the layers (QA1668) lets the audio carry on (live streams and videos alike).
         backgroundObservers = [
+            NotificationCenter.default.addObserver(forName: .moumusicSleepTimerFired, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.pause() }
+            },
             NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self, !self.isPiPActive else { return }
@@ -815,6 +818,10 @@ struct BiliNativePlayer: View {
                     .allowsHitTesting(false)
             }
             gestureLayer
+        }
+        // An overlay, not a ZStack sibling: on narrow screens the controls row is wider than it wants to
+        // be, and as a sibling it resized the picture every time the controls appeared.
+        .overlay {
             if controlsVisible {
                 // Full screen runs under the home indicator / rounded corners: keep the buttons
                 // and the progress slider well inside the screen so they are easy to hit.

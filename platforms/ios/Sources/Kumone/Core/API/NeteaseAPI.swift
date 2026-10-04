@@ -928,9 +928,21 @@ enum NeteaseAPI {
 
     static func search(_ keywords: String, type: SearchType,
                        limit: Int = 30, offset: Int = 0) async throws -> SearchResult {
-        let resp = try await eapi(SearchResponse.self, "/cloudsearch/pc",
-                                  ["s": keywords, "type": type.rawValue,
-                                   "limit": limit, "offset": offset, "total": true])
+        let params: [String: Any] = ["s": keywords, "type": type.rawValue,
+                                     "limit": limit, "offset": offset, "total": true]
+        // The desktop endpoint now and then answers with an error or an empty body: retry it once, then
+        // ask the web endpoint before giving up.
+        var response: SearchResponse?
+        var lastError: Error?
+        for attempt in 0..<2 where response?.result == nil {
+            do { response = try await eapi(SearchResponse.self, "/cloudsearch/pc", params) }
+            catch { lastError = error }
+            if response?.result == nil, attempt == 0 { try? await Task.sleep(nanoseconds: 300_000_000) }
+        }
+        if response?.result == nil {
+            if let web = try? await weapi(SearchResponse.self, "/cloudsearch/get/web", params) { response = web }
+        }
+        guard let resp = response else { throw lastError ?? URLError(.badServerResponse) }
         return resp.result ?? SearchResult(songs: nil, albums: nil, artists: nil, playlists: nil,
                                            songCount: nil, albumCount: nil, artistCount: nil, playlistCount: nil)
     }

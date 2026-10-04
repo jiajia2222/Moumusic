@@ -569,37 +569,39 @@ final class LXUserAPIService: ObservableObject {
             }
 
             let supportedQualitys = supportedQualityNames(for: track, platform: platform)
-            let requestedQuality = Self.lxQuality(
-                for: SettingsManager.shared.audioQuality.rawValue,
-                supported: supportedQualitys.isEmpty ? ["128k"] : supportedQualitys
-            )
             let info = musicInfo(for: track, platform: platform, qualities: supportedQualitys)
-            do {
-                let response = try await request(source: platform, action: "musicUrl",
-                                                 info: ["type": protocolQualityToken(requestedQuality, platform: platform), "musicInfo": info])
-                guard let data = response["data"] as? [String: Any],
+            // Probe from the top: the test reports the best tier the source really serves, not the one
+            // picked in settings (which only ever asked for a single tier).
+            let ladder = (supportedQualitys.isEmpty
+                          ? ["jymaster", "atmos", "dolby", "flac24bit", "flac", "320k", "128k"]
+                          : supportedQualitys)
+                .map(Self.normalizedQuality)
+                .filter { Self.qualityRank($0) >= 0 }
+            var tiers: [String] = []
+            for tier in ladder where !tiers.contains(tier) { tiers.append(tier) }
+            tiers.sort { Self.qualityRank($0) > Self.qualityRank($1) }
+            var best: String?
+            for tier in tiers.prefix(8) {
+                guard let response = try? await request(source: platform, action: "musicUrl",
+                                                        info: ["type": protocolQualityToken(tier, platform: platform), "musicInfo": info]),
+                      let data = response["data"] as? [String: Any],
                       let rawURL = data["url"] as? String,
                       let url = URL(string: rawURL),
                       let scheme = url.scheme?.lowercased(),
-                      scheme == "http" || scheme == "https" else {
-                    failures.append("\(platformName)：没有返回有效播放地址")
-                    continue
-                }
-
-                let actualQuality = Self.resolvedQuality(
-                    data: data,
-                    requested: requestedQuality,
-                    available: supportedQualitys.isEmpty ? ["128k"] : supportedQualitys
-                )
-                let detail = "已通过 \(platformName) 的 musicUrl 接口，音质：\(actualQuality)"
-                let result = SourceCheckResult(status: .available,
-                                               message: "音源可用",
-                                               detail: detail)
+                      scheme == "http" || scheme == "https",
+                      !Self.isPreviewResponse(data, expectedDuration: track.duration) else { continue }
+                let actual = Self.resolvedQuality(data: data, requested: tier,
+                                                  available: supportedQualitys.isEmpty ? [tier] : supportedQualitys)
+                best = actual == "unknown" ? tier : actual
+                break
+            }
+            if let best {
+                let detail = "已通过 \(platformName) 的 musicUrl 接口，实测最高可取到：\(best)"
+                let result = SourceCheckResult(status: .available, message: "音源可用", detail: detail)
                 statusMessage = "\(result.message)：\(detail)"
                 return result
-            } catch {
-                failures.append("\(platformName)：\(error.localizedDescription)")
             }
+            failures.append("\(platformName)：没有返回有效播放地址")
         }
 
         let detail = failures.isEmpty ? "音源没有返回可播放地址。" : failures.joined(separator: "；")
