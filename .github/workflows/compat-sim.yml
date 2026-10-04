@@ -1,7 +1,8 @@
 name: compat simulator check
 
 # Manual diagnosis aid: builds the iOS 15-18 compatibility tree for the simulator, launches it on the oldest
-# available iPhone runtime and uploads screenshots, so blank screens can be seen without a device.
+# iPhone runtime it can get (an older runtime is downloaded when the image only has iOS 26) and uploads
+# screenshots, so blank screens can be seen without a device.
 on:
   workflow_dispatch:
 
@@ -11,13 +12,14 @@ permissions:
 jobs:
   sim:
     runs-on: macos-26
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
 
       - name: Prepare iOS 15 tree
         run: bash platforms/ios15/prepare.sh
 
-      - name: Force the iOS 15-18 interface (the simulator is iOS 26)
+      - name: Force the iOS 15-18 interface
         run: |
           python3 - <<'EOF'
           import pathlib
@@ -36,23 +38,41 @@ jobs:
         working-directory: platforms/ios/ios
         run: xcodegen generate
 
-      - name: Pick the oldest iPhone simulator
+      - name: Install an older iOS simulator runtime
+        continue-on-error: true
         run: |
           xcrun simctl list runtimes
+          for version in 16.4 17.5 18.6; do
+            if xcodebuild -downloadPlatform iOS -buildVersion "$version"; then
+              echo "downloaded iOS $version"
+              break
+            fi
+          done
+          xcrun simctl list runtimes
+
+      - name: Pick the oldest iPhone simulator
+        run: |
           python3 - <<'EOF' > sim.env
           import json, subprocess
-          runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "--json"]))["runtimes"]
-          devices = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"]))["devices"]
+          def run(*args):
+              return json.loads(subprocess.check_output(["xcrun", "simctl", *args, "--json"]))
+          runtimes = [r for r in run("list", "runtimes")["runtimes"]
+                      if r.get("isAvailable") and r["identifier"].split(".")[-1].startswith("iOS")]
           def version(rt):
               return tuple(int(p) for p in rt["version"].split("."))
-          usable = [r for r in runtimes if r.get("isAvailable") and r["identifier"].split(".")[-1].startswith("iOS")]
-          usable.sort(key=version)
-          for rt in usable:
-              phones = [d for d in devices.get(rt["identifier"], []) if "iPhone" in d["name"]]
-              if phones:
-                  print("UDID=" + phones[-1]["udid"])
-                  print("RUNTIME=" + rt["version"])
-                  break
+          runtimes.sort(key=version)
+          rt = runtimes[0]
+          devices = run("list", "devices", "available")["devices"].get(rt["identifier"], [])
+          phones = [d for d in devices if "iPhone" in d["name"]]
+          if phones:
+              udid = phones[-1]["udid"]
+          else:
+              types = [t for t in run("list", "devicetypes")["devicetypes"] if "iPhone" in t["name"]]
+              preferred = [t for t in types if t["name"] in ("iPhone 14", "iPhone 15", "iPhone 13")] or types
+              udid = subprocess.check_output(["xcrun", "simctl", "create", "compat-test", preferred[0]["identifier"],
+                                              rt["identifier"]]).decode().strip()
+          print("UDID=" + udid)
+          print("RUNTIME=" + rt["version"])
           EOF
           cat sim.env
           cat sim.env >> "$GITHUB_ENV"
@@ -82,11 +102,14 @@ jobs:
           xcrun simctl install "$UDID" "$APP"
           xcrun simctl launch "$UDID" "$BUNDLE" -moumusic.skipUpdateCheck YES
           mkdir -p shots
-          for second in 8 20 40; do
-            sleep $((second == 8 ? 8 : (second == 20 ? 12 : 20)))
-            xcrun simctl io "$UDID" screenshot "shots/home-${second}s.png"
-          done
-          xcrun simctl spawn "$UDID" log show --last 2m --style compact --predicate 'process == "MoumusicIOS"' > shots/app.log || true
+          echo "$RUNTIME" > shots/runtime.txt
+          sleep 10
+          xcrun simctl io "$UDID" screenshot shots/home-10s.png
+          sleep 20
+          xcrun simctl io "$UDID" screenshot shots/home-30s.png
+          sleep 20
+          xcrun simctl io "$UDID" screenshot shots/home-50s.png
+          xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process == "MoumusicIOS"' > shots/app.log || true
 
       - uses: actions/upload-artifact@v4
         if: always()
