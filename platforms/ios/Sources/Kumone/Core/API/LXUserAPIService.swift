@@ -562,7 +562,10 @@ final class LXUserAPIService: ObservableObject {
                 failures.append("\(candidate.source.name)/\(candidate.platform): unavailable")
                 continue
             }
-            let wantedRank = Self.qualityRank(candidate.requestedQuality)
+            let askedRank = Self.qualityRank(candidate.requestedQuality)
+            // What the user chose, not what this platform was asked for: a platform that lacks that tier is not
+            // "satisfied" by its best lower one, so the other platforms get their turn (pass 1) before stepping down.
+            let wantedRank = max(askedRank, Self.qualityRank(Self.normalizedQuality(Self.requestedToken(for: quality))))
             // The requested tier first, then every lower tier this source declares, best first: when the
             // song lacks the requested tier the source is asked for the next best one instead of giving up.
             var lowerTiers: [String] = []
@@ -571,7 +574,7 @@ final class LXUserAPIService: ObservableObject {
                 : candidate.supportedQualities
             for tier in ladder.map(Self.normalizedQuality) {
                 let rank = Self.qualityRank(tier)
-                if rank >= 0, rank < wantedRank, !lowerTiers.contains(tier) { lowerTiers.append(tier) }
+                if rank >= 0, rank < askedRank, !lowerTiers.contains(tier) { lowerTiers.append(tier) }
             }
             lowerTiers.sort { Self.qualityRank($0) > Self.qualityRank($1) }
             // The step-down pass does not repeat an undeclared tier that pass 0 already asked for.
@@ -623,7 +626,7 @@ final class LXUserAPIService: ObservableObject {
                     // a couple of times: each retry costs a fraction of a second.
                     var bestURL = url
                     var bestQuality = actualQuality
-                    if actualQuality != "unknown", passIndex == 0, Self.qualityRank(actualQuality) < wantedRank {
+                    if actualQuality != "unknown", passIndex == 0, askedRank >= wantedRank, Self.qualityRank(actualQuality) < wantedRank {
                         for _ in 0..<2 {
                             try? await Task.sleep(nanoseconds: 150_000_000)
                             guard let again = try? await request(

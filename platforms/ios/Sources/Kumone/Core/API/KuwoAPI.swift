@@ -16,8 +16,8 @@ actor KuwoAPI {
 
     private static func bitrateToken(for lxType: String) -> (br: String, quality: String)? {
         switch lxType.lowercased() {
-        case "flac24bit", "hires", "flac24", "jymaster", "master": return ("4000kflac", "flac24bit")
-        case "flac", "lossless": return ("2000kflac", "flac")
+        // Kuwo's own route errors out on the lossless tiers: only the MP3 tiers are served from here, the higher
+        // ones come from the third-party source (and other platforms).
         case "320k", "exhigh", "higher", "320": return ("320kmp3", "320k")
         case "128k", "standard", "128": return ("128kmp3", "128k")
         default: return nil
@@ -71,7 +71,7 @@ actor KuwoAPI {
     func availableQualities(songID: String) async -> [String] {
         guard !songID.isEmpty else { return [] }
         return await withTaskGroup(of: String?.self) { group in
-            for token in ["flac24bit", "flac", "320k", "128k"] {
+            for token in ["320k", "128k"] {
                 group.addTask { (try? await self.musicURL(songID: songID, quality: token))?.quality }
             }
             var found: [String] = []
