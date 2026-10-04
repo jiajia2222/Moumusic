@@ -1231,6 +1231,12 @@ final class LXUserAPIService: ObservableObject {
                   let scheme = url.scheme?.lowercased(),
                   scheme == "http" || scheme == "https" else { return nil }
 
+            // The file itself is the evidence: read its header (FLAC sample rate / bit depth) or work out
+            // the real bitrate from its size. Only when the file cannot be inspected does the source's
+            // own label count.
+            if let measured = await RemoteAudioInspector.measuredQuality(of: url, duration: track.duration) {
+                return measured
+            }
             // Without a returned tier there is no evidence that the requested
             // high-quality URL is real. Keep it unknown instead of displaying
             // a false lossless badge.
@@ -1565,3 +1571,64 @@ private func rsaEncrypt(input: String, publicKey: String, padding: String) -> St
     return encrypted.base64EncodedString()
 }
 #endif
+
+/// Looks at the first bytes of an audio URL to tell what it really is, instead of trusting a label.
+enum RemoteAudioInspector {
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 8
+        config.timeoutIntervalForResource = 12
+        return URLSession(configuration: config)
+    }()
+
+    /// A canonical tier ("flac24bit", "flac", "320k", "128k") measured from the file, or nil when the
+    /// file cannot be fetched or recognised.
+    static func measuredQuality(of url: URL, duration: TimeInterval) async -> String? {
+        var request = URLRequest(url: url)
+        request.setValue("bytes=0-65535", forHTTPHeaderField: "Range")
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
+        // Stream and stop after the first 64 KB: a server that ignores Range would otherwise send the whole file.
+        guard let (stream, response) = try? await session.bytes(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200 || http.statusCode == 206 else { return nil }
+        var head: [UInt8] = []
+        do {
+            for try await byte in stream {
+                head.append(byte)
+                if head.count >= 65_536 { break }
+            }
+        } catch {
+            if head.count < 32 { return nil }
+        }
+        guard head.count >= 32 else { return nil }
+        let bytes = Array(head.prefix(64))
+        let data = head
+
+        // FLAC: "fLaC", then the STREAMINFO block carries sample rate, channels and bit depth.
+        if bytes.starts(with: [0x66, 0x4C, 0x61, 0x43]) {
+            let rate = (Int(bytes[18]) << 12) | (Int(bytes[19]) << 4) | (Int(bytes[20]) >> 4)
+            let bits = (((Int(bytes[20]) & 1) << 4) | (Int(bytes[21]) >> 4)) + 1
+            guard rate > 0 else { return nil }
+            return (bits >= 24 || rate > 48_000) ? "flac24bit" : "flac"
+        }
+
+        // Everything else: bitrate = bytes * 8 / seconds, which needs the total length and the duration.
+        let total = totalLength(of: http, received: data.count)
+        guard duration >= 30, let total, total > 0 else { return nil }
+        let bitrate = Double(total) * 8 / duration
+        let isMP3 = bytes.starts(with: [0x49, 0x44, 0x33]) || (bytes[0] == 0xFF && bytes[1] & 0xE0 == 0xE0)
+        let isMP4 = bytes.count > 8 && bytes[4...7].elementsEqual([0x66, 0x74, 0x79, 0x70])
+        guard isMP3 || isMP4 else { return nil }
+        if isMP4 && bitrate >= 600_000 { return "flac" }            // ALAC
+        if bitrate >= 280_000 { return "320k" }
+        return "128k"
+    }
+
+    private static func totalLength(of response: HTTPURLResponse, received: Int) -> Int? {
+        if let range = response.value(forHTTPHeaderField: "Content-Range"),
+           let total = range.split(separator: "/").last, let value = Int(total) { return value }
+        if response.statusCode == 200, response.expectedContentLength > 0 {
+            return Int(response.expectedContentLength)
+        }
+        return nil
+    }
+}
