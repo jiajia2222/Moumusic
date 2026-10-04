@@ -1644,6 +1644,16 @@ final class PlayerService: ObservableObject {
                       let gotRank = Self.qualityRank(shown) else { return false }
                 return gotRank > wantedRank
             }()
+            // A played file that is longer / shorter than the catalogue entry is another version of the song:
+            // lyrics written for the original then run early or late. Say so in the log.
+            let audioSeconds = (try? await asset.load(.duration))?.seconds ?? 0
+            let audioLengthLine: String = {
+                guard audioSeconds.isFinite, audioSeconds > 0 else { return "时长：音频未读到" }
+                let catalogue = track.duration
+                let gap = catalogue > 0 ? audioSeconds - catalogue : 0
+                let note = abs(gap) > 2.5 ? "（相差 \(String(format: "%+.1f", gap)) 秒：可能是另一个版本，歌词可能对不上）" : ""
+                return String(format: "时长：音频 %.1f 秒 / 歌曲信息 %.1f 秒", audioSeconds, catalogue) + note
+            }()
             DiagnosticLogStore.shared.append(
                 level: wasDowngraded ? .warning : .info,
                 category: "播放音质",
@@ -1659,6 +1669,7 @@ final class PlayerService: ObservableObject {
                     "实际使用：\(usedLabel)",
                     "地址：\(urlHost) · .\(urlExtension)",
                     String(format: "解析耗时：%.2f 秒", resolveSeconds),
+                    audioLengthLine,
                 ].joined(separator: "\n")
             )
             let wanted = self.currentQuality
