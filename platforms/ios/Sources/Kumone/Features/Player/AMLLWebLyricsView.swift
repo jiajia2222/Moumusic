@@ -21,19 +21,12 @@ struct AMLLWebLyricsView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let frame = geometry.frame(in: .global)
-            let screen = UIScreen.main.bounds.width
-            // On a portrait phone the lyrics use the whole screen width, whatever margin the page around them has;
-            // beside the artwork (landscape, iPad) the column keeps its own width.
-            let fullWidth = screen < 500 && frame.width > screen * 0.7
-            let left = fullWidth ? max(0, frame.minX) : 0
-            let right = fullWidth ? max(0, screen - frame.maxX) : 0
-            let width = geometry.size.width + left + right
+            let width = geometry.size.width
             AMLLWebRepresentable(
                 lyrics: lyrics,
                 showsTranslation: settings.showLyricsTranslation,
                 showsRomaji: settings.lyricsAnnotation == .romaji,
-                fontSize: max(24, min(40, width * 0.085))
+                fontSize: max(22, min(36, width * 0.078))
             )
             .frame(width: width, height: geometry.size.height)
             .mask(
@@ -47,7 +40,6 @@ struct AMLLWebLyricsView: View {
                     startPoint: .top, endPoint: .bottom
                 )
             )
-            .offset(x: -left)
         }
         .overlay { stateOverlay }
     }

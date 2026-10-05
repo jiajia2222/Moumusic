@@ -85,8 +85,6 @@ window.AMLLBridge = {
     const element = player.getElement();
     element.style.setProperty("--amll-lp-font-size", `${px}px`);
     element.style.fontSize = `${px}px`;
-    // AMLL leaves 20px each side on phones; a line should use the whole row before it wraps.
-    element.style.setProperty("--lyric-line-padding-x", `${Math.round(px * 0.3)}px`);
   },
   setBlur(enabled) { player.setEnableBlur(enabled); },
   setSpring(enabled) { player.setEnableSpring(enabled); },
