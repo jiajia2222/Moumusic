@@ -1148,9 +1148,8 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private var lyricsColumn: some View {
-        if AMLLWebLyricsView.isSupported, settings.lyricsDisplayStyle == .amll,
-           let lyrics = player.lyrics, !lyrics.isEmpty {
-            AMLLWebLyricsView(lyrics: lyrics)
+        if AMLLWebLyricsView.isSupported, settings.lyricsDisplayStyle == .amll {
+            AMLLWebLyricsView()
         } else if let lyrics = player.lyrics, !lyrics.isEmpty {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
@@ -1748,9 +1747,8 @@ private struct IOSImmersiveLyricsColumn: View {
 
     var body: some View {
         Group {
-            if AMLLWebLyricsView.isSupported, settings.lyricsDisplayStyle == .amll,
-               let lyrics = player.lyrics, !lyrics.isEmpty {
-                AMLLWebLyricsView(lyrics: lyrics)
+            if AMLLWebLyricsView.isSupported, settings.lyricsDisplayStyle == .amll {
+                AMLLWebLyricsView()
             } else if let lyrics = player.lyrics, !lyrics.isEmpty {
                 ScrollViewReader { proxy in
                     ScrollView(showsIndicators: false) {
@@ -2536,9 +2534,8 @@ private struct IOSMinimalLyricsColumn: View {
     var body: some View {
         GeometryReader { geometry in
             Group {
-                if AMLLWebLyricsView.isSupported, settings.lyricsDisplayStyle == .amll,
-                   let lyrics = player.lyrics, !lyrics.isEmpty {
-                    AMLLWebLyricsView(lyrics: lyrics)
+                if AMLLWebLyricsView.isSupported, settings.lyricsDisplayStyle == .amll {
+                    AMLLWebLyricsView()
                 } else if let lyrics = player.lyrics, !lyrics.isEmpty {
                     ScrollViewReader { proxy in
                         ScrollView(showsIndicators: false) {

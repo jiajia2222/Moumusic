@@ -6,9 +6,12 @@ import WebKit
 /// web view. The lyric lines and clock samples are pushed in; the page animates with AMLL's own spring layout, blur and
 /// word highlight and reports taps on a line back so the song can jump there.
 struct AMLLWebLyricsView: View {
-    let lyrics: ParsedLyrics
-
+    @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
+
+    /// The lyrics of the song that is playing (empty while they load). The web view itself is never torn down between
+    /// songs: rebuilding it reloads the whole page, which is what made the lyrics flash on every song change.
+    private var lyrics: ParsedLyrics { player.lyrics ?? ParsedLyrics() }
 
     /// The page relies on CSS nesting and registered custom properties (WebKit 16.4+).
     static var isSupported: Bool {
@@ -30,7 +33,7 @@ struct AMLLWebLyricsView: View {
                 lyrics: lyrics,
                 showsTranslation: settings.showLyricsTranslation,
                 showsRomaji: settings.lyricsAnnotation == .romaji,
-                fontSize: max(26, min(44, width * 0.095))
+                fontSize: max(24, min(40, width * 0.085))
             )
             .frame(width: width, height: geometry.size.height)
             .mask(
@@ -45,6 +48,32 @@ struct AMLLWebLyricsView: View {
                 )
             )
             .offset(x: -left)
+        }
+        .overlay { stateOverlay }
+    }
+
+    @ViewBuilder
+    private var stateOverlay: some View {
+        if player.lyrics == nil {
+            ProgressView().controlSize(.small).tint(.white)
+        } else if player.lyrics?.isInstrumental == true {
+            VStack(spacing: 10) {
+                Image(systemName: "music.quarternote.3")
+                    .font(.system(size: 36, weight: .light))
+                    .foregroundStyle(.white.opacity(0.4))
+                Text("纯音乐，请欣赏")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+        } else if player.lyrics?.isEmpty == true {
+            VStack(spacing: 10) {
+                Image(systemName: "quote.bubble")
+                    .font(.system(size: 32, weight: .light))
+                    .foregroundStyle(.white.opacity(0.45))
+                Text("暂无歌词")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(0.65))
+            }
         }
     }
 }
@@ -71,6 +100,7 @@ private struct AMLLWebRepresentable: UIViewRepresentable {
         configuration.userContentController.add(WeakScriptHandler(context.coordinator), name: "amll")
         let web = WKWebView(frame: .zero, configuration: configuration)
         web.isOpaque = false
+        web.alpha = 0
         web.backgroundColor = .clear
         web.scrollView.backgroundColor = .clear
         // AMLL scrolls and flicks the lyrics itself from the touch events.
@@ -145,9 +175,24 @@ private struct AMLLWebRepresentable: UIViewRepresentable {
                 self.fontSize = fontSize
                 if ready { run("AMLLBridge.setFontSize(\(fontSize))") }
             }
-            guard signature != loadedSignature else { return }
+            guard signature != loadedSignature, signature != pending?.signature else { return }
+            // New lines are coming: hide the old ones at once, and wait a moment so that the several updates a song change
+            // produces (loading state, a first lyric, a better one) become a single load.
+            if loadedSignature != nil { fade(to: 0, duration: 0.12, delay: 0) }
             pending = (lyrics, showsTranslation, showsRomaji, signature)
-            flushPending()
+            flushWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.flushPending() }
+            flushWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + (loadedSignature == nil ? 0 : 0.3), execute: work)
+        }
+
+        private var flushWork: DispatchWorkItem?
+
+        private func fade(to alpha: CGFloat, duration: TimeInterval, delay: TimeInterval) {
+            guard let web else { return }
+            UIView.animate(withDuration: duration, delay: delay, options: [.beginFromCurrentState, .allowUserInteraction]) {
+                web.alpha = alpha
+            }
         }
 
         private func flushPending() {
@@ -158,6 +203,8 @@ private struct AMLLWebRepresentable: UIViewRepresentable {
             let ms = Int(currentSeconds() * 1000)
             run("AMLLBridge.setFontSize(\(fontSize)); AMLLBridge.load(\(payload), \(ms))")
             pushClock()
+            // Let AMLL lay the new lines out before they show.
+            fade(to: pending.lyrics.isEmpty ? 0 : 1, duration: 0.3, delay: 0.25)
             #if DEBUG
             if UserDefaults.standard.bool(forKey: "moumusic.debugAMLL") { scheduleDiagnostics() }
             #endif
@@ -212,6 +259,7 @@ private struct AMLLWebRepresentable: UIViewRepresentable {
             switch type {
             case "ready":
                 ready = true
+                flushWork?.cancel()
                 flushPending()
             case "fps":
                 let fps = (body["fps"] as? NSNumber)?.intValue ?? 0
