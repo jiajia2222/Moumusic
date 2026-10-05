@@ -43,6 +43,10 @@ html,body,#root{margin:0;padding:0;width:100%;height:100%;background:transparent
   -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
   font-family:"AMLL CJK",-apple-system,"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif}
 .amll-lyric-player{--amll-lp-color:#fff;--amll-lp-font-size:30px;mix-blend-mode:normal !important}
+/* AMLL lays lines out from the left; the lyrics here are centred, and a line scales around its own centre. */
+.amll-lyric-player [class*="lyricLineWrapper"]{align-items:center !important}
+.amll-lyric-player [class*="lyricLine"]:not([class*="Wrapper"]){text-align:center !important;transform-origin:50% 50% !important}
+.amll-lyric-player [class*="lyricMainLine"],.amll-lyric-player [class*="lyricSubLine"]{text-align:center !important}
 </style>
 <style>${css}</style>
 </head>
