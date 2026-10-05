@@ -72,6 +72,22 @@ enum DebugHarness {
             }
             note("explore done")
         }
+        // -moumusic.debugNowPlaying vinyl: set the player mode, start a song (catalogue only, no source needed
+        // for the lyrics) and open the full player.
+        if let modeRaw = defaults.string(forKey: "moumusic.debugNowPlaying") {
+            if let mode = NowPlayingMode(rawValue: modeRaw) { SettingsManager.shared.nowPlayingMode = mode }
+            let tracks = (try? await LXCatalogService.search("周杰伦 晴天", platform: .tx, limit: 5)) ?? []
+            if let track = tracks.first(where: { $0.duration > 90 }) ?? tracks.first {
+                PlayerService.shared.play(tracks: [track.normalizedForLXPlayback()], source: .none)
+                note("nowplaying: \(track.name)")
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                PlayerService.shared.showNowPlaying = true
+            } else {
+                note("nowplaying: no track")
+            }
+            note("done")
+            return
+        }
         guard let platformList = defaults.string(forKey: "moumusic.debugPlay") else { return }
         if let raw = defaults.string(forKey: "moumusic.debugQuality"), let quality = AudioQuality(rawValue: raw) {
             SettingsManager.shared.audioQuality = quality

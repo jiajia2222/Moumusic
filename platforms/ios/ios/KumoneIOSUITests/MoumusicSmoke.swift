@@ -28,6 +28,22 @@ final class MoumusicSmoke: XCTestCase {
         return true
     }
 
+    /// Record-player mode: the turntable page, then the full lyric page after tapping the record.
+    @MainActor
+    func testVinylLyrics() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-moumusic.skipUpdateCheck", "YES", "-moumusic.debugNowPlaying", "vinyl"]
+        app.launch()
+        sleep(22)
+        save("10-vinyl-turntable")
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42)).tap()
+        sleep(3)
+        save("11-vinyl-lyrics")
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
+        sleep(2)
+        save("12-vinyl-back")
+    }
+
     @MainActor
     func testPlatformsAndExplore() throws {
         let app = XCUIApplication()

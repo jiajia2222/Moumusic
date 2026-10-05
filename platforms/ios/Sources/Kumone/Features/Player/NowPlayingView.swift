@@ -549,24 +549,51 @@ struct NowPlayingView: View {
         return VStack(spacing: 16) {
             compactTrackMetaView
                 .padding(.top, compactTitleTopPadding)
-            VinylTurntableView(
-                artworkImage: artworkImage,
-                isPlaying: player.isPlaying,
-                trackId: player.currentTrack?.id,
-                size: artworkDim,
-                onTap: {
+            if showLyricsOnMobile {
+                // The full lyric page of the record player: a small record on the left returns to the turntable.
+                Button {
+                    withAnimation(AppAnimation.standard) {
+                        showLyricsOnMobile = false
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        VinylRecordView(artworkImage: artworkImage, size: 52)
+                            .frame(width: 52, height: 52)
+                        Text("点击唱片返回")
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.65))
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 8)
+                .accessibilityLabel("返回唱片")
+                lyricsColumn
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
+            } else {
+                VinylTurntableView(
+                    artworkImage: artworkImage,
+                    isPlaying: player.isPlaying,
+                    trackId: player.currentTrack?.id,
+                    size: artworkDim,
+                    onTap: {
+                        withAnimation(AppAnimation.standard) {
+                            showLyricsOnMobile = true
+                        }
+                    },
+                    onNextTrack: player.next,
+                    onPreviousTrack: player.previous
+                )
+                .frame(maxWidth: .infinity)
+                MiniLyricsView {
                     withAnimation(AppAnimation.standard) {
                         showLyricsOnMobile = true
                     }
-                },
-                onNextTrack: player.next,
-                onPreviousTrack: player.previous
-            )
-            .frame(maxWidth: .infinity)
-            MiniLyricsView {
-                showLyricsOnMobile = true
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             NowPlayingScrubber(onShowQuality: { activeSheet = .quality })
                 .padding(.horizontal, 20)
             CompactTransportControls()
