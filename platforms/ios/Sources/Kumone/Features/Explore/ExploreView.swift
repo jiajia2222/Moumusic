@@ -120,37 +120,49 @@ final class ExploreViewModel: ObservableObject {
             if selectedCategory == "推荐" && page == 1 {
                 // A request that comes back empty right after a platform switch is usually a transient miss:
                 // try again a couple of times before showing an error.
-                var content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
+                // A pull-to-refresh asks for variety: another batch of songs instead of the same top 30 again.
+                let variety = replaceGeneration == generation
+                var content = await LXCatalogService.recommendedContent(platform: platform, limit: 30, variety: variety)
                 var attempt = 0
                 while content.playlists.isEmpty, content.tracks.isEmpty, attempt < 2 {
                     attempt += 1
                     try? await Task.sleep(nanoseconds: 600_000_000)
                     guard generation == requestGeneration else { return }
-                    content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
+                    content = await LXCatalogService.recommendedContent(platform: platform, limit: 30, variety: variety)
                 }
                 guard generation == requestGeneration else { return }
-                let emptyAnswer = content.playlists.isEmpty && content.tracks.isEmpty
-                if !(replaceGeneration == generation && emptyAnswer) {
-                    officialPlaylists = content.playlists
-                    tracks = content.tracks
-                }
-                // The recommendation shelf owns these cards; keeping them out
-                // of the grid avoids rendering the same playlists twice.
-                result = []
+                var newPlaylists = content.playlists
+                var newTracks = content.tracks
                 if platform == .wy {
-                    if officialPlaylists.isEmpty {
+                    if newPlaylists.isEmpty {
                         let personalized = (try? await NeteaseAPI.personalizedPlaylists(limit: 30)) ?? []
-                        guard generation == requestGeneration else { return }
-                        officialPlaylists = personalized.map {
+                        newPlaylists = personalized.map {
                             LXPlaylistSummary(id: String($0.id), name: $0.name, coverURL: $0.coverURL,
                                               playCount: $0.playCount, trackCount: $0.trackCount,
                                               description: $0.copywriter, author: $0.creator?.nickname, source: .wy)
                         }
                     }
-                    let liveTracks = (try? await NeteaseAPI.hotSongs(limit: 30))?
+                    // NetEase's official hot chart. On a refresh take a different 30 of its top 100.
+                    var liveTracks = (try? await NeteaseAPI.hotSongs(limit: variety ? 100 : 30))?
                         .map { $0.normalizedForLXPlayback() } ?? []
-                    if !liveTracks.isEmpty { tracks = liveTracks }
+                    if variety { liveTracks = Array(liveTracks.shuffled().prefix(30)) }
+                    if !liveTracks.isEmpty { newTracks = liveTracks }
+                    // Every await above can outlive this request: a stale answer must never overwrite a newer one.
+                    guard generation == requestGeneration else { return }
                 }
+                // Only now is anything shown, once, so there is no flash of one list replaced by another.
+                let emptyAnswer = newPlaylists.isEmpty && newTracks.isEmpty
+                DiagnosticLogStore.shared.append(
+                    level: .info, category: "发现页",
+                    message: "\(platform.displayName) 推荐\(variety ? "（刷新，换一批）" : "")：歌单 \(newPlaylists.count)、歌曲 \(newTracks.count)",
+                    detail: "前几首：" + newTracks.prefix(4).map(\.name).joined(separator: "、"))
+                if !(replaceGeneration == generation && emptyAnswer) {
+                    officialPlaylists = newPlaylists
+                    tracks = newTracks
+                }
+                // The recommendation shelf owns these cards; keeping them out
+                // of the grid avoids rendering the same playlists twice.
+                result = []
             } else if (selectedCategory == "最热" || selectedCategory == "最新") && platform != .wy {
                 result = try await LXCatalogService.sortedSonglists(platform: platform,
                                                                      category: selectedCategory,

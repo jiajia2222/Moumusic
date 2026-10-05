@@ -50,6 +50,28 @@ enum DebugHarness {
             }
         }
         note("enabled order: " + LXSourceStore.shared.playbackSources.map(\.name).joined(separator: " > "))
+        // -moumusic.debugExplore tx,kg,...: drive the Explore view model (load, then pull-to-refresh) per platform and
+        // note whether the songs / playlists changed.
+        if let exploreList = defaults.string(forKey: "moumusic.debugExplore") {
+            let model = ExploreViewModel.shared
+            for code in exploreList.split(separator: ",").map(String.init) {
+                guard let platform = LXCatalogPlatform(rawValue: code) else { continue }
+                model.platform = platform
+                await model.refresh()
+                try? await Task.sleep(nanoseconds: 9_000_000_000)
+                let before = model.tracks.prefix(5).map(\.name)
+                let beforeLists = model.officialPlaylists.prefix(3).map(\.name)
+                var changes: [String] = []
+                for round in 1...3 {
+                    await model.refresh()
+                    try? await Task.sleep(nanoseconds: 9_000_000_000)
+                    let after = model.tracks.prefix(5).map(\.name)
+                    changes.append("r\(round):" + (after == before ? "SAME" : "changed") + "(\(model.tracks.count) songs)")
+                }
+                note("explore \(code): before=\(before.joined(separator: "|")) lists=\(beforeLists.joined(separator: "|")) \(changes.joined(separator: " ")) err=\(model.errorMessage ?? "-")")
+            }
+            note("explore done")
+        }
         guard let platformList = defaults.string(forKey: "moumusic.debugPlay") else { return }
         if let raw = defaults.string(forKey: "moumusic.debugQuality"), let quality = AudioQuality(rawValue: raw) {
             SettingsManager.shared.audioQuality = quality
