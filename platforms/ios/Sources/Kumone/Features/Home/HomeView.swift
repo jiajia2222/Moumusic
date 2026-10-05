@@ -361,6 +361,8 @@ struct HomeView: View {
 #if os(iOS)
     @ObservedObject private var remoteControl = RemoteControlStore.shared
     @AppStorage("moumusic.announcement.lastShown") private var lastShownAnnouncement = ""
+    /// The announcement the user closed with the X; a changed announcement text shows the card again.
+    @AppStorage("moumusic.announcement.dismissed") private var dismissedAnnouncement = ""
     @State private var showAnnouncementPopup = false
 #endif
 
@@ -521,8 +523,41 @@ struct HomeView: View {
         }
     }
 
+    /// Identifies the announcement being shown (the remote text, or a fixed key for the built-in one).
+    private var announcementKey: String {
+        #if os(iOS)
+        if remoteControl.announcementEnabled, !remoteControl.announcementText.isEmpty {
+            return remoteControl.announcementText
+        }
+        #endif
+        return "builtin"
+    }
+
     @ViewBuilder
     private var communityAnnouncement: some View {
+        if dismissedAnnouncement != announcementKey {
+            ZStack(alignment: .topTrailing) {
+                announcementCard
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) { dismissedAnnouncement = announcementKey }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                // Sits inside the card's top-right corner (card insets: contentInset horizontally, 8 on top).
+                .padding(.top, 8 + 4)
+                .padding(.trailing, Theme.Layout.contentInset + 4)
+                .accessibilityLabel("关闭公告")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var announcementCard: some View {
         #if os(iOS)
         if remoteControl.announcementEnabled, !remoteControl.announcementText.isEmpty {
             RemoteAnnouncementCard(text: remoteControl.announcementText,
@@ -715,7 +750,7 @@ struct HomeView: View {
             CoverCardBody(
                 coverURL: playlist.coverURL?.resizedImageURL(384),
                 title: playlist.name,
-                subtitle: [playlist.source.displayName, playlist.author].compactMap { $0 }.joined(separator: " · "),
+                subtitle: playlist.author ?? "",
                 playCount: playlist.playCount
             )
         }
@@ -745,6 +780,17 @@ struct HomeView: View {
             featureCards
                 .padding(.top, 8)
 
+            if !model.toplists.isEmpty {
+                Shelf(title: "官方排行榜", seeAll: nil, rowHeight: Theme.Layout.coverShelfHeight) {
+                    ForEach(model.toplists) { toplist in
+                        NavigationLink(value: Destination.playlist(toplist.id)) {
+                            toplistCard(toplist)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
 
             if !model.recommendTracks.isEmpty {
                 SectionHeader(title: "热门歌曲")
@@ -764,17 +810,6 @@ struct HomeView: View {
                             ) {
                                 playPlaylist(radar.id)
                             }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            if !model.toplists.isEmpty {
-                Shelf(title: "官方排行榜", seeAll: nil, rowHeight: Theme.Layout.coverShelfHeight) {
-                    ForEach(model.toplists) { toplist in
-                        NavigationLink(value: Destination.playlist(toplist.id)) {
-                            toplistCard(toplist)
                         }
                         .buttonStyle(.plain)
                     }

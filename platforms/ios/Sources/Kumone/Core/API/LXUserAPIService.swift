@@ -469,9 +469,28 @@ final class LXUserAPIService: ObservableObject {
         return source.isEmpty || ["wy", "163", "netease", "neteasecloudmusic", "cloudmusic"].contains(source)
     }
 
+    /// The first enabled source (the one the user picked) does the whole job: own platform, other platforms,
+    /// step-down. Backup sources are only asked when it produced no URL at all. Only one script can be loaded at
+    /// a time, so touching a backup source on every request meant reloading scripts back and forth and waiting
+    /// on slow backups whenever the primary merely lacked the top tier.
     private func resolveMusicURLAcrossSources(for track: Track, quality: String,
                                               excludingURLs: Set<String>) async throws -> ResolvedURL {
-        let playbackSources = LXSourceStore.shared.playbackSources
+        let all = LXSourceStore.shared.playbackSources
+        guard !all.isEmpty else { throw LXError.noSource }
+        do {
+            return try await resolveMusicURLAcrossSources(for: track, quality: quality, excludingURLs: excludingURLs,
+                                                          sources: Array(all.prefix(1)))
+        } catch {
+            if Task.isCancelled { throw error }
+            guard all.count > 1 else { throw error }
+            return try await resolveMusicURLAcrossSources(for: track, quality: quality, excludingURLs: excludingURLs,
+                                                          sources: Array(all.dropFirst()))
+        }
+    }
+
+    private func resolveMusicURLAcrossSources(for track: Track, quality: String,
+                                              excludingURLs: Set<String>,
+                                              sources playbackSources: [LXSourceStore.Source]) async throws -> ResolvedURL {
         guard !playbackSources.isEmpty else { throw LXError.noSource }
 
         let primaryPlatform = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
@@ -607,9 +626,9 @@ final class LXUserAPIService: ObservableObject {
                                     ? ["128k", "320k", "flac", "flac24bit"] : candidate.supportedQualities
                             )
                         ],
-                        // A tier the source never declared is only a try (3 s); a Hi-Res or better request gets 10 s, because a source
+                        // A tier the source never declared is only a try (3 s); a Hi-Res or better request gets 5 s, because a source
                         // that hangs on the top tier must not hold playback for the full 20 s before the step-down.
-                        timeout: (!candidate.supportedQualities.isEmpty && !declaredLadder.contains(Self.normalizedQuality(tier))) ? 3 : (Self.qualityRank(tier) >= 3 ? 10 : 20)
+                        timeout: (!candidate.supportedQualities.isEmpty && !declaredLadder.contains(Self.normalizedQuality(tier))) ? 3 : (Self.qualityRank(tier) >= 3 ? 5 : 20)
                     )
                     guard let data = response["data"] as? [String: Any],
                           let rawURL = data["url"] as? String,
@@ -1295,7 +1314,8 @@ final class LXUserAPIService: ObservableObject {
         // Do not serially wake every imported source when the picker opens.
         // The first three are the same priority order used for playback; a
         // later dead source can still be tested from source management.
-        let playbackSources = Array(LXSourceStore.shared.playbackSources.prefix(3))
+        // Only the primary source: probing backups meant reloading their scripts every time the picker opened.
+        let playbackSources = Array(LXSourceStore.shared.playbackSources.prefix(1))
         let primaryPlatform = canonicalPlatform(track.source ?? track.sourceMetadata["source"]) ?? "wy"
         var available = Set<String>()
         if let songTiers = await PlatformQualityInfo.shared.tiers(for: track) {

@@ -123,7 +123,15 @@ final class ExploreViewModel: ObservableObject {
                 result = []
                 tracks = content.tracks
                 if platform == .wy {
-                    toplists = Array(((try? await NeteaseAPI.toplists()) ?? []).prefix(10))
+                    if officialPlaylists.isEmpty {
+                        let personalized = (try? await NeteaseAPI.personalizedPlaylists(limit: 30)) ?? []
+                        guard generation == requestGeneration else { return }
+                        officialPlaylists = personalized.map {
+                            LXPlaylistSummary(id: String($0.id), name: $0.name, coverURL: $0.coverURL,
+                                              playCount: $0.playCount, trackCount: $0.trackCount,
+                                              description: $0.copywriter, author: $0.creator?.nickname, source: .wy)
+                        }
+                    }
                     let liveTracks = (try? await NeteaseAPI.hotSongs(limit: 30))?
                         .map { $0.normalizedForLXPlayback() } ?? []
                     if !liveTracks.isEmpty { tracks = liveTracks }
@@ -194,21 +202,13 @@ struct ExploreView: View {
                                     CoverCardBody(
                                         coverURL: playlist.coverURL?.resizedImageURL(384),
                                         title: playlist.name,
-                                        subtitle: [playlist.source.displayName, playlist.author]
-                                            .compactMap { $0 }.joined(separator: " · "),
+                                        subtitle: playlist.author ?? "",
                                         playCount: playlist.playCount
                                     )
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
-                    }
-
-                    if model.platform == .wy && !model.toplists.isEmpty {
-                        SectionHeader(title: "网易云排行榜")
-                            .padding(.horizontal, Theme.Layout.contentInset)
-                        ToplistGrid(toplists: model.toplists)
-                            .padding(.horizontal, Theme.Layout.contentInset)
                     }
 
                     if !model.tracks.isEmpty {
@@ -224,8 +224,7 @@ struct ExploreView: View {
                                 CoverCardBody(
                                     coverURL: playlist.coverURL?.resizedImageURL(384),
                                     title: playlist.name,
-                                    subtitle: [playlist.source.displayName, playlist.author]
-                                        .compactMap { $0 }.joined(separator: " · "),
+                                    subtitle: playlist.author ?? "",
                                     playCount: playlist.playCount
                                 )
                             }
