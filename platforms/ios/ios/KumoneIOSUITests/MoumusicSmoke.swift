@@ -62,7 +62,9 @@ final class MoumusicSmoke: XCTestCase {
         }
         // Pull to refresh on the current Explore page.
         app.swipeDown()
-        sleep(6)
+        sleep(2)
+        save("05a-explore-2s-after-pull")
+        sleep(4)
         save("05-explore-after-refresh")
     }
 }

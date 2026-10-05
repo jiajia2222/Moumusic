@@ -79,38 +79,31 @@ final class ExploreViewModel: ObservableObject {
         loadTask = Task { await loadMore() }
     }
 
-    /// Pull-to-refresh and the error screen's retry: start over for the current platform and category and wait
-    /// for the result (the old retry only called loadMore, which does nothing once hasMore is false).
+    /// Set by `refresh()`: the request of that generation replaces the shown content when it arrives (the page is
+    /// not emptied first, so there is no flash and an empty/failed answer leaves what the user is looking at).
+    private var replaceGeneration: Int?
+
+    /// Pull-to-refresh and the error screen's retry: reload the current platform and category.
     func refresh() async {
-        // What is on screen now: put it back if the new request comes back empty or fails, instead of replacing a
-        // working page with an error.
-        let previous = (official: officialPlaylists, playlists: playlists, tracks: tracks, toplists: toplists)
         requestGeneration += 1
         loadTask?.cancel()
         isLoading = false
-        officialPlaylists = []
-        playlists = []
-        tracks = []
-        toplists = []
         page = 1
         hasMore = true
         errorMessage = nil
-        // The request runs in its own task. SwiftUI cancels the task that drives `.refreshable` as soon as the
-        // page content changes (it just did: the lists above were emptied), and a cancelled request surfaced as
-        // "已取消" / "加载失败" every time. Awaiting an unstructured task does not pass that cancellation on.
+        replaceGeneration = requestGeneration
+        // The request runs in its own task. SwiftUI cancels the task that drives `.refreshable` whenever the page
+        // content changes, and a cancelled request surfaced as "已取消" / "加载失败".
         let work = Task { [weak self] in
             guard let self else { return }
             await self.loadMore()
         }
         loadTask = work
-        await work.value
-        if officialPlaylists.isEmpty, playlists.isEmpty, tracks.isEmpty,
-           !(previous.official.isEmpty && previous.playlists.isEmpty && previous.tracks.isEmpty) {
-            officialPlaylists = previous.official
-            playlists = previous.playlists
-            tracks = previous.tracks
-            toplists = previous.toplists
-            errorMessage = nil
+        // The pull gesture only holds the page pulled down while this function runs: give it a moment of feedback
+        // and let it spring back; the new content swaps in by itself when the request finishes.
+        for _ in 0..<7 {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            if !isLoading { break }
         }
     }
 
@@ -136,11 +129,14 @@ final class ExploreViewModel: ObservableObject {
                     content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
                 }
                 guard generation == requestGeneration else { return }
-                officialPlaylists = content.playlists
+                let emptyAnswer = content.playlists.isEmpty && content.tracks.isEmpty
+                if !(replaceGeneration == generation && emptyAnswer) {
+                    officialPlaylists = content.playlists
+                    tracks = content.tracks
+                }
                 // The recommendation shelf owns these cards; keeping them out
                 // of the grid avoids rendering the same playlists twice.
                 result = []
-                tracks = content.tracks
                 if platform == .wy {
                     if officialPlaylists.isEmpty {
                         let personalized = (try? await NeteaseAPI.personalizedPlaylists(limit: 30)) ?? []
@@ -171,6 +167,10 @@ final class ExploreViewModel: ObservableObject {
             }
 
             guard generation == requestGeneration else { return }
+            if replaceGeneration == generation {
+                playlists = []
+                replaceGeneration = nil
+            }
             var seen = Set(playlists.map { "\($0.source.rawValue)|\($0.id)" })
             playlists += result.filter { seen.insert("\($0.source.rawValue)|\($0.id)").inserted }
             page += 1
