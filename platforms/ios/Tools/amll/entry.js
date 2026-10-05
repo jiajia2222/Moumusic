@@ -85,8 +85,8 @@ window.AMLLBridge = {
     const element = player.getElement();
     element.style.setProperty("--amll-lp-font-size", `${px}px`);
     element.style.fontSize = `${px}px`;
-    // AMLL leaves 20px on each side of a line on phones; 10px gives the text a little more room before it wraps.
-    element.style.setProperty("--lyric-line-padding-x", "10px");
+    // Same side margins as the standard lyric column (24pt), so a line holds as many characters as there.
+    element.style.setProperty("--lyric-line-padding-x", "24px");
   },
   setBlur(enabled) { player.setEnableBlur(enabled); },
   setSpring(enabled) { player.setEnableSpring(enabled); },
