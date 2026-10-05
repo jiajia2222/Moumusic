@@ -747,6 +747,11 @@ struct BiliNativePlayer: View {
     /// Sends one danmaku; returns true when it was accepted. nil hides the 发弹幕 button.
     var onSendDanmaku: ((BiliDanmakuDraft) async -> Bool)? = nil
 
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    /// A vertical video follows the phone: a portrait full screen while upright, a landscape one (pillarboxed)
+    /// when the phone is already on its side - forcing portrait there is what showed the picture sideways.
+    private var landscapeLayout: Bool { rotatesInFullscreen || verticalSizeClass == .compact }
+
     @State private var showComposer = false
     @State private var composerText = ""
     @State private var draftMode = 1
@@ -837,9 +842,9 @@ struct BiliNativePlayer: View {
                 controls
                     // Landscape: clear the rounded corners; portrait (vertical videos): clear the
                     // status bar / Dynamic Island and the home indicator instead.
-                    .padding(.horizontal, isFullscreen ? (rotatesInFullscreen ? 56 : 8) : 0)
-                    .padding(.bottom, isFullscreen ? (rotatesInFullscreen ? 26 : 10) : 0)
-                    .padding(.top, isFullscreen ? (rotatesInFullscreen ? 10 : 44) : 0)
+                    .padding(.horizontal, isFullscreen ? (landscapeLayout ? 56 : 8) : 0)
+                    .padding(.bottom, isFullscreen ? (landscapeLayout ? 26 : 10) : 0)
+                    .padding(.top, isFullscreen ? (landscapeLayout ? 10 : 44) : 0)
                     .transition(.opacity)
             }
         }
@@ -856,7 +861,7 @@ struct BiliNativePlayer: View {
             showDanmaku = danmakuEnabled
             model.setDanmaku(danmaku)
             scheduleHide()
-            if isFullscreen { Self.rotateReliably(landscape: rotatesInFullscreen) }
+            if isFullscreen { Self.rotateReliably(landscape: rotatesInFullscreen ? true : nil) }
         }
         .onDisappear {
             hideTask?.cancel()
@@ -1282,13 +1287,18 @@ struct BiliNativePlayer: View {
     /// The first rotation request is sometimes swallowed while the full-screen cover is still animating in
     /// (the window turns, the content stays portrait). Ask again until the scene really is in the wanted
     /// orientation, and nudge the presented views to lay out for the new size.
-    private static func rotateReliably(landscape: Bool) {
-        rotate(landscape: landscape)
+    /// `nil` follows the phone (portrait or landscape, never upside down).
+    private static func rotateReliably(landscape: Bool?) {
+        if let landscape { rotate(landscape: landscape) } else { rotateFollowingDevice() }
         guard UIDevice.current.userInterfaceIdiom == .phone else { return }
         for delay in [0.2, 0.6, 1.2] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
-                if scene.interfaceOrientation.isLandscape != landscape { rotate(landscape: landscape) }
+                if let landscape {
+                    if scene.interfaceOrientation.isLandscape != landscape { rotate(landscape: landscape) }
+                } else {
+                    rotateFollowingDevice()
+                }
                 var controller = scene.windows.first(where: \.isKeyWindow)?.rootViewController
                 while let current = controller {
                     current.view.setNeedsLayout()
@@ -1296,6 +1306,17 @@ struct BiliNativePlayer: View {
                     controller = current.presentedViewController
                 }
             }
+        }
+    }
+
+    /// Lets the scene turn with the phone (portrait or landscape, never upside down).
+    private static func rotateFollowingDevice() {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+        if #available(iOS 16.0, *) {
+            guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: .allButUpsideDown)) { _ in }
+        } else {
+            UIViewController.attemptRotationToDeviceOrientation()
         }
     }
 

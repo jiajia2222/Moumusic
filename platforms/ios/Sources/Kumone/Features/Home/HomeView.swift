@@ -623,7 +623,8 @@ struct HomeView: View {
                 NavigationLink(value: Destination.daily) {
                     FeatureCard(
                         title: "每日推荐",
-                        subtitle: "根据你的口味生成",
+                        subtitle: model.activePlatform == .wy || (model.activePlatform == .tx && qqMusic.isLoggedIn)
+                            ? "根据你的口味生成" : "每天更新 · \(model.activePlatform.displayName)",
                         icon: "calendar",
                         coverURL: model.dailyFirstCover?.resizedImageURL(512),
                         showsDate: true
@@ -631,13 +632,6 @@ struct HomeView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, Theme.Layout.contentInset)
-            }
-            #endif
-
-            #if os(iOS)
-            // QQ 音乐 home has no 我的歌单 shelf; account playlists live on the account page.
-            if model.activePlatform != .tx {
-                PlatformAccountPlaylists(platform: model.activePlatform)
             }
             #endif
 
@@ -735,12 +729,14 @@ struct HomeView: View {
     }
 
     #if os(iOS)
-    /// 每日推荐 shows on every platform that has a signed-in account (Kuwo and Migu have none in the app).
+    /// 每日推荐 shows once the platform's own account is signed in; Kuwo and Migu have no account in the app, so
+    /// any signed-in account unlocks theirs.
     private var platformSignedIn: Bool {
         switch model.activePlatform {
-        // Only NetEase has a personalised daily list in the app; QQ / Kugou would only repeat their feed.
         case .wy: return account.isLoggedIn
-        default: return false
+        case .tx: return qqMusic.isLoggedIn
+        case .kg: return kugou.isLoggedIn
+        default: return account.isLoggedIn || qqMusic.isLoggedIn || kugou.isLoggedIn
         }
     }
     #endif

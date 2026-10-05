@@ -370,9 +370,11 @@ actor BilibiliAPI {
         let author: String
         let avatarURL: String?
         let message: String
-        let likeCount: Int
+        var likeCount: Int
         let publishedAt: Date?
-        let replyCount: Int
+        var replyCount: Int
+        var liked: Bool = false
+        var previewReplies: [Comment] = []
     }
 
     struct CommentPage: Sendable {
@@ -1421,17 +1423,57 @@ actor BilibiliAPI {
         )
     }
 
-    func postComment(aid: Int, message: String, cookie: String? = nil) async throws {
+    /// `root`/`parent` (rpid) turn the post into a reply inside a comment thread.
+    func postComment(aid: Int, message: String, root: Int? = nil, parent: Int? = nil,
+                     cookie: String? = nil) async throws {
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard aid > 0, !text.isEmpty, let cookie,
               let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty else {
             throw APIError.unavailable
         }
         let endpoint = URL(string: "https://api.bilibili.com/x/v2/reply/add")!
-        _ = try await postFormObject(endpoint, fields: [
+        var fields = [
             "oid": "\(aid)", "type": "1", "message": text,
             "plat": "1", "csrf": csrf
+        ]
+        if let root, root > 0 {
+            fields["root"] = "\(root)"
+            fields["parent"] = "\(parent ?? root)"
+        }
+        _ = try await postFormObject(endpoint, fields: fields,
+                                     cookie: cookie, referer: "https://www.bilibili.com/video/")
+    }
+
+    func likeComment(aid: Int, rpid: Int, liked: Bool, cookie: String? = nil) async throws {
+        guard aid > 0, rpid > 0, let cookie,
+              let csrf = Self.cookieValue("bili_jct", from: cookie), !csrf.isEmpty else {
+            throw APIError.unavailable
+        }
+        let endpoint = URL(string: "https://api.bilibili.com/x/v2/reply/action")!
+        _ = try await postFormObject(endpoint, fields: [
+            "oid": "\(aid)", "type": "1", "rpid": "\(rpid)",
+            "action": liked ? "1" : "0", "csrf": csrf
         ], cookie: cookie, referer: "https://www.bilibili.com/video/")
+    }
+
+    /// Replies inside one comment thread (`root` is the top-level comment's rpid).
+    func replies(aid: Int, root: Int, page: Int = 1, cookie: String? = nil) async throws -> CommentPage {
+        var components = URLComponents(string: "https://api.bilibili.com/x/v2/reply/reply")!
+        components.queryItems = [
+            URLQueryItem(name: "type", value: "1"),
+            URLQueryItem(name: "oid", value: "\(aid)"),
+            URLQueryItem(name: "root", value: "\(root)"),
+            URLQueryItem(name: "pn", value: "\(max(1, page))"),
+            URLQueryItem(name: "ps", value: "20")
+        ]
+        let root = try await requestObject(components.url!, cookie: cookie)
+        let data = root["data"] as? [String: Any]
+        let rows = data?["replies"] as? [[String: Any]] ?? []
+        let comments = rows.compactMap(Self.comment)
+        let pageInfo = data?["page"] as? [String: Any]
+        let total = Self.integer(pageInfo?["count"]) ?? comments.count
+        let size = Self.integer(pageInfo?["size"]) ?? 20
+        return CommentPage(comments: comments, total: total, hasMore: max(1, page) * max(size, 1) < total)
     }
 
     func setVideoLike(aid: Int, liked: Bool, cookie: String? = nil) async throws {
@@ -2498,7 +2540,9 @@ actor BilibiliAPI {
             message: message,
             likeCount: integer(raw["like"]) ?? 0,
             publishedAt: integer(raw["ctime"]).map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            replyCount: integer(raw["rcount"]) ?? 0
+            replyCount: integer(raw["rcount"]) ?? 0,
+            liked: integer(raw["action"]) == 1,
+            previewReplies: (raw["replies"] as? [[String: Any]] ?? []).compactMap(comment)
         )
     }
 

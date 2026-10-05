@@ -939,6 +939,108 @@ enum LXCatalogService {
         return (variety ? playlists.shuffled() : playlists, Array(tracks.prefix(limit)))
     }
 
+    /// QQ Music's own personalised daily list for the signed-in account, kept for the day (the radar returns a
+    /// different batch on every call). Empty when the endpoint gives too little, so callers fall back.
+    static func qqAccountDailyTracks(cookie: String, date: Date = .now) async -> [Track] {
+        let day = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        let dayNumber: Int = (day.year ?? 0) * 10_000 + (day.month ?? 0) * 100 + (day.day ?? 0)
+        let cacheKey = "moumusic.dailyaccount.tx.\(dayNumber)"
+        if let data = UserDefaults.standard.data(forKey: cacheKey),
+           let cached = try? JSONDecoder().decode([Track].self, from: data), !cached.isEmpty {
+            return cached
+        }
+        let rows = await QQMusicAPI.shared.dailyRadarSongs(cookie: cookie, target: 30)
+        let tracks = rows.compactMap { parseTrack($0, source: .tx) }
+        guard tracks.count >= 10 else { return [] }
+        let prefix = "moumusic.dailyaccount.tx."
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        if let data = try? JSONEncoder().encode(tracks) { UserDefaults.standard.set(data, forKey: cacheKey) }
+        return tracks
+    }
+
+    /// Kugou's own personalised daily list for the signed-in account, kept for the day. Empty when the gateway gives
+    /// nothing, so callers fall back.
+    static func kugouAccountDailyTracks(cookie: String, date: Date = .now) async -> [Track] {
+        let day = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        let dayNumber: Int = (day.year ?? 0) * 10_000 + (day.month ?? 0) * 100 + (day.day ?? 0)
+        let cacheKey = "moumusic.dailyaccount.kg.\(dayNumber)"
+        if let data = UserDefaults.standard.data(forKey: cacheKey),
+           let cached = try? JSONDecoder().decode([Track].self, from: data), !cached.isEmpty {
+            return cached
+        }
+        let rows = await KugouAPI.shared.dailyRecommend(cookie: cookie)
+        let tracks: [Track] = rows.compactMap { raw in
+            var item = raw
+            // Cloud rows name the song "歌手 - 歌名"; split it for the shared parser.
+            if item["songname"] == nil, let full = (raw["name"] ?? raw["filename"]) as? String {
+                let parts = full.components(separatedBy: " - ")
+                if parts.count >= 2 {
+                    item["singername"] = item["singername"] ?? parts[0]
+                    item["songname"] = parts.dropFirst().joined(separator: " - ")
+                } else {
+                    item["songname"] = full
+                }
+            }
+            return parseTrack(item, source: .kg)
+        }
+        guard tracks.count >= 10 else { return [] }
+        let prefix = "moumusic.dailyaccount.kg."
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        if let data = try? JSONEncoder().encode(tracks) { UserDefaults.standard.set(data, forKey: cacheKey) }
+        return tracks
+    }
+
+    /// A day-stable "每日推荐" for a platform without a personalised endpoint: a few of the platform's recommended
+    /// playlists are picked and mixed with a shuffle seeded by the date, so the list stays the same all day and
+    /// changes tomorrow.
+    static func dailyRecommendedTracks(platform: LXCatalogPlatform, limit: Int = 30, date: Date = .now) async -> [Track] {
+        guard platform != .aggregate else { return [] }
+        let day = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        let dayNumber: Int = (day.year ?? 0) * 10_000 + (day.month ?? 0) * 100 + (day.day ?? 0)
+        // A platform whose recommended-playlist list itself rotates (Migu) would otherwise change within the day.
+        let cacheKey = "moumusic.daily.\(platform.rawValue).\(dayNumber).\(limit)"
+        if let data = UserDefaults.standard.data(forKey: cacheKey),
+           let cached = try? JSONDecoder().decode([Track].self, from: data), !cached.isEmpty {
+            return cached
+        }
+        var platformHash: UInt64 = 7
+        for scalar in platform.rawValue.unicodeScalars {
+            platformHash = platformHash &* 31 &+ UInt64(scalar.value)
+        }
+        let seed: UInt64 = UInt64(dayNumber) &* 1_000_003 &+ platformHash
+        var generator = DailySeededGenerator(seed: seed)
+        let playlists = (try? await recommendedSonglists(platform: platform, limit: 30)) ?? []
+        let picked = Array(playlists.shuffled(using: &generator).prefix(4))
+        let groups = await withTaskGroup(of: (Int, [Track]).self, returning: [(Int, [Track])].self) { group in
+            for (index, playlist) in picked.enumerated() {
+                group.addTask {
+                    (index, (try? await playlistDetail(source: platform, id: playlist.id))?.tracks ?? [])
+                }
+            }
+            var output: [(Int, [Track])] = []
+            for await item in group { output.append(item) }
+            return output
+        }
+        var seen = Set<String>()
+        let pool = groups.sorted { $0.0 < $1.0 }.flatMap { $0.1 }.filter {
+            seen.insert("\($0.name.lowercased())|\($0.artistNames.lowercased())").inserted
+        }
+        let result = Array(pool.shuffled(using: &generator).prefix(limit))
+        if !result.isEmpty, let data = try? JSONEncoder().encode(result) {
+            // Only today's list is kept per platform.
+            let prefix = "moumusic.daily.\(platform.rawValue)."
+            for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+            UserDefaults.standard.set(data, forKey: cacheKey)
+        }
+        return result
+    }
+
     static func recommendedTracks(platform: LXCatalogPlatform, limit: Int = 30) async throws -> [Track] {
         guard platform != .aggregate else { throw LXCatalogError.unsupported }
         let content = await recommendedContent(platform: platform, limit: limit)
@@ -2030,5 +2132,18 @@ extension LXCatalogService {
                                 coverURL: normalizedImageURL(firstText(info?["picurl"], info?["picurl2"])),
                                 description: text(info?["desc"]), author: creator ?? text(info?["host_nick"]),
                                 playCount: int(info?["visitnum"]) ?? 0, tracks: tracks, source: .tx)
+    }
+}
+
+/// Deterministic generator (SplitMix64) so the same date always gives the same daily mix.
+struct DailySeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+    init(seed: UInt64) { state = seed == 0 ? 0x9E3779B97F4A7C15 : seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E3779B97F4A7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+        return z ^ (z >> 31)
     }
 }

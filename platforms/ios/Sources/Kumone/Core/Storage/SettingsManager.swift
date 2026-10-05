@@ -307,6 +307,8 @@ enum LyricsAnnotation: String, CaseIterable, Identifiable {
 /// lines, and a live word-timed fill when the source provides word timings.
 enum LyricsDisplayStyle: String, CaseIterable, Identifiable {
     case standard
+    /// The original AMLL player (web view; needs WebKit 16.4+). The raw value is the one the removed built-in imitation
+    /// used, so everyone who had picked "AMLL" now gets the real one.
     case amll
 
     var id: String { rawValue }
@@ -314,19 +316,28 @@ enum LyricsDisplayStyle: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .standard: return String(localized: "标准歌词")
-        case .amll: return String(localized: "Apple Music / AMLL")
+        case .amll: return String(localized: "AMLL 原版")
         }
     }
+
+    /// Styles this system can show.
+    static var available: [LyricsDisplayStyle] {
+        if #available(iOS 16.4, macOS 13.3, *) { return allCases }
+        return [.standard]
+    }
+
+    /// What a fresh install (or an unreadable stored value) gets.
+    static var defaultStyle: LyricsDisplayStyle { available.contains(.amll) ? .amll : .standard }
 
     var explanation: String {
         switch self {
         case .standard: return String(localized: "保持当前歌词布局与逐字高亮")
-        case .amll: return String(localized: "Apple Music 风格聚焦歌词；长按歌词区域可快速切换")
+        case .amll: return String(localized: "AMLL 官方歌词播放器的原版效果：弹簧滚动、逐字高亮、背景人声与对唱")
         }
     }
 
     mutating func toggle() {
-        self = self == .standard ? .amll : .standard
+        self = (self == .standard && Self.available.contains(.amll)) ? .amll : .standard
     }
 }
 
@@ -523,6 +534,10 @@ final class SettingsManager: ObservableObject {
         didSet { UserDefaults.standard.set(lyricsOffset, forKey: Keys.lyricsOffset) }
     }
 
+    /// The offset of the song that is playing now (remembered per song by `SongLyricOffsetStore`, set when a song
+    /// starts). Added to the global offset.
+    @Published var songLyricsOffset: Double = 0
+
     /// Resolve gray tracks from third-party sources (UnblockNeteaseMusic-style).
     @Published var enableUnblock: Bool {
         didSet { UserDefaults.standard.set(enableUnblock, forKey: Keys.unblock) }
@@ -598,7 +613,8 @@ final class SettingsManager: ObservableObject {
         lyricsAnnotation = defaults.string(forKey: Keys.lyricsAnnotation)
             .flatMap(LyricsAnnotation.init) ?? (legacyRomaji ? .romaji : .off)
         lyricsDisplayStyle = defaults.string(forKey: Keys.lyricsDisplayStyle)
-            .flatMap(LyricsDisplayStyle.init) ?? .amll
+            .flatMap(LyricsDisplayStyle.init)
+            .map { LyricsDisplayStyle.available.contains($0) ? $0 : .standard } ?? LyricsDisplayStyle.defaultStyle
         verbatimLyrics = defaults.object(forKey: Keys.verbatimLyrics) as? Bool ?? true
         lyricsOffset = defaults.object(forKey: Keys.lyricsOffset) as? Double ?? 0
         enableUnblock = defaults.object(forKey: Keys.unblock) as? Bool ?? false
@@ -643,7 +659,8 @@ final class SettingsManager: ObservableObject {
         lyricsAnnotation = defaults.string(forKey: Keys.lyricsAnnotation)
             .flatMap(LyricsAnnotation.init) ?? (legacyRomaji ? .romaji : .off)
         lyricsDisplayStyle = defaults.string(forKey: Keys.lyricsDisplayStyle)
-            .flatMap(LyricsDisplayStyle.init) ?? .amll
+            .flatMap(LyricsDisplayStyle.init)
+            .map { LyricsDisplayStyle.available.contains($0) ? $0 : .standard } ?? LyricsDisplayStyle.defaultStyle
         verbatimLyrics = defaults.object(forKey: Keys.verbatimLyrics) as? Bool ?? true
         lyricsOffset = defaults.object(forKey: Keys.lyricsOffset) as? Double ?? 0
         enableUnblock = defaults.object(forKey: Keys.unblock) as? Bool ?? false

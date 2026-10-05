@@ -1220,6 +1220,8 @@ final class PlayerService: ObservableObject {
         lyricsTask?.cancel()
         translationTask?.cancel()
         let track = track.normalizedForLXPlayback()
+        // Each song keeps the lyric offset the user dialled in for it.
+        SettingsManager.shared.songLyricsOffset = SongLyricOffsetStore.shared.offset(for: track.playbackKey)
         if !preserveTrackQualityOverride {
             trackQualityOverride = nil
         }
@@ -2252,11 +2254,42 @@ final class PlayerService: ObservableObject {
             }
         }
 
+        // The community database of hand-timed word-by-word lyrics goes first, but only through a lookup that costs
+        // nothing: the song's own ids against the index in memory. It never waits for the network (the index loads in the
+        // background, see `AMLLTTMLDatabase.prefetch`), so a song it does not have loses no time.
+        let isQQSong = sourceKey == "tx" || sourceKey == "qq"
+        if AMLLTTMLDatabase.isEnabled {
+            Task { await AMLLTTMLDatabase.shared.prefetch() }
+            var ownQQIDs: [String] = []
+            if isQQSong {
+                if let id = track.sourceMetadata["id"] { ownQQIDs.append(id) }
+                if let mid = track.sourceMetadata["songmid"] { ownQQIDs.append(mid) }
+            }
+            let isNetease = ["wy", "netease", "163"].contains(sourceKey)
+            if let community = await AMLLTTMLDatabase.shared.lyrics(neteaseID: isNetease ? String(track.id) : nil, qqIDs: ownQQIDs) {
+                guard !Task.isCancelled, generation == resolveGeneration else { return }
+                publishLyrics(community, for: track, generation: generation)
+                return
+            }
+        }
+
         // Word-by-word lyrics come from QQ Music first (QRC), whatever platform the song is from.
         if SettingsManager.shared.verbatimLyrics {
             var qqID: String? = sourceKey == "tx" || sourceKey == "qq" ? track.sourceMetadata["id"] : nil
-            if qqID == nil, let matched = await LXCatalogService.matchingTrack(track, on: "tx") {
-                qqID = matched.sourceMetadata["id"]
+            if qqID == nil {
+                let matched = await LXCatalogService.matchingTrack(track, on: "tx")
+                qqID = matched?.sourceMetadata["id"]
+                // The QQ match of a song from another platform may be in the community database.
+                if AMLLTTMLDatabase.isEnabled, let matched {
+                    var ids: [String] = []
+                    if let id = matched.sourceMetadata["id"] { ids.append(id) }
+                    if let mid = matched.sourceMetadata["songmid"] { ids.append(mid) }
+                    if let community = await AMLLTTMLDatabase.shared.lyrics(neteaseID: nil, qqIDs: ids) {
+                        guard !Task.isCancelled, generation == resolveGeneration else { return }
+                        publishLyrics(community, for: track, generation: generation)
+                        return
+                    }
+                }
             }
             guard !Task.isCancelled, generation == resolveGeneration else { return }
             if let qqID, !qqID.isEmpty {

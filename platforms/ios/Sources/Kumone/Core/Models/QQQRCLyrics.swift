@@ -47,6 +47,7 @@ enum QQQRCLyrics {
                 words.append(LyricWord(text: piece, start: start, duration: duration))
                 text += piece
             }
+            words = LyricWord.trimmingEnds(words)
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty, !words.isEmpty else { continue }
             lines.append(LyricLine(id: index, time: lineStart, text: trimmed, words: words))

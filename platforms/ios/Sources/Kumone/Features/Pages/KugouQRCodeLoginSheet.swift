@@ -143,7 +143,16 @@ struct KugouQRCodeLoginSheet: View {
                             pollTask = nil
                             return
                         case .success(let cookie):
-                            try await kugou.signInFromQR(cookie: cookie)
+                            // Sign-in failures must reach the user, not be retried silently as poll errors.
+                            do {
+                                try await kugou.signInFromQR(cookie: cookie)
+                            } catch {
+                                KugouAPI.log("扫码登录保存失败", error.localizedDescription)
+                                pollTask = nil
+                                phase = .failed(error.localizedDescription)
+                                return
+                            }
+                            KugouAPI.log("扫码登录成功", "")
                             ToastCenter.shared.show("酷狗音乐账号登录成功")
                             pollTask = nil
                             dismiss()
@@ -152,6 +161,7 @@ struct KugouQRCodeLoginSheet: View {
                         errors = 0
                     } catch {
                         errors += 1
+                        KugouAPI.log("扫码轮询出错", "\(errors)/8 \(error.localizedDescription)")
                         if errors >= 8 { throw error }
                     }
                 }

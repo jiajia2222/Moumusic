@@ -1,0 +1,10 @@
+{
+  "name": "moumusic-amll-page",
+  "private": true,
+  "type": "module",
+  "description": "Builds Sources/Kumone/AMLLLyricsPage.html (the AMLL lyric player page) from entry.js.",
+  "dependencies": {
+    "@applemusic-like-lyrics/core": "0.6.0",
+    "esbuild": "^0.25.0"
+  }
+}

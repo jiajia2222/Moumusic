@@ -87,6 +87,43 @@ enum DebugHarness {
             note("done")
             return
         }
+        // -moumusic.debugDaily YES: the day-stable 每日推荐 of every platform, fetched twice (must match) and for
+        // another date (must differ).
+        if defaults.bool(forKey: "moumusic.debugDaily") {
+            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: .now) ?? .now
+            for platform in [LXCatalogPlatform.wy, .tx, .kg, .kw, .mg] {
+                let first = await LXCatalogService.dailyRecommendedTracks(platform: platform)
+                let second = await LXCatalogService.dailyRecommendedTracks(platform: platform)
+                let other = await LXCatalogService.dailyRecommendedTracks(platform: platform, date: tomorrow)
+                let firstIDs = first.map(\.playbackKey), otherIDs = other.map(\.playbackKey)
+                let overlap = Set(firstIDs).intersection(otherIDs).count
+                note("daily \(platform.rawValue): \(first.count) songs, same-day repeat identical=\(firstIDs == second.map(\.playbackKey)), tomorrow \(other.count) songs with \(overlap) in common, first=\(first.first.map { "\($0.name) - \($0.artistNames)" } ?? "-")")
+            }
+            // QQ account radar: anonymous here (no login in the simulator), which still proves request and parsing.
+            let radar = await QQMusicAPI.shared.dailyRadarSongs(cookie: "", target: 30)
+            let parsed = radar.compactMap { LXCatalogService.parseTrack($0, source: .tx) }
+            note("qq radar: \(radar.count) rows, \(parsed.count) parsed, first=\(parsed.first.map { "\($0.name) - \($0.artistNames) mid=\($0.sourceMetadata["songmid"] ?? "-")" } ?? "-")")
+            note("done")
+            return
+        }
+        // -moumusic.debugTTML YES: the community lyric database: index load, hit and miss, and the parsed words.
+        if defaults.bool(forKey: "moumusic.debugTTML") {
+            for (label, ncm, qq) in [("晴天", "186016", []), ("海阔天空", "347230", []), ("光年之外", "449818741", []),
+                                     ("夜曲(未收录)", "108914", []), ("QQ 祝福", nil, ["000zi9gH0OEMMu"])] as [(String, String?, [String])] {
+                let started = Date()
+                let result = await AMLLTTMLDatabase.shared.lyrics(neteaseID: ncm, qqIDs: qq)
+                let seconds = String(format: "%.1f", Date().timeIntervalSince(started))
+                if let result {
+                    let words = result.lines.compactMap(\.words).flatMap { $0 }
+                    let zero = words.filter { $0.start == 0 }.count
+                    note("ttml \(label): HIT \(result.lines.count) lines, \(words.count) words, zero-start words=\(zero), verbatim=\(result.hasVerbatimTimings), first=\(result.lines.first(where: { $0.words != nil })?.text ?? "-") (\(seconds)s)")
+                } else {
+                    note("ttml \(label): miss (\(seconds)s)")
+                }
+            }
+            note("done")
+            return
+        }
         // -moumusic.debugKugou YES: with the stored Kugou session, run the device registration a few times and then
         // read the account's cloud playlists. Prints counts only (no names, no tokens).
         if defaults.bool(forKey: "moumusic.debugKugou") {
@@ -110,6 +147,11 @@ enum DebugHarness {
                 }
                 let withDevice = await store.cookieWithDevice()
                 note("kugou cookieWithDevice: \(withDevice?.contains("kugou_api_guid=") == true ? "has own device" : "no device")")
+                for (appid, ver, inQuery) in [("1005", "20489", true), ("1005", "20489", false), ("1001", "20489", true),
+                                              ("3116", "11040", true), ("1005", "11083", true), ("1005", "20489", true)] {
+                    let result = await KugouAPI.shared.probeUserPlaylists(cookie: withDevice ?? cookie, appid: appid, clientver: ver, tokenInQuery: inQuery)
+                    note("kugou probe appid=\(appid) ver=\(ver) tokenInQuery=\(inQuery): \(result)")
+                }
                 do {
                     let lists = try await KugouAPI.shared.userPlaylists(cookie: withDevice ?? cookie)
                     note("kugou userPlaylists: OK \(lists.count) lists, songs per list=\(lists.prefix(8).map(\.count))")

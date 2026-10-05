@@ -8,6 +8,28 @@ struct LyricWord: Hashable {
     var end: TimeInterval { start + duration }
 }
 
+extension LyricWord {
+    /// Words as sources deliver them carry spaces at the line edges; the plain line text is trimmed, so the two
+    /// layers of a karaoke line would sit a space apart. Drop the edge whitespace (and words that were only that).
+    static func trimmingEnds(_ words: [LyricWord]) -> [LyricWord] {
+        var output = words
+        if let first = output.first {
+            output[0] = LyricWord(text: String(first.text.drop { $0.isWhitespace }), start: first.start, duration: first.duration)
+        }
+        if let last = output.last {
+            var text = last.text
+            while let tail = text.last, tail.isWhitespace { text.removeLast() }
+            output[output.count - 1] = LyricWord(text: text, start: last.start, duration: last.duration)
+        }
+        return output.filter { !$0.text.isEmpty }
+    }
+
+    /// How much of the word has been sung at `time` (0...1). A word without a duration switches at its start.
+    func sungFraction(at time: TimeInterval) -> Double {
+        duration > 0 ? min(max((time - start) / duration, 0), 1) : (time >= start ? 1 : 0)
+    }
+}
+
 struct LyricLine: Identifiable, Hashable {
     let id: Int
     let time: TimeInterval
@@ -233,6 +255,7 @@ enum LyricsParser {
                 words.append(LyricWord(text: piece, start: start, duration: duration))
                 text += piece
             }
+            words = LyricWord.trimmingEnds(words)
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty, !words.isEmpty else { continue }
             lines.append(LyricLine(id: idx, time: lineStart, text: trimmed, words: words))
@@ -279,6 +302,7 @@ enum LyricsParser {
                 text += piece
             }
 
+            words = LyricWord.trimmingEnds(words)
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty, !words.isEmpty else { continue }
             lines.append(LyricLine(id: idx, time: lineStart, text: trimmed, words: words))

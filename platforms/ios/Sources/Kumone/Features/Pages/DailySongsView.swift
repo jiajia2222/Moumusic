@@ -4,10 +4,13 @@ struct DailySongsView: View {
     @State private var tracks: [Track] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var isAccountDaily = false
 
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var settings: SettingsManager
+    @EnvironmentObject private var qqMusic: QQMusicSessionStore
+    @EnvironmentObject private var kugou: KugouSessionStore
     @Environment(\.openLogin) private var openLogin
 
     var body: some View {
@@ -52,7 +55,7 @@ struct DailySongsView: View {
     }
 
     private var taskID: String {
-        "daily-\(account.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)"
+        "daily-\(account.isLoggedIn)-\(qqMusic.isLoggedIn)-\(kugou.isLoggedIn)-\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)"
     }
 
     private var dailyPlatformName: String {
@@ -79,7 +82,7 @@ struct DailySongsView: View {
                     }
                     Text("\(dailyPlatformName) · 每日推荐")
                         .font(.system(size: 30, weight: .bold))
-                    Text(usesAccountDaily ? "根据你的网易云音乐账号生成 · 每天 6:00 更新" : "来自已选音源平台 · 每次打开时刷新")
+                    Text(usesAccountDaily ? "根据你的网易云音乐账号生成 · 每天 6:00 更新" : isAccountDaily ? "根据你的 \(dailyPlatformName) 账号生成 · 每天更新" : "根据平台推荐歌单生成 · 每天更新")
                         .font(.system(size: 12))
                         .opacity(0.7)
                 }
@@ -137,12 +140,26 @@ struct DailySongsView: View {
         if !usesAccountDaily {
             isLoading = true
             errorMessage = nil
-            let content = await LXCatalogService.recommendedContent(
-                platform: settings.homeRecommendationPlatform,
-                limit: 50
-            )
+            var daily: [Track] = []
+            isAccountDaily = false
+            // QQ Music with a signed-in account: the platform's own personalised list.
+            if settings.homeRecommendationPlatform == .tx, qqMusic.isLoggedIn, let cookie = qqMusic.cookie {
+                daily = await LXCatalogService.qqAccountDailyTracks(cookie: cookie)
+                isAccountDaily = !daily.isEmpty
+            }
+            // Kugou with a signed-in account (the gateway needs the registered device as well).
+            if settings.homeRecommendationPlatform == .kg, kugou.isLoggedIn, let cookie = await kugou.cookieWithDevice() {
+                daily = await LXCatalogService.kugouAccountDailyTracks(cookie: cookie)
+                isAccountDaily = !daily.isEmpty
+            }
+            if daily.isEmpty {
+                daily = await LXCatalogService.dailyRecommendedTracks(
+                    platform: settings.homeRecommendationPlatform,
+                    limit: 30
+                )
+            }
             guard !Task.isCancelled else { return }
-            tracks = content.tracks.map { $0.normalizedForLXPlayback() }
+            tracks = daily.map { $0.normalizedForLXPlayback() }
             isLoading = false
             if tracks.isEmpty {
                 errorMessage = "当前平台暂时没有可用的每日推荐，请刷新或切换平台。"

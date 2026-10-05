@@ -40,3 +40,20 @@ service terms, copyright rules and upstream licenses.
   ambient background and playback-speed behavior were implemented in
   Moumusic's own code; Beans-Music provider login, bundled providers and
   authentication code are not included.
+
+## Apple Music-like Lyrics (AMLL) core
+
+- Project: https://github.com/amll-dev/applemusic-like-lyrics (`@applemusic-like-lyrics/core` 0.6.0)
+- Licence: **GNU Affero General Public License v3.0 only** (full text: `LICENSES/AGPL-3.0-AMLL.txt`)
+- Where it is used: `platforms/ios/Sources/Kumone/AMLLLyricsPage.html` embeds the AMLL player (minified); the corresponding
+  source is the upstream project at the version above plus `platforms/ios/Tools/amll/entry.js` and `build.mjs` in this
+  repository. The "AMLL 原版" lyric style (`AMLLWebLyricsView.swift`) loads that page.
+
+This repository's own code stays under the licence in `LICENSE` (LGPL-3.0). The AMLL component, and the parts of the
+app that are combined with it, are also made available under AGPL-3.0: the complete source of the app is public in this
+repository, which is how the AGPL's source requirement is met for every distributed build.
+
+## AMLL TTML DB (community lyrics)
+
+- Project: https://github.com/amll-dev/amll-ttml-db
+- Licence: CC0 1.0 (contributors' lyric timing data). The app downloads individual lyric files at runtime.

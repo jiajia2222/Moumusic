@@ -71,22 +71,6 @@ struct NowPlayingView: View {
             // Pin to the screen width so an intrinsically-wide child can never
             // stretch the ZStack and push the corner overlays off-screen.
             .frame(width: geo.size.width)
-            .overlay(alignment: .topLeading) {
-                if showsClassicChrome(isCompact: isCompact) {
-                    Button {
-                        close()
-                    } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .frame(width: 36, height: 36)
-                            .background(.white.opacity(0.12), in: Circle())
-                    }
-                    .buttonStyle(.pressable)
-                    .padding(.top, 20)
-                    .padding(.leading, 20)
-                }
-            }
             .overlay(alignment: .topTrailing) {
                 HStack(spacing: 8) {
                     if isCompact, showsClassicChrome(isCompact: isCompact) {
@@ -1018,7 +1002,7 @@ struct NowPlayingView: View {
                 }
 
                 Menu {
-                    ForEach(LyricsDisplayStyle.allCases) { style in
+                    ForEach(LyricsDisplayStyle.available) { style in
                         Button {
                             withAnimation(AppAnimation.standard) {
                                 settings.lyricsDisplayStyle = style
@@ -1164,7 +1148,10 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private var lyricsColumn: some View {
-        if let lyrics = player.lyrics, !lyrics.isEmpty {
+        if AMLLWebLyricsView.isSupported, settings.lyricsDisplayStyle == .amll,
+           let lyrics = player.lyrics, !lyrics.isEmpty {
+            AMLLWebLyricsView(lyrics: lyrics)
+        } else if let lyrics = player.lyrics, !lyrics.isEmpty {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 26) {
@@ -1266,7 +1253,7 @@ struct NowPlayingView: View {
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .blur(radius: settings.lyricsDisplayStyle == .amll ? 0 : (isActive ? 0 : 0.6))
+            .blur(radius: isActive ? 0 : 0.6)
             .scaleEffect(1, anchor: .leading)
         }
         .buttonStyle(.plain)
@@ -1301,15 +1288,7 @@ struct LyricMainText: View {
     @EnvironmentObject private var settings: SettingsManager
 
     var body: some View {
-        if settings.lyricsDisplayStyle == .amll {
-            AMLLyricText(
-                line: line,
-                isActive: isActive,
-                font: font,
-                verbatim: verbatim,
-                inactiveOpacity: inactiveOpacity
-            )
-        } else if settings.lyricsAnnotation == .furigana, let segments = line.furigana, !segments.isEmpty,
+        if settings.lyricsAnnotation == .furigana, let segments = line.furigana, !segments.isEmpty,
            isActive, verbatim, line.hasVerbatimTimings, let words = line.words {
             TimelineView(.animation(paused: !player.isPlaying)) { _ in
                 RubyText(
@@ -1346,86 +1325,30 @@ struct LyricMainText: View {
         }
     }
 
-      /// One concatenated `Text` (so it wraps) with the exact opacity of each
-      /// source-timed word/run. LX/NetEase verbatim data already contains the
-      /// timing for each run; subdividing it by character creates drift.
+    /// One concatenated `Text` (so it wraps) with the exact opacity of each source-timed word/run. LX/NetEase
+    /// verbatim data already contains the timing for each run; subdividing it by character creates drift.
     private func karaoke(_ words: [LyricWord], at time: TimeInterval) -> Text {
-          let unsung = 0.28
-          var out = Text(verbatim: "")
-          for word in words {
-              let fraction = word.duration > 0
-                  ? min(max((time - word.start) / word.duration, 0), 1)
-                  : (time >= word.start ? 1 : 0)
-              let alpha = unsung + (1 - unsung) * fraction
-              out = out + Text(verbatim: word.text)
-                  .foregroundColor(.white.opacity(alpha))
-          }
-          return out
-      }
-
-      private func karaokeAlphas(_ words: [LyricWord], at time: TimeInterval) -> [Double] {
-          let unsung = 0.28
-          return words.flatMap { word in
-              let fraction = word.duration > 0
-                  ? min(max((time - word.start) / word.duration, 0), 1)
-                  : (time >= word.start ? 1 : 0)
-              let alpha = unsung + (1 - unsung) * fraction
-              return Array(repeating: alpha, count: word.text.count)
-          }
-      }
-}
-
-/// Apple Music-like lyric rendering without depending on a private or
-/// reverse-engineered implementation. It reuses the source-provided word
-/// timings, keeps the full line visible underneath, and fills the sung words
-/// over it in real time.
-private struct AMLLyricText: View {
-    let line: LyricLine
-    let isActive: Bool
-    let font: Font
-    let verbatim: Bool
-    let inactiveOpacity: Double
-
-    @EnvironmentObject private var player: PlayerService
-    @EnvironmentObject private var settings: SettingsManager
-
-    var body: some View {
-        Group {
-            if isActive, verbatim, line.hasVerbatimTimings, let words = line.words {
-                TimelineView(.animation(paused: !player.isPlaying)) { _ in
-                    ZStack(alignment: .leading) {
-                        Text(line.text)
-                            .foregroundStyle(.white.opacity(0.28))
-                        timedText(words, at: player.livePlaybackTime + settings.effectiveLyricsOffset)
-                    }
-                }
-            } else {
-                Text(line.text.isEmpty ? " " : line.text)
-                    .foregroundStyle(.white.opacity(isActive ? 1 : inactiveOpacity))
-            }
-        }
-        .font(font.weight(isActive ? .bold : .semibold))
-        .lineSpacing(isActive ? 5 : 1)
-        .tracking(isActive ? 0.15 : 0)
-        .minimumScaleFactor(0.64)
-        .fixedSize(horizontal: false, vertical: true)
-        .scaleEffect(isActive ? 1.06 : 0.90, anchor: .leading)
-        .opacity(isActive ? 1 : 0.56)
-        .blur(radius: isActive ? 0 : 0.55)
-        .animation(.spring(response: 0.36, dampingFraction: 0.86), value: isActive)
-    }
-
-    private func timedText(_ words: [LyricWord], at time: TimeInterval) -> Text {
-        var output = Text(verbatim: "")
+        let unsung = 0.28
+        var out = Text(verbatim: "")
         for word in words {
-            let progress = word.duration > 0
+            let fraction = word.duration > 0
                 ? min(max((time - word.start) / word.duration, 0), 1)
                 : (time >= word.start ? 1 : 0)
-            let opacity = 0.34 + 0.66 * progress
-            output = output + Text(verbatim: word.text)
-                .foregroundColor(.white.opacity(opacity))
+            let alpha = unsung + (1 - unsung) * fraction
+            out = out + Text(verbatim: word.text).foregroundColor(.white.opacity(alpha))
         }
-        return output
+        return out
+    }
+
+    private func karaokeAlphas(_ words: [LyricWord], at time: TimeInterval) -> [Double] {
+        let unsung = 0.28
+        return words.flatMap { word in
+            let fraction = word.duration > 0
+                ? min(max((time - word.start) / word.duration, 0), 1)
+                : (time >= word.start ? 1 : 0)
+            let alpha = unsung + (1 - unsung) * fraction
+            return Array(repeating: alpha, count: word.text.count)
+        }
     }
 }
 
@@ -1462,6 +1385,7 @@ private struct LyricSupplementalText: View {
 /// Player-page lyric controls.  These belong next to the lyrics because the
 /// useful choice is per listening session, not a buried global setting.
 private struct LyricPresentationSheet: View {
+    @AppStorage("moumusic.lyrics.communityDB") private var communityLyrics = true
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
     @Environment(\.dismiss) private var dismiss
@@ -1474,14 +1398,14 @@ private struct LyricPresentationSheet: View {
                         Text("歌词样式")
                             .font(.headline)
 
-                        ForEach(LyricsDisplayStyle.allCases) { style in
+                        ForEach(LyricsDisplayStyle.available) { style in
                             Button {
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     settings.lyricsDisplayStyle = style
                                 }
                             } label: {
                                 HStack(spacing: 12) {
-                                    Image(systemName: style == .amll ? "text.quote" : "text.alignleft")
+                                    Image(systemName: style == .amll ? "sparkles" : "text.alignleft")
                                         .font(.system(size: 17, weight: .semibold))
                                         .foregroundStyle(style == settings.lyricsDisplayStyle ? Theme.accent : .secondary)
                                         .frame(width: 28)
@@ -1508,6 +1432,7 @@ private struct LyricPresentationSheet: View {
 
                     glassSection {
                         Toggle("逐字歌词（仅使用真实时间轴）", isOn: $settings.verbatimLyrics)
+                        Toggle("优先使用社区校对歌词库（AMLL TTML DB）", isOn: $communityLyrics)
                         Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
 
                         Picker("日文歌词注音", selection: $settings.lyricsAnnotation) {
@@ -1518,7 +1443,41 @@ private struct LyricPresentationSheet: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("歌词同步")
+                                Text("这首歌的歌词同步")
+                                Spacer()
+                                Text(String(format: "%+.2f 秒", settings.songLyricsOffset))
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            Slider(value: $settings.songLyricsOffset, in: -3...3, step: 0.05) { editing in
+                                if !editing { saveSongOffset() }
+                            }
+                            HStack(spacing: 10) {
+                                Button("提前 0.1 秒") {
+                                    settings.songLyricsOffset = min(3, settings.songLyricsOffset + 0.1)
+                                    saveSongOffset()
+                                }
+                                Button("延后 0.1 秒") {
+                                    settings.songLyricsOffset = max(-3, settings.songLyricsOffset - 0.1)
+                                    saveSongOffset()
+                                }
+                                Button("重置") {
+                                    settings.songLyricsOffset = 0
+                                    saveSongOffset()
+                                }
+                            }
+                            .font(.footnote)
+                            .buttonStyle(.bordered)
+                            Text("只对当前这首歌生效，下次播放会自动记住。正值提前，负值延后。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    glassSection {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("全部歌曲的歌词同步")
                                 Spacer()
                                 Text(String(format: "%+.2f 秒", settings.lyricsOffset))
                                     .foregroundStyle(.secondary)
@@ -1552,7 +1511,7 @@ private struct LyricPresentationSheet: View {
                                 : "info.circle"
                         )
                         .foregroundStyle(player.lyrics?.hasVerbatimTimings == true ? .green : .secondary)
-                        Text("AMLL 负责显示样式；逐字进度只使用音源真实返回的 YRC/LX 时间轴。没有真实时间轴时不会按字符平均切分，避免歌词越播越错位。网易云没有时会优先回退到 QQ 音乐歌词。")
+                        Text("AMLL 负责显示样式；逐字进度只使用音源真实返回的 YRC/LX 时间轴。没有真实时间轴时不会按字符平均切分，避免歌词越播越错位。网易云没有时会优先回退到 QQ 音乐歌词。社区校对歌词库里的歌曲由人工按真实录音校对，时间最准；库里没有的歌曲仍使用上面的来源。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1573,6 +1532,14 @@ private struct LyricPresentationSheet: View {
         .onChange(of: settings.lyricsOffset) { _ in
             player.refreshLyricsCursor()
         }
+        .onChange(of: settings.songLyricsOffset) { _ in
+            player.refreshLyricsCursor()
+        }
+    }
+
+    private func saveSongOffset() {
+        guard let key = player.currentTrack?.playbackKey else { return }
+        SongLyricOffsetStore.shared.set(settings.songLyricsOffset, for: key)
     }
 
     @ViewBuilder
@@ -1781,7 +1748,10 @@ private struct IOSImmersiveLyricsColumn: View {
 
     var body: some View {
         Group {
-            if let lyrics = player.lyrics, !lyrics.isEmpty {
+            if AMLLWebLyricsView.isSupported, settings.lyricsDisplayStyle == .amll,
+               let lyrics = player.lyrics, !lyrics.isEmpty {
+                AMLLWebLyricsView(lyrics: lyrics)
+            } else if let lyrics = player.lyrics, !lyrics.isEmpty {
                 ScrollViewReader { proxy in
                     ScrollView(showsIndicators: false) {
                         LazyVStack(alignment: .leading, spacing: 22) {
@@ -2073,7 +2043,7 @@ private struct CompactTrackHeader: View {
 #endif
 
                     Menu {
-                        ForEach(LyricsDisplayStyle.allCases) { style in
+                        ForEach(LyricsDisplayStyle.available) { style in
                             Button {
                                 withAnimation(AppAnimation.standard) {
                                     settings.lyricsDisplayStyle = style
@@ -2314,6 +2284,13 @@ private struct CompactVolumeControl: View {
 /// MPVolumeView keeps its slider near the top of its bounds, so next to the speaker icons the track sat higher
 /// than their centre line. Keep the slider spanning the full width and vertically centred.
 private final class CenteredVolumeView: MPVolumeView {
+    /// The system re-lays the slider out on its own (volume change, route change) and used to put it back at the
+    /// top, so a one-off frame fix only held some of the time. This is the hook MPVolumeView asks every time.
+    override func volumeSliderRect(forBounds bounds: CGRect) -> CGRect {
+        let base = super.volumeSliderRect(forBounds: bounds)
+        return CGRect(x: 0, y: ((bounds.height - base.height) / 2).rounded(), width: bounds.width, height: base.height)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let slider = subviews.compactMap({ $0 as? UISlider }).first else { return }
@@ -2559,7 +2536,10 @@ private struct IOSMinimalLyricsColumn: View {
     var body: some View {
         GeometryReader { geometry in
             Group {
-                if let lyrics = player.lyrics, !lyrics.isEmpty {
+                if AMLLWebLyricsView.isSupported, settings.lyricsDisplayStyle == .amll,
+                   let lyrics = player.lyrics, !lyrics.isEmpty {
+                    AMLLWebLyricsView(lyrics: lyrics)
+                } else if let lyrics = player.lyrics, !lyrics.isEmpty {
                     ScrollViewReader { proxy in
                         ScrollView(showsIndicators: false) {
                             LazyVStack(alignment: .leading, spacing: 4) {
@@ -2989,7 +2969,7 @@ private struct MinimalTrackInfoRow: View {
             PlayerPlaybackModeMenu()
 
             Menu {
-                ForEach(LyricsDisplayStyle.allCases) { style in
+                ForEach(LyricsDisplayStyle.available) { style in
                     Button {
                         withAnimation(AppAnimation.standard) {
                             settings.lyricsDisplayStyle = style

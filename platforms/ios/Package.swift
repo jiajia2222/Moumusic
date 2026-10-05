@@ -20,7 +20,7 @@ let package = Package(
             ],
             path: "Sources/Kumone",
             exclude: ["Resources"],
-            resources: [.copy("LXUserAPIPreload.js"), .process("BrandIcons")],
+            resources: [.copy("LXUserAPIPreload.js"), .copy("AMLLLyricsPage.html"), .process("BrandIcons")],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]

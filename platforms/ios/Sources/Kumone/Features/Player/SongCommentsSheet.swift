@@ -114,6 +114,11 @@ struct SongCommentsSheet: View {
                     }
                 }
             }
+            // Inside the navigation stack: the list then insets its content above the composer
+            // instead of scrolling underneath it.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                commentComposer
+            }
             .navigationTitle("评论")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -124,9 +129,6 @@ struct SongCommentsSheet: View {
         }
         .task(id: "\(track.playbackKey)-\(retryToken)-\(sort.rawValue)") { await loadComments() }
         .refreshable { await loadComments() }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            commentComposer
-        }
         .presentationDetents([.medium, .large])
     }
 

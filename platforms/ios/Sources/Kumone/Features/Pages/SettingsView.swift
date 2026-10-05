@@ -380,7 +380,7 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Picker("歌词样式", selection: $settings.lyricsDisplayStyle) {
-                    ForEach(LyricsDisplayStyle.allCases) { style in
+                    ForEach(LyricsDisplayStyle.available) { style in
                         Text(style.displayName).tag(style)
                     }
                 }

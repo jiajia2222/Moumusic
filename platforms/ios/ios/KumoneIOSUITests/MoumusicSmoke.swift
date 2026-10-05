@@ -44,6 +44,21 @@ final class MoumusicSmoke: XCTestCase {
         save("12-vinyl-back")
     }
 
+    /// The original AMLL lyric player (web view) on the lyrics page: three frames a few seconds apart.
+    @MainActor
+    func testAMLLOriginal() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-moumusic.skipUpdateCheck", "YES", "-settings.lyricsDisplayStyle", "amll", "-moumusic.debugAMLL", "YES",
+                                "-moumusic.debugNowPlaying", "lyrics"]
+        app.launch()
+        sleep(26)
+        save("40-amll-1")
+        sleep(4)
+        save("41-amll-2")
+        sleep(4)
+        save("42-amll-3")
+    }
+
     /// The classic player page (volume bar alignment).
     @MainActor
     func testClassicPlayer() throws {

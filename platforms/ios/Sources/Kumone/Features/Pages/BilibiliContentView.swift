@@ -1550,6 +1550,7 @@ struct BilibiliVideoDetailContent: View {
     @State private var interactionMessage: String?
     @State private var commentText = ""
     @State private var commentPosting = false
+    @State private var commentThread: BilibiliCommentThread?
 
     @State private var selectedPage: BilibiliAPI.VideoPage?
 
@@ -2073,8 +2074,17 @@ struct BilibiliVideoDetailContent: View {
             } else if comments.isEmpty {
                 EmptyStateView(icon: "bubble.left", title: "暂无评论").frame(maxWidth: .infinity, minHeight: 160)
             } else {
-                ForEach(comments) { BilibiliCommentRow(comment: $0) }
+                ForEach($comments) { $item in
+                    BilibiliCommentRow(
+                        comment: $item, aid: activeVideo.aid,
+                        onReply: { commentThread = BilibiliCommentThread(root: item, target: item) },
+                        onOpenThread: { commentThread = BilibiliCommentThread(root: item, target: item) }
+                    )
+                }
             }
+        }
+        .sheet(item: $commentThread) { thread in
+            BilibiliCommentThreadSheet(aid: activeVideo.aid, root: thread.root, target: thread.target)
         }
         .padding(.horizontal, 18)
         .task(id: selectedTab) { if selectedTab == 1 && comments.isEmpty { await loadComments() } }
@@ -2355,24 +2365,187 @@ struct BilibiliVideoDetailContent: View {
     }
 }
 
+private struct BilibiliCommentThread: Identifiable {
+    let id = UUID()
+    let root: BilibiliAPI.Comment
+    let target: BilibiliAPI.Comment
+}
+
 private struct BilibiliCommentRow: View {
-    let comment: BilibiliAPI.Comment
+    @Binding var comment: BilibiliAPI.Comment
+    let aid: Int
+    var onReply: () -> Void
+    var onOpenThread: (() -> Void)?
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             CachedAsyncImage(url: comment.avatarURL?.resizedImageURL(128)).frame(width: 36, height: 36).clipShape(Circle())
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(comment.author).font(.subheadline.weight(.semibold))
                     Spacer()
                     Text(comment.publishedAt.map { Self.dateFormatter.string(from: $0) } ?? "").font(.caption2).foregroundStyle(.tertiary)
                 }
                 Text(comment.message).font(.body).fixedSize(horizontal: false, vertical: true)
-                Label("\(comment.likeCount)", systemImage: "hand.thumbsup").font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 18) {
+                    Button { Task { await toggleLike() } } label: {
+                        Label("\(comment.likeCount)", systemImage: comment.liked ? "hand.thumbsup.fill" : "hand.thumbsup")
+                            .foregroundStyle(comment.liked ? Theme.accent : .secondary)
+                    }
+                    Button(action: onReply) {
+                        Label("回复", systemImage: "arrowshape.turn.up.left")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .buttonStyle(.plain)
+                if let onOpenThread, comment.replyCount > 0 {
+                    Button(action: onOpenThread) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(comment.previewReplies.prefix(2)) { reply in
+                                (Text(reply.author).foregroundColor(Theme.accent) + Text("：" + reply.message))
+                                    .font(.caption)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            Text("共 \(comment.replyCount) 条回复 ›").font(.caption).foregroundStyle(Theme.accent)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }.padding(.vertical, 8)
+    }
+
+    @MainActor private func toggleLike() async {
+        let session = BilibiliSessionStore.shared
+        guard session.isLoggedIn else {
+            ToastCenter.shared.show("请先登录哔哩哔哩")
+            return
+        }
+        let next = !comment.liked
+        comment.liked = next
+        comment.likeCount = max(0, comment.likeCount + (next ? 1 : -1))
+        do {
+            try await BilibiliAPI.shared.likeComment(aid: aid, rpid: Int(comment.id) ?? 0, liked: next, cookie: session.cookie)
+        } catch {
+            comment.liked = !next
+            comment.likeCount = max(0, comment.likeCount + (next ? -1 : 1))
+            ToastCenter.shared.show("点赞失败，请稍后重试")
+        }
     }
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd HH:mm"; return formatter
     }()
+}
+
+/// One comment thread: the top-level comment, its replies, and a composer that replies to a chosen comment.
+private struct BilibiliCommentThreadSheet: View {
+    let aid: Int
+    @State var root: BilibiliAPI.Comment
+    @State var target: BilibiliAPI.Comment
+    @State private var replies: [BilibiliAPI.Comment] = []
+    @State private var page = 1
+    @State private var hasMore = false
+    @State private var loading = false
+    @State private var text = ""
+    @State private var posting = false
+    @Environment(\.dismiss) private var dismiss
+
+    init(aid: Int, root: BilibiliAPI.Comment, target: BilibiliAPI.Comment) {
+        self.aid = aid
+        _root = State(initialValue: root)
+        _target = State(initialValue: target)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        BilibiliCommentRow(comment: $root, aid: aid, onReply: { target = root }, onOpenThread: nil)
+                        Divider()
+                        if loading && replies.isEmpty {
+                            ProgressView().frame(maxWidth: .infinity, minHeight: 100)
+                        } else if replies.isEmpty {
+                            Text("暂无回复").font(.footnote).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, minHeight: 80)
+                        }
+                        ForEach($replies) { $item in
+                            BilibiliCommentRow(comment: $item, aid: aid, onReply: { target = item }, onOpenThread: nil)
+                        }
+                        if hasMore {
+                            Button("加载更多回复") { Task { await load(page: page + 1) } }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                }
+                Divider()
+                composer
+            }
+            .navigationTitle("评论回复")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+            }
+            .task { await load(page: 1) }
+        }
+    }
+
+    private var composer: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            TextField("回复 @\(target.author)", text: $text, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...4)
+            Button { Task { await send() } } label: {
+                if posting { ProgressView().controlSize(.small) } else { Image(systemName: "paperplane.fill") }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(posting || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(12)
+    }
+
+    @MainActor private func load(page requested: Int) async {
+        guard let rootID = Int(root.id) else { return }
+        loading = true
+        defer { loading = false }
+        guard let result = try? await BilibiliAPI.shared.replies(
+            aid: aid, root: rootID, page: requested, cookie: BilibiliSessionStore.shared.cookie) else { return }
+        replies = requested == 1 ? result.comments : replies + result.comments.filter { new in !replies.contains { $0.id == new.id } }
+        page = requested
+        hasMore = result.hasMore
+    }
+
+    @MainActor private func send() async {
+        let session = BilibiliSessionStore.shared
+        guard session.isLoggedIn else {
+            ToastCenter.shared.show("请先登录哔哩哔哩")
+            return
+        }
+        let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty, let rootID = Int(root.id) else { return }
+        let message = target.id == root.id ? content : "回复 @\(target.author) :\(content)"
+        posting = true
+        defer { posting = false }
+        do {
+            try await BilibiliAPI.shared.postComment(
+                aid: aid, message: message, root: rootID, parent: Int(target.id) ?? rootID, cookie: session.cookie)
+            text = ""
+            target = root
+            ToastCenter.shared.show("回复已发送")
+            // Replies are listed oldest first; jump to the last page so the new one is visible.
+            await load(page: 1)
+            root.replyCount += 1
+            while hasMore, page < 50 { await load(page: page + 1) }
+        } catch {
+            ToastCenter.shared.show("回复发送失败，请稍后重试")
+        }
+    }
 }
 #endif

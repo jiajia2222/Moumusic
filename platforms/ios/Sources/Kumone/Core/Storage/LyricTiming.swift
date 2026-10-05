@@ -1,13 +1,13 @@
-﻿#if os(iOS)
+#if os(iOS)
 import AVFoundation
 import QuartzCore
 
 extension SettingsManager {
-    /// Lyrics are shown slightly ahead of the playback clock: the clock runs ahead of what is
-    /// actually heard by the output latency (large on Bluetooth), the progress observer ticks
-    /// every ~0.1 s, and a line needs a moment to render. The user's own offset is added on top.
+    /// Lyrics are shown ahead of the playback clock: the output latency (large on Bluetooth), the ~0.1 s
+    /// progress tick, the spring animation of the line change and the render time all make a line look late,
+    /// and a line that lights up just before it is sung reads as in time. The user's own offset is added on top.
     var effectiveLyricsOffset: Double {
-        lyricsOffset + LyricLatencyCache.value + 0.12
+        lyricsOffset + songLyricsOffset + LyricLatencyCache.value + 0.20
     }
 }
 

@@ -129,6 +129,58 @@ actor QQMusicAPI {
         return false
     }
 
+    /// The account's personalised song radar (`music.recommend.TrackRelationServer` / `GetRadarSong`): ten songs a page,
+    /// each a regular QQ song object, personalised by the signed-in account. Repeats across pages are dropped.
+    func dailyRadarSongs(cookie: String, target: Int = 30) async -> [[String: Any]] {
+        var fields: [String: String] = [:]
+        for part in cookie.split(separator: ";") {
+            let pair = part.split(separator: "=", maxSplits: 1).map { String($0).trimmingCharacters(in: .whitespaces) }
+            if pair.count == 2 { fields[pair[0]] = pair[1] }
+        }
+        let rawUin = fields["uin"] ?? fields["p_uin"] ?? fields["wxuin"] ?? ""
+        let digits = String(rawUin.drop { !$0.isNumber })
+        let uin = digits.isEmpty ? "0" : digits
+        let credential = fields["qqmusic_key"] ?? fields["p_skey"] ?? fields["skey"] ?? ""
+        let gtk = Self.hash5381(credential)
+
+        var output: [[String: Any]] = []
+        var seen = Set<String>()
+        for page in 1...6 {
+            let payload: [String: Any] = [
+                "comm": ["g_tk": gtk, "uin": uin, "authst": credential, "format": "json", "ct": 11, "cv": "1003006",
+                         "inCharset": "utf-8", "outCharset": "utf-8"],
+                "req": ["module": "music.recommend.TrackRelationServer", "method": "GetRadarSong",
+                        "param": ["Page": page, "ReqType": 0, "FavSongs": [Int](), "EntranceSongs": [Int]()]]
+            ]
+            guard let body = try? JSONSerialization.data(withJSONObject: payload) else { break }
+            var request = URLRequest(url: URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg")!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 20
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+            request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            guard let (data, _) = try? await URLSession.shared.data(for: request),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let req = root["req"] as? [String: Any],
+                  let payloadData = req["data"] as? [String: Any] else { break }
+            let songs = (payloadData["VecSongs"] as? [[String: Any]]) ?? []
+            for row in songs {
+                guard let track = row["Track"] as? [String: Any],
+                      let mid = track["mid"] as? String, !mid.isEmpty, seen.insert(mid).inserted else { continue }
+                output.append(track)
+            }
+            let hasMore = (payloadData["HasMore"] as? Bool) ?? false
+            if output.count >= target || songs.isEmpty || !hasMore { break }
+        }
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .info, category: "QQ 音乐", message: "每日推荐(雷达)",
+                                             detail: "rows=\(output.count) loggedIn=\(uin != "0")")
+        }
+        return Array(output.prefix(target))
+    }
+
     private func musicuPlaylists(cookie: String, uin: String, gtk: Int) async -> [AccountPlaylist]? {
         let payload: [String: Any] = [
             "comm": ["g_tk": gtk, "uin": uin, "format": "json", "ct": 20, "cv": 4747474],

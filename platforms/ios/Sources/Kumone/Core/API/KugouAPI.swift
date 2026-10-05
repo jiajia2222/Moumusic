@@ -124,7 +124,11 @@ actor KugouAPI {
         }
 
         let payload = root["data"] as? [String: Any] ?? root
-        switch Self.integer(payload["status"] ?? root["status"]) {
+        let code = Self.integer(payload["status"] ?? root["status"])
+        if code != 1 {
+            Self.log("扫码状态", "status=\(code) keys=\(payload.keys.sorted().joined(separator: ","))")
+        }
+        switch code {
         case 0: return .expired
         case 1: return .waiting
         case 2, 3: return .scanned
@@ -513,14 +517,15 @@ actor KugouAPI {
     /// Signs and sends a request to the Android gateway (`gateway.kugou.com`).
     private func androidRequest(path: String, method: String, query: [String: String], body: String?,
                                 router: String?, fields: [String: String],
-                                host: String = "https://gateway.kugou.com") async throws -> [String: Any] {
+                                host: String = "https://gateway.kugou.com",
+                                appid: String = "1005", clientver: String = "20489") async throws -> [String: Any] {
         let clientTime = Int(Date().timeIntervalSince1970)
         var params: [String: String] = [
             "dfid": fields["dfid"] ?? "-",
             "mid": fields["kugou_api_mid"] ?? deviceMid,
             "uuid": "-",
-            "appid": "1005",
-            "clientver": "20489",
+            "appid": appid,
+            "clientver": clientver,
             "clienttime": String(clientTime),
         ]
         // Like the official client (and KuGouMusicApi's request.js): every gateway call carries
@@ -568,9 +573,12 @@ actor KugouAPI {
         let message = root.filter { $0.key != "data" }.compactMap { key, value in
             Self.text(value).map { "\(key)=\($0.prefix(80))" }
         }.sorted().joined(separator: " ")
+        // Which rows were made by this account and which were collected from others: counts and field names only.
+        let ownCount = rows.filter { Self.text(in: $0, keys: ["list_create_userid", "create_userid"]) == userID }.count
+        let typeValues = Set(rows.compactMap { Self.text(in: $0, keys: ["type", "list_type", "listtype"]) }).sorted().joined(separator: "/")
         Task { @MainActor in
             DiagnosticLogStore.shared.append(level: .info, category: "Kugou", message: "云歌单列表",
-                                             detail: "status=\(status) rows=\(rows.count) keys=\((rows.first ?? [:]).keys.sorted().joined(separator: ",")) | \(message)")
+                                             detail: "status=\(status) rows=\(rows.count) own=\(ownCount) types=\(typeValues) keys=\((rows.first ?? [:]).keys.sorted().joined(separator: ",")) | \(message)")
         }
         return rows.compactMap { item in
             guard let id = Self.text(in: item, keys: ["global_collection_id", "listid", "list_create_gid"]),
@@ -580,6 +588,46 @@ actor KugouAPI {
             return CloudPlaylist(id: id, name: name,
                                  count: Self.integer(in: item, keys: ["count", "song_count"]) ?? 0,
                                  coverURL: cover)
+        }
+    }
+
+    #if DEBUG
+    /// Debug only: one playlist-list request with other app parameters; returns the provider's status words.
+    func probeUserPlaylists(cookie: String, appid: String, clientver: String, tokenInQuery: Bool = true) async -> String {
+        let fields = Self.cookieFields(cookie)
+        guard let token = fields["token"], let userID = fields["userid"] else { return "no session" }
+        let body = "{\"userid\":\(Int(userID) ?? 0),\"token\":\"\(Self.jsonEscaped(token))\",\"total_ver\":979,\"type\":2,\"page\":1,\"pagesize\":100}"
+        var query = ["plat": "1"]
+        if tokenInQuery { query["userid"] = userID; query["token"] = token }
+        do {
+            let root = try await androidRequest(path: "/v7/get_all_list", method: "POST", query: query, body: body,
+                                                router: "cloudlist.service.kugou.com", fields: fields,
+                                                appid: appid, clientver: clientver)
+            let rows = ((root["data"] as? [String: Any])?["info"] as? [[String: Any]])?.count ?? -1
+            return "err=\(Self.text(root["error_code"]) ?? "-") status=\(Self.text(root["status"]) ?? "-") rows=\(rows)"
+        } catch {
+            return "failed \(error)"
+        }
+    }
+    #endif
+
+    /// The account's personalised daily list (`/everyday_recommend`, the same call KuGouMusicApi makes). Raw song
+    /// dictionaries; empty when the gateway refuses the session. The provider's status words go to the diagnostic log.
+    func dailyRecommend(cookie: String) async -> [[String: Any]] {
+        let fields = Self.cookieFields(cookie)
+        guard let token = fields["token"], let userID = fields["userid"], !token.isEmpty else { return [] }
+        do {
+            let root = try await androidRequest(
+                path: "/everyday_recommend", method: "GET",
+                query: ["platform": "ios", "userid": userID, "token": token],
+                body: nil, router: "everydayrec.service.kugou.com", fields: fields)
+            let payload = root["data"] as? [String: Any]
+            let rows = (payload?["song_list"] as? [[String: Any]]) ?? (payload?["songs"] as? [[String: Any]]) ?? []
+            Self.log("每日推荐", "err=\(Self.text(root["error_code"]) ?? "-") status=\(Self.text(root["status"]) ?? "-") rows=\(rows.count) keys=\((rows.first ?? [:]).keys.sorted().prefix(24).joined(separator: ","))")
+            return rows
+        } catch {
+            Self.log("每日推荐", "failed \(error)")
+            return []
         }
     }
 
@@ -596,6 +644,12 @@ actor KugouAPI {
         let payload = root["data"] as? [String: Any]
         return (payload?["songs"] as? [[String: Any]]) ?? (payload?["info"] as? [[String: Any]]) ?? []
     }
+    static func log(_ message: String, _ detail: String) {
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .info, category: "Kugou", message: message, detail: detail)
+        }
+    }
+
     private func baseParameters(clientTime: Int) -> [String: String] {
         [
             "dfid": "-",
