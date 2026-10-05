@@ -82,6 +82,9 @@ final class ExploreViewModel: ObservableObject {
     /// Pull-to-refresh and the error screen's retry: start over for the current platform and category and wait
     /// for the result (the old retry only called loadMore, which does nothing once hasMore is false).
     func refresh() async {
+        // What is on screen now: put it back if the new request comes back empty or fails, instead of replacing a
+        // working page with an error.
+        let previous = (official: officialPlaylists, playlists: playlists, tracks: tracks, toplists: toplists)
         requestGeneration += 1
         loadTask?.cancel()
         isLoading = false
@@ -92,7 +95,23 @@ final class ExploreViewModel: ObservableObject {
         page = 1
         hasMore = true
         errorMessage = nil
-        await loadMore()
+        // The request runs in its own task. SwiftUI cancels the task that drives `.refreshable` as soon as the
+        // page content changes (it just did: the lists above were emptied), and a cancelled request surfaced as
+        // "已取消" / "加载失败" every time. Awaiting an unstructured task does not pass that cancellation on.
+        let work = Task { [weak self] in
+            guard let self else { return }
+            await self.loadMore()
+        }
+        loadTask = work
+        await work.value
+        if officialPlaylists.isEmpty, playlists.isEmpty, tracks.isEmpty,
+           !(previous.official.isEmpty && previous.playlists.isEmpty && previous.tracks.isEmpty) {
+            officialPlaylists = previous.official
+            playlists = previous.playlists
+            tracks = previous.tracks
+            toplists = previous.toplists
+            errorMessage = nil
+        }
     }
 
     func loadMore() async {
@@ -161,6 +180,8 @@ final class ExploreViewModel: ObservableObject {
                 : nil
         } catch {
             guard generation == requestGeneration else { return }
+            // A cancelled request is not a failure the user can act on: no error screen for it.
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
             errorMessage = officialPlaylists.isEmpty && playlists.isEmpty && tracks.isEmpty
                 ? error.localizedDescription
                 : nil
