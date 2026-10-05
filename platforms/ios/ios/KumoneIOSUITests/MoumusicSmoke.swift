@@ -44,6 +44,28 @@ final class MoumusicSmoke: XCTestCase {
         save("12-vinyl-back")
     }
 
+    /// Explore keeps the platform picked there after opening a playlist and coming back.
+    @MainActor
+    func testExploreKeepsPlatform() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-moumusic.skipUpdateCheck", "YES"]
+        app.launch()
+        sleep(8)
+        if app.buttons["完成"].firstMatch.waitForExistence(timeout: 3) { app.buttons["完成"].firstMatch.tap() }
+        app.buttons["发现"].firstMatch.tap()
+        sleep(4)
+        pick(app, "酷我")
+        sleep(8)
+        save("20-explore-kuwo-before")
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.27, dy: 0.40)).tap()
+        sleep(6)
+        save("21-playlist-open")
+        let back = app.navigationBars.buttons.firstMatch
+        if back.exists { back.tap() }
+        sleep(4)
+        save("22-explore-after-back")
+    }
+
     @MainActor
     func testPlatformsAndExplore() throws {
         let app = XCUIApplication()

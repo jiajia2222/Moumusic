@@ -25,6 +25,17 @@ final class ExploreViewModel: ObservableObject {
     private var loadTask: Task<Void, Never>?
     private var requestGeneration = 0
 
+    private var lastHomeKey: String?
+
+    /// Explore starts on the platform chosen on the home page and follows it when that choice changes. It must not
+    /// follow on every appearance: coming back from a playlist re-ran this and threw away the platform picked here.
+    func followHome(platform: LXCatalogPlatform, mode: String) {
+        let key = "\(mode)-\(platform.rawValue)"
+        guard key != lastHomeKey else { return }
+        lastHomeKey = key
+        prepare(platform: platform)
+    }
+
     func prepare(platform: LXCatalogPlatform) {
         guard platform != self.platform else { return }
         self.platform = platform
@@ -317,7 +328,8 @@ struct ExploreView: View {
         }
 #endif
         .task(id: "\(settings.homeRecommendationMode.rawValue)-\(settings.homeRecommendationPlatform.rawValue)") {
-            model.prepare(platform: settings.homeRecommendationPlatform)
+            model.followHome(platform: settings.homeRecommendationPlatform,
+                             mode: settings.homeRecommendationMode.rawValue)
             await model.loadMore()
         }
         .onAppear {

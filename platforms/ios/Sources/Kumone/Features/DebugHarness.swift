@@ -72,6 +72,21 @@ enum DebugHarness {
             }
             note("explore done")
         }
+        // -moumusic.debugPlaylist tx:7100341922,tx:7098812364: open each playlist like the playlist page does.
+        if let list = defaults.string(forKey: "moumusic.debugPlaylist") {
+            for item in list.split(separator: ",").map(String.init) {
+                let parts = item.split(separator: ":").map(String.init)
+                guard parts.count == 2, let platform = LXCatalogPlatform(rawValue: parts[0]) else { continue }
+                do {
+                    let detail = try await LXCatalogService.playlistDetail(source: platform, id: parts[1])
+                    note("playlist \(item): OK \(detail.tracks.count) songs, name=\(detail.name), cover=\(detail.coverURL != nil), first=\(detail.tracks.first?.name ?? "-")")
+                } catch {
+                    note("playlist \(item): FAILED \(error.localizedDescription)")
+                }
+            }
+            note("done")
+            return
+        }
         // -moumusic.debugNowPlaying vinyl: set the player mode, start a song (catalogue only, no source needed
         // for the lyrics) and open the full player.
         if let modeRaw = defaults.string(forKey: "moumusic.debugNowPlaying") {

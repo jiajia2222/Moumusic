@@ -1654,9 +1654,11 @@ enum LXCatalogService {
             ]) as? [String: Any]
             let cd = dictionaryArray(root, keys: ["cdlist", "playlist"]).first
             let rawTracks = dictionaryArray(cd, keys: ["songlist", "songList", "tracks", "list"])
-            guard !rawTracks.isEmpty else { throw LXCatalogError.invalidResponse }
+            // Newer QQ playlists (ids starting 709...) answer this old endpoint with "blacklist uin" and no songs:
+            // ask the newer one instead of reporting an unreadable result.
+            guard !rawTracks.isEmpty else { return try await qqPlaylistDetail(id: id) }
             let tracks = rawTracks.compactMap { track(from: $0, source: .tx) }
-            guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
+            guard !tracks.isEmpty else { return try await qqPlaylistDetail(id: id) }
             return LXPlaylistDetail(id: id, name: text(cd?["dissname"]) ?? "QQ 音乐歌单",
                                     coverURL: normalizedImageURL(text(cd?["logo"])), description: text(cd?["desc"]),
                                     author: text(cd?["nickname"]), playCount: int(cd?["visitnum"]) ?? 0,
@@ -2002,5 +2004,31 @@ extension LXCatalogService {
             }
             return found
         }
+    }
+
+    /// QQ's newer playlist endpoint (the one y.qq.com itself uses now). It returns the same song shape as the old
+    /// one and also serves the playlists the old one refuses.
+    static func qqPlaylistDetail(id: String) async throws -> LXPlaylistDetail {
+        guard let dissID = Int(id) else { throw LXCatalogError.invalidResponse }
+        let body = try JSONSerialization.data(withJSONObject: [
+            "comm": ["ct": 24, "cv": 0, "uin": "0"],
+            "disslist": ["module": "music.srfDissInfo.aiDissInfo", "method": "uniform_get_Dissinfo",
+                         "param": ["disstid": dissID, "userinfo": 1, "tag": 1, "orderlist": 1,
+                                   "song_begin": 0, "song_num": 1000, "onlysonglist": 0,
+                                   "enc_host_uin": ""] as [String: Any]] as [String: Any],
+        ] as [String: Any])
+        let root = try await fetchObject(URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg")!, method: "POST", body: body,
+                                         headers: ["Content-Type": "application/json",
+                                                   "Referer": "https://y.qq.com/"]) as? [String: Any]
+        let data = (root?["disslist"] as? [String: Any])?["data"] as? [String: Any]
+        let rawTracks = data?["songlist"] as? [[String: Any]] ?? []
+        let tracks = rawTracks.compactMap { track(from: $0, source: .tx) }
+        guard !tracks.isEmpty else { throw LXCatalogError.invalidResponse }
+        let info = data?["dirinfo"] as? [String: Any]
+        let creator = (info?["creator"] as? [String: Any]).flatMap { text($0["nick"]) }
+        return LXPlaylistDetail(id: id, name: text(info?["title"]) ?? "QQ 音乐歌单",
+                                coverURL: normalizedImageURL(firstText(info?["picurl"], info?["picurl2"])),
+                                description: text(info?["desc"]), author: creator ?? text(info?["host_nick"]),
+                                playCount: int(info?["visitnum"]) ?? 0, tracks: tracks, source: .tx)
     }
 }
