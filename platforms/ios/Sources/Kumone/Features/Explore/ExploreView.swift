@@ -17,8 +17,6 @@ final class ExploreViewModel: ObservableObject {
     @Published var playlists: [LXPlaylistSummary] = []
     @Published var tracks: [Track] = []
     @Published var toplists: [ToplistItem] = []
-    /// Official charts of the non-NetEase platforms (NetEase uses 	oplists).
-    @Published var lxToplists: [LXPlaylistSummary] = []
     @Published var isLoading = false
     @Published var hasMore = true
     @Published var errorMessage: String?
@@ -37,7 +35,6 @@ final class ExploreViewModel: ObservableObject {
         playlists = []
         tracks = []
         toplists = []
-        lxToplists = []
         page = 1
         hasMore = true
         errorMessage = nil
@@ -59,7 +56,6 @@ final class ExploreViewModel: ObservableObject {
         playlists = []
         tracks = []
         toplists = []
-        lxToplists = []
         page = 1
         hasMore = true
         errorMessage = nil
@@ -77,7 +73,6 @@ final class ExploreViewModel: ObservableObject {
         playlists = []
         tracks = []
         toplists = []
-        lxToplists = []
         page = 1
         hasMore = true
         errorMessage = nil
@@ -94,7 +89,6 @@ final class ExploreViewModel: ObservableObject {
         playlists = []
         tracks = []
         toplists = []
-        lxToplists = []
         page = 1
         hasMore = true
         errorMessage = nil
@@ -128,11 +122,6 @@ final class ExploreViewModel: ObservableObject {
                 // of the grid avoids rendering the same playlists twice.
                 result = []
                 tracks = content.tracks
-                if platform != .wy {
-                    let charts = await LXCatalogService.officialToplists(platform: platform)
-                    guard generation == requestGeneration else { return }
-                    lxToplists = charts
-                }
                 if platform == .wy {
                     toplists = Array(((try? await NeteaseAPI.toplists()) ?? []).prefix(10))
                     let liveTracks = (try? await NeteaseAPI.hotSongs(limit: 30))?
@@ -198,26 +187,8 @@ struct ExploreView: View {
                     }
                     .frame(minHeight: 300)
                 } else {
-                    if model.platform != .wy, !model.lxToplists.isEmpty {
-                        Shelf(title: "官方排行榜", rowHeight: Theme.Layout.coverShelfHeight) {
-                            ForEach(model.lxToplists) { chart in
-                                NavigationLink(value: Destination.lxPlaylist(source: chart.source, id: chart.id)) {
-                                    CoverCardBody(
-                                        coverURL: chart.coverURL?.resizedImageURL(384),
-                                        title: chart.name,
-                                        subtitle: chart.source.displayName,
-                                        playCount: chart.playCount
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-
-                    // Official charts replace the recommended-playlist shelf; a platform without charts (Migu) keeps
-                    // its playlists so the page is not empty.
-                    if model.lxToplists.isEmpty, model.toplists.isEmpty, !model.officialPlaylists.isEmpty {
-                        Shelf(title: "热门歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+                    if !model.officialPlaylists.isEmpty {
+                        Shelf(title: "官方推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
                             ForEach(model.officialPlaylists.prefix(12)) { playlist in
                                 NavigationLink(value: Destination.lxPlaylist(source: playlist.source, id: playlist.id)) {
                                     CoverCardBody(
@@ -234,7 +205,7 @@ struct ExploreView: View {
                     }
 
                     if model.platform == .wy && !model.toplists.isEmpty {
-                        SectionHeader(title: "官方排行榜")
+                        SectionHeader(title: "网易云排行榜")
                             .padding(.horizontal, Theme.Layout.contentInset)
                         ToplistGrid(toplists: model.toplists)
                             .padding(.horizontal, Theme.Layout.contentInset)
