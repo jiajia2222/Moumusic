@@ -74,6 +74,9 @@ public struct IOSMainWindow: View {
                     settings: settings
                 )
                 updateLog.presentIfNeeded()
+                #if DEBUG
+                await DebugHarness.runIfRequested()
+                #endif
                 if UserDefaults.standard.bool(forKey: "moumusic.autoPlayLast"), player.currentTrack != nil, !player.isPlaying {
                     player.togglePlayPause()
                 }

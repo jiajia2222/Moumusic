@@ -486,6 +486,7 @@ final class LXUserAPIService: ObservableObject {
         // Pass 0: own platform, requested tier only. Pass 1: other platforms, requested tier only, 2 s budget.
         // Pass 2: own platform again, stepping down tier by tier (only when nothing answered yet).
         let crossPlatformDeadline: TimeInterval = 2
+        var deadCandidates = Set<String>()
         var crossStartedAt: Date?
         for passIndex in 0..<3 {
         if passIndex == 1 { crossStartedAt = Date() }
@@ -528,6 +529,10 @@ final class LXUserAPIService: ObservableObject {
                 if let songTiers, !songTiers.isEmpty {
                     supported = Self.qualityOrder.filter(songTiers.contains)
                 }
+                if platform == "tx" || platform == "kg" {
+                    let table = songTiers.map { "平台文件表：" + Self.qualityOrder.filter($0.contains).joined(separator: "、") } ?? "平台文件表读取失败"
+                    DiagnosticLogStore.shared.append(level: .info, category: "音质表", message: "\(platform) 《\(requestTrack.name)》", detail: table)
+                }
                 // Capabilities not known yet (source still loading, quality list not refreshed): ask for the
                 // tier the user chose instead of silently falling back to 128k.
                 var requested = supported.isEmpty
@@ -561,6 +566,7 @@ final class LXUserAPIService: ObservableObject {
 
         anyCandidate = anyCandidate || !candidates.isEmpty
         for candidate in candidates {
+            if deadCandidates.contains("\(candidate.source.id)/\(candidate.platform)") { continue }
             // Already holding a lower-tier answer: do not keep every other source busy for long.
             if downgradedFallback != nil, Date().timeIntervalSince(startedAt) > 6 { break }
             guard await activate(candidate.source) else {
@@ -585,6 +591,7 @@ final class LXUserAPIService: ObservableObject {
             // The step-down pass does not repeat an undeclared tier that pass 0 already asked for.
             let declaredLadder = ladder.map(Self.normalizedQuality)
             let firstTier = passIndex == 2 && !declaredLadder.contains(candidate.requestedQuality) ? [] : [candidate.requestedQuality]
+            var lastTierError: String?
             for tier in firstTier + (passIndex == 2 ? lowerTiers : []) {
                 if passIndex == 1, let began = crossStartedAt, Date().timeIntervalSince(began) > crossPlatformDeadline { break }
                 do {
@@ -600,8 +607,9 @@ final class LXUserAPIService: ObservableObject {
                                     ? ["128k", "320k", "flac", "flac24bit"] : candidate.supportedQualities
                             )
                         ],
-                        // A tier the source never declared is only a try: do not let a slow refusal hold playback.
-                        timeout: (!candidate.supportedQualities.isEmpty && !declaredLadder.contains(Self.normalizedQuality(tier))) ? 3 : 20
+                        // A tier the source never declared is only a try (3 s); a Hi-Res or better request gets 10 s, because a source
+                        // that hangs on the top tier must not hold playback for the full 20 s before the step-down.
+                        timeout: (!candidate.supportedQualities.isEmpty && !declaredLadder.contains(Self.normalizedQuality(tier))) ? 3 : (Self.qualityRank(tier) >= 3 ? 10 : 20)
                     )
                     guard let data = response["data"] as? [String: Any],
                           let rawURL = data["url"] as? String,
@@ -688,6 +696,14 @@ final class LXUserAPIService: ObservableObject {
                     break
                 } catch {
                     DiagnosticLogStore.shared.append(level: .warning, category: "音源请求", message: "\(candidate.platform) 请求 \(tier) 失败", detail: "音源：\(candidate.source.name)　轮次：\(passIndex)　\(error.localizedDescription)")
+                    // The same failure for two tiers in a row is not about the tier (for example every API of the
+                    // source failed): stepping down further only burns time, so stop on this platform for this song.
+                    if lastTierError == error.localizedDescription {
+                        deadCandidates.insert("\(candidate.source.id)/\(candidate.platform)")
+                        failures.append("\(candidate.source.name)/\(candidate.platform): \(error.localizedDescription)")
+                        break
+                    }
+                    lastTierError = error.localizedDescription
                     failures.append("\(candidate.source.name)/\(candidate.platform): \(error.localizedDescription)")
                 }
             }

@@ -614,14 +614,8 @@ struct HomeView: View {
                     }
                 }
             }
-            if model.activePlatform == .wy, !model.lxRecommendPlaylists.isEmpty {
-                Shelf(title: "推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
-                    ForEach(model.lxRecommendPlaylists.prefix(12)) { playlist in
-                        lxPlaylistCard(playlist)
-                    }
-                }
-            } else if model.lxToplists.isEmpty, !model.lxRecommendPlaylists.isEmpty {
-                Shelf(title: "官方推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
+            if model.lxToplists.isEmpty, !model.lxRecommendPlaylists.isEmpty {
+                Shelf(title: "热门歌单", rowHeight: Theme.Layout.coverShelfHeight) {
                     ForEach(model.lxRecommendPlaylists.prefix(12)) { playlist in
                         lxPlaylistCard(playlist)
                     }
@@ -752,15 +746,6 @@ struct HomeView: View {
                 .padding(.top, 8)
 
 
-            if !model.recommendPlaylists.isEmpty {
-                Shelf(title: "推荐歌单", rowHeight: Theme.Layout.coverShelfHeight) {
-                    ForEach(Array(model.recommendPlaylists.prefix(12).enumerated()), id: \.element.id) { index, playlist in
-                        playlistCard(playlist)
-                            .staggeredAppearance(index: index, id: "home-rec-\(playlist.id)")
-                    }
-                }
-            }
-
             if !model.recommendTracks.isEmpty {
                 SectionHeader(title: "热门歌曲")
                     .padding(.horizontal, Theme.Layout.contentInset)
@@ -786,7 +771,7 @@ struct HomeView: View {
             }
 
             if !model.toplists.isEmpty {
-                Shelf(title: "排行榜", seeAll: nil, rowHeight: Theme.Layout.coverShelfHeight) {
+                Shelf(title: "官方排行榜", seeAll: nil, rowHeight: Theme.Layout.coverShelfHeight) {
                     ForEach(model.toplists) { toplist in
                         NavigationLink(value: Destination.playlist(toplist.id)) {
                             toplistCard(toplist)
