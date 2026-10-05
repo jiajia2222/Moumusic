@@ -26,7 +26,7 @@ struct AMLLWebLyricsView: View {
                 lyrics: lyrics,
                 showsTranslation: settings.showLyricsTranslation,
                 showsRomaji: settings.lyricsAnnotation == .romaji,
-                fontSize: max(22, min(36, width * 0.078))
+                fontSize: max(24, min(38, width * 0.085))
             )
             .frame(width: width, height: geometry.size.height)
             .mask(
