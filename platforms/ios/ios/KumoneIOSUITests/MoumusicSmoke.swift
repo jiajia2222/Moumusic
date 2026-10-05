@@ -44,6 +44,16 @@ final class MoumusicSmoke: XCTestCase {
         save("12-vinyl-back")
     }
 
+    /// The classic player page (volume bar alignment).
+    @MainActor
+    func testClassicPlayer() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-moumusic.skipUpdateCheck", "YES", "-moumusic.debugNowPlaying", "classic"]
+        app.launch()
+        sleep(22)
+        save("30-classic-player")
+    }
+
     /// Explore keeps the platform picked there after opening a playlist and coming back.
     @MainActor
     func testExploreKeepsPlatform() throws {

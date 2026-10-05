@@ -430,6 +430,15 @@ actor KugouAPI {
 
     /// Registers this device with Kugou and returns `dfid` (and the guid used), or nil.
     func registerDevice(cookie: String) async -> (dfid: String, guid: String)? {
+        // The endpoint answers with an empty `data` roughly every other call (no error): ask again a few times.
+        for attempt in 0..<4 {
+            if let registered = await registerDeviceOnce(cookie: cookie) { return registered }
+            if attempt < 3 { try? await Task.sleep(nanoseconds: 400_000_000) }
+        }
+        return nil
+    }
+
+    private func registerDeviceOnce(cookie: String) async -> (dfid: String, guid: String)? {
         let fields = Self.cookieFields(cookie)
         let userID = Int(fields["userid"] ?? "0") ?? 0
         let token = fields["token"] ?? ""
@@ -470,13 +479,14 @@ actor KugouAPI {
         request.httpMethod = "POST"
         request.httpBody = Data(body.utf8)
         request.setValue("Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi", forHTTPHeaderField: "User-Agent")
-        guard let (data, _) = try? await session.data(for: request) else {
+        guard let (data, response) = try? await session.data(for: request) else {
             Task { @MainActor in
                 DiagnosticLogStore.shared.append(level: .error, category: "Kugou", message: "设备注册失败", detail: "网络请求失败")
             }
             return nil
         }
-        let rawPreview = String(data: data.prefix(160), encoding: .utf8) ?? "(\(data.count) bytes binary)"
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let rawPreview = (String(data: data.prefix(160), encoding: .utf8) ?? "(\(data.count) bytes binary)") + " | http=\(httpStatus)"
         guard let plain = Self.aesCBC(data, key: aesKey, iv: aesIV, encrypt: false),
               let root = try? JSONSerialization.jsonObject(with: plain) as? [String: Any] else {
             Task { @MainActor in
@@ -554,9 +564,13 @@ actor KugouAPI {
         let payload = root["data"] as? [String: Any]
         let rows = (payload?["info"] as? [[String: Any]]) ?? []
         let status = "\(Self.text(root["status"]) ?? "?")/err=\(Self.text(root["error_code"]) ?? "-")"
+        // The provider's own message (no account data in it) tells what a non-zero error code means.
+        let message = root.filter { $0.key != "data" }.compactMap { key, value in
+            Self.text(value).map { "\(key)=\($0.prefix(80))" }
+        }.sorted().joined(separator: " ")
         Task { @MainActor in
             DiagnosticLogStore.shared.append(level: .info, category: "Kugou", message: "云歌单列表",
-                                             detail: "status=\(status) rows=\(rows.count) keys=\((rows.first ?? [:]).keys.sorted().joined(separator: ","))")
+                                             detail: "status=\(status) rows=\(rows.count) keys=\((rows.first ?? [:]).keys.sorted().joined(separator: ",")) | \(message)")
         }
         return rows.compactMap { item in
             guard let id = Self.text(in: item, keys: ["global_collection_id", "listid", "list_create_gid"]),
@@ -749,9 +763,13 @@ actor KugouAPI {
     }
 
     private static func jsonEscaped(_ value: String) -> String {
+        // `["value"]` -> `value`: strip the array brackets AND the string's own quotes. Callers put the value
+        // inside quotes of their own; keeping these made the register / playlist requests invalid JSON
+        // (`"token":""abc""`), which Kugou answered with a 500.
         guard let data = try? JSONSerialization.data(withJSONObject: [value]),
-              let encoded = String(data: data, encoding: .utf8) else { return value }
-        return String(encoded.dropFirst().dropLast())
+              let encoded = String(data: data, encoding: .utf8),
+              encoded.hasPrefix("[\""), encoded.hasSuffix("\"]") else { return value }
+        return String(encoded.dropFirst(2).dropLast(2))
     }
 
     /// KuGou's user-center request uses a raw RSA operation over a 1024-bit

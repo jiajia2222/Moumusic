@@ -2236,7 +2236,7 @@ private struct CompactVolumeControl: View {
             Image(systemName: "speaker.fill")
                 .font(.caption2)
             MPSystemVolumeSlider()
-                .frame(height: 28)
+                .frame(height: 32)
             Image(systemName: "speaker.wave.3.fill")
                 .font(.caption)
         }
@@ -2311,9 +2311,23 @@ private struct CompactVolumeControl: View {
 }
 
 #if os(iOS)
+/// MPVolumeView keeps its slider near the top of its bounds, so next to the speaker icons the track sat higher
+/// than their centre line. Keep the slider spanning the full width and vertically centred.
+private final class CenteredVolumeView: MPVolumeView {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let slider = subviews.compactMap({ $0 as? UISlider }).first else { return }
+        var frame = slider.frame
+        frame.origin.x = 0
+        frame.size.width = bounds.width
+        frame.origin.y = ((bounds.height - frame.height) / 2).rounded()
+        slider.frame = frame
+    }
+}
+
 private struct MPSystemVolumeSlider: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
-        let view = MPVolumeView(frame: .zero)
+        let view = CenteredVolumeView(frame: .zero)
         view.showsRouteButton = false
         view.showsVolumeSlider = true
         view.tintColor = .white

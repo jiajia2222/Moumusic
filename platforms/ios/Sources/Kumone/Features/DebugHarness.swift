@@ -87,6 +87,52 @@ enum DebugHarness {
             note("done")
             return
         }
+        // -moumusic.debugKugou YES: with the stored Kugou session, run the device registration a few times and then
+        // read the account's cloud playlists. Prints counts only (no names, no tokens).
+        if defaults.bool(forKey: "moumusic.debugKugou") {
+            let store = KugouSessionStore.shared
+            note("kugou: loggedIn=\(store.isLoggedIn) cookie=\(store.cookie == nil ? "none" : "present")")
+            // Control runs with made-up credentials: does the same request code get a 500 too?
+            for (label, fake) in [("fake uid+token", "userid=1603526060; token=" + String(repeating: "x", count: 64)),
+                                  ("uid 0, no token", "userid=0; token=")] {
+                var outcomes: [String] = []
+                for _ in 1...3 {
+                    outcomes.append(await KugouAPI.shared.registerDevice(cookie: fake) == nil ? "FAILED" : "dfid ok")
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                }
+                note("kugou control [\(label)]: \(outcomes.joined(separator: ", "))")
+            }
+            if let cookie = store.cookie {
+                for attempt in 1...4 {
+                    let registered = await KugouAPI.shared.registerDevice(cookie: cookie)
+                    note("kugou register #\(attempt): \(registered == nil ? "FAILED" : "dfid ok")")
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                }
+                let withDevice = await store.cookieWithDevice()
+                note("kugou cookieWithDevice: \(withDevice?.contains("kugou_api_guid=") == true ? "has own device" : "no device")")
+                do {
+                    let lists = try await KugouAPI.shared.userPlaylists(cookie: withDevice ?? cookie)
+                    note("kugou userPlaylists: OK \(lists.count) lists, songs per list=\(lists.prefix(8).map(\.count))")
+                } catch {
+                    note("kugou userPlaylists: FAILED \(error)")
+                }
+            }
+            note("done")
+            return
+        }
+        // -moumusic.debugKeychain YES: can this build store a session in the keychain (an unsigned simulator build
+        // cannot, which made web login look like "cookie expired")?
+        if defaults.bool(forKey: "moumusic.debugKeychain") {
+            do {
+                try ProviderSessionSupport.writeCookie("a=b; token=test", service: "com.moumusic.debugtest")
+                note("keychain: write OK, read back = \(ProviderSessionSupport.readCookie(service: "com.moumusic.debugtest") ?? "nil")")
+                ProviderSessionSupport.deleteCookie(service: "com.moumusic.debugtest")
+            } catch {
+                note("keychain: write FAILED \(error)")
+            }
+            note("done")
+            return
+        }
         // -moumusic.debugNowPlaying vinyl: set the player mode, start a song (catalogue only, no source needed
         // for the lyrics) and open the full player.
         if let modeRaw = defaults.string(forKey: "moumusic.debugNowPlaying") {

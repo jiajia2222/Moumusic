@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 import Combine
 
 #if os(iOS) || os(macOS)
@@ -10,12 +10,14 @@ final class KugouSessionStore: ObservableObject {
         case emptyCookie
         case invalidCookie
         case validationFailed
+        case storageFailed
 
         var errorDescription: String? {
             switch self {
             case .emptyCookie: return "请粘贴酷狗音乐 Cookie"
             case .invalidCookie: return "Cookie 格式不正确，请粘贴酷狗音乐网页中的完整 Cookie"
             case .validationFailed: return "酷狗音乐登录已失效或 Cookie 已过期"
+            case .storageFailed: return "登录成功，但无法把登录信息保存到系统钥匙串（安装包没有签名时会这样）"
             }
         }
     }
@@ -75,7 +77,7 @@ final class KugouSessionStore: ObservableObject {
         do {
             try ProviderSessionSupport.writeCookie(cookie, service: keychainService)
         } catch {
-            throw SessionError.validationFailed
+            throw SessionError.storageFailed
         }
         storedCookie = cookie
         if let refreshedCookie = profile?.refreshedCookie {
