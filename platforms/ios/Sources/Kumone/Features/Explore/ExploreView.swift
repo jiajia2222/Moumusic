@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 @MainActor
 final class ExploreViewModel: ObservableObject {
@@ -79,6 +79,22 @@ final class ExploreViewModel: ObservableObject {
         loadTask = Task { await loadMore() }
     }
 
+    /// Pull-to-refresh and the error screen's retry: start over for the current platform and category and wait
+    /// for the result (the old retry only called loadMore, which does nothing once hasMore is false).
+    func refresh() async {
+        requestGeneration += 1
+        loadTask?.cancel()
+        isLoading = false
+        officialPlaylists = []
+        playlists = []
+        tracks = []
+        toplists = []
+        page = 1
+        hasMore = true
+        errorMessage = nil
+        await loadMore()
+    }
+
     func loadMore() async {
         guard !isLoading, hasMore else { return }
         let generation = requestGeneration
@@ -90,7 +106,17 @@ final class ExploreViewModel: ObservableObject {
         do {
             let result: [LXPlaylistSummary]
             if selectedCategory == "推荐" && page == 1 {
-                let content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
+                // A request that comes back empty right after a platform switch is usually a transient miss:
+                // try again a couple of times before showing an error.
+                var content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
+                var attempt = 0
+                while content.playlists.isEmpty, content.tracks.isEmpty, attempt < 2 {
+                    attempt += 1
+                    try? await Task.sleep(nanoseconds: 600_000_000)
+                    guard generation == requestGeneration else { return }
+                    content = await LXCatalogService.recommendedContent(platform: platform, limit: 30)
+                }
+                guard generation == requestGeneration else { return }
                 officialPlaylists = content.playlists
                 // The recommendation shelf owns these cards; keeping them out
                 // of the grid avoids rendering the same playlists twice.
@@ -157,7 +183,7 @@ struct ExploreView: View {
                 } else if let errorMessage = model.errorMessage,
                           model.officialPlaylists.isEmpty && model.playlists.isEmpty && model.tracks.isEmpty {
                     ErrorStateView(message: errorMessage) {
-                        Task { await model.loadMore() }
+                        Task { await model.refresh() }
                     }
                     .frame(minHeight: 300)
                 } else {
@@ -226,6 +252,7 @@ struct ExploreView: View {
                 PlayerClearanceSpacer()
             }
         }
+        .refreshable { await model.refresh() }
         .navigationTitle("精选")
 #if os(iOS)
         // Same liquid-glass platform switch as the home page (top-left).

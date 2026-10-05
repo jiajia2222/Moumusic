@@ -500,6 +500,8 @@ final class PlayerService: ObservableObject {
         UserDefaults.standard.set(knownQualityTiers.mapValues { Array($0) }, forKey: "moumusic.knownQualityTiers")
     }
     private var pendingSeek: TimeInterval?
+    /// URLs already found to be 30-second previews, per track, so the re-resolve asks for another one.
+    private var previewRejects: [String: Set<String>] = [:]
     private var consecutiveFailures = 0
     private var scrobbled = false
     private var startScrobbled = false
@@ -1345,6 +1347,9 @@ final class PlayerService: ObservableObject {
                 || isMigu
                 || isKuwo
             let hasLXSource = !LXSourceStore.shared.playbackSources.isEmpty
+            // Automatic mode with an enabled LX source goes to the source first (one fast request); the account is
+            // only the fallback. Probing the account first cost seconds and often could not deliver the top tiers.
+            let thirdPartyFirst = playbackMode == .automatic && hasLXSource
             guard hasLXSource || (playbackMode != .thirdParty && hasOfficialAccount) else {
                 guard generation == resolveGeneration else { return }
                 ToastCenter.shared.show("请先登录账号或在设置 → LX 音源中选择播放音源")
@@ -1354,7 +1359,7 @@ final class PlayerService: ObservableObject {
             // 自动模式：账号只能给出比所选音质低的档位（例如非会员选了环绕声 / 母带，只拿到 320k）时，
             // 先记下账号的结果，再向三方音源要所选音质；三方没有更好的才用回账号的结果。
             var officialFallback: OfficialAudio?
-            if playbackMode != .thirdParty, hasOfficialAccount,
+            if playbackMode != .thirdParty, hasOfficialAccount, !thirdPartyFirst,
                let official = await resolveOfficialAudio(
                 for: track, quality: requestedQuality
                ) {
@@ -1388,7 +1393,7 @@ final class PlayerService: ObservableObject {
             do {
                 var resolved: LXUserAPIService.ResolvedURL?
                 var lastError: Error?
-                var rejectedPreviewURLs = Set<String>()
+                var rejectedPreviewURLs = previewRejects[track.playbackKey] ?? []
                 // A signed source URL can expire or fail once while the
                 // provider is waking up. Retry the same track once before
                 // reporting a playback failure; advancing the queue here
@@ -1406,13 +1411,8 @@ final class PlayerService: ObservableObject {
                             excludingURLs: rejectedPreviewURLs,
                             forceThirdParty: vipFallbackAllowed
                         )
-                        if await isLikelyPreviewURL(candidate.url, expectedDuration: track.duration) {
-                            rejectedPreviewURLs.insert(candidate.url.absoluteString)
-                            lastError = LXUserAPIService.LXError.sourceUnavailable(
-                                "音源返回 30 秒试听片段，已切换备用音源"
-                            )
-                            continue
-                        }
+                        // Preview clips are caught after playback starts (see the duration check below), not by a
+                        // network probe that used to delay every start by up to 4 s.
                         resolved = candidate
                         break
                     } catch {
@@ -1446,7 +1446,11 @@ final class PlayerService: ObservableObject {
                 }
             } catch {
                 guard !Task.isCancelled, generation == resolveGeneration else { return }
-                if let officialFallback {
+                var rescue = officialFallback
+                if rescue == nil, thirdPartyFirst, hasOfficialAccount {
+                    rescue = await resolveOfficialAudio(for: track, quality: requestedQuality)
+                }
+                if let officialFallback = rescue {
                     // Nothing better than the account's own tier was found: play that.
                     resolvedURL = officialFallback.url
                     servedByLXQuality = officialFallback.quality
@@ -1671,6 +1675,14 @@ final class PlayerService: ObservableObject {
                 return String(format: "时长：音频 %.1f 秒 / 歌曲信息 %.1f 秒", audioSeconds, catalogue) + note
             }()
             let ownPlatform = (track.source ?? track.sourceMetadata["source"] ?? "wy").lowercased()
+            // A 30-second clip for a full-length song is a preview: remember the URL and resolve again.
+            if audioSeconds.isFinite, audioSeconds > 0, audioSeconds <= 35, track.duration >= 60,
+               (self.previewRejects[track.playbackKey]?.count ?? 0) < 3 {
+                self.previewRejects[track.playbackKey, default: []].insert(url.absoluteString)
+                ToastCenter.shared.show("音源返回的是试听片段，正在换源重试")
+                self.startPlaying(track, indexUnchanged: true, resumeAt: nil, preserveTrackQualityOverride: true)
+                return
+            }
             // The audio came from another platform and is not the same length as this song's own entry: lyrics from
             // the song's platform are timed for a different cut. Take them from the platform that served the audio.
             if let served = servedPlatformSnapshot, served != ownPlatform, audioSeconds.isFinite, audioSeconds > 0,

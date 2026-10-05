@@ -244,15 +244,20 @@ final class LXUserAPIService: ObservableObject {
         // Automatic mode follows the same rule as the player and download
         // manager: try the matching account source first, reject preview-only
         // URLs, then fall back to the enabled LX sources.
-        if sourceMode == .automatic, hasAuthenticatedAccount(for: track),
-           let official = try? await resolveOfficialMusicURL(for: track, quality: quality) {
-            return official
+        // Source first (fast), the account only when the sources cannot deliver.
+        do {
+            return try await resolveMusicURLAcrossSources(
+                for: track,
+                quality: quality,
+                excludingURLs: excludingURLs
+            )
+        } catch {
+            if sourceMode == .automatic, hasAuthenticatedAccount(for: track),
+               let official = try? await resolveOfficialMusicURL(for: track, quality: quality) {
+                return official
+            }
+            throw error
         }
-        return try await resolveMusicURLAcrossSources(
-            for: track,
-            quality: quality,
-            excludingURLs: excludingURLs
-        )
 #if false
         ensureSelectedSourceLoaded()
         await waitForSourceReady()
