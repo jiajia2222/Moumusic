@@ -36,3 +36,6 @@ website/.env
 website/.dev.vars
 website/.wrangler/
 website/node_modules/
+
+# manifests written by .github/scripts/publish_update.py when run locally
+/latest*.json
