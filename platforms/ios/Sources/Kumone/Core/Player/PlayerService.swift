@@ -894,6 +894,7 @@ final class PlayerService: ObservableObject {
             level: .info, category: "歌词", message: parsed.hasVerbatimTimings ? "逐字歌词" : "逐句歌词",
             detail: "\(track.name) · 来源 \(track.source ?? "wy") · \(parsed.lines.count) 行")
         updateLyricsCursor(at: livePlaybackTime)
+        checkLyricsVersion(for: track, generation: generation)
 
         // Many source adapters provide the original lyrics but omit the
         // translation field. Enrich the already-visible lyrics from a public
@@ -1691,6 +1692,11 @@ final class PlayerService: ObservableObject {
                abs(audioSeconds - track.duration) > 0.25 {
                 Task { [weak self] in await self?.realignLyrics(for: track, servedPlatform: served, generation: generation) }
             }
+            // Lyrics that run past the end of this audio belong to another cut of the song.
+            if audioSeconds.isFinite, audioSeconds > 0 {
+                self.servedAudio = (track.playbackKey, audioSeconds)
+                self.checkLyricsVersion(for: track, generation: generation)
+            }
             let platformNote: String = {
                 guard let served = servedPlatformSnapshot, served != ownPlatform else { return "" }
                 return "（这首歌在\(ownPlatform)没有该音质，音频取自 \(served) 平台的同一首歌）"
@@ -2210,10 +2216,44 @@ final class PlayerService: ObservableObject {
         return url.pathExtension.lowercased() == "flac" ? "flac" : nil
     }
 
-    private func loadLyrics(for track: Track, generation: Int) async {
+    /// The length of the audio that is actually playing for a track, once it has been read.
+    private var servedAudio: (key: String, seconds: TimeInterval)?
+    /// Lyrics of a track are checked against its audio once (key + generation), so replacing them cannot loop.
+    private var versionCheckedKey: String?
+
+    /// Lyrics written for another cut of the song (a longer version, a live take) run past the end of the audio. Lyrics that
+    /// stop earlier are normal (an outro without words), so only an overrun counts.
+    static func lyricsFitAudio(_ parsed: ParsedLyrics, audio: TimeInterval?) -> Bool {
+        guard let audio, audio.isFinite, audio > 30 else { return true }
+        return parsed.endTime <= audio + max(8, audio * 0.03)
+    }
+
+    /// Called whenever lyrics are shown and when the audio length becomes known: if the lyrics do not fit the audio, look for
+    /// lyrics of another source that do. Never leaves the song without lyrics: when nothing fits, the shown lyrics stay.
+    private func checkLyricsVersion(for track: Track, generation: Int) {
+        guard let served = servedAudio, served.key == track.playbackKey,
+              let current = lyrics, !current.isEmpty,
+              !Self.lyricsFitAudio(current, audio: served.seconds) else { return }
+        let checkKey = "\(track.playbackKey)#\(generation)"
+        guard versionCheckedKey != checkKey else { return }
+        versionCheckedKey = checkKey
+        DiagnosticLogStore.shared.append(
+            level: .warning, category: "歌词", message: "\(track.name)：歌词和音频不是同一个版本",
+            detail: String(format: "歌词最后一行在 %.0f 秒，音频只有 %.0f 秒，换其他来源的歌词重试。", current.endTime, served.seconds))
+        lyricsTask?.cancel()
+        lyricsTask = Task { [weak self] in
+            guard let self else { return }
+            await self.loadLyrics(for: track, generation: generation, audioDuration: served.seconds)
+        }
+    }
+
+    private func loadLyrics(for track: Track, generation: Int, audioDuration: TimeInterval? = nil) async {
 #if os(iOS)
         guard !Task.isCancelled, generation == resolveGeneration else { return }
         let sourceKey = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
+        // Set when this is the second look for lyrics because the first ones did not fit the audio: a source whose lyrics
+        // still do not fit is skipped, and nothing found means the lyrics already shown stay.
+        func fits(_ parsed: ParsedLyrics) -> Bool { Self.lyricsFitAudio(parsed, audio: audioDuration) }
         // Keep a usable line-timed result, but continue searching for a real
         // word-timed payload.  The latter is what AMLL needs; a line-only LRC
         // must never be split into invented per-character timings.
@@ -2268,7 +2308,7 @@ final class PlayerService: ObservableObject {
             let isNetease = ["wy", "netease", "163"].contains(sourceKey)
             if let community = await AMLLTTMLDatabase.shared.lyrics(
                 neteaseID: isNetease ? String(track.id) : nil, qqIDs: ownQQIDs,
-                title: track.name, artists: track.artists.map(\.name), duration: track.duration) {
+                title: track.name, artists: track.artists.map(\.name), duration: track.duration), fits(community) {
                 guard !Task.isCancelled, generation == resolveGeneration else { return }
                 publishLyrics(community, for: track, generation: generation)
                 return
@@ -2286,7 +2326,7 @@ final class PlayerService: ObservableObject {
                     var ids: [String] = []
                     if let id = matched.sourceMetadata["id"] { ids.append(id) }
                     if let mid = matched.sourceMetadata["songmid"] { ids.append(mid) }
-                    if let community = await AMLLTTMLDatabase.shared.lyrics(neteaseID: nil, qqIDs: ids) {
+                    if let community = await AMLLTTMLDatabase.shared.lyrics(neteaseID: nil, qqIDs: ids), fits(community) {
                         guard !Task.isCancelled, generation == resolveGeneration else { return }
                         publishLyrics(community, for: track, generation: generation)
                         return
@@ -2297,10 +2337,10 @@ final class PlayerService: ObservableObject {
             if let qqID, !qqID.isEmpty {
                 let qrcLines = await QQQRCLyrics.lyricLines(musicID: qqID)
                 guard !Task.isCancelled, generation == resolveGeneration else { return }
-                if !qrcLines.isEmpty {
-                    var parsed = ParsedLyrics()
-                    parsed.lines = qrcLines
-                    publishLyrics(parsed, for: track, generation: generation)
+                var qrcParsed = ParsedLyrics()
+                qrcParsed.lines = qrcLines
+                if !qrcLines.isEmpty, fits(qrcParsed) {
+                    publishLyrics(qrcParsed, for: track, generation: generation)
                     return
                 }
             }
@@ -2310,7 +2350,7 @@ final class PlayerService: ObservableObject {
            let response = try? await NeteaseAPI.lyric(id: track.id) {
             guard !Task.isCancelled, generation == resolveGeneration else { return }
             let parsed = LyricsParser.parse(response)
-            if !parsed.isEmpty {
+            if !parsed.isEmpty, fits(parsed) {
                 if parsed.hasVerbatimTimings {
                     publishLyrics(parsed, for: track, generation: generation)
                     return
@@ -2328,7 +2368,7 @@ final class PlayerService: ObservableObject {
             let parsed = LyricsParser.parseLX(lyric: lx.lyric, tlyric: lx.tlyric,
                                                rlyric: lx.rlyric, lxlyric: lx.lxlyric,
                                                yrc: lx.yrc)
-            if !parsed.isEmpty {
+            if !parsed.isEmpty, fits(parsed) {
                 if parsed.hasVerbatimTimings {
                     publishLyrics(parsed, for: track, generation: generation)
                     return
@@ -2344,7 +2384,7 @@ final class PlayerService: ObservableObject {
             guard !Task.isCancelled, generation == resolveGeneration else { return }
             let parsed = LyricsParser.parseLX(lyric: native.lyric, tlyric: native.tlyric,
                                                rlyric: native.rlyric, lxlyric: native.lxlyric)
-            if !parsed.isEmpty {
+            if !parsed.isEmpty, fits(parsed) {
                 if parsed.hasVerbatimTimings {
                     publishLyrics(parsed, for: track, generation: generation)
                     return
@@ -2367,7 +2407,7 @@ final class PlayerService: ObservableObject {
                                                tlyric: native.tlyric,
                                                rlyric: native.rlyric,
                                                lxlyric: native.lxlyric)
-            if !parsed.isEmpty {
+            if !parsed.isEmpty, fits(parsed) {
                 guard !Task.isCancelled, generation == resolveGeneration else { return }
                 if parsed.hasVerbatimTimings {
                     publishLyrics(parsed, for: track, generation: generation)
@@ -2387,7 +2427,7 @@ final class PlayerService: ObservableObject {
                 // real word timing.  AMLL renders it; it is not safe to
                 // fabricate timings when only line-level LRC exists.
                 let parsed = LyricsParser.parse(response, includeVerbatim: true)
-                if !parsed.isEmpty {
+                if !parsed.isEmpty, fits(parsed) {
                     guard !Task.isCancelled, generation == resolveGeneration else { return }
                     if parsed.hasVerbatimTimings {
                         publishLyrics(parsed, for: track, generation: generation)
@@ -2405,6 +2445,8 @@ final class PlayerService: ObservableObject {
             publishLyrics(lineTimedFallback, for: track, generation: generation)
             return
         }
+        // A second look (lyrics that did not fit the audio) that found nothing better leaves the shown lyrics alone.
+        if audioDuration != nil { return }
         lyrics = ParsedLyrics()
         updateLyricsCursor(at: progress)
         return

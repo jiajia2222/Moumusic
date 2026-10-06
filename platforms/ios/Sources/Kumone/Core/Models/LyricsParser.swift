@@ -63,6 +63,11 @@ struct ParsedLyrics: Hashable {
 
     var isEmpty: Bool { lines.isEmpty }
 
+    /// When the lyrics end: the end of the last word, or the start of the last line when it is only line-timed.
+    var endTime: TimeInterval {
+        lines.map { $0.words?.last?.end ?? $0.time }.max() ?? 0
+    }
+
     /// Whether the provider supplied a real word/run time axis (YRC/KRC/
     /// LX verbatim).  A line-timed LRC must not be presented as word-timed
     /// karaoke: inventing timings makes short songs drift noticeably.
