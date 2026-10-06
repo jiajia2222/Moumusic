@@ -1578,7 +1578,7 @@ final class PlayerService: ObservableObject {
             // and the lyrics drift: a streamed Hi-Res FLAC without a seek table was seconds off while the same
             // song at standard quality was right); on other remote formats it makes AVPlayer scan the stream
             // first, which froze loading and fast scrubbing.
-            let preciseFLAC = UserDefaults.standard.object(forKey: "moumusic.lyrics.preciseFLAC") as? Bool ?? false
+            let preciseFLAC = UserDefaults.standard.object(forKey: "moumusic.lyrics.preciseFLAC") as? Bool ?? true
             let ext = url.pathExtension.lowercased()
             if ext == "mp3" || (ext == "flac" && preciseFLAC) {
                 asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
