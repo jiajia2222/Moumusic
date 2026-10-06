@@ -249,11 +249,40 @@ enum DebugHarness {
             note("done")
             return
         }
+        #if os(iOS)
+        // -moumusic.debugReader <file>: decode four short stretches of a local file without playing it (silent), for the
+        // timing probe: where does AVFoundation say the decoded sound is, and where really?
+        if var path = defaults.string(forKey: "moumusic.debugReader") {
+            // -moumusic.debugConvert YES: convert the FLAC to PCM first and probe the converted file.
+            if defaults.bool(forKey: "moumusic.debugConvert") {
+                let began = Date()
+                if let converted = PlayerService.debugConvertToPCM(URL(fileURLWithPath: path)) {
+                    let size = (try? FileManager.default.attributesOfItem(atPath: converted.path)[.size] as? Int) ?? 0
+                    note(String(format: "converted to %@ in %.1fs (%.1f MB)", converted.lastPathComponent, Date().timeIntervalSince(began), Double(size) / 1_048_576))
+                    path = converted.path
+                } else {
+                    note("conversion FAILED")
+                }
+            }
+            for start in [10.0, 60.0, 120.0, 200.0] {
+                note(await AudioTapProbe.shared.readerCapture(file: URL(fileURLWithPath: path), start: start, seconds: 4))
+            }
+            note("done")
+            return
+        }
+        #endif
         guard let platformList = defaults.string(forKey: "moumusic.debugPlay") else { return }
         if let raw = defaults.string(forKey: "moumusic.debugQuality"), let quality = AudioQuality(rawValue: raw) {
             SettingsManager.shared.audioQuality = quality
         }
         let player = PlayerService.shared
+        #if os(iOS)
+        // -moumusic.debugTap YES: capture what the player really decodes (see DebugTapProbe).
+        if defaults.bool(forKey: "moumusic.debugTap") {
+            AudioTapProbe.enabled = true
+            player.debugInstallTapClock()
+        }
+        #endif
         startWatchdog()
         for code in platformList.split(separator: ",").map(String.init) {
             guard let platform = LXCatalogPlatform(rawValue: code) else { note("\(code): unknown platform"); continue }
@@ -305,6 +334,15 @@ enum DebugHarness {
                                 wall, clock, clock - wall, player.livePlaybackTime, player.isPlaying ? 1 : 0))
                 }
             }
+            #if os(iOS)
+            if defaults.bool(forKey: "moumusic.debugTap") {
+                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                note("tap A (about 12 s in): " + (await AudioTapProbe.shared.capture(seconds: 4)))
+                player.seek(to: 120)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                note("tap B (after a seek to 120 s): " + (await AudioTapProbe.shared.capture(seconds: 4)))
+            }
+            #endif
             // -moumusic.debugSeek YES: jump to 100 s while playing; how long the seek takes and whether the position then runs.
             if defaults.bool(forKey: "moumusic.debugSeek") {
                 var finished = false

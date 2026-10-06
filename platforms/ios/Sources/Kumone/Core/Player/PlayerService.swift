@@ -1059,6 +1059,7 @@ final class PlayerService: ObservableObject {
         var file: URL?
         var failure: String?
         var seconds: Double = 0
+        var convertSeconds: Double = 0
     }
 
     /// Downloads a FLAC to the caches folder.
@@ -1086,7 +1087,52 @@ final class PlayerService: ObservableObject {
             try? FileManager.default.removeItem(at: temp)
             return LocalFLACResult(file: nil, failure: "保存失败：\(error.localizedDescription)")
         }
-        return LocalFLACResult(file: target, failure: nil, seconds: Date().timeIntervalSince(started))
+        // AVFoundation lands a few seconds away from the asked position when it jumps inside a FLAC (measured: a seek to 120 s
+        // decoded the sound of 111 s), although reading it from the start is exact. The same audio as lossless PCM
+        // (CAF) is exact to jump in, so the player continues from that copy.
+        let decoded = Date()
+        guard let pcm = convertToPCM(target) else {
+            try? FileManager.default.removeItem(at: target)
+            return LocalFLACResult(file: nil, failure: "下载完成但转换成无损 PCM 失败")
+        }
+        try? FileManager.default.removeItem(at: target)
+        return LocalFLACResult(file: pcm, failure: nil, seconds: Date().timeIntervalSince(started),
+                               convertSeconds: Date().timeIntervalSince(decoded))
+    }
+
+    /// Reads a FLAC from its start (exact) and writes the same samples, bit depth and channel layout as PCM in a CAF file.
+    nonisolated static func convertToPCM(_ flac: URL) -> URL? {
+        do {
+            let input = try AVAudioFile(forReading: flac)
+            let format = input.processingFormat
+            let bits = Int(input.fileFormat.streamDescription.pointee.mBitsPerChannel)
+            var settings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: format.sampleRate,
+                AVNumberOfChannelsKey: Int(format.channelCount),
+                AVLinearPCMBitDepthKey: bits >= 24 ? 24 : 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+            ]
+            if let layout = format.channelLayout?.layout {
+                let size = MemoryLayout<AudioChannelLayout>.size
+                    + max(0, Int(layout.pointee.mNumberChannelDescriptions) - 1) * MemoryLayout<AudioChannelDescription>.size
+                settings[AVChannelLayoutKey] = Data(bytes: layout, count: size)
+            }
+            try? FileManager.default.createDirectory(at: flacCacheDirectory, withIntermediateDirectories: true)
+            let target = flacCacheDirectory.appendingPathComponent(UUID().uuidString + ".caf")
+            let output = try AVAudioFile(forWriting: target, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 32768) else { return nil }
+            while input.framePosition < input.length {
+                if Task.isCancelled { try? FileManager.default.removeItem(at: target); return nil }
+                try input.read(into: buffer, frameCount: 32768)
+                if buffer.frameLength == 0 { break }
+                try output.write(from: buffer)
+            }
+            return target
+        } catch {
+            return nil
+        }
     }
 
     private func removeLocalFLAC() {
@@ -1098,7 +1144,7 @@ final class PlayerService: ObservableObject {
     /// the sound can be seconds away from the position the player reports, and the lyrics follow that position. Once the
     /// same file is on the device (downloaded in the background while the song already plays), continue from it at the
     /// same position: local positions are exact, so seeks, lyric taps and the lyric clock are right from then on.
-    private func swapToLocalFile(_ file: URL, replacing old: AVPlayerItem, generation: Int, downloadSeconds: Double) async {
+    private func swapToLocalFile(_ file: URL, replacing old: AVPlayerItem, generation: Int, downloadSeconds: Double, convertSeconds: Double) async {
         guard generation == resolveGeneration, engine.currentItem === old else {
             try? FileManager.default.removeItem(at: file)
             return
@@ -1107,7 +1153,13 @@ final class PlayerService: ObservableObject {
         let position = engine.currentTime()
         guard position.isValid, position.seconds.isFinite else { return }
         let wasPlaying = engine.rate > 0
-        let newItem = AVPlayerItem(asset: AVURLAsset(url: file))
+        let localAsset = AVURLAsset(url: file)
+        let newItem = AVPlayerItem(asset: localAsset)
+        #if DEBUG && os(iOS)
+        if AudioTapProbe.enabled, let audio = try? await localAsset.loadTracks(withMediaType: .audio).first {
+            newItem.audioMix = AudioTapProbe.shared.makeMix(for: audio)
+        }
+        #endif
         if let observer = endObserver { NotificationCenter.default.removeObserver(observer) }
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification, object: newItem, queue: .main
@@ -1124,9 +1176,9 @@ final class PlayerService: ObservableObject {
         clockWatch = nil
         let megabytes = Double((try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0) / 1_048_576
         DiagnosticLogStore.shared.append(
-            level: .info, category: "播放音质", message: "FLAC 已下载到本机并切换",
-            detail: String(format: "下载用了 %.1f 秒，在 %.1f 秒处切换，文件 %.1f MB，切换耗时 %.2f 秒；此后快进、点歌词和歌词对齐按精确位置。",
-                           downloadSeconds, position.seconds, megabytes, Date().timeIntervalSince(started)))
+            level: .info, category: "播放音质", message: "FLAC 已下载到本机、转成无损 PCM 并切换",
+            detail: String(format: "下载和转换共 %.1f 秒（其中转换 %.1f 秒），在 %.1f 秒处切换，文件 %.1f MB，切换耗时 %.2f 秒；此后快进、点歌词和歌词对齐按精确位置。",
+                           downloadSeconds, convertSeconds, position.seconds, megabytes, Date().timeIntervalSince(started)))
     }
 
     private var seekInFlight = false
@@ -1937,10 +1989,13 @@ final class PlayerService: ObservableObject {
                let mix = AudioSpectrum.shared.makeAudioMix(for: probed) {
                 item.audioMix = mix
             }
+            #if DEBUG && os(iOS)
+            if AudioTapProbe.enabled, let probed { item.audioMix = AudioTapProbe.shared.makeMix(for: probed) }
+            #endif
             if let localCopyForSwap {
                 let result = await localCopyForSwap.value
                 if let file = result.file {
-                    await self.swapToLocalFile(file, replacing: item, generation: generation, downloadSeconds: result.seconds)
+                    await self.swapToLocalFile(file, replacing: item, generation: generation, downloadSeconds: result.seconds, convertSeconds: result.convertSeconds)
                 } else if let failure = result.failure, generation == self.resolveGeneration {
                     DiagnosticLogStore.shared.append(
                         level: .warning, category: "播放音质", message: "FLAC 没能下载到本机，继续用网络播放",
@@ -2441,6 +2496,17 @@ final class PlayerService: ObservableObject {
     private var servedAudio: (key: String, seconds: TimeInterval)?
     /// Lyrics of a track are checked against its audio once (key + generation), so replacing them cannot loop.
     private var versionCheckedKey: String?
+
+    #if DEBUG && os(iOS)
+    /// Debug harness only: the FLAC to PCM conversion on its own (returns the new file).
+    nonisolated static func debugConvertToPCM(_ flac: URL) -> URL? { convertToPCM(flac) }
+
+    /// Debug harness only: lets the audio tap read the player's clock.
+    func debugInstallTapClock() {
+        let player = engine
+        AudioTapProbe.clock = { player.currentTime().seconds }
+    }
+    #endif
 
     #if DEBUG
     /// Debug harness only: the address of the audio that is playing.
