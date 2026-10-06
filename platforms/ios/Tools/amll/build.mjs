@@ -45,6 +45,10 @@ html,body,#root{margin:0;padding:0;width:100%;height:100%;background:transparent
 .amll-lyric-player{--amll-lp-color:#fff;--amll-lp-font-size:30px;mix-blend-mode:normal !important}
 /* The translation (and romaji) of the line being sung is highlighted with it; AMLL keeps it at 30% opacity. */
 .amll-lyric-player [class*="lyricLine"][class*="FmKaba_active"] [class*="lyricSubLine"]{opacity:.85 !important}
+/* AMLL puts a background box behind the line under the pointer. On a touch screen the "hover" of the last tap never ends,
+   so the box stayed on the line after seeking to it. No box at all. */
+.amll-lyric-player{--amll-lp-hover-bg-color:transparent}
+.amll-lyric-player [class*="lyricLineWrapper"]:hover,.amll-lyric-player [class*="lyricLineWrapper"]:active{background-color:transparent !important}
 /* Weights as in the standard lyric column: bold lines, medium translation. */
 .amll-lyric-player [class*="lyricMainLine"]{font-weight:700}
 .amll-lyric-player [class*="lyricSubLine"]{font-weight:500}
