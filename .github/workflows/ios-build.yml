@@ -170,9 +170,10 @@ jobs:
         env:
           IMGBED_TOKEN: ${{ secrets.IMGBED_TOKEN }}
           CHANNEL: ios26
-          BUILD: ${{ github.run_number + 25 }}
+          RUN_NUMBER: ${{ github.run_number }}
           IPA: dl/Moumusic-full-ios26-unsigned.ipa
         run: |
+          export BUILD="$((RUN_NUMBER + 25))"
           export VERSION="$(grep -m1 '^MARKETING_VERSION' platforms/ios/ios/Config/Shared.xcconfig | sed -E 's/.*= *//')"
           export NOTES="$(git log -1 --pretty=%s)"
           python3 .github/scripts/publish_update.py
@@ -193,9 +194,10 @@ jobs:
         env:
           IMGBED_TOKEN: ${{ secrets.IMGBED_TOKEN }}
           CHANNEL: compat
-          BUILD: ${{ github.run_number + 25 }}
+          RUN_NUMBER: ${{ github.run_number }}
           IPA: dl/Moumusic-compat-ios15-18-unsigned.ipa
         run: |
+          export BUILD="$((RUN_NUMBER + 25))"
           export VERSION="$(grep -m1 '^MARKETING_VERSION' platforms/ios/ios/Config/Shared.xcconfig | sed -E 's/.*= *//')"
           export NOTES="$(git log -1 --pretty=%s)"
           python3 .github/scripts/publish_update.py
