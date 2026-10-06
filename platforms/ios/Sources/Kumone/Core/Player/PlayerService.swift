@@ -2266,7 +2266,9 @@ final class PlayerService: ObservableObject {
                 if let mid = track.sourceMetadata["songmid"] { ownQQIDs.append(mid) }
             }
             let isNetease = ["wy", "netease", "163"].contains(sourceKey)
-            if let community = await AMLLTTMLDatabase.shared.lyrics(neteaseID: isNetease ? String(track.id) : nil, qqIDs: ownQQIDs) {
+            if let community = await AMLLTTMLDatabase.shared.lyrics(
+                neteaseID: isNetease ? String(track.id) : nil, qqIDs: ownQQIDs,
+                title: track.name, artists: track.artists.map(\.name), duration: track.duration) {
                 guard !Task.isCancelled, generation == resolveGeneration else { return }
                 publishLyrics(community, for: track, generation: generation)
                 return

@@ -2,8 +2,10 @@ import Foundation
 
 /// Community, hand-timed word-by-word lyrics: github.com/amll-dev/amll-ttml-db (CC0). Every entry was timed by a person
 /// against the real recording, so it is the one lyric source that does not drift with the platform or the cut.
-/// The repository keeps one folder per platform (`ncm-lyrics`, `qq-lyrics`) with files named by song id and generated in
-/// several formats; `.yrc` is the one the app already parses.
+/// The repository keeps one folder per source (`ncm-lyrics`, `qq-lyrics`, `am-lyrics`, `spotify-lyrics`) with files named by
+/// that source's song id and generated in several formats; `.yrc` is the one the app already parses. Each folder has an
+/// `index.jsonl` with the song's name and artists, so a song is also found by name and artist when its id is not there
+/// (a song from Kugou, Kuwo or Migu, or one the database keeps under another platform's id).
 actor AMLLTTMLDatabase {
     static let shared = AMLLTTMLDatabase()
 
@@ -11,125 +13,193 @@ actor AMLLTTMLDatabase {
         UserDefaults.standard.object(forKey: "moumusic.lyrics.communityDB") as? Bool ?? true
     }
 
+    /// One song of the database: the file it is in and its normalised names and artists.
+    struct Entry: Codable, Hashable {
+        let folder: String
+        let fileID: String
+        let titles: [String]
+        let artists: [String]
+    }
+
+    private struct CachedFolder: Codable {
+        var fetchedAt: Date
+        var ids: [String: String]
+        var entries: [Entry]
+    }
+
+    private struct Candidate {
+        let folder: String
+        let fileID: String
+        /// Found through the song's own platform id (the exact recording) rather than by name.
+        let byID: Bool
+    }
+
+    private static let folders = ["ncm-lyrics", "qq-lyrics", "am-lyrics", "spotify-lyrics"]
     private let mirrors = [
         "https://cdn.jsdelivr.net/gh/amll-dev/amll-ttml-db@main",
         "https://raw.githubusercontent.com/amll-dev/amll-ttml-db/refs/heads/main",
     ]
     private let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 8
-        configuration.timeoutIntervalForResource = 20
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 60
         return URLSession(configuration: configuration)
     }()
 
-    /// folder -> (any known song id -> file id)
-    private var indexes: [String: [String: String]] = [:]
-    private var loading: [String: Task<[String: String], Never>] = [:]
+    /// folder -> (a song id of that platform -> file id); only the NetEase and QQ folders carry platform ids.
+    private var idIndexes: [String: [String: String]] = [:]
+    /// normalised title -> every entry with that title
+    private var byTitle: [String: [Entry]] = [:]
+    private var loadedFolders: Set<String> = []
+    private var loadingFolders: Set<String> = []
 
-    /// The community lyrics of a song, when the database has them. `neteaseID` / `qqIDs` are the song's own ids on those
-    /// platforms (a QQ song has a numeric id and a "mid"; the index knows both).
-    func lyrics(neteaseID: String?, qqIDs: [String]) async -> ParsedLyrics? {
-        var candidates: [(folder: String, ids: [String])] = []
-        if let neteaseID, !neteaseID.isEmpty { candidates.append(("ncm-lyrics", [neteaseID])) }
-        let qq = qqIDs.filter { !$0.isEmpty }
-        if !qq.isEmpty { candidates.append(("qq-lyrics", qq)) }
-        for candidate in candidates {
-            guard let index = await readyIndex(folder: candidate.folder, wait: 0) else { continue }
-            guard let fileID = candidate.ids.lazy.compactMap({ index[$0] }).first else { continue }
-            guard let body = await fetch(path: "\(candidate.folder)/\(fileID).yrc"), !body.isEmpty else { continue }
+    // MARK: Lookup
+
+    /// The community lyrics of a song, when the database has them. It never waits for the network: the indexes load in the
+    /// background (`prefetch`) and a lookup before they are ready simply finds nothing.
+    /// - `neteaseID` / `qqIDs`: the song's own ids on those platforms (a QQ song has a numeric id and a "mid").
+    /// - `title` / `artists` / `duration`: used when the ids are not in the database; the duration rejects another cut.
+    func lyrics(neteaseID: String?, qqIDs: [String], title: String = "", artists: [String] = [],
+                duration: TimeInterval = 0) async -> ParsedLyrics? {
+        prefetch()
+        var candidates: [Candidate] = []
+        func add(_ folder: String, _ fileID: String, byID: Bool) {
+            guard !candidates.contains(where: { $0.folder == folder && $0.fileID == fileID }) else { return }
+            candidates.append(Candidate(folder: folder, fileID: fileID, byID: byID))
+        }
+        if let neteaseID, let file = idIndexes["ncm-lyrics"]?[neteaseID] { add("ncm-lyrics", file, byID: true) }
+        if let file = qqIDs.lazy.compactMap({ self.idIndexes["qq-lyrics"]?[$0] }).first { add("qq-lyrics", file, byID: true) }
+
+        let key = Self.normalize(title)
+        let wanted = artists.map(Self.normalize).filter { !$0.isEmpty }
+        if key.count >= 2, !wanted.isEmpty, let entries = byTitle[key] {
+            let rank = { (folder: String) in Self.folders.firstIndex(of: folder) ?? Self.folders.count }
+            for entry in entries.sorted(by: { rank($0.folder) < rank($1.folder) }) where Self.artistsMatch(wanted, entry.artists) {
+                add(entry.folder, entry.fileID, byID: false)
+            }
+        }
+
+        for candidate in candidates.prefix(4) {
+            guard let body = await fetch(path: "\(candidate.folder)/\(candidate.fileID).yrc"), !body.isEmpty else { continue }
             var parsed = LyricsParser.parseLX(lyric: "", yrc: body)
             parsed.lines = Self.repairingZeroTimedWords(parsed.lines)
-            if parsed.hasVerbatimTimings {
+            guard parsed.hasVerbatimTimings else { continue }
+            if !candidate.byID, !Self.durationFits(parsed, duration: duration) {
                 Task { @MainActor in
-                    DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "使用社区逐字歌词库（AMLL TTML DB）",
-                                                     detail: "\(candidate.folder)/\(fileID) · \(parsed.lines.count) 行")
+                    DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "社区歌词库的候选被排除（时长对不上）",
+                                                     detail: "\(candidate.folder)/\(candidate.fileID) · 歌曲 \(Int(duration)) 秒")
                 }
-                return parsed
+                continue
             }
+            Task { @MainActor in
+                DiagnosticLogStore.shared.append(
+                    level: .info, category: "歌词", message: "使用社区逐字歌词库（AMLL TTML DB）",
+                    detail: "\(candidate.folder)/\(candidate.fileID) · \(parsed.lines.count) 行 · \(candidate.byID ? "按歌曲 ID" : "按歌名和歌手")")
+            }
+            return parsed
         }
         return nil
     }
 
-    // MARK: Index
+    // MARK: Matching
 
-    /// Starts loading both indexes in the background (no-op when they are loaded or loading).
+    nonisolated static func normalize(_ text: String) -> String {
+        var value = text.precomposedStringWithCompatibilityMapping.lowercased()
+        // Drop "(feat. …)", "(Live)", "【…】" and the like.
+        value = value.replacingOccurrences(of: #"[\(\（\[【][^\)\）\]】]*[\)\）\]】]"#, with: "", options: .regularExpression)
+        return String(String.UnicodeScalarView(value.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }))
+    }
+
+    nonisolated static func artistsMatch(_ wanted: [String], _ have: [String]) -> Bool {
+        for a in wanted {
+            for b in have where !b.isEmpty {
+                if a == b { return true }
+                if min(a.count, b.count) >= 2, a.contains(b) || b.contains(a) { return true }
+            }
+        }
+        return false
+    }
+
+    /// A lyric whose last word ends long after the song, or far before it, belongs to another cut of the song.
+    nonisolated static func durationFits(_ lyrics: ParsedLyrics, duration: TimeInterval) -> Bool {
+        guard duration > 0, let last = lyrics.lines.compactMap({ $0.words?.last?.end }).max() else { return true }
+        return last <= duration + 6 && last >= duration * 0.55
+    }
+
+    // MARK: Indexes
+
+    /// Starts loading the indexes in the background (no-op for the ones loaded or loading).
     func prefetch() {
-        for folder in ["ncm-lyrics", "qq-lyrics"] where indexes[folder] == nil && loading[folder] == nil {
-            let task = Task { await self.loadIndex(folder: folder) }
-            loading[folder] = task
-            Task {
-                let map = await task.value
-                self.finishLoading(folder: folder, map: map)
-            }
+        for folder in Self.folders where !loadedFolders.contains(folder) && !loadingFolders.contains(folder) {
+            loadingFolders.insert(folder)
+            Task { await self.load(folder: folder) }
         }
     }
 
-    private func finishLoading(folder: String, map: [String: String]) {
-        loading[folder] = nil
-        if !map.isEmpty { indexes[folder] = map }
-    }
-
-    /// The id index of a folder; nil when it could not be loaded within `wait` seconds (loading continues in the
-    /// background, so the next song finds it ready).
-    private func readyIndex(folder: String, wait: Double) async -> [String: String]? {
-        if let index = indexes[folder] { return index }
-        prefetch()
-        guard wait > 0, let task = loading[folder] else { return nil }
-        let result: [String: String]? = await withTaskGroup(of: [String: String]?.self) { group in
-            group.addTask { await task.value }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
-        if let result, !result.isEmpty { return result }
-        return nil
-    }
-
-    private func loadIndex(folder: String) async -> [String: String] {
+    private func load(folder: String) async {
+        defer { loadingFolders.remove(folder) }
         let cacheURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("amll-ttml-index-\(folder).json")
-        if let cacheURL,
-           let attributes = try? FileManager.default.attributesOfItem(atPath: cacheURL.path),
-           let modified = attributes[.modificationDate] as? Date, Date().timeIntervalSince(modified) < 6 * 3600,
-           let data = try? Data(contentsOf: cacheURL),
-           let cached = try? JSONDecoder().decode([String: String].self, from: data), !cached.isEmpty {
-            return cached
+            .appendingPathComponent("amll-ttml-index2-\(folder).json")
+        if let cacheURL, let data = try? Data(contentsOf: cacheURL),
+           let cached = try? JSONDecoder().decode(CachedFolder.self, from: data),
+           Date().timeIntervalSince(cached.fetchedAt) < 24 * 3600, !cached.entries.isEmpty {
+            ingest(folder: folder, cached)
+            return
         }
-        guard let body = await fetch(path: "\(folder)/index.jsonl") else { return [:] }
-        // Every line: {"id": file id, "metadata": [[key, [values]], ...]}. The song ids of the platform (ncmMusicId /
-        // qqMusicId) all point at the same file, so a song with several ids is found by any of them.
-        let platformKey = folder == "ncm-lyrics" ? "ncmMusicId" : "qqMusicId"
-        var map: [String: String] = [:]
-        for line in body.split(separator: "\n") {
-            guard let data = line.data(using: .utf8),
-                  let entry = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let fileID = entry["id"] as? String else { continue }
-            map[fileID] = fileID
-            for pair in (entry["metadata"] as? [[Any]]) ?? [] {
-                guard pair.count == 2, (pair[0] as? String) == platformKey, let values = pair[1] as? [String] else { continue }
-                for value in values where map[value] == nil { map[value] = fileID }
-            }
-        }
-        if !map.isEmpty, let cacheURL, let data = try? JSONEncoder().encode(map) {
+        guard let body = await fetch(path: "\(folder)/index.jsonl", timeout: 40) else { return }
+        let parsed = Self.parseIndex(body, folder: folder)
+        guard !parsed.entries.isEmpty else { return }
+        if let cacheURL, let data = try? JSONEncoder().encode(parsed) {
             try? data.write(to: cacheURL, options: .atomic)
         }
-        return map
+        ingest(folder: folder, parsed)
+    }
+
+    private func ingest(folder: String, _ data: CachedFolder) {
+        idIndexes[folder] = data.ids
+        for entry in data.entries {
+            for title in entry.titles { byTitle[title, default: []].append(entry) }
+        }
+        loadedFolders.insert(folder)
+    }
+
+    /// Every line: {"id": file id, "metadata": [[key, [values]], ...]}. The song ids of a platform (ncmMusicId / qqMusicId)
+    /// all point at the same file, so a song with several ids is found by any of them.
+    private nonisolated static func parseIndex(_ body: String, folder: String) -> CachedFolder {
+        let platformKey = folder == "ncm-lyrics" ? "ncmMusicId" : (folder == "qq-lyrics" ? "qqMusicId" : nil)
+        var ids: [String: String] = [:]
+        var entries: [Entry] = []
+        for line in body.split(separator: "\n") {
+            guard let data = line.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let fileID = object["id"] as? String else { continue }
+            var titles: [String] = []
+            var artists: [String] = []
+            for pair in (object["metadata"] as? [[Any]]) ?? [] {
+                guard pair.count == 2, let key = pair[0] as? String, let values = pair[1] as? [String] else { continue }
+                switch key {
+                case "musicName": titles = values.map(normalize).filter { $0.count >= 2 }
+                case "artists": artists = values.map(normalize).filter { !$0.isEmpty }
+                default:
+                    if key == platformKey { for value in values where ids[value] == nil { ids[value] = fileID } }
+                }
+            }
+            if platformKey != nil { ids[fileID] = fileID }
+            if !titles.isEmpty { entries.append(Entry(folder: folder, fileID: fileID, titles: Array(Set(titles)), artists: artists)) }
+        }
+        return CachedFolder(fetchedAt: Date(), ids: ids, entries: entries)
     }
 
     /// Both mirrors are asked at the same time and the first answer wins (one of them is often unreachable from
     /// China), so a blocked host never adds its timeout.
-    private func fetch(path: String) async -> String? {
+    private func fetch(path: String, timeout: TimeInterval = 10) async -> String? {
         let session = self.session
         let urls = mirrors.compactMap { URL(string: "\($0)/\(path)") }
         return await withTaskGroup(of: String?.self) { group in
             for url in urls {
                 group.addTask {
                     var request = URLRequest(url: url)
-                    request.timeoutInterval = 8
+                    request.timeoutInterval = timeout
                     request.setValue("Moumusic", forHTTPHeaderField: "User-Agent")
                     guard let (data, response) = try? await session.data(for: request),
                           (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
