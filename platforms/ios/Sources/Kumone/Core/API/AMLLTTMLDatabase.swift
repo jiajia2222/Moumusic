@@ -9,10 +9,10 @@ import Foundation
 actor AMLLTTMLDatabase {
     static let shared = AMLLTTMLDatabase()
 
-    /// Off unless the user turns it on (歌词设置): the hand-timed lyrics follow the original recording, which is not always the
-    /// cut the music source plays, and then they are off by more than a platform's own lyrics.
+    /// On by default, second after the platforms' own word-by-word lyrics (QQ, Kugou, NetEase). It can be turned off in the
+    /// lyric settings: the hand-timed lyrics follow the original recording, not always the cut the music source plays.
     static var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: "moumusic.lyrics.communityDB") as? Bool ?? false
+        UserDefaults.standard.object(forKey: "moumusic.lyrics.communityDB") as? Bool ?? true
     }
 
     /// One song of the database: the file it is in and its normalised names and artists.

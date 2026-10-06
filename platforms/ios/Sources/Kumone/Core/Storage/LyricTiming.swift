@@ -7,7 +7,32 @@ extension SettingsManager {
     /// progress tick, the spring animation of the line change and the render time all make a line look late,
     /// and a line that lights up just before it is sung reads as in time. The user's own offset is added on top.
     var effectiveLyricsOffset: Double {
-        lyricsOffset + songLyricsOffset + LyricLatencyCache.value + 0.20
+        lyricsOffset + songLyricsOffset + LyricLatencyCache.value + Self.lyricsLead
+    }
+
+    /// The fixed part of the automatic lead, in seconds.
+    static let lyricsLead = 0.20
+
+    /// What the app adds to the lyric clock by itself: the output route, its latency, and the fixed lead. Shown in the
+    /// lyric settings (so a wrong default can be reported as a number) and written to the diagnostic log.
+    var automaticLyricsCompensation: (route: String, latency: Double, lead: Double) {
+        (AudioRouteName.current, LyricLatencyCache.value, Self.lyricsLead)
+    }
+}
+
+enum AudioRouteName {
+    static var current: String {
+        guard let port = AVAudioSession.sharedInstance().currentRoute.outputs.first?.portType else { return "未知" }
+        switch port {
+        case .builtInSpeaker: return "扬声器"
+        case .builtInReceiver: return "听筒"
+        case .headphones: return "有线耳机"
+        case .bluetoothA2DP, .bluetoothLE, .bluetoothHFP: return "蓝牙"
+        case .airPlay: return "AirPlay"
+        case .carAudio: return "车载音频"
+        case .usbAudio: return "USB 音频"
+        default: return port.rawValue
+        }
     }
 }
 

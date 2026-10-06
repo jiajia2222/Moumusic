@@ -888,11 +888,23 @@ final class PlayerService: ObservableObject {
         updateLyricsCursor(at: livePlaybackTime)
     }
 
+    /// The lyric clock settings at the moment lyrics are shown, for the diagnostic log.
+    private static func lyricSyncDetail() -> String {
+        #if os(iOS)
+        let settings = SettingsManager.shared
+        let auto = settings.automaticLyricsCompensation
+        return String(format: " · 输出%@ 自动补偿%+.2f 秒 全局%+.2f 本首%+.2f", auto.route, auto.latency + auto.lead,
+                      settings.lyricsOffset, settings.songLyricsOffset)
+        #else
+        return ""
+        #endif
+    }
+
     private func publishLyrics(_ parsed: ParsedLyrics, for track: Track, generation: Int) {
         lyrics = parsed
         DiagnosticLogStore.shared.append(
             level: .info, category: "歌词", message: parsed.hasVerbatimTimings ? "逐字歌词" : "逐句歌词",
-            detail: "\(track.name) · 来源 \(track.source ?? "wy") · \(parsed.lines.count) 行")
+            detail: "\(track.name) · 来源 \(track.source ?? "wy") · \(parsed.lines.count) 行" + Self.lyricSyncDetail())
         updateLyricsCursor(at: livePlaybackTime)
         checkLyricsVersion(for: track, generation: generation)
 
@@ -2256,6 +2268,36 @@ final class PlayerService: ObservableObject {
         }
     }
 
+#if os(iOS)
+    private static func verbatimFromQQ(_ track: Track, sourceKey: String) async -> ParsedLyrics? {
+        var qqID: String? = sourceKey == "tx" || sourceKey == "qq" ? track.sourceMetadata["id"] : nil
+        if qqID == nil { qqID = await LXCatalogService.matchingTrack(track, on: "tx")?.sourceMetadata["id"] }
+        guard let qqID, !qqID.isEmpty else { return nil }
+        let lines = await QQQRCLyrics.lyricLines(musicID: qqID)
+        guard !lines.isEmpty else { return nil }
+        var parsed = ParsedLyrics()
+        parsed.lines = lines
+        return parsed
+    }
+
+    private static func verbatimFromNetease(_ track: Track, sourceKey: String) async -> ParsedLyrics? {
+        let id: Int?
+        if ["wy", "netease", "163"].contains(sourceKey) { id = track.id }
+        else { id = (try? await NeteaseAPI.matchingSong(for: track))?.id }
+        guard let id, let response = try? await NeteaseAPI.lyric(id: id) else { return nil }
+        let parsed = LyricsParser.parse(response, includeVerbatim: true)
+        return parsed.hasVerbatimTimings ? parsed : nil
+    }
+
+    private static func verbatimFromKugou(_ track: Track, sourceKey: String) async -> ParsedLyrics? {
+        let candidate: Track?
+        if sourceKey == "kg" { candidate = track } else { candidate = await LXCatalogService.matchingTrack(track, on: "kg") }
+        guard let candidate, let native = try? await LXCatalogService.nativeLyrics(for: candidate) else { return nil }
+        let parsed = LyricsParser.parseLX(lyric: native.lyric, tlyric: native.tlyric, rlyric: native.rlyric, lxlyric: native.lxlyric)
+        return parsed.hasVerbatimTimings ? parsed : nil
+    }
+#endif
+
     private func loadLyrics(for track: Track, generation: Int, audioDuration: TimeInterval? = nil) async {
 #if os(iOS)
         guard !Task.isCancelled, generation == resolveGeneration else { return }
@@ -2303,14 +2345,33 @@ final class PlayerService: ObservableObject {
             }
         }
 
-        // The community database of hand-timed word-by-word lyrics goes first, but only through a lookup that costs
-        // nothing: the song's own ids against the index in memory. It never waits for the network (the index loads in the
-        // background, see `AMLLTTMLDatabase.prefetch`), so a song it does not have loses no time.
-        let isQQSong = sourceKey == "tx" || sourceKey == "qq"
+        // Word-by-word lyrics, the way LDDC (github.com/chenmozhijin/LDDC) gets them: ask QQ Music (QRC), Kugou (KRC) and
+        // NetEase (YRC) at the same time, keep the ones that are the same recording as the audio, and take the one whose
+        // length is closest to it. The song's own platform wins a tie.
+        if SettingsManager.shared.verbatimLyrics {
+            async let qq = Self.verbatimFromQQ(track, sourceKey: sourceKey)
+            async let wy = Self.verbatimFromNetease(track, sourceKey: sourceKey)
+            async let kg = Self.verbatimFromKugou(track, sourceKey: sourceKey)
+            let found: [(name: String, lyrics: ParsedLyrics?)] = [("tx", await qq), ("wy", await wy), ("kg", await kg)]
+            guard !Task.isCancelled, generation == resolveGeneration else { return }
+            let usable = found.compactMap { item -> (name: String, lyrics: ParsedLyrics, gap: Double)? in
+                guard let lyrics = item.lyrics, !lyrics.isEmpty, fits(lyrics) else { return nil }
+                let own = item.name == sourceKey || (item.name == "tx" && sourceKey == "qq")
+                let gap = audioDuration.map { abs(lyrics.endTime - $0) } ?? 0
+                return (item.name, lyrics, gap - (own ? 1.5 : 0))
+            }
+            if let best = usable.min(by: { $0.gap < $1.gap }) {
+                publishLyrics(best.lyrics, for: track, generation: generation)
+                return
+            }
+        }
+
+        // Second: the community database of hand-timed lyrics (amll-ttml-db), looked up in the index in memory. It never
+        // waits for the network (the index loads in the background, see `AMLLTTMLDatabase.prefetch`).
         if AMLLTTMLDatabase.isEnabled {
             Task { await AMLLTTMLDatabase.shared.prefetch() }
             var ownQQIDs: [String] = []
-            if isQQSong {
+            if sourceKey == "tx" || sourceKey == "qq" {
                 if let id = track.sourceMetadata["id"] { ownQQIDs.append(id) }
                 if let mid = track.sourceMetadata["songmid"] { ownQQIDs.append(mid) }
             }
@@ -2321,37 +2382,6 @@ final class PlayerService: ObservableObject {
                 guard !Task.isCancelled, generation == resolveGeneration else { return }
                 publishLyrics(community, for: track, generation: generation)
                 return
-            }
-        }
-
-        // Word-by-word lyrics come from QQ Music first (QRC), whatever platform the song is from.
-        if SettingsManager.shared.verbatimLyrics {
-            var qqID: String? = sourceKey == "tx" || sourceKey == "qq" ? track.sourceMetadata["id"] : nil
-            if qqID == nil {
-                let matched = await LXCatalogService.matchingTrack(track, on: "tx")
-                qqID = matched?.sourceMetadata["id"]
-                // The QQ match of a song from another platform may be in the community database.
-                if AMLLTTMLDatabase.isEnabled, let matched {
-                    var ids: [String] = []
-                    if let id = matched.sourceMetadata["id"] { ids.append(id) }
-                    if let mid = matched.sourceMetadata["songmid"] { ids.append(mid) }
-                    if let community = await AMLLTTMLDatabase.shared.lyrics(neteaseID: nil, qqIDs: ids), fits(community) {
-                        guard !Task.isCancelled, generation == resolveGeneration else { return }
-                        publishLyrics(community, for: track, generation: generation)
-                        return
-                    }
-                }
-            }
-            guard !Task.isCancelled, generation == resolveGeneration else { return }
-            if let qqID, !qqID.isEmpty {
-                let qrcLines = await QQQRCLyrics.lyricLines(musicID: qqID)
-                guard !Task.isCancelled, generation == resolveGeneration else { return }
-                var qrcParsed = ParsedLyrics()
-                qrcParsed.lines = qrcLines
-                if !qrcLines.isEmpty, fits(qrcParsed) {
-                    publishLyrics(qrcParsed, for: track, generation: generation)
-                    return
-                }
             }
         }
 

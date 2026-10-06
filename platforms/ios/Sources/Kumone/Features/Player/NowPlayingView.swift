@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 #if os(iOS)
 import MediaPlayer
 import UIKit
@@ -1384,7 +1384,7 @@ private struct LyricSupplementalText: View {
 /// Player-page lyric controls.  These belong next to the lyrics because the
 /// useful choice is per listening session, not a buried global setting.
 private struct LyricPresentationSheet: View {
-    @AppStorage("moumusic.lyrics.communityDB") private var communityLyrics = false
+    @AppStorage("moumusic.lyrics.communityDB") private var communityLyrics = true
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
     @Environment(\.dismiss) private var dismiss
@@ -1431,7 +1431,7 @@ private struct LyricPresentationSheet: View {
 
                     glassSection {
                         Toggle("逐字歌词（仅使用真实时间轴）", isOn: $settings.verbatimLyrics)
-                        Toggle("优先使用社区校对歌词库（AMLL TTML DB）", isOn: $communityLyrics)
+                        Toggle("其次使用社区校对歌词库（AMLL TTML DB）", isOn: $communityLyrics)
                         Toggle("显示歌词翻译", isOn: $settings.showLyricsTranslation)
 
                         Picker("日文歌词注音", selection: $settings.lyricsAnnotation) {
@@ -1497,6 +1497,10 @@ private struct LyricPresentationSheet: View {
                             Text("正值提前，负值延后。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            Text(autoCompensationText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
 
@@ -1534,6 +1538,13 @@ private struct LyricPresentationSheet: View {
         .onChange(of: settings.songLyricsOffset) { _ in
             player.refreshLyricsCursor()
         }
+    }
+
+    /// What the app already adds on its own, so "the lyrics are off" can be answered with a number.
+    private var autoCompensationText: String {
+        let auto = settings.automaticLyricsCompensation
+        return String(format: "当前输出：%@。App 已自动补偿 %+.2f 秒（设备延迟 %.2f + 固定提前量 %.2f）。歌词和声音还对不上时，把上面的滑块拖到对上为止，滑块的数值就是还需要再加的秒数。",
+                      auto.route, auto.latency + auto.lead, auto.latency, auto.lead)
     }
 
     private func saveSongOffset() {
