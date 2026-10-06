@@ -625,6 +625,19 @@ struct SettingsView: View {
                 backupStore.setStatusMessage("备份导出失败：\(error.localizedDescription)")
             }
         }
+#if os(iOS)
+        // Same picker as importing a source: `fileImporter` did not open for some users, and some Files providers hand back
+        // a URL that cannot be read once the sheet is gone. The picker copies the file first.
+        .sheet(isPresented: $isImportingBackup) {
+            BackupDocumentPicker { url in
+                do {
+                    try backupStore.importBackup(data: Data(contentsOf: url))
+                } catch {
+                    backupStore.setStatusMessage("备份导入失败：\(error.localizedDescription)")
+                }
+            }
+        }
+#else
         .fileImporter(
             isPresented: $isImportingBackup,
             allowedContentTypes: [.json],
@@ -636,18 +649,17 @@ struct SettingsView: View {
                 }
                 return
             }
-
             let accessed = url.startAccessingSecurityScopedResource()
             defer {
                 if accessed { url.stopAccessingSecurityScopedResource() }
             }
-
             do {
                 try backupStore.importBackup(data: Data(contentsOf: url))
             } catch {
                 backupStore.setStatusMessage("备份导入失败：\(error.localizedDescription)")
             }
         }
+#endif
 #if os(iOS)
         .fileImporter(
             isPresented: $isImportingBackgroundFile,
@@ -1032,3 +1044,30 @@ private struct AppearancePicker: View {
         )
     }
 }
+
+#if os(iOS)
+/// Opens a backup file through UIDocumentPicker with `asCopy`, the way the source import does.
+private struct BackupDocumentPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item, .data, .json, .plainText], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { return }
+            onPick(url)
+        }
+    }
+}
+#endif

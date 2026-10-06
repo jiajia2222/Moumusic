@@ -2360,14 +2360,21 @@ final class PlayerService: ObservableObject {
                 let gap = audioDuration.map { abs(lyrics.endTime - $0) } ?? 0
                 return (item.name, lyrics, gap - (own ? 1.5 : 0))
             }
-            // Platforms time their lyrics against different cuts of a song, so a lone source can be seconds off. When several
-            // agree on where the first line starts, that is the cut most recordings share: a source that disagrees with the
-            // others loses to one they agree with.
+            // Platforms time their lyrics against different cuts of a song, so a source can start right and still be seconds
+            // off further on (an extra or missing section). Sources are compared at the start AND at the end: a source agrees
+            // with another when the first and last sung lines fall at the same time. The cut that most sources share wins.
+            func probes(_ lyrics: ParsedLyrics) -> [Double] {
+                let sung = lyrics.lines.filter { !$0.text.isEmpty }
+                guard let first = sung.first, let last = sung.last else { return [] }
+                return [first.time, last.time]
+            }
             func agreement(_ item: (name: String, lyrics: ParsedLyrics, gap: Double)) -> Int {
-                guard let start = item.lyrics.lines.first(where: { !$0.text.isEmpty })?.time else { return 0 }
+                let mine = probes(item.lyrics)
+                guard mine.count == 2 else { return 0 }
                 return usable.filter { other in
-                    other.name != item.name
-                        && abs((other.lyrics.lines.first(where: { !$0.text.isEmpty })?.time ?? -99) - start) < 0.4
+                    guard other.name != item.name else { return false }
+                    let theirs = probes(other.lyrics)
+                    return theirs.count == 2 && abs(theirs[0] - mine[0]) < 0.6 && abs(theirs[1] - mine[1]) < 1.5
                 }.count
             }
             let ranked = usable.sorted { lhs, rhs in
