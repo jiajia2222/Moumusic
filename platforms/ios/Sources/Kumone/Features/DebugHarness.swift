@@ -298,6 +298,18 @@ enum DebugHarness {
                                 wall, clock, clock - wall, player.livePlaybackTime, player.isPlaying ? 1 : 0))
                 }
             }
+            // -moumusic.debugSeek YES: jump to 100 s while playing; how long the seek takes and whether the position then runs.
+            if defaults.bool(forKey: "moumusic.debugSeek") {
+                var finished = false
+                let seekStart = Date()
+                player.seek(to: 100) { finished = true }
+                for _ in 0..<80 where !finished { try? await Task.sleep(nanoseconds: 250_000_000) }
+                note(String(format: "seek: finished=%d after %.2fs, position %.1fs playing=%d buffering=%d", finished ? 1 : 0,
+                            Date().timeIntervalSince(seekStart), player.livePlaybackTime, player.isPlaying ? 1 : 0, player.isBuffering ? 1 : 0))
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                note(String(format: "seek: 4 s later position %.1fs (expected about %.1fs) playing=%d", player.livePlaybackTime,
+                            100 + Date().timeIntervalSince(seekStart) - 0.0, player.isPlaying ? 1 : 0))
+            }
             player.togglePlayPause()
         }
         note("done")
