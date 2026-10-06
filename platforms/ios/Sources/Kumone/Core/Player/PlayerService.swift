@@ -1047,31 +1047,46 @@ final class PlayerService: ObservableObject {
 
     // MARK: - Local copy of a streamed FLAC
 
-    private var flacLocalCopy: Task<URL?, Never>?
+    private var flacLocalCopy: Task<LocalFLACResult, Never>?
     private var localFLACURL: URL?
 
     nonisolated private static var flacCacheDirectory: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("MoumusicFLAC", isDirectory: true)
     }
 
-    /// Downloads a FLAC to the caches folder (nil when it fails or is cancelled).
-    nonisolated private static func downloadFLAC(_ remote: URL) async -> URL? {
+    /// What the background download of a FLAC came to: the file, or why there is none.
+    struct LocalFLACResult: Sendable {
+        var file: URL?
+        var failure: String?
+        var seconds: Double = 0
+    }
+
+    /// Downloads a FLAC to the caches folder.
+    nonisolated private static func downloadFLAC(_ remote: URL) async -> LocalFLACResult {
+        let started = Date()
         var request = URLRequest(url: remote, timeoutInterval: 120)
         request.setValue("AppleCoreMedia/1.0.0 (iPhone; U; CPU OS 18_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
-        guard let (temp, response) = try? await URLSession.shared.download(for: request) else { return nil }
+        let temp: URL
+        let response: URLResponse
+        do { (temp, response) = try await URLSession.shared.download(for: request) } catch {
+            return LocalFLACResult(file: nil, failure: Task.isCancelled ? nil : "下载失败：\(error.localizedDescription)")
+        }
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             try? FileManager.default.removeItem(at: temp)
-            return nil
+            return LocalFLACResult(file: nil, failure: "服务器返回 \(http.statusCode)")
         }
         let size = (try? FileManager.default.attributesOfItem(atPath: temp.path)[.size] as? Int) ?? 0
-        guard size > 500_000 else { try? FileManager.default.removeItem(at: temp); return nil }
+        guard size > 500_000 else {
+            try? FileManager.default.removeItem(at: temp)
+            return LocalFLACResult(file: nil, failure: "下载到的文件只有 \(size) 字节，不是完整音频")
+        }
         try? FileManager.default.createDirectory(at: flacCacheDirectory, withIntermediateDirectories: true)
         let target = flacCacheDirectory.appendingPathComponent(UUID().uuidString + ".flac")
         do { try FileManager.default.moveItem(at: temp, to: target) } catch {
             try? FileManager.default.removeItem(at: temp)
-            return nil
+            return LocalFLACResult(file: nil, failure: "保存失败：\(error.localizedDescription)")
         }
-        return target
+        return LocalFLACResult(file: target, failure: nil, seconds: Date().timeIntervalSince(started))
     }
 
     private func removeLocalFLAC() {
@@ -1083,7 +1098,7 @@ final class PlayerService: ObservableObject {
     /// the sound can be seconds away from the position the player reports, and the lyrics follow that position. Once the
     /// same file is on the device (downloaded in the background while the song already plays), continue from it at the
     /// same position: local positions are exact, so seeks, lyric taps and the lyric clock are right from then on.
-    private func swapToLocalFile(_ file: URL, replacing old: AVPlayerItem, generation: Int) async {
+    private func swapToLocalFile(_ file: URL, replacing old: AVPlayerItem, generation: Int, downloadSeconds: Double) async {
         guard generation == resolveGeneration, engine.currentItem === old else {
             try? FileManager.default.removeItem(at: file)
             return
@@ -1110,8 +1125,8 @@ final class PlayerService: ObservableObject {
         let megabytes = Double((try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0) / 1_048_576
         DiagnosticLogStore.shared.append(
             level: .info, category: "播放音质", message: "FLAC 已下载到本机并切换",
-            detail: String(format: "在 %.1f 秒处切换，文件 %.1f MB，切换耗时 %.2f 秒；此后快进、点歌词和歌词对齐按精确位置。", position.seconds,
-                           megabytes, Date().timeIntervalSince(started)))
+            detail: String(format: "下载用了 %.1f 秒，在 %.1f 秒处切换，文件 %.1f MB，切换耗时 %.2f 秒；此后快进、点歌词和歌词对齐按精确位置。",
+                           downloadSeconds, position.seconds, megabytes, Date().timeIntervalSince(started)))
     }
 
     private var seekInFlight = false
@@ -1800,7 +1815,7 @@ final class PlayerService: ObservableObject {
         flacLocalCopy?.cancel()
         flacLocalCopy = nil
         removeLocalFLAC()
-        var localCopy: Task<URL?, Never>?
+        var localCopy: Task<LocalFLACResult, Never>?
         if urlExtension == "flac", !url.isFileURL, (track.source ?? "").lowercased() != "bili",
            UserDefaults.standard.object(forKey: "moumusic.lyrics.preciseFLAC") as? Bool ?? true {
             let remote = url
@@ -1922,8 +1937,15 @@ final class PlayerService: ObservableObject {
                let mix = AudioSpectrum.shared.makeAudioMix(for: probed) {
                 item.audioMix = mix
             }
-            if let localCopyForSwap, let file = await localCopyForSwap.value {
-                await self.swapToLocalFile(file, replacing: item, generation: generation)
+            if let localCopyForSwap {
+                let result = await localCopyForSwap.value
+                if let file = result.file {
+                    await self.swapToLocalFile(file, replacing: item, generation: generation, downloadSeconds: result.seconds)
+                } else if let failure = result.failure, generation == self.resolveGeneration {
+                    DiagnosticLogStore.shared.append(
+                        level: .warning, category: "播放音质", message: "FLAC 没能下载到本机，继续用网络播放",
+                        detail: failure + "。拖动进度条后歌词可能偏几秒。")
+                }
             }
         }
 
