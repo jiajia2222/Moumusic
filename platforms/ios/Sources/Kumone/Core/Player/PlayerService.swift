@@ -679,7 +679,9 @@ final class PlayerService: ObservableObject {
     /// a difference means the clock stood still or jumped while the sound went on (or the other way round), which is what
     /// makes the lyrics drift away from the sound.
     private func watchClock(_ clock: TimeInterval) {
-        guard isPlaying, !isBuffering, !isScrubbing, engine.rate > 0 else { clockWatch = nil; return }
+        // A seek moves the clock on purpose: the window starts again 2 seconds after the last one.
+        guard isPlaying, !isBuffering, !isScrubbing, engine.rate > 0, !seekInFlight, queuedSeekTarget == nil,
+              Date().timeIntervalSince(lastSeekRequestAt) > 2 else { clockWatch = nil; return }
         let now = Date()
         guard let start = clockWatch else { clockWatch = (now, clock); return }
         let wall = now.timeIntervalSince(start.wall)
@@ -1058,6 +1060,7 @@ final class PlayerService: ObservableObject {
         )
         queuedSeekTarget = seconds
         pendingSeekPosition = seconds
+        clockWatch = nil
         lastSeekRequestAt = Date()
         if let completion { queuedSeekCompletions.append(completion) }
         drainSeek()
@@ -1079,6 +1082,13 @@ final class PlayerService: ObservableObject {
                 self.seekInFlight = false
                 if self.queuedSeekTarget == nil {
                     self.pendingSeekPosition = nil
+                    let landed = self.engine.currentTime().seconds
+                    let took = Date().timeIntervalSince(self.lastSeekRequestAt)
+                    if took > 1 || (landed.isFinite && abs(landed - target) > 0.8) {
+                        DiagnosticLogStore.shared.append(
+                            level: .info, category: "播放时钟", message: "定位完成",
+                            detail: String(format: "要求 %.1f 秒，播放器落在 %.1f 秒，耗时 %.1f 秒 · ", target, landed, took) + self.clockDetail())
+                    }
                     self.updateLyricsCursor(at: self.livePlaybackTime)
                     let completions = self.queuedSeekCompletions
                     self.queuedSeekCompletions = []
