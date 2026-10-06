@@ -158,8 +158,16 @@ private struct AMLLWebRepresentable: UIViewRepresentable {
         }
 
         func update(lyrics: ParsedLyrics, showsTranslation: Bool, showsRomaji: Bool, fontSize: CGFloat) {
+            // updateUIView runs on every SwiftUI update, which are many while a song loads: hashing every word of the
+            // lyrics each time is wasteful, so the signature uses the line count, the ends and the middle of the lyrics.
             var hasher = Hasher()
-            hasher.combine(lyrics)
+            hasher.combine(lyrics.lines.count)
+            for line in [lyrics.lines.first, lyrics.lines.last, lyrics.lines.isEmpty ? nil : lyrics.lines[lyrics.lines.count / 2]] {
+                hasher.combine(line?.text)
+                hasher.combine(line?.time)
+                hasher.combine(line?.translation)
+                hasher.combine(line?.words?.count)
+            }
             hasher.combine(showsTranslation)
             hasher.combine(showsRomaji)
             let signature = hasher.finalize()
@@ -235,11 +243,20 @@ private struct AMLLWebRepresentable: UIViewRepresentable {
             PlayerService.shared.livePlaybackTime + SettingsManager.shared.effectiveLyricsOffset
         }
 
+        private var lastSampleMs = 0
+
+        /// While a song is loading the player already reports "playing" but the position stands still. The page would
+        /// keep counting forward from the last sample and then find the next one far behind (a "jump"), over and over:
+        /// that is the stutter on every song change. So the page is only told "playing" when the position is really
+        /// moving; otherwise it holds still.
         private func pushClock() {
             guard ready else { return }
             let player = PlayerService.shared
             let ms = Int(currentSeconds() * 1000)
-            run("AMLLBridge.sync(\(ms), \(player.isPlaying), \(player.playbackRate))")
+            let moving = abs(ms - lastSampleMs) >= 30
+            lastSampleMs = ms
+            let running = player.isPlaying && !player.isBuffering && moving
+            run("AMLLBridge.sync(\(ms), \(running), \(player.playbackRate))")
         }
 
         private func run(_ script: String) {

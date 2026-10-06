@@ -43,6 +43,11 @@ html,body,#root{margin:0;padding:0;width:100%;height:100%;background:transparent
   -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
   font-family:"AMLL CJK",-apple-system,"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif}
 .amll-lyric-player{--amll-lp-color:#fff;--amll-lp-font-size:30px;mix-blend-mode:normal !important}
+/* The translation (and romaji) of the line being sung is highlighted with it; AMLL keeps it at 30% opacity. */
+.amll-lyric-player [class*="lyricLine"][class*="FmKaba_active"] [class*="lyricSubLine"]{opacity:.85 !important}
+/* Weights as in the standard lyric column: bold lines, medium translation. */
+.amll-lyric-player [class*="lyricMainLine"]{font-weight:700}
+.amll-lyric-player [class*="lyricSubLine"]{font-weight:500}
 </style>
 <style>${css}</style>
 </head>
