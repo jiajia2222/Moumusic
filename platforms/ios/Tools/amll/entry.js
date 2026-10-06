@@ -4,9 +4,14 @@ import { LyricPlayer } from "@applemusic-like-lyrics/core";
 import "@applemusic-like-lyrics/core/style.css";
 
 window.__amllErrors = [];
-window.addEventListener("error", (e) => window.__amllErrors.push(
-  `${e.message} @${e.lineno}:${e.colno} ${(e.error && e.error.stack ? e.error.stack : "").slice(0, 160)}`));
+window.addEventListener("error", (e) => (/ResizeObserver loop/.test(e.message || "") || window.__amllErrors.push(
+  `${e.message} @${e.lineno}:${e.colno} ${(e.error && e.error.stack ? e.error.stack : "").slice(0, 160)}`)));
 window.addEventListener("unhandledrejection", (e) => window.__amllErrors.push(`rejection: ${String(e.reason).slice(0, 160)}`));
+const guarded = (label, fn) => (...args) => {
+  try { return fn(...args); } catch (e) {
+    window.__amllErrors.push(`${label}: ${e && e.message} ${(e && e.stack ? e.stack : "").slice(0, 200)}`);
+  }
+};
 const post = (message) => {
   try { window.webkit.messageHandlers.amll.postMessage(message); } catch (_) {}
 };
@@ -45,12 +50,15 @@ function measureFps(now) {
   }
 }
 
-function frame(now) {
+const frameBody = guarded("frame", (now) => {
   measureFps(now);
   const delta = now - last;
   last = now;
   player.setCurrentTime(currentMs(now));
   player.update(delta);
+});
+function frame(now) {
+  frameBody(now);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -95,4 +103,5 @@ window.AMLLBridge = {
   setSpring(enabled) { player.setEnableSpring(enabled); },
 };
 
+for (const key of Object.keys(window.AMLLBridge)) { window.AMLLBridge[key] = guarded("bridge." + key, window.AMLLBridge[key]); }
 post({ type: "ready" });

@@ -59,6 +59,34 @@ final class MoumusicSmoke: XCTestCase {
         save("42-amll-3")
     }
 
+    /// AMLL lyrics while the songs change: A, then B, then A again (a restart). Screenshots after each stage.
+    @MainActor
+    func testAMLLSwitch() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-moumusic.skipUpdateCheck", "YES", "-settings.lyricsDisplayStyle", "amll", "-moumusic.debugAMLL", "YES",
+                                "-moumusic.debugNowPlaying", "lyrics", "-moumusic.debugSwitch", "YES"]
+        app.launch()
+        sleep(20)
+        save("50-switch-A")
+        sleep(12)
+        save("51-switch-B")
+        sleep(14)
+        save("52-switch-A-again")
+        sleep(10)
+        save("53-switch-final")
+    }
+
+    /// The audio is said to be shorter than the lyrics: the lyrics are looked up again, and stay when nothing fits.
+    @MainActor
+    func testLyricVersionCheck() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-moumusic.skipUpdateCheck", "YES", "-settings.lyricsDisplayStyle", "amll",
+                                "-moumusic.debugNowPlaying", "lyrics", "-moumusic.debugVersionFlow", "YES"]
+        app.launch()
+        sleep(52)
+        save("60-version-check")
+    }
+
     /// The classic player page (volume bar alignment).
     @MainActor
     func testClassicPlayer() throws {

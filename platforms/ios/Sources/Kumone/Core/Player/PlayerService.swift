@@ -2221,6 +2221,15 @@ final class PlayerService: ObservableObject {
     /// Lyrics of a track are checked against its audio once (key + generation), so replacing them cannot loop.
     private var versionCheckedKey: String?
 
+    #if DEBUG
+    /// Debug harness only: pretend the audio of the current track is `seconds` long, as if the music source played another cut.
+    func debugServeAudio(seconds: TimeInterval) {
+        guard let track = currentTrack else { return }
+        servedAudio = (track.playbackKey, seconds)
+        checkLyricsVersion(for: track, generation: resolveGeneration)
+    }
+    #endif
+
     /// Lyrics written for another cut of the song (a longer version, a live take) run past the end of the audio. Lyrics that
     /// stop earlier are normal (an outro without words), so only an overrun counts.
     static func lyricsFitAudio(_ parsed: ParsedLyrics, audio: TimeInterval?) -> Bool {

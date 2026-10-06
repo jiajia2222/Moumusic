@@ -207,6 +207,42 @@ enum DebugHarness {
                 note("nowplaying: \(track.name)")
                 try? await Task.sleep(nanoseconds: 6_000_000_000)
                 PlayerService.shared.showNowPlaying = true
+                // -moumusic.debugVersionFlow YES: the audio of the song is said to be 180 s (the lyrics run to 265 s):
+                // the lyrics must be looked up again, and when no source has better ones the shown lyrics must stay.
+                if defaults.bool(forKey: "moumusic.debugVersionFlow") {
+                    try? await Task.sleep(nanoseconds: 10_000_000_000)
+                    let before = PlayerService.shared.lyrics
+                    note("version flow: before, lyrics=\(before?.lines.count ?? -1) lines, ends \(Int(before?.endTime ?? 0)) s")
+                    PlayerService.shared.debugServeAudio(seconds: 180)
+                    try? await Task.sleep(nanoseconds: 25_000_000_000)
+                    let after = PlayerService.shared.lyrics
+                    note("version flow: after,  lyrics=\(after?.lines.count ?? -1) lines, ends \(Int(after?.endTime ?? 0)) s")
+                }
+                // -moumusic.debugSwitch YES: song A -> song B -> song A again (a restart), with the lyric state noted each time.
+                if defaults.bool(forKey: "moumusic.debugSwitch") {
+                    let second = ((try? await LXCatalogService.search("周杰伦 稻香", platform: .tx, limit: 5)) ?? [])
+                        .first(where: { $0.duration > 90 })
+                    func lyricState(_ label: String) {
+                        let lyrics = PlayerService.shared.lyrics
+                        note("\(label): lyrics=\(lyrics == nil ? "nil" : "\(lyrics?.lines.count ?? 0) lines, ends \(Int(lyrics?.endTime ?? 0)) s")")
+                    }
+                    try? await Task.sleep(nanoseconds: 12_000_000_000)
+                    lyricState("A after 12 s")
+                    if let second {
+                        PlayerService.shared.play(tracks: [second.normalizedForLXPlayback()], source: .none)
+                        note("switched to B: \(second.name)")
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        lyricState("B after 3 s")
+                        try? await Task.sleep(nanoseconds: 11_000_000_000)
+                        lyricState("B after 14 s")
+                    }
+                    PlayerService.shared.play(tracks: [track.normalizedForLXPlayback()], source: .none)
+                    note("back to A (restart)")
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    lyricState("A again after 3 s")
+                    try? await Task.sleep(nanoseconds: 11_000_000_000)
+                    lyricState("A again after 14 s")
+                }
             } else {
                 note("nowplaying: no track")
             }
