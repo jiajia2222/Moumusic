@@ -121,12 +121,18 @@ enum LyricsParser {
         func merge(_ body: String?, into keyPath: WritableKeyPath<LyricLine, String?>) {
             guard let body, !body.isEmpty else { return }
             let secondary = parseLRC(body).filter { !$0.text.isEmpty }
-            for index in lines.indices {
-                guard let nearest = secondary.min(by: {
-                    abs($0.time - lines[index].time) < abs($1.time - lines[index].time)
-                }), abs(nearest.time - lines[index].time) < 0.3 else { continue }
-                lines[index][keyPath: keyPath] = nearest.text
+            // Every translated line goes to the one main line nearest to it (within 0.3 s). Looking from the main lines
+            // instead gave the credits at the start of a song (0.0 - 0.4 s) the translation of the first sung line too.
+            var assigned: [Int: (delta: TimeInterval, text: String)] = [:]
+            for second in secondary {
+                guard let index = lines.indices.min(by: {
+                    abs(lines[$0].time - second.time) < abs(lines[$1].time - second.time)
+                }) else { continue }
+                let delta = abs(lines[index].time - second.time)
+                guard delta < 0.3 else { continue }
+                if assigned[index] == nil || delta < assigned[index]!.delta { assigned[index] = (delta, second.text) }
             }
+            for (index, value) in assigned { lines[index][keyPath: keyPath] = value.text }
         }
 
         merge(tlyric, into: \.translation)
@@ -355,18 +361,22 @@ enum LyricsParser {
             guard let body, !body.isEmpty else { return }
             let secondary = parseLRC(body).filter { !$0.text.isEmpty }
             guard !secondary.isEmpty else { return }
-            for i in lines.indices {
-                // Nearest secondary line within 0.3s: verbatim (yrc) line times
-                // can differ from the lrc-based translation/romaji by a few ms.
-                var best: (delta: TimeInterval, text: String)?
-                for (time, text) in secondary {
+            // Every translated line goes to the one main line nearest to it (within 0.3 s; verbatim (yrc) line times
+            // can differ from the lrc-based translation/romaji by a few ms). Looking from the main lines instead gave
+            // the credits at the start of a song the translation of the first sung line too.
+            var assigned: [Int: (delta: TimeInterval, text: String)] = [:]
+            for (time, text) in secondary {
+                var nearest: (index: Int, delta: TimeInterval)?
+                for i in lines.indices {
                     let delta = abs(time - lines[i].time)
-                    if best == nil || delta < best!.delta { best = (delta, text) }
+                    if nearest == nil || delta < nearest!.delta { nearest = (i, delta) }
                 }
-                if let best, best.delta < 0.3 {
-                    lines[i][keyPath: keyPath] = best.text
+                guard let nearest, nearest.delta < 0.3 else { continue }
+                if assigned[nearest.index] == nil || nearest.delta < assigned[nearest.index]!.delta {
+                    assigned[nearest.index] = (nearest.delta, text)
                 }
             }
+            for (i, value) in assigned { lines[i][keyPath: keyPath] = value.text }
         }
 
         // Some responses include a partial ytlrc body and a complete tlyric

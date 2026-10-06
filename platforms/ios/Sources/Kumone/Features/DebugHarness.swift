@@ -286,8 +286,15 @@ enum DebugHarness {
                 note("audio url: \(player.debugAudioURL ?? "-")")
                 // The lyric lines (start times), written once the lyrics are in, for comparing with the audio.
                 for _ in 0..<20 where (player.lyrics?.lines.isEmpty ?? true) { try? await Task.sleep(nanoseconds: 1_000_000_000) }
-                let lineDump = (player.lyrics?.lines ?? []).map { String(format: "%.2f", $0.time) + "|" + $0.text.prefix(24) }
-                try? lineDump.joined(separator: "\n").write(to: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("lyric-lines.txt"), atomically: true, encoding: .utf8)
+                try? await Task.sleep(nanoseconds: 4_000_000_000)  // the translation is added a moment after the lyrics
+                var dumpRows: [String] = []
+                for line in player.lyrics?.lines ?? [] {
+                    let head = String(format: "%.2f", line.time)
+                    let text = String(line.text.prefix(24))
+                    dumpRows.append(head + "|" + text + "|" + (line.translation ?? "-"))
+                }
+                let dumpURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("lyric-lines.txt")
+                try? dumpRows.joined(separator: "\n").write(to: dumpURL, atomically: true, encoding: .utf8)
                 let wallStart = Date()
                 let clockStart = player.livePlaybackTime
                 for _ in 0..<4 {
