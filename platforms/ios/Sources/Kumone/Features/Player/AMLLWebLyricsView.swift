@@ -175,7 +175,18 @@ private struct AMLLWebRepresentable: UIViewRepresentable {
                 self.fontSize = fontSize
                 if ready { run("AMLLBridge.setFontSize(\(fontSize))") }
             }
-            guard signature != loadedSignature, signature != pending?.signature else { return }
+            if signature == loadedSignature {
+                // The lyrics that are on the page came back (a song restarted, or the same song again) while something else
+                // was waiting to be loaded - typically the empty lyrics of the moment in between. Drop the waiting load and
+                // show the page again; otherwise the empty lyrics would replace them.
+                if pending != nil {
+                    pending = nil
+                    flushWork?.cancel()
+                    fade(to: loadedHasContent ? 1 : 0, duration: 0.2, delay: 0)
+                }
+                return
+            }
+            guard signature != pending?.signature else { return }
             // New lines are coming: hide the old ones at once, and wait a moment so that the several updates a song change
             // produces (loading state, a first lyric, a better one) become a single load.
             if loadedSignature != nil { fade(to: 0, duration: 0.12, delay: 0) }
@@ -187,6 +198,8 @@ private struct AMLLWebRepresentable: UIViewRepresentable {
         }
 
         private var flushWork: DispatchWorkItem?
+        /// Whether the lines on the page are real lyrics (not the empty placeholder between two songs).
+        private var loadedHasContent = false
 
         private func fade(to alpha: CGFloat, duration: TimeInterval, delay: TimeInterval) {
             guard let web else { return }
@@ -199,6 +212,7 @@ private struct AMLLWebRepresentable: UIViewRepresentable {
             guard ready, let pending else { return }
             self.pending = nil
             loadedSignature = pending.signature
+            loadedHasContent = !pending.lyrics.isEmpty
             let payload = Self.payload(for: pending.lyrics, translation: pending.translation, romaji: pending.romaji)
             let ms = Int(currentSeconds() * 1000)
             run("AMLLBridge.setFontSize(\(fontSize)); AMLLBridge.load(\(payload), \(ms))")
