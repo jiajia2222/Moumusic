@@ -102,9 +102,9 @@ struct FeedbackSheet: View {
                 add(urls: urls)
             }
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result {
-                add(urls: urls, securityScoped: true)
+        .sheet(isPresented: $showFileImporter) {
+            CopyingDocumentPicker(contentTypes: [.item], allowsMultipleSelection: true) { urls in
+                add(urls: urls)
             }
         }
         .sheet(isPresented: $showHistory) {

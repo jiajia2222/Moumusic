@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 import UniformTypeIdentifiers
 
 struct LocalPlaylistsView: View {
@@ -480,6 +480,18 @@ struct ImportPlaylistSheet: View {
                     Button("取消") { dismiss() }
                 }
             }
+            #if os(iOS)
+            .sheet(isPresented: $showFileImporter) {
+                CopyingDocumentPicker(contentTypes: [.item]) { urls in
+                    guard let url = urls.first else { return }
+                    do {
+                        input = try readTextFile(at: url)
+                    } catch {
+                        errorMessage = "读取文件失败：\(error.localizedDescription)"
+                    }
+                }
+            }
+            #else
             .fileImporter(
                 isPresented: $showFileImporter,
                 allowedContentTypes: [.item],
@@ -494,6 +506,7 @@ struct ImportPlaylistSheet: View {
                     errorMessage = "读取文件失败：\(error.localizedDescription)"
                 }
             }
+            #endif
             .alert("导入失败", isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }

@@ -1,6 +1,7 @@
-﻿name: iOS unsigned IPAs
+name: iOS unsigned IPAs
 
 # Two unsigned IPAs. Never creates a release.
+# The build number is the run number + 25 (IPA and image host alike): builds made on the Mac went past the run number.
 #   full   : platforms/ios         (Kumone-based Moumusic, iOS 26+, all features)
 #   compat : platforms/ios + platforms/ios15 (same sources, iOS 15-18)
 on:
@@ -58,7 +59,7 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
-            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CURRENT_PROJECT_VERSION="$((GITHUB_RUN_NUMBER + 25))" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
             build 2>&1 | tee build.log | tail -n 400
 
@@ -127,7 +128,7 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
-            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CURRENT_PROJECT_VERSION="$((GITHUB_RUN_NUMBER + 25))" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
             build 2>&1 | tee build.log | tail -n 400
 
@@ -169,7 +170,7 @@ jobs:
         env:
           IMGBED_TOKEN: ${{ secrets.IMGBED_TOKEN }}
           CHANNEL: ios26
-          BUILD: ${{ github.run_number }}
+          BUILD: ${{ github.run_number + 25 }}
           IPA: dl/Moumusic-full-ios26-unsigned.ipa
         run: |
           export VERSION="$(grep -m1 '^MARKETING_VERSION' platforms/ios/ios/Config/Shared.xcconfig | sed -E 's/.*= *//')"
@@ -192,7 +193,7 @@ jobs:
         env:
           IMGBED_TOKEN: ${{ secrets.IMGBED_TOKEN }}
           CHANNEL: compat
-          BUILD: ${{ github.run_number }}
+          BUILD: ${{ github.run_number + 25 }}
           IPA: dl/Moumusic-compat-ios15-18-unsigned.ipa
         run: |
           export VERSION="$(grep -m1 '^MARKETING_VERSION' platforms/ios/ios/Config/Shared.xcconfig | sed -E 's/.*= *//')"
