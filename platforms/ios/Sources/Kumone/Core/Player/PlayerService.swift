@@ -2325,6 +2325,9 @@ final class PlayerService: ObservableObject {
             guard Self.lyricsFitAudio(parsed, audio: audioDuration), parsed.lines.count * 2 >= shownLineCount else { return false }
             if parsed.lines.count <= 3, track.duration > 90 {
                 stubFallback = stubFallback ?? parsed
+                DiagnosticLogStore.shared.append(
+                    level: .warning, category: "歌词", message: "\(track.name)：跳过只有 \(parsed.lines.count) 行的残缺歌词",
+                    detail: parsed.lines.prefix(3).map(\.text).joined(separator: " / "))
                 return false
             }
             return true
@@ -2428,7 +2431,7 @@ final class PlayerService: ObservableObject {
             }
             if let best = ranked.first {
                 DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "逐字歌词候选",
-                    detail: ranked.map { String(format: "%@ 首句%.2f 末句%.2f 一致%d", $0.name,
+                    detail: ranked.map { String(format: "%@ %d行 首句%.2f 末句%.2f 一致%d", $0.name, $0.lyrics.lines.count,
                         $0.lyrics.lines.first(where: { !$0.text.isEmpty })?.time ?? 0, $0.lyrics.endTime, agreement($0)) }
                         .joined(separator: " | ") + String(format: " | 音频 %.1f", audioDuration ?? 0))
                 publishLyrics(best.lyrics, for: track, generation: generation)
