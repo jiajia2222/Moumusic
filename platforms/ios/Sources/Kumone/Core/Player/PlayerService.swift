@@ -603,6 +603,7 @@ final class PlayerService: ObservableObject {
                 // Only briefly: a slow streamed seek must not freeze the lyrics while the audio keeps playing.
                 if (self.seekInFlight || self.queuedSeekTarget != nil),
                    Date().timeIntervalSince(self.lastSeekRequestAt) < 0.8 { return }
+                self.watchClock(seconds)
 
                 // Self-healing: once no fade is running, the audible state must match what the UI says
                 // (an interrupted fade used to leave the song playing after "pause", or silent after play).
@@ -640,11 +641,65 @@ final class PlayerService: ObservableObject {
         statusObservation = engine.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
             Task { @MainActor in
                 self?.isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                self?.noteWaiting(player)
+            }
+        }
+        // The item's time jumped on its own (not through our seek): a stream that reconnects and lands somewhere else is
+        // one way for the lyrics to end up seconds away from the sound.
+        NotificationCenter.default.addObserver(forName: AVPlayerItem.timeJumpedNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.pendingSeekPosition == nil, self.queuedSeekTarget == nil, !self.seekInFlight,
+                      Date().timeIntervalSince(self.lastSeekRequestAt) > 2,
+                      self.engine.currentTime().seconds > 1 else { return }
+                DiagnosticLogStore.shared.append(
+                    level: .warning, category: "播放时钟", message: "播放位置发生跳变（不是你拖动造成的）",
+                    detail: String(format: "跳到 %.1f 秒 · %@", self.engine.currentTime().seconds, self.clockDetail()))
             }
         }
 
         NowPlayingManager.shared.attach(to: self)
         restoreState()
+    }
+
+    // MARK: - Clock watch (diagnostics)
+
+    private var clockWatch: (wall: Date, clock: TimeInterval)?
+    private var lastWaitLogAt = Date.distantPast
+
+    private func clockDetail() -> String {
+        var parts = ["状态 \(engine.timeControlStatus.rawValue)", String(format: "速率 %.2f", engine.rate)]
+        if let event = engine.currentItem?.accessLog()?.events.last {
+            parts.append("卡顿 \(event.numberOfStalls) 次")
+            if event.observedBitrate > 0 { parts.append(String(format: "下载码率 %.0f kbps", event.observedBitrate / 1000)) }
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// While the song plays, the player clock must advance as fast as the wall clock. Every 10 seconds the two are compared;
+    /// a difference means the clock stood still or jumped while the sound went on (or the other way round), which is what
+    /// makes the lyrics drift away from the sound.
+    private func watchClock(_ clock: TimeInterval) {
+        guard isPlaying, !isBuffering, !isScrubbing, engine.rate > 0 else { clockWatch = nil; return }
+        let now = Date()
+        guard let start = clockWatch else { clockWatch = (now, clock); return }
+        let wall = now.timeIntervalSince(start.wall)
+        guard wall >= 10 else { return }
+        let drift = (clock - start.clock) - wall * Double(engine.rate)
+        if abs(drift) > 0.15 {
+            DiagnosticLogStore.shared.append(
+                level: .warning, category: "播放时钟", message: String(format: "播放时钟 %.0f 秒内与实际时间差 %+.2f 秒", wall, drift),
+                detail: String(format: "正数：时钟跑在实际时间前面；负数：时钟被卡住或落后。位置 %.1f 秒 · ", clock) + clockDetail())
+        }
+        clockWatch = (now, clock)
+    }
+
+    private func noteWaiting(_ player: AVPlayer) {
+        guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate, isPlaying,
+              Date().timeIntervalSince(lastWaitLogAt) > 2 else { return }
+        lastWaitLogAt = Date()
+        DiagnosticLogStore.shared.append(
+            level: .info, category: "播放时钟", message: "缓冲等待",
+            detail: String(format: "位置 %.1f 秒 · 原因 %@ · ", player.currentTime().seconds, player.reasonForWaitingToPlay?.rawValue ?? "-") + clockDetail())
     }
 
     /// Set while the user drags the seek bar so the time observer doesn't fight the thumb.

@@ -297,7 +297,7 @@ enum DebugHarness {
                 try? dumpRows.joined(separator: "\n").write(to: dumpURL, atomically: true, encoding: .utf8)
                 let wallStart = Date()
                 let clockStart = player.livePlaybackTime
-                for _ in 0..<4 {
+                for _ in 0..<8 {
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                     let wall = Date().timeIntervalSince(wallStart)
                     let clock = player.livePlaybackTime - clockStart
