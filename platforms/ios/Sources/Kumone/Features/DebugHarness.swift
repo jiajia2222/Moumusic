@@ -210,7 +210,7 @@ enum DebugHarness {
                 // -moumusic.debugVersionFlow YES: the audio of the song is said to be 180 s (the lyrics run to 265 s):
                 // the lyrics must be looked up again, and when no source has better ones the shown lyrics must stay.
                 if defaults.bool(forKey: "moumusic.debugVersionFlow") {
-                    try? await Task.sleep(nanoseconds: 10_000_000_000)
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
                     let before = PlayerService.shared.lyrics
                     note("version flow: before, lyrics=\(before?.lines.count ?? -1) lines, ends \(Int(before?.endTime ?? 0)) s")
                     PlayerService.shared.debugServeAudio(seconds: 180)
@@ -291,7 +291,7 @@ enum DebugHarness {
                 let wallStart = Date()
                 let clockStart = player.livePlaybackTime
                 for _ in 0..<4 {
-                    try? await Task.sleep(nanoseconds: 10_000_000_000)
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
                     let wall = Date().timeIntervalSince(wallStart)
                     let clock = player.livePlaybackTime - clockStart
                     note(String(format: "sync: wall %.1fs clock %.1fs (clock - wall = %+.2fs) at song time %.1fs playing=%d",

@@ -629,6 +629,10 @@ final class PlayerService: ObservableObject {
             }
         }
 
+#if targetEnvironment(simulator)
+        // The simulator plays through the Mac's speakers: tests and debug runs stay silent.
+        engine.isMuted = true
+#endif
         statusObservation = engine.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
             Task { @MainActor in
                 self?.isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate

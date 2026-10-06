@@ -13,7 +13,6 @@ struct MyProfileView: View {
     @EnvironmentObject private var kugou: KugouSessionStore
     @EnvironmentObject private var bilibili: BilibiliSessionStore
     @Environment(\.openLogin) private var openLogin
-    @StateObject private var syncStore = ListeningSyncStore.shared
     @StateObject private var moumusicServer = MoumusicServerStore.shared
     @State private var showDownloads = false
     @State private var showMoumusicAdminLogin = false
@@ -38,7 +37,6 @@ struct MyProfileView: View {
                 header
                 compactIdentity
                 accountSourcesCard
-                listeningCard
                 quickLinks
                 appearanceCard
                 supportCard
@@ -501,27 +499,6 @@ struct MyProfileView: View {
                     .foregroundStyle(Theme.accent)
                 }
                 }
-            }
-        }
-    }
-
-    private var listeningCard: some View {
-        MouGlassCard {
-            VStack(alignment: .leading, spacing: 13) {
-                Label("听歌时长", systemImage: "waveform.path.ecg")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(Theme.accent)
-                HStack(spacing: 10) {
-                    metric(title: "累计时长", value: syncStore.formattedDuration)
-                    metric(title: "已同步歌曲", value: "\(syncStore.syncedTrackCount)")
-                    // The local counters survive logout, but they must not
-                    // claim that the current account is still synchronized.
-                    metric(title: "状态", value: syncStore.platformStatusText)
-                }
-                Text("网易云音乐账号负责同步最近播放与听歌时长；播放仍使用已选择的 LX 音源。未登录时不会尝试同步。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
