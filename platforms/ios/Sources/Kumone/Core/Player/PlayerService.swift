@@ -1578,7 +1578,9 @@ final class PlayerService: ObservableObject {
             // and the lyrics drift: a streamed Hi-Res FLAC without a seek table was seconds off while the same
             // song at standard quality was right); on other remote formats it makes AVPlayer scan the stream
             // first, which froze loading and fast scrubbing.
-            if ["mp3", "flac"].contains(url.pathExtension.lowercased()) {
+            let preciseFLAC = UserDefaults.standard.object(forKey: "moumusic.lyrics.preciseFLAC") as? Bool ?? true
+            let ext = url.pathExtension.lowercased()
+            if ext == "mp3" || (ext == "flac" && preciseFLAC) {
                 asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
             } else {
                 asset = AVURLAsset(url: url)
@@ -2363,10 +2365,31 @@ final class PlayerService: ObservableObject {
         // NetEase (YRC) at the same time, keep the ones that are the same recording as the audio, and take the one whose
         // length is closest to it. The song's own platform wins a tie.
         if SettingsManager.shared.verbatimLyrics {
-            async let qq = Self.verbatimFromQQ(track, sourceKey: sourceKey)
-            async let wy = Self.verbatimFromNetease(track, sourceKey: sourceKey)
-            async let kg = Self.verbatimFromKugou(track, sourceKey: sourceKey)
-            let found: [(name: String, lyrics: ParsedLyrics?)] = [("tx", await qq), ("wy", await wy), ("kg", await kg)]
+            // The three platforms are asked at the same time. The first usable lyrics are shown after at most 1.2 more
+            // seconds for the others to arrive (to compare); a slow platform never holds the lyrics back (8 s at most).
+            var results: [String: ParsedLyrics] = [:]
+            var finished = 0
+            let jobs: [(String, () async -> ParsedLyrics?)] = [
+                ("tx", { await Self.verbatimFromQQ(track, sourceKey: sourceKey) }),
+                ("wy", { await Self.verbatimFromNetease(track, sourceKey: sourceKey) }),
+                ("kg", { await Self.verbatimFromKugou(track, sourceKey: sourceKey) }),
+            ]
+            for (name, work) in jobs {
+                Task {
+                    let lyrics = await work()
+                    if let lyrics { results[name] = lyrics }
+                    finished += 1
+                }
+            }
+            let waitStart = Date()
+            var firstUsableAt: Date?
+            while finished < jobs.count, Date().timeIntervalSince(waitStart) < 8 {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                guard !Task.isCancelled, generation == resolveGeneration else { return }
+                if firstUsableAt == nil, !results.isEmpty { firstUsableAt = Date() }
+                if let firstUsableAt, Date().timeIntervalSince(firstUsableAt) > 1.2 { break }
+            }
+            let found: [(name: String, lyrics: ParsedLyrics?)] = jobs.map { ($0.0, results[$0.0]) }
             guard !Task.isCancelled, generation == resolveGeneration else { return }
             let usable = found.compactMap { item -> (name: String, lyrics: ParsedLyrics, gap: Double)? in
                 guard let lyrics = item.lyrics, !lyrics.isEmpty, fits(lyrics) else { return nil }
