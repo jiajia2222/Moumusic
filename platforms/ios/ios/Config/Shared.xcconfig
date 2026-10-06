@@ -14,7 +14,7 @@ INFOPLIST_KEY_CFBundleDisplayName = Moumusic
 INFOPLIST_KEY_CFBundleDevelopmentRegion = zh-Hans
 // Keep local/Xcode builds on the current public release. CI overrides this
 // with the version from the v* tag and verifies the final app bundle.
-MARKETING_VERSION = 1.0.72
+MARKETING_VERSION = 1.0.73
 CURRENT_PROJECT_VERSION = 142
 DEVELOPMENT_TEAM = 
 CODE_SIGN_STYLE = Automatic
@@ -35,7 +35,7 @@ GENERATE_INFOPLIST_FILE = YES
 // UILaunchScreen is declared explicitly in Config/Info.plist. Do not use
 // INFOPLIST_KEY_UILaunchScreen_Generation: Xcode can emit a nested value that
 // iOS ignores, leaving large devices in letterboxed compatibility mode.
-// UIBackgroundModes has no INFOPLIST_KEY_ build setting — it must come from
+// UIBackgroundModes has no INFOPLIST_KEY_ build setting ??it must come from
 // the partial Info.plist merged with the generated one.
 // The default files are kept in source control. `make configure-carplay`
 // writes an untracked overlay that switches these two variables to generated

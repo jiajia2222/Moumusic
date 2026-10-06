@@ -2360,7 +2360,25 @@ final class PlayerService: ObservableObject {
                 let gap = audioDuration.map { abs(lyrics.endTime - $0) } ?? 0
                 return (item.name, lyrics, gap - (own ? 1.5 : 0))
             }
-            if let best = usable.min(by: { $0.gap < $1.gap }) {
+            // Platforms time their lyrics against different cuts of a song, so a lone source can be seconds off. When several
+            // agree on where the first line starts, that is the cut most recordings share: a source that disagrees with the
+            // others loses to one they agree with.
+            func agreement(_ item: (name: String, lyrics: ParsedLyrics, gap: Double)) -> Int {
+                guard let start = item.lyrics.lines.first(where: { !$0.text.isEmpty })?.time else { return 0 }
+                return usable.filter { other in
+                    other.name != item.name
+                        && abs((other.lyrics.lines.first(where: { !$0.text.isEmpty })?.time ?? -99) - start) < 0.4
+                }.count
+            }
+            let ranked = usable.sorted { lhs, rhs in
+                let (la, ra) = (agreement(lhs), agreement(rhs))
+                return la != ra ? la > ra : lhs.gap < rhs.gap
+            }
+            if let best = ranked.first {
+                DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "逐字歌词候选",
+                    detail: ranked.map { String(format: "%@ 首句%.2f 末句%.2f 一致%d", $0.name,
+                        $0.lyrics.lines.first(where: { !$0.text.isEmpty })?.time ?? 0, $0.lyrics.endTime, agreement($0)) }
+                        .joined(separator: " | ") + String(format: " | 音频 %.1f", audioDuration ?? 0))
                 publishLyrics(best.lyrics, for: track, generation: generation)
                 return
             }
