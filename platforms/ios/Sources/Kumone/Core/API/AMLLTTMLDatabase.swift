@@ -9,8 +9,10 @@ import Foundation
 actor AMLLTTMLDatabase {
     static let shared = AMLLTTMLDatabase()
 
+    /// Off unless the user turns it on (歌词设置): the hand-timed lyrics follow the original recording, which is not always the
+    /// cut the music source plays, and then they are off by more than a platform's own lyrics.
     static var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: "moumusic.lyrics.communityDB") as? Bool ?? true
+        UserDefaults.standard.object(forKey: "moumusic.lyrics.communityDB") as? Bool ?? false
     }
 
     /// One song of the database: the file it is in and its normalised names and artists.

@@ -124,6 +124,28 @@ enum DebugHarness {
             note("done")
             return
         }
+        // -moumusic.debugVersion YES: community lyrics by title + artist, and the check against the audio length.
+        if defaults.bool(forKey: "moumusic.debugVersion") {
+            let cases: [(String, [String], TimeInterval)] = [("晴天", ["周杰伦"], 269), ("光年之外", ["G.E.M.邓紫棋"], 235),
+                                                            ("Lemon", ["米津玄師"], 255), ("夜曲", ["周杰伦"], 226)]
+            // The index loads in the background: lookups just after launch find nothing, so ask again for a while.
+            await AMLLTTMLDatabase.shared.prefetch()
+            for (title, artists, duration) in cases {
+                var found: ParsedLyrics?
+                for _ in 0..<40 {
+                    found = await AMLLTTMLDatabase.shared.lyrics(neteaseID: nil, qqIDs: [], title: title, artists: artists, duration: duration)
+                    if found != nil { break }
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+                if let found {
+                    note("db \(title): hit by title+artist, \(found.lines.count) lines, ends at \(Int(found.endTime)) s | fits audio \(Int(duration)) s: \(PlayerService.lyricsFitAudio(found, audio: duration)) | fits a 180 s cut: \(PlayerService.lyricsFitAudio(found, audio: 180))")
+                } else {
+                    note("db \(title): no hit")
+                }
+            }
+            note("done")
+            return
+        }
         // -moumusic.debugKugou YES: with the stored Kugou session, run the device registration a few times and then
         // read the account's cloud playlists. Prints counts only (no names, no tokens).
         if defaults.bool(forKey: "moumusic.debugKugou") {

@@ -1384,7 +1384,7 @@ private struct LyricSupplementalText: View {
 /// Player-page lyric controls.  These belong next to the lyrics because the
 /// useful choice is per listening session, not a buried global setting.
 private struct LyricPresentationSheet: View {
-    @AppStorage("moumusic.lyrics.communityDB") private var communityLyrics = true
+    @AppStorage("moumusic.lyrics.communityDB") private var communityLyrics = false
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
     @Environment(\.dismiss) private var dismiss
