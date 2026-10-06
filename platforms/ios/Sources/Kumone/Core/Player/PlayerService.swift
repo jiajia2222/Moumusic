@@ -2333,6 +2333,20 @@ final class PlayerService: ObservableObject {
     }
 #endif
 
+    /// The lyrics of the song's own platform: its word-by-word lyrics when it has them, otherwise whatever the catalogue
+    /// serves (usually line-timed). Looked up first, since they belong to the entry the user is playing.
+    private static func ownPlatformLyrics(_ track: Track, sourceKey: String) async -> ParsedLyrics? {
+        switch sourceKey {
+        case "tx", "qq": if let own = await verbatimFromQQ(track, sourceKey: sourceKey) { return own }
+        case "wy", "netease", "163": if let own = await verbatimFromNetease(track, sourceKey: sourceKey) { return own }
+        case "kg": if let own = await verbatimFromKugou(track, sourceKey: sourceKey) { return own }
+        default: break
+        }
+        guard !sourceKey.isEmpty, let native = try? await LXCatalogService.nativeLyrics(for: track) else { return nil }
+        let parsed = LyricsParser.parseLX(lyric: native.lyric, tlyric: native.tlyric, rlyric: native.rlyric, lxlyric: native.lxlyric)
+        return parsed.isEmpty ? nil : parsed
+    }
+
     private func loadLyrics(for track: Track, generation: Int, audioDuration: TimeInterval? = nil) async {
 #if os(iOS)
         guard !Task.isCancelled, generation == resolveGeneration else { return }
@@ -2405,6 +2419,16 @@ final class PlayerService: ObservableObject {
             // seconds for the others to arrive (to compare); a slow platform never holds the lyrics back (8 s at most).
             var results: [String: ParsedLyrics] = [:]
             var finished = 0
+            // The song's own platform is asked at the same time and goes first: its word-by-word lyrics are shown as soon as
+            // they arrive, its line-timed lyrics are kept in case no platform has word-by-word ones.
+            var ownResult: ParsedLyrics?
+            var ownDone = false
+            var ownChecked = false
+            Task {
+                let own = await Self.ownPlatformLyrics(track, sourceKey: sourceKey)
+                ownResult = own
+                ownDone = true
+            }
             let jobs: [(String, () async -> ParsedLyrics?)] = [
                 ("tx", { await Self.verbatimFromQQ(track, sourceKey: sourceKey) }),
                 ("wy", { await Self.verbatimFromNetease(track, sourceKey: sourceKey) }),
@@ -2419,12 +2443,31 @@ final class PlayerService: ObservableObject {
             }
             let waitStart = Date()
             var firstUsableAt: Date?
-            while finished < jobs.count, Date().timeIntervalSince(waitStart) < 8 {
+            // True when the own platform's word-by-word lyrics were shown (nothing more to do).
+            func useOwnIfReady() -> Bool {
+                guard ownDone, !ownChecked else { return false }
+                ownChecked = true
+                guard let own = ownResult, fits(own) else { return false }
+                if own.hasVerbatimTimings {
+                    DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "使用歌曲所在平台的逐字歌词",
+                        detail: "\(sourceKey) · \(own.lines.count) 行")
+                    publishLyrics(own, for: track, generation: generation)
+                    return true
+                }
+                lineTimedFallback = own
+                return false
+            }
+            while finished < jobs.count || !ownDone, Date().timeIntervalSince(waitStart) < 8 {
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 guard !Task.isCancelled, generation == resolveGeneration else { return }
+                if useOwnIfReady() { return }
                 if firstUsableAt == nil, !results.isEmpty { firstUsableAt = Date() }
-                if let firstUsableAt, Date().timeIntervalSince(firstUsableAt) > 1.2 { break }
+                // The own platform gets a little longer to answer before the others decide.
+                if let firstUsableAt, Date().timeIntervalSince(firstUsableAt) > 1.2,
+                   ownDone || Date().timeIntervalSince(waitStart) > 3 { break }
             }
+            guard !Task.isCancelled, generation == resolveGeneration else { return }
+            if useOwnIfReady() { return }
             let found: [(name: String, lyrics: ParsedLyrics?)] = jobs.map { ($0.0, results[$0.0]) }
             guard !Task.isCancelled, generation == resolveGeneration else { return }
             let usable = found.compactMap { item -> (name: String, lyrics: ParsedLyrics, gap: Double)? in
