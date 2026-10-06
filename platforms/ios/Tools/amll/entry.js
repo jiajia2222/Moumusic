@@ -15,6 +15,9 @@ const root = document.getElementById("root");
 const player = new LyricPlayer();
 root.appendChild(player.getElement());
 player.setAlignPosition(0.4);
+// AMLL starts every line up to 600 ms before its timestamp (a visual lead). The app already leads the clock by its own
+// calibrated amount, so the two stacked and every song's lyrics ran early: the timestamps are used as they are.
+player.setOptimizeOptions({ tryAdvanceStartTime: false });
 
 let lines = [];
 // Clock: the last sample from Swift and the local time it arrived, extrapolated between samples.
