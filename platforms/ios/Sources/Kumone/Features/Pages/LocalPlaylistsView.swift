@@ -482,10 +482,12 @@ struct ImportPlaylistSheet: View {
             }
             #if os(iOS)
             .sheet(isPresented: $showFileImporter) {
+                // Like the source import: the chosen file is imported at once. Its text is not put into the paste box below
+                // (a big playlist export froze the text editor).
                 CopyingDocumentPicker(contentTypes: [.item]) { urls in
                     guard let url = urls.first else { return }
                     do {
-                        input = try readTextFile(at: url)
+                        importPlaylist(from: try readTextFile(at: url))
                     } catch {
                         errorMessage = "读取文件失败：\(error.localizedDescription)"
                     }
@@ -522,10 +524,14 @@ struct ImportPlaylistSheet: View {
     }
 
     private func importPlaylist() {
+        importPlaylist(from: input)
+    }
+
+    private func importPlaylist(from text: String) {
         isImporting = true
         Task {
             do {
-                _ = try await store.importPlaylist(from: input)
+                _ = try await store.importPlaylist(from: text)
                 isImporting = false
                 dismiss()
             } catch {
