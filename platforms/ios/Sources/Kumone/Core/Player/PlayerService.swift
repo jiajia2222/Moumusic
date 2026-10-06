@@ -1578,7 +1578,7 @@ final class PlayerService: ObservableObject {
             // and the lyrics drift: a streamed Hi-Res FLAC without a seek table was seconds off while the same
             // song at standard quality was right); on other remote formats it makes AVPlayer scan the stream
             // first, which froze loading and fast scrubbing.
-            let preciseFLAC = UserDefaults.standard.object(forKey: "moumusic.lyrics.preciseFLAC") as? Bool ?? true
+            let preciseFLAC = UserDefaults.standard.object(forKey: "moumusic.lyrics.preciseFLAC") as? Bool ?? false
             let ext = url.pathExtension.lowercased()
             if ext == "mp3" || (ext == "flac" && preciseFLAC) {
                 asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
@@ -2318,8 +2318,16 @@ final class PlayerService: ObservableObject {
         // (a credits line or two) and is skipped. The first look has nothing to compare with, so an instrumental's single
         // "pure music" line is still accepted.
         let shownLineCount = audioDuration != nil ? (lyrics?.lines.count ?? 0) : 0
+        // A stub (one to three lines, such as only the credits) for a full-length song is not the lyrics: it is skipped, and
+        // kept only as the last resort, so an instrumental's single "pure music" line still shows when nothing else exists.
+        var stubFallback: ParsedLyrics?
         func fits(_ parsed: ParsedLyrics) -> Bool {
-            Self.lyricsFitAudio(parsed, audio: audioDuration) && parsed.lines.count * 2 >= shownLineCount
+            guard Self.lyricsFitAudio(parsed, audio: audioDuration), parsed.lines.count * 2 >= shownLineCount else { return false }
+            if parsed.lines.count <= 3, track.duration > 90 {
+                stubFallback = stubFallback ?? parsed
+                return false
+            }
+            return true
         }
         // Keep a usable line-timed result, but continue searching for a real
         // word-timed payload.  The latter is what AMLL needs; a line-only LRC
@@ -2544,6 +2552,10 @@ final class PlayerService: ObservableObject {
         guard generation == resolveGeneration else { return }
         if let lineTimedFallback {
             publishLyrics(lineTimedFallback, for: track, generation: generation)
+            return
+        }
+        if let stubFallback, audioDuration == nil {
+            publishLyrics(stubFallback, for: track, generation: generation)
             return
         }
         // A second look (lyrics that did not fit the audio) that found nothing better leaves the shown lyrics alone.

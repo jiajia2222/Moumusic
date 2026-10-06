@@ -1385,7 +1385,7 @@ private struct LyricSupplementalText: View {
 /// useful choice is per listening session, not a buried global setting.
 private struct LyricPresentationSheet: View {
     @AppStorage("moumusic.lyrics.communityDB") private var communityLyrics = true
-    @AppStorage("moumusic.lyrics.preciseFLAC") private var preciseFLAC = true
+    @AppStorage("moumusic.lyrics.preciseFLAC") private var preciseFLAC = false
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
     @Environment(\.dismiss) private var dismiss
@@ -1434,7 +1434,7 @@ private struct LyricPresentationSheet: View {
                         Toggle("逐字歌词（仅使用真实时间轴）", isOn: $settings.verbatimLyrics)
                         Toggle("其次使用社区校对歌词库（AMLL TTML DB）", isOn: $communityLyrics)
                         Toggle("高音质（FLAC）歌词精确同步", isOn: $preciseFLAC)
-                        Text("开启：歌词全程对得上，但 Hi-Res / 母带要先读一遍文件，起播会慢几秒。关闭：起播立刻开始，个别歌曲后半段歌词可能偏几秒。下一首歌起生效。")
+                        Text("关闭（默认）：起播立刻开始，个别 Hi-Res / 母带歌曲后半段歌词可能偏几秒。开启：歌词全程对得上，但要先读一遍文件，起播和音质检测会慢几秒。下一首歌起生效。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
