@@ -280,6 +280,24 @@ enum DebugHarness {
                  + "label=\(player.servedSourceLabel ?? "-") playing=\(player.isPlaying) "
                  + String(format: "%.1fs", Date().timeIntervalSince(started))
                  + String(format: " mainThreadMaxStall=%.2fs", maxGap))
+            // -moumusic.debugSync YES: while the song plays, how far the player clock runs against the wall clock, and which
+            // lyric line it shows (to compare with what is sung at that moment).
+            if defaults.bool(forKey: "moumusic.debugSync") {
+                note("audio url: \(player.debugAudioURL ?? "-")")
+                // The lyric lines (start times), written once the lyrics are in, for comparing with the audio.
+                for _ in 0..<20 where (player.lyrics?.lines.isEmpty ?? true) { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+                let lineDump = (player.lyrics?.lines ?? []).map { String(format: "%.2f", $0.time) + "|" + $0.text.prefix(24) }
+                try? lineDump.joined(separator: "\n").write(to: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("lyric-lines.txt"), atomically: true, encoding: .utf8)
+                let wallStart = Date()
+                let clockStart = player.livePlaybackTime
+                for _ in 0..<4 {
+                    try? await Task.sleep(nanoseconds: 10_000_000_000)
+                    let wall = Date().timeIntervalSince(wallStart)
+                    let clock = player.livePlaybackTime - clockStart
+                    note(String(format: "sync: wall %.1fs clock %.1fs (clock - wall = %+.2fs) at song time %.1fs playing=%d",
+                                wall, clock, clock - wall, player.livePlaybackTime, player.isPlaying ? 1 : 0))
+                }
+            }
             player.togglePlayPause()
         }
         note("done")

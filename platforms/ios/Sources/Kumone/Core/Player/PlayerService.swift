@@ -1570,10 +1570,11 @@ final class PlayerService: ObservableObject {
                 "Referer": "https://www.bilibili.com/", "User-Agent": biliUserAgent]])
 #endif
         } else {
-            // Precise timing only for MP3 (VBR seeks otherwise land on an estimated byte offset and the
-            // lyrics drift); on other remote formats it makes AVPlayer scan the stream first, which froze
-            // loading and fast scrubbing.
-            if url.pathExtension.lowercased() == "mp3" {
+            // Precise timing for MP3 and FLAC (their seeks and positions are otherwise estimated from byte offsets
+            // and the lyrics drift: a streamed Hi-Res FLAC without a seek table was seconds off while the same
+            // song at standard quality was right); on other remote formats it makes AVPlayer scan the stream
+            // first, which froze loading and fast scrubbing.
+            if ["mp3", "flac"].contains(url.pathExtension.lowercased()) {
                 asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
             } else {
                 asset = AVURLAsset(url: url)
@@ -2234,6 +2235,9 @@ final class PlayerService: ObservableObject {
     private var versionCheckedKey: String?
 
     #if DEBUG
+    /// Debug harness only: the address of the audio that is playing.
+    var debugAudioURL: String? { (engine.currentItem?.asset as? AVURLAsset)?.url.absoluteString }
+
     /// Debug harness only: pretend the audio of the current track is `seconds` long, as if the music source played another cut.
     func debugServeAudio(seconds: TimeInterval) {
         guard let track = currentTrack else { return }
@@ -2304,7 +2308,13 @@ final class PlayerService: ObservableObject {
         let sourceKey = (track.source ?? track.sourceMetadata["source"] ?? "").lowercased()
         // Set when this is the second look for lyrics because the first ones did not fit the audio: a source whose lyrics
         // still do not fit is skipped, and nothing found means the lyrics already shown stay.
-        func fits(_ parsed: ParsedLyrics) -> Bool { Self.lyricsFitAudio(parsed, audio: audioDuration) }
+        // On the second look the lyrics shown already are real ones: a replacement with less than half of their lines is a stub
+        // (a credits line or two) and is skipped. The first look has nothing to compare with, so an instrumental's single
+        // "pure music" line is still accepted.
+        let shownLineCount = audioDuration != nil ? (lyrics?.lines.count ?? 0) : 0
+        func fits(_ parsed: ParsedLyrics) -> Bool {
+            Self.lyricsFitAudio(parsed, audio: audioDuration) && parsed.lines.count * 2 >= shownLineCount
+        }
         // Keep a usable line-timed result, but continue searching for a real
         // word-timed payload.  The latter is what AMLL needs; a line-only LRC
         // must never be split into invented per-character timings.
