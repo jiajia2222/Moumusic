@@ -1385,7 +1385,7 @@ private struct LyricSupplementalText: View {
 /// useful choice is per listening session, not a buried global setting.
 private struct LyricPresentationSheet: View {
     @AppStorage("moumusic.lyrics.communityDB") private var communityLyrics = true
-    @AppStorage("moumusic.lyrics.preciseFLAC") private var preciseFLAC = false
+    @AppStorage("moumusic.lyrics.preciseFLAC") private var preciseFLAC = true
     @EnvironmentObject private var player: PlayerService
     @EnvironmentObject private var settings: SettingsManager
     @Environment(\.dismiss) private var dismiss
@@ -1433,8 +1433,8 @@ private struct LyricPresentationSheet: View {
                     glassSection {
                         Toggle("逐字歌词（仅使用真实时间轴）", isOn: $settings.verbatimLyrics)
                         Toggle("其次使用社区校对歌词库（AMLL TTML DB）", isOn: $communityLyrics)
-                        Toggle("高音质（FLAC）歌词精确同步", isOn: $preciseFLAC)
-                        Text("实验功能，默认关闭：开启后要先读完整个 FLAC 文件才开始播放，在部分网络下会卡住，需要退出软件重进才能恢复；卡住时请关掉。关闭：起播立刻开始，个别 FLAC 歌曲后半段歌词可能偏几秒。下一首歌起生效。")
+                        Toggle("高音质（FLAC）下载到本机后精确同步", isOn: $preciseFLAC)
+                        Text("播放 FLAC 时先从网络立即开始，同时在后台下载到本机，下载完成后无缝切到本地文件，之后快进、点歌词和歌词对齐都精确（多用一首歌大小的流量和临时空间，换歌自动清理）。关闭后 FLAC 只走网络，个别歌曲拖动后歌词可能偏几秒。下一首歌起生效。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
