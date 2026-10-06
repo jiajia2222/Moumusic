@@ -464,9 +464,13 @@ final class PlayerService: ObservableObject {
     /// Live playback position straight from the player, for smooth per-frame
     /// karaoke highlighting (the published `progress` is intentionally coarse).
     var livePlaybackTime: TimeInterval {
+        // While a seek is still running the player keeps reporting the old position until the new one has data (seconds on a
+        // slow stream): the lyrics follow the target at once instead of lagging behind it.
+        if let pending = pendingSeekPosition, Date().timeIntervalSince(lastSeekRequestAt) < 8 { return pending }
         let t = engine.currentTime().seconds
         return t.isFinite ? t : progress
     }
+    private var pendingSeekPosition: TimeInterval?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
@@ -998,6 +1002,7 @@ final class PlayerService: ObservableObject {
             rate: isPlaying ? Double(playbackRate) : 0
         )
         queuedSeekTarget = seconds
+        pendingSeekPosition = seconds
         lastSeekRequestAt = Date()
         if let completion { queuedSeekCompletions.append(completion) }
         drainSeek()
@@ -1008,16 +1013,17 @@ final class PlayerService: ObservableObject {
         queuedSeekTarget = nil
         seekInFlight = true
         let isLocalFile = (engine.currentItem?.asset as? AVURLAsset)?.url.isFileURL ?? false
-        // Exact seeks only for local files; streamed ones accept a small tolerance (exact seeks need a
-        // full index and can stall for seconds).
-        // Dragging the slider chases loosely; the final (or a lyric-tap) seek is exact so lyrics stay in sync.
-        let tolerance = (isLocalFile || !isScrubbing) ? CMTime.zero : CMTime(seconds: 0.4, preferredTimescale: 600)
+        // Exact seeks only for local files; streamed ones accept a small tolerance (exact seeks need a full index and stall for
+        // seconds on a stream without one, which left the lyrics behind after a drag). The lyrics follow the position the
+        // player really lands on, so the tolerance does not put them out of sync.
+        let tolerance = isLocalFile ? CMTime.zero : CMTime(seconds: isScrubbing ? 0.4 : 0.5, preferredTimescale: 600)
         engine.seek(to: CMTime(seconds: target, preferredTimescale: 600),
                     toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 self.seekInFlight = false
                 if self.queuedSeekTarget == nil {
+                    self.pendingSeekPosition = nil
                     self.updateLyricsCursor(at: self.livePlaybackTime)
                     let completions = self.queuedSeekCompletions
                     self.queuedSeekCompletions = []
