@@ -2223,6 +2223,16 @@ final class PlayerService: ObservableObject {
         let parsed = LyricsParser.parseLX(lyric: native.lyric, tlyric: native.tlyric,
                                            rlyric: native.rlyric, lxlyric: native.lxlyric)
         guard !parsed.isEmpty, !Task.isCancelled, generation == resolveGeneration else { return }
+        // Never trade the lyrics on screen for something worse: a stub (the credits only), far fewer lines, or line-timed
+        // lyrics in place of word-timed ones. The platforms' timings of a song agree within a fraction of a second anyway.
+        let shown = lyrics
+        let shownCount = shown?.lines.count ?? 0
+        if parsed.lines.count <= 3 || parsed.lines.count * 2 < shownCount
+            || ((shown?.hasVerbatimTimings ?? false) && !parsed.hasVerbatimTimings) {
+            DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "\(track.name)：保留当前歌词，不改用 \(servedPlatform) 平台的版本",
+                                             detail: "\(servedPlatform) 的歌词 \(parsed.lines.count) 行（逐字：\(parsed.hasVerbatimTimings ? "是" : "否")），当前 \(shownCount) 行。")
+            return
+        }
         publishLyrics(parsed, for: track, generation: generation)
         DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "\(track.name)：歌词改用 \(servedPlatform) 平台的版本",
                                          detail: "音频取自 \(servedPlatform)，与歌曲自身平台的版本时长不同，歌词按实际播放的版本对齐。")
