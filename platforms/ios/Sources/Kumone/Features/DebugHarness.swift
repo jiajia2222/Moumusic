@@ -310,6 +310,18 @@ enum DebugHarness {
                 note(String(format: "seek: 4 s later position %.1fs (expected about %.1fs) playing=%d", player.livePlaybackTime,
                             100 + Date().timeIntervalSince(seekStart) - 0.0, player.isPlaying ? 1 : 0))
             }
+            // -moumusic.debugQualitySwitch YES: switch to master and back to the first quality, as the quality picker does
+            // (a crash here ends the run before "done").
+            if defaults.bool(forKey: "moumusic.debugQualitySwitch") {
+                let first = player.currentQuality
+                for target in [AudioQuality.master, first, AudioQuality.master, first] {
+                    note("quality switch -> \(target.rawValue)")
+                    player.selectQuality(target)
+                    try? await Task.sleep(nanoseconds: 6_000_000_000)
+                    note(String(format: "  after: position %.1fs playing=%d buffering=%d served=%@", player.livePlaybackTime,
+                                player.isPlaying ? 1 : 0, player.isBuffering ? 1 : 0, player.servedQuality ?? "-"))
+                }
+            }
             player.togglePlayPause()
         }
         note("done")

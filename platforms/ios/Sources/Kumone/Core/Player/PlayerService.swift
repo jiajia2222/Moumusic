@@ -950,14 +950,26 @@ final class PlayerService: ObservableObject {
         let sources = await translationSources(for: track)
         guard !sources.isEmpty, generation == resolveGeneration else { return }
 
+        // A translation belongs to the line with the same words, not to whatever line is nearest in time: the credits at the
+        // start of a song sit within a fraction of a second of the first sung line and all took its translation.
+        func key(_ text: String) -> String {
+            String(text.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+        }
+        func sameWords(_ a: String, _ b: String) -> Bool {
+            let (x, y) = (key(a), key(b))
+            guard !x.isEmpty, !y.isEmpty else { return false }
+            if x == y { return true }
+            return min(x.count, y.count) >= 8 && x.prefix(8) == y.prefix(8)
+        }
         var merged = base
         var changed = false
         for index in merged.lines.indices where merged.lines[index].translation == nil {
+            let line = merged.lines[index]
             for metadata in sources {
-                guard let nearest = metadata.lines.min(by: {
-                    abs($0.time - merged.lines[index].time) < abs($1.time - merged.lines[index].time)
-                }), abs(nearest.time - merged.lines[index].time) < 1.2,
-                      let translation = nearest.translation, !translation.isEmpty else { continue }
+                let match = metadata.lines
+                    .filter { ($0.translation?.isEmpty == false) && abs($0.time - line.time) < 4 && sameWords($0.text, line.text) }
+                    .min(by: { abs($0.time - line.time) < abs($1.time - line.time) })
+                guard let translation = match?.translation else { continue }
                 merged.lines[index].translation = translation
                 changed = true
                 break
@@ -1707,7 +1719,10 @@ final class PlayerService: ObservableObject {
             }
             // The audio came from another platform and is not the same length as this song's own entry: lyrics from
             // the song's platform are timed for a different cut. Take them from the platform that served the audio.
-            if let served = servedPlatformSnapshot, served != ownPlatform, audioSeconds.isFinite, audioSeconds > 0,
+            // With verbatim lyrics on, the lyric lookup itself picks the best platform; a second publish
+            // here swapped the lyrics a moment after the first and made the lyric page reload (the flicker at the start).
+            if !SettingsManager.shared.verbatimLyrics,
+               let served = servedPlatformSnapshot, served != ownPlatform, audioSeconds.isFinite, audioSeconds > 0,
                abs(audioSeconds - track.duration) > 0.25 {
                 Task { [weak self] in await self?.realignLyrics(for: track, servedPlatform: served, generation: generation) }
             }
