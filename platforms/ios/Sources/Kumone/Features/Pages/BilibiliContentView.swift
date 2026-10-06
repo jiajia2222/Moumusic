@@ -1379,9 +1379,18 @@ private struct BilibiliDynamicCard: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let cover = item.coverURL ?? item.video?.coverURL {
-                    CachedAsyncImage(url: cover.resizedImageURL(640))
-                        .frame(maxWidth: .infinity).aspectRatio(16 / 9, contentMode: .fill)
+                    // A fixed 16:9 canvas with the image laid over it: `aspectRatio(.fill)` on the image itself let a tall or
+                    // late-loading cover grow far past the card (the huge cover in the feed).
+                    Color.clear
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                        .overlay {
+                            CachedAsyncImage(url: cover.resizedImageURL(640))
+                                .scaledToFill()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        .frame(maxWidth: .infinity)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .clipped()
                 }
                 HStack(spacing: 16) {
                     Label(Formatters.playCount(item.likeCount), systemImage: "hand.thumbsup")
