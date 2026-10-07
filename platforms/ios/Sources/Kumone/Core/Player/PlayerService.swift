@@ -2594,8 +2594,9 @@ final class PlayerService: ObservableObject {
         // lyrics in place of word-timed ones. The platforms' timings of a song agree within a fraction of a second anyway.
         let shown = lyrics
         let shownCount = shown?.lines.count ?? 0
-        if parsed.lines.count < Self.minimumLyricLines || (shownCount > 0 && shownCount < Self.minimumLyricLines)
-            || parsed.lines.count * 2 < shownCount
+        let shownIsCredits = shown.map(Self.isCreditsOnly) ?? false
+        if parsed.lines.count < Self.minimumLyricLines || (shownCount > 0 && shownCount < Self.minimumLyricLines && !shownIsCredits)
+            || (!shownIsCredits && parsed.lines.count * 2 < shownCount)
             || ((shown?.hasVerbatimTimings ?? false) && !parsed.hasVerbatimTimings) {
             DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "\(track.name)：保留当前歌词，不改用 \(servedPlatform) 平台的版本",
                                              detail: "\(servedPlatform) 的歌词 \(parsed.lines.count) 行（逐字：\(parsed.hasVerbatimTimings ? "是" : "否")），当前 \(shownCount) 行。")
@@ -2644,6 +2645,21 @@ final class PlayerService: ObservableObject {
     /// Lyrics with fewer lines than this (an instrumental's one line, the credits alone) are shown as they are, but never
     /// replaced by lyrics downloaded from other platforms.
     static let minimumLyricLines = 6
+
+    /// Lyrics that are only the credits (作词 / 作曲 / 编曲 …): a platform that has no lyrics of the song often serves just these.
+    /// Unlike an instrumental's "pure music" line they are not an answer, so they never end the search.
+    static func isCreditsOnly(_ parsed: ParsedLyrics) -> Bool {
+        let sung = parsed.lines.map { $0.text.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !sung.isEmpty, sung.count < minimumLyricLines else { return false }
+        let labels = ["作词", "作曲", "编曲", "词", "曲", "制作人", "制作", "监制", "混音", "母带", "录音", "配唱", "和声", "演唱", "歌手",
+                      "出品", "发行", "策划", "统筹", "吉他", "贝斯", "鼓", "弦乐", "原唱", "词曲", "编写",
+                      "lyrics", "lyricist", "composer", "arranger", "producer", "music", "words", "written by", "arranged by", "mixed by"]
+        return sung.allSatisfy { line in
+            guard let colon = line.firstIndex(where: { $0 == ":" || $0 == "：" }) else { return false }
+            let label = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+            return labels.contains(label)
+        }
+    }
 
     /// Lyrics written for another cut of the song (a longer version, a live take) run past the end of the audio. Lyrics that
     /// stop earlier are normal (an outro without words), so only an overrun counts.
@@ -2814,7 +2830,7 @@ final class PlayerService: ObservableObject {
                 guard ownDone, !ownChecked else { return false }
                 ownChecked = true
                 if let own = ownResult, !own.isEmpty, audioDuration == nil, own.lines.count < Self.minimumLyricLines,
-                   Self.lyricsFitAudio(own, audio: audioDuration) {
+                   !Self.isCreditsOnly(own), Self.lyricsFitAudio(own, audio: audioDuration) {
                     DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "使用歌曲所在平台的短歌词（不到 \(Self.minimumLyricLines) 句）",
                         detail: "\(sourceKey) · \(own.lines.count) 行：照原样显示，不再去其他平台下载替换。")
                     publishLyrics(own, for: track, generation: generation)
