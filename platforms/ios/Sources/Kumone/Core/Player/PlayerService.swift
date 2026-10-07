@@ -2542,7 +2542,8 @@ final class PlayerService: ObservableObject {
         // lyrics in place of word-timed ones. The platforms' timings of a song agree within a fraction of a second anyway.
         let shown = lyrics
         let shownCount = shown?.lines.count ?? 0
-        if parsed.lines.count <= 3 || parsed.lines.count * 2 < shownCount
+        if parsed.lines.count < Self.minimumLyricLines || (shownCount > 0 && shownCount < Self.minimumLyricLines)
+            || parsed.lines.count * 2 < shownCount
             || ((shown?.hasVerbatimTimings ?? false) && !parsed.hasVerbatimTimings) {
             DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "\(track.name)：保留当前歌词，不改用 \(servedPlatform) 平台的版本",
                                              detail: "\(servedPlatform) 的歌词 \(parsed.lines.count) 行（逐字：\(parsed.hasVerbatimTimings ? "是" : "否")），当前 \(shownCount) 行。")
@@ -2587,6 +2588,10 @@ final class PlayerService: ObservableObject {
         checkLyricsVersion(for: track, generation: resolveGeneration)
     }
     #endif
+
+    /// Lyrics with fewer lines than this (an instrumental's one line, the credits alone) are shown as they are, but never
+    /// replaced by lyrics downloaded from other platforms.
+    static let minimumLyricLines = 6
 
     /// Lyrics written for another cut of the song (a longer version, a live take) run past the end of the audio. Lyrics that
     /// stop earlier are normal (an outro without words), so only an overrun counts.
@@ -2668,16 +2673,14 @@ final class PlayerService: ObservableObject {
         // (a credits line or two) and is skipped. The first look has nothing to compare with, so an instrumental's single
         // "pure music" line is still accepted.
         let shownLineCount = audioDuration != nil ? (lyrics?.lines.count ?? 0) : 0
-        // A stub (one to three lines, such as only the credits) for a full-length song is not the lyrics: it is skipped, and
-        // kept only as the last resort, so an instrumental's single "pure music" line still shows when nothing else exists.
-        var stubFallback: ParsedLyrics?
+        // Lyrics of fewer than 6 lines (an instrumental's single "pure music" line, or only the credits) are shown as they are,
+        // but they never send the search on to other platforms to replace them: the song's own platform's short lyrics are final,
+        // and short lyrics found elsewhere are only the last resort when nothing better exists.
+        var shortFinal: ParsedLyrics?
         func fits(_ parsed: ParsedLyrics) -> Bool {
             guard Self.lyricsFitAudio(parsed, audio: audioDuration), parsed.lines.count * 2 >= shownLineCount else { return false }
-            if parsed.lines.count <= 3, track.duration > 90 {
-                stubFallback = stubFallback ?? parsed
-                DiagnosticLogStore.shared.append(
-                    level: .warning, category: "歌词", message: "\(track.name)：跳过只有 \(parsed.lines.count) 行的残缺歌词",
-                    detail: parsed.lines.prefix(3).map(\.text).joined(separator: " / "))
+            if parsed.lines.count < Self.minimumLyricLines {
+                if shortFinal == nil { shortFinal = parsed }
                 return false
             }
             return true
@@ -2758,6 +2761,13 @@ final class PlayerService: ObservableObject {
             func useOwnIfReady() -> Bool {
                 guard ownDone, !ownChecked else { return false }
                 ownChecked = true
+                if let own = ownResult, !own.isEmpty, audioDuration == nil, own.lines.count < Self.minimumLyricLines,
+                   Self.lyricsFitAudio(own, audio: audioDuration) {
+                    DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "使用歌曲所在平台的短歌词（不到 \(Self.minimumLyricLines) 句）",
+                        detail: "\(sourceKey) · \(own.lines.count) 行：照原样显示，不再去其他平台下载替换。")
+                    publishLyrics(own, for: track, generation: generation)
+                    return true
+                }
                 guard let own = ownResult, fits(own) else { return false }
                 if own.hasVerbatimTimings {
                     DiagnosticLogStore.shared.append(level: .info, category: "歌词", message: "使用歌曲所在平台的逐字歌词",
@@ -2936,8 +2946,9 @@ final class PlayerService: ObservableObject {
             publishLyrics(lineTimedFallback, for: track, generation: generation)
             return
         }
-        if let stubFallback, audioDuration == nil {
-            publishLyrics(stubFallback, for: track, generation: generation)
+        // Short lyrics found somewhere (none of the platforms had real ones) are shown after all.
+        if let shortFinal, audioDuration == nil {
+            publishLyrics(shortFinal, for: track, generation: generation)
             return
         }
         // A second look (lyrics that did not fit the audio) that found nothing better leaves the shown lyrics alone.
