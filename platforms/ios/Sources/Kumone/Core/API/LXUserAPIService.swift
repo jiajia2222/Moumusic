@@ -509,7 +509,9 @@ final class LXUserAPIService: ObservableObject {
         var crossStartedAt: Date?
         for passIndex in 0..<3 {
         if passIndex == 1 { crossStartedAt = Date() }
-        if passIndex == 2, downgradedFallback != nil { break }
+        // The step-down pass is skipped when something good enough already answered: a lossless tier. A lossy answer to a
+        // request for a higher tier (a source that gives 128k when asked for Spatial) is not the best the source has.
+        if passIndex == 2, let held = downgradedFallback, Self.qualityRank(held.quality) >= Self.qualityRank("flac") { break }
         var candidates: [MusicURLCandidate] = []
 
         // Collect all possible source/platform/quality combinations first.
@@ -587,7 +589,7 @@ final class LXUserAPIService: ObservableObject {
         for candidate in candidates {
             if deadCandidates.contains("\(candidate.source.id)/\(candidate.platform)") { continue }
             // Already holding a lower-tier answer: do not keep every other source busy for long.
-            if downgradedFallback != nil, Date().timeIntervalSince(startedAt) > 6 { break }
+            if passIndex != 2, downgradedFallback != nil, Date().timeIntervalSince(startedAt) > 6 { break }
             guard await activate(candidate.source) else {
                 failures.append("\(candidate.source.name)/\(candidate.platform): unavailable")
                 continue
@@ -703,6 +705,15 @@ final class LXUserAPIService: ObservableObject {
                         break
                     }
                     if actualRank >= wantedRank { return resolved }
+                    // Step-down pass: the source answered a tier below the one asked: try the next one down. An answer as good
+                    // as the tier asked is the best the source has for this song (it refused every higher tier).
+                    if passIndex == 2 {
+                        if downgradedFallback == nil || actualRank > Self.qualityRank(downgradedFallback?.quality ?? "") {
+                            downgradedFallback = resolved
+                        }
+                        if actualRank >= Self.qualityRank(tier) { return resolved }
+                        continue
+                    }
                     // A source can claim Atmos/Master capability globally while returning a lower tier for
                     // this particular track. Keep the BEST such answer as the last resort and let the other
                     // enabled sources try for the requested tier.

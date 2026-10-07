@@ -1053,6 +1053,12 @@ final class PlayerService: ObservableObject {
     private var localFLACDeletion: [String: Task<Void, Never>] = [:]
     /// The copy of the song that is playing now (it is never deleted under the player).
     private var currentLocalFLACKey: String?
+    /// The streamed FLAC that a local copy is being made for, whether it was seeked in while it streamed (its positions are then
+    /// estimated), and a finished copy waiting for the next seek. Playing it straight through needs no hand-over: only a seek
+    /// does, and the hand-over is then part of the seek (no extra gap in the music).
+    private var streamedFLACItem: AVPlayerItem?
+    private var streamSeeked = false
+    private var readyLocalSwap: (file: URL, key: String, item: AVPlayerItem, generation: Int, download: Double, convert: Double)?
     /// How long a song's copy stays after the song is left: played again within this time, the copy is used at once.
     private static let localFLACKeepSeconds: UInt64 = 60
 
@@ -1186,7 +1192,32 @@ final class PlayerService: ObservableObject {
     /// the sound can be seconds away from the position the player reports, and the lyrics follow that position. Once the
     /// same file is on the device (downloaded in the background while the song already plays), continue from it at the
     /// same position: local positions are exact, so seeks, lyric taps and the lyric clock are right from then on.
-    private func swapToLocalFile(_ file: URL, key: String, replacing old: AVPlayerItem, generation: Int, downloadSeconds: Double, convertSeconds: Double) async {
+    /// The local copy is finished. Straight playback of the stream is exact, so nothing changes while the song is only
+    /// listened to; the copy waits for the first seek (and goes in with it). When the stream was already seeked in, its
+    /// positions are estimated: the hand-over happens now.
+    private func localCopyReady(_ file: URL, key: String, item: AVPlayerItem, generation: Int, download: Double, convert: Double) async {
+        guard generation == resolveGeneration, engine.currentItem === item else {
+            try? FileManager.default.removeItem(at: file)
+            return
+        }
+        localFLACFiles[key] = file
+        currentLocalFLACKey = key
+        localFLACDeletion[key]?.cancel()
+        localFLACDeletion[key] = nil
+        if streamSeeked {
+            streamedFLACItem = nil
+            await swapToLocalFile(file, key: key, replacing: item, generation: generation, downloadSeconds: download, convertSeconds: convert)
+        } else {
+            readyLocalSwap = (file, key, item, generation, download, convert)
+            DiagnosticLogStore.shared.append(
+                level: .info, category: "播放音质", message: "FLAC 本地副本已准备好，等拖动进度时再切换",
+                detail: String(format: "下载和转换共 %.1f 秒（其中转换 %.1f 秒）。顺序播放的位置是准的，所以不切换、不会有顿挫；拖动进度或点歌词时直接切到本地文件再定位。", download, convert))
+        }
+    }
+
+    /// `target`: the position of a seek that brings the hand-over with it (no fade, no extra gap); nil: continue where it is.
+    private func swapToLocalFile(_ file: URL, key: String, replacing old: AVPlayerItem, generation: Int, downloadSeconds: Double,
+                                 convertSeconds: Double, at target: TimeInterval? = nil) async {
         guard generation == resolveGeneration, engine.currentItem === old else {
             try? FileManager.default.removeItem(at: file)
             return
@@ -1213,12 +1244,12 @@ final class PlayerService: ObservableObject {
         // A short fade around the hand-over: no click, and the gap is a dip in volume instead of a cut. The position is read
         // after the fade-out so that nothing between the two is skipped.
         let wasPlaying = engine.rate > 0
-        if wasPlaying {
+        if wasPlaying, target == nil {
             fadeVolume(to: 0, duration: 0.05)
             try? await Task.sleep(nanoseconds: 70_000_000)
         }
         guard generation == resolveGeneration, engine.currentItem === old else { engine.volume = 1; return }
-        let position = engine.currentTime()
+        let position = target.map { CMTime(seconds: $0, preferredTimescale: 600) } ?? engine.currentTime()
         guard position.isValid, position.seconds.isFinite else { engine.volume = 1; return }
         let started = Date()
         lastSeekRequestAt = started  // our own jump: the clock watch must not report it
@@ -1236,8 +1267,9 @@ final class PlayerService: ObservableObject {
         let megabytes = Double((try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0) / 1_048_576
         DiagnosticLogStore.shared.append(
             level: .info, category: "播放音质", message: "FLAC 已下载到本机、转成无损 PCM 并切换",
-            detail: String(format: "下载和转换共 %.1f 秒（其中转换 %.1f 秒），在 %.1f 秒处切换，文件 %.1f MB，切换耗时 %.2f 秒；此后快进、点歌词和歌词对齐按精确位置。",
-                           downloadSeconds, convertSeconds, position.seconds, megabytes, Date().timeIntervalSince(started)))
+            detail: String(format: "下载和转换共 %.1f 秒（其中转换 %.1f 秒），%@在 %.1f 秒处切换，文件 %.1f MB，切换耗时 %.2f 秒；此后快进、点歌词和歌词对齐按精确位置。",
+                           downloadSeconds, convertSeconds, target == nil ? "" : "随拖动进度", position.seconds, megabytes,
+                           Date().timeIntervalSince(started)))
     }
 
     private var seekInFlight = false
@@ -1266,6 +1298,19 @@ final class PlayerService: ObservableObject {
         guard !seekInFlight, let target = queuedSeekTarget else { return }
         queuedSeekTarget = nil
         seekInFlight = true
+        if let swap = readyLocalSwap, engine.currentItem === swap.item, swap.generation == resolveGeneration {
+            readyLocalSwap = nil
+            streamedFLACItem = nil
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.swapToLocalFile(swap.file, key: swap.key, replacing: swap.item, generation: swap.generation,
+                                           downloadSeconds: swap.download, convertSeconds: swap.convert, at: target)
+                self.finishSeek(target: target)
+            }
+            return
+        }
+        // A seek inside the streamed FLAC: its positions are only estimates from now on, a finished copy goes in at once.
+        if engine.currentItem != nil, engine.currentItem === streamedFLACItem { streamSeeked = true }
         let isLocalFile = (engine.currentItem?.asset as? AVURLAsset)?.url.isFileURL ?? false
         // Exact seeks only for local files; streamed ones accept a small tolerance (exact seeks need a full index and stall for
         // seconds on a stream without one, which left the lyrics behind after a drag). The lyrics follow the position the
@@ -1273,27 +1318,29 @@ final class PlayerService: ObservableObject {
         let tolerance = isLocalFile ? CMTime.zero : CMTime(seconds: isScrubbing ? 0.4 : 0.5, preferredTimescale: 600)
         engine.seek(to: CMTime(seconds: target, preferredTimescale: 600),
                     toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.seekInFlight = false
-                if self.queuedSeekTarget == nil {
-                    self.pendingSeekPosition = nil
-                    let landed = self.engine.currentTime().seconds
-                    let took = Date().timeIntervalSince(self.lastSeekRequestAt)
-                    if took > 1 || (landed.isFinite && abs(landed - target) > 0.8) {
-                        DiagnosticLogStore.shared.append(
-                            level: .info, category: "播放时钟", message: "定位完成",
-                            detail: String(format: "要求 %.1f 秒，播放器落在 %.1f 秒，耗时 %.1f 秒 · ", target, landed, took) + self.clockDetail())
-                    }
-                    self.updateLyricsCursor(at: self.livePlaybackTime)
-                    let completions = self.queuedSeekCompletions
-                    self.queuedSeekCompletions = []
-                    completions.forEach { $0() }
-                    self.restoreAudioAfterSeek()
-                }
-                self.drainSeek()
-            }
+            Task { @MainActor in self?.finishSeek(target: target) }
         }
+    }
+
+    /// A seek is done (on the stream, or into the local copy): the newest target, if there is one, goes on.
+    private func finishSeek(target: TimeInterval) {
+        seekInFlight = false
+        if queuedSeekTarget == nil {
+            pendingSeekPosition = nil
+            let landed = engine.currentTime().seconds
+            let took = Date().timeIntervalSince(lastSeekRequestAt)
+            if took > 1 || (landed.isFinite && abs(landed - target) > 0.8) {
+                DiagnosticLogStore.shared.append(
+                    level: .info, category: "播放时钟", message: "定位完成",
+                    detail: String(format: "要求 %.1f 秒，播放器落在 %.1f 秒，耗时 %.1f 秒 · ", target, landed, took) + clockDetail())
+            }
+            updateLyricsCursor(at: livePlaybackTime)
+            let completions = queuedSeekCompletions
+            queuedSeekCompletions = []
+            completions.forEach { $0() }
+            restoreAudioAfterSeek()
+        }
+        drainSeek()
     }
 
     /// A seek must never leave the player silent or paused behind the UI's back.
@@ -1935,12 +1982,16 @@ final class PlayerService: ObservableObject {
         let urlExtension = url.pathExtension.isEmpty ? "-" : url.pathExtension.lowercased()
         flacLocalCopy?.cancel()
         flacLocalCopy = nil
+        streamedFLACItem = nil
+        streamSeeked = false
+        readyLocalSwap = nil
         var localCopy: Task<LocalFLACResult, Never>?
         if keptCopy == nil, urlExtension == "flac", !url.isFileURL, (track.source ?? "").lowercased() != "bili",
            UserDefaults.standard.object(forKey: "moumusic.lyrics.preciseFLAC") as? Bool ?? true {
             let remote = url
             let copy = Task.detached(priority: .utility) { await Self.downloadFLAC(remote) }
             flacLocalCopy = copy
+            streamedFLACItem = item
             localCopy = copy
         }
         let localCopyForSwap = localCopy
@@ -2063,7 +2114,8 @@ final class PlayerService: ObservableObject {
             if let localCopyForSwap {
                 let result = await localCopyForSwap.value
                 if let file = result.file {
-                    await self.swapToLocalFile(file, key: localKey, replacing: item, generation: generation, downloadSeconds: result.seconds, convertSeconds: result.convertSeconds)
+                    await self.localCopyReady(file, key: localKey, item: item, generation: generation,
+                                              download: result.seconds, convert: result.convertSeconds)
                 } else if let failure = result.failure, generation == self.resolveGeneration {
                     DiagnosticLogStore.shared.append(
                         level: .warning, category: "播放音质", message: "FLAC 没能下载到本机，继续用网络播放",
