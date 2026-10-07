@@ -35,10 +35,17 @@ enum DebugHarness {
         }
 
         // -moumusic.debugPlaylistFile YES: a small playlist export in Documents, for the file picker UI test.
-        if defaults.bool(forKey: "moumusic.debugPlaylistFile") {
+        if let source = defaults.string(forKey: "moumusic.debugPlaylistFile") {
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            let json = "{\"name\":\"测试歌单\",\"tracks\":[{\"id\":28949444,\"name\":\"Counting Stars\",\"ar\":[{\"name\":\"OneRepublic\"}],\"al\":{\"name\":\"Native\"},\"dt\":257000},{\"id\":1359356908,\"name\":\"Apologize\",\"ar\":[{\"name\":\"OneRepublic\"}],\"al\":{\"name\":\"Dreaming Out Loud\"},\"dt\":208000}]}"
-            try? json.write(to: docs.appendingPathComponent("playlist-test.json"), atomically: true, encoding: .utf8)
+            let target = docs.appendingPathComponent("playlist-test.json")
+            try? FileManager.default.removeItem(at: target)
+            // A path: that file is copied in (the simulator shares the Mac's files); anything else: a small playlist export.
+            if source.hasPrefix("/") {
+                try? FileManager.default.copyItem(at: URL(fileURLWithPath: source), to: target)
+            } else {
+                let json = "{\"name\":\"test\",\"tracks\":[{\"id\":28949444,\"name\":\"Counting Stars\",\"ar\":[{\"name\":\"OneRepublic\"}]}]}"
+                try? json.write(to: target, atomically: true, encoding: .utf8)
+            }
         }
 
         // -moumusic.debugSourceURL2 is imported first (a backup source); -moumusic.debugSourceURL last, so it is the
@@ -256,6 +263,26 @@ enum DebugHarness {
             note("done")
             return
         }
+        // -moumusic.debugParsePlaylist <file>: parse a playlist file and note what every song became (and how long it took).
+        if let path = defaults.string(forKey: "moumusic.debugParsePlaylist") {
+            let began = Date()
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { note("cannot read the file"); return }
+            let read = Date().timeIntervalSince(began)
+            let parsed = PlaylistFileParser.parse(data)
+            let took = Date().timeIntervalSince(began)
+            note(String(format: "read %.3fs, read+parse %.3fs, %d lists, %d songs", read, took, parsed?.count ?? -1,
+                        parsed?.reduce(0) { $0 + $1.tracks.count } ?? 0))
+            for list in parsed ?? [] {
+                note("list: \(list.name) · \(list.tracks.count) songs · cover \(list.coverURL ?? "-")")
+                for track in list.tracks.prefix(6) {
+                    let meta = track.sourceMetadata.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.prefix(24))" }.joined(separator: " ")
+                    note("  \(track.source ?? "-") | id \(track.id) | \(track.name) | \(track.artistNames) | \(track.album.name) | \(track.durationMS / 1000)s | \(meta)")
+                }
+            }
+            note("done")
+            return
+        }
+
         #if os(iOS)
         // -moumusic.debugReader <file>: decode four short stretches of a local file without playing it (silent), for the
         // timing probe: where does AVFoundation say the decoded sound is, and where really?

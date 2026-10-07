@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 import Combine
 
 struct LocalPlaylist: Codable, Hashable, Identifiable {
@@ -222,13 +222,29 @@ final class LocalPlaylistStore: ObservableObject {
         persist()
     }
 
+    /// Imports pasted text: a link, or the text of an exported file. A file may hold several playlists (an LX Music backup):
+    /// each becomes a playlist of its own; the id returned is the first one's.
     @discardableResult
     func importPlaylist(from input: String) async throws -> UUID {
-        let imported = try await PlaylistImportService.importPlaylist(from: input)
-        let id = create(name: imported.name, tracks: imported.tracks,
-                        coverURL: imported.coverURL, sourceName: imported.sourceName)
-        guard let id else { throw PlaylistImportError.invalidFormat }
-        return id
+        try createImported(try await PlaylistImportService.importPlaylists(from: input))
+    }
+
+    /// Imports a chosen file from its bytes: LX Music exports (also the ones that mix songs of several platforms), Moumusic's
+    /// own export, other apps' JSON.
+    @discardableResult
+    func importPlaylistFile(data: Data) async throws -> UUID {
+        try createImported(try await PlaylistImportService.importFile(data: data))
+    }
+
+    private func createImported(_ items: [ImportedPlaylist]) throws -> UUID {
+        guard !items.isEmpty else { throw PlaylistImportError.noTracks }
+        var ids: [UUID] = []
+        // `create` puts a playlist on top: creating the last one first keeps the order of the file.
+        for item in items.reversed() {
+            if let id = create(name: item.name, tracks: item.tracks, coverURL: item.coverURL, sourceName: item.sourceName) { ids.append(id) }
+        }
+        guard let firstID = ids.last else { throw PlaylistImportError.invalidFormat }
+        return firstID
     }
 
     func exportText(_ playlist: LocalPlaylist) -> String {
@@ -263,6 +279,35 @@ private struct ImportedPlaylist {
 }
 
 private enum PlaylistImportService {
+    /// A chosen file, from its bytes. JSON is parsed as a whole; anything else is decoded as text and goes the pasted-text way.
+    static func importFile(data: Data) async throws -> [ImportedPlaylist] {
+        if let parsed = PlaylistFileParser.parse(data), !parsed.isEmpty { return parsed.map(imported) }
+        guard let text = decodeText(data) else { throw PlaylistImportError.invalidFormat }
+        return try await importPlaylists(from: text)
+    }
+
+    static func importPlaylists(from input: String) async throws -> [ImportedPlaylist] {
+        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Text that is JSON from its first character is a playlist file: parsed first and as a whole. The link search below
+        // would find every picture URL inside it and take the file for a list of shared playlists.
+        if value.first == "{" || value.first == "[", let data = value.data(using: .utf8),
+           let parsed = PlaylistFileParser.parse(data), !parsed.isEmpty {
+            return parsed.map(imported)
+        }
+        return [try await importPlaylist(from: input)]
+    }
+
+    private static func imported(_ result: PlaylistFileParser.Result) -> ImportedPlaylist {
+        ImportedPlaylist(name: result.name, coverURL: result.coverURL, sourceName: result.sourceName, tracks: result.tracks)
+    }
+
+    private static func decodeText(_ data: Data) -> String? {
+        for encoding in [String.Encoding.utf8, .utf16, .utf16LittleEndian, .utf16BigEndian, .utf32, .windowsCP1252] {
+            if let text = String(data: data, encoding: encoding), !text.isEmpty { return text }
+        }
+        return nil
+    }
+
     static func importPlaylist(from input: String) async throws -> ImportedPlaylist {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { throw PlaylistImportError.emptyInput }

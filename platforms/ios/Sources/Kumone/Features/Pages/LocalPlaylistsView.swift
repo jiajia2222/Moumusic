@@ -486,11 +486,7 @@ struct ImportPlaylistSheet: View {
                 // (a big playlist export froze the text editor).
                 CopyingDocumentPicker(contentTypes: [.item]) { urls in
                     guard let url = urls.first else { return }
-                    do {
-                        importPlaylist(from: try readTextFile(at: url))
-                    } catch {
-                        errorMessage = "读取文件失败：\(error.localizedDescription)"
-                    }
+                    importPlaylistFile(at: url)
                 }
             }
             #else
@@ -525,6 +521,22 @@ struct ImportPlaylistSheet: View {
 
     private func importPlaylist() {
         importPlaylist(from: input)
+    }
+
+    /// The chosen file is read off the main thread and imported from its bytes (see `LocalPlaylistStore.importPlaylistFile`).
+    private func importPlaylistFile(at url: URL) {
+        isImporting = true
+        Task {
+            do {
+                let data = try await Task.detached(priority: .userInitiated) { try Data(contentsOf: url) }.value
+                _ = try await store.importPlaylistFile(data: data)
+                isImporting = false
+                dismiss()
+            } catch {
+                isImporting = false
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func importPlaylist(from text: String) {

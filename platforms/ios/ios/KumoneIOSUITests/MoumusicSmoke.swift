@@ -32,7 +32,7 @@ final class MoumusicSmoke: XCTestCase {
     @MainActor
     func testImportPlaylistFile() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-moumusic.skipUpdateCheck", "YES", "-moumusic.debugPlaylistFile", "YES"]
+        app.launchArguments += ["-moumusic.skipUpdateCheck", "YES", "-moumusic.debugPlaylistFile", "/tmp/lx-small.json"]
         app.launch()
         sleep(6)
         if app.buttons["完成"].firstMatch.waitForExistence(timeout: 3) { app.buttons["完成"].firstMatch.tap() }
