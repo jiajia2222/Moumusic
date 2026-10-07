@@ -28,6 +28,72 @@ final class MoumusicSmoke: XCTestCase {
         return true
     }
 
+    /// 我的歌单 -> 导入歌单 -> 选择 JSON / 文本文件 -> pick a file in the Files picker (the file is put in "On My iPhone" by the script).
+    @MainActor
+    func testImportPlaylistFile() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-moumusic.skipUpdateCheck", "YES", "-moumusic.debugPlaylistFile", "YES"]
+        app.launch()
+        sleep(6)
+        if app.buttons["完成"].firstMatch.waitForExistence(timeout: 3) { app.buttons["完成"].firstMatch.tap() }
+        save("20-home")
+        // the profile page (top-right avatar), then 我的歌单
+        let profile = app.buttons.matching(NSPredicate(format: "label CONTAINS '账号' OR label CONTAINS '我的'")).firstMatch
+        if profile.waitForExistence(timeout: 4) { profile.tap() }
+        sleep(2)
+        save("21-profile")
+        let playlists = app.staticTexts["我的歌单"].firstMatch
+        if playlists.waitForExistence(timeout: 4) { playlists.tap() }
+        sleep(2)
+        save("22-playlists")
+        let importButton = app.buttons["导入歌单"].firstMatch
+        guard importButton.waitForExistence(timeout: 5) else { save("23-no-import-button"); return }
+        importButton.tap()
+        sleep(2)
+        save("23-import-sheet")
+        // the sheet opens half height: pull it up, then scroll to the button
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1, thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)))
+        sleep(1)
+        app.swipeUp()
+        sleep(1)
+        save("23b-import-sheet-tall")
+        let pick = app.buttons["选择 JSON / 文本文件"].firstMatch
+        guard pick.waitForExistence(timeout: 5) else { save("24-no-pick-button"); return }
+        pick.tap()
+        sleep(4)
+        save("24-picker")
+        // Files: Browse -> On My iPhone -> the test file
+        let browse = app.buttons["浏览"].firstMatch
+        if browse.waitForExistence(timeout: 4) { browse.tap(); sleep(2); save("24b-browse") }
+        do {
+            let dir = ProcessInfo.processInfo.environment["SHOT_DIR"] ?? NSTemporaryDirectory()
+            try? app.debugDescription.write(toFile: dir + "/picker-tree.txt", atomically: true, encoding: .utf8)
+        }
+        func tapLabel(_ text: String) -> Bool {
+            let p = NSPredicate(format: "label CONTAINS %@", text)
+            for query in [app.cells, app.buttons, app.staticTexts, app.otherElements] {
+                let element = query.matching(p).firstMatch
+                if element.waitForExistence(timeout: 2) { element.tap(); return true }
+            }
+            return false
+        }
+        if tapLabel("我的iPhone") { sleep(2); save("24c-on-my-iphone") }
+        if tapLabel("Moumusic") { sleep(2); save("24d-moumusic-folder") }
+        let byLabel = NSPredicate(format: "label CONTAINS 'playlist-test'")
+        var file = app.cells.matching(byLabel).firstMatch
+        if !file.waitForExistence(timeout: 3) { file = app.staticTexts.matching(byLabel).firstMatch }
+        if !file.exists { file = app.otherElements.matching(byLabel).firstMatch }
+        if file.waitForExistence(timeout: 6) {
+            file.tap()
+            sleep(5)
+            save("25-after-pick")
+            sleep(6)
+            save("26-after-pick-later")
+        } else {
+            save("25-file-not-listed")
+        }
+    }
+
     /// Record-player mode: the turntable page, then the full lyric page after tapping the record.
     @MainActor
     func testVinylLyrics() throws {

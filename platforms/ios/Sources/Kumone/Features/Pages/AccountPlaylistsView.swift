@@ -1,4 +1,4 @@
-﻿#if os(iOS)
+#if os(iOS)
 import SwiftUI
 
 /// Playlists of the signed-in Kugou and QQ Music accounts.
@@ -49,7 +49,7 @@ struct AccountPlaylistsView: View {
                     ForEach(qqLists) { list in
                         NavigationLink {
                             AccountPlaylistTracksView(title: list.name) {
-                                try await LXCatalogService.playlistDetail(source: .tx, id: list.id).tracks
+                                try await Self.qqTracks(of: list, cookie: qqMusic.cookie)
                             }
                         } label: {
                             row(name: list.name, count: list.count, cover: list.coverURL)
@@ -110,6 +110,16 @@ struct AccountPlaylistsView: View {
                 DiagnosticLogStore.shared.append(level: .error, category: "QQ 音乐", message: "账号歌单读取失败", detail: "\(error)")
             }
         }
+    }
+
+    /// The songs of one of the account's own QQ playlists: asked as the signed-in user first (the public endpoint cannot read
+    /// private lists such as "我喜欢"), the public one after that.
+    static func qqTracks(of list: QQMusicAPI.AccountPlaylist, cookie: String?) async throws -> [Track] {
+        if let cookie, !cookie.isEmpty {
+            let own = await QQMusicAPI.shared.accountPlaylistTracks(cookie: cookie, id: list.id)
+            if !own.isEmpty { return own }
+        }
+        return try await LXCatalogService.playlistDetail(source: .tx, id: list.id).tracks
     }
 
     /// Cloud-playlist rows name the song "歌手 - 歌名"; split it for the shared track parser.
@@ -265,7 +275,7 @@ struct PlatformAccountPlaylists: View {
     private func qqCard(_ list: QQMusicAPI.AccountPlaylist) -> some View {
         NavigationLink {
             AccountPlaylistTracksView(title: list.name) {
-                try await LXCatalogService.playlistDetail(source: .tx, id: list.id).tracks
+                try await AccountPlaylistsView.qqTracks(of: list, cookie: qqMusic.cookie)
             }
         } label: {
             CoverCardBody(coverURL: list.coverURL?.resizedImageURL(384),

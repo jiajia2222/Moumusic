@@ -34,6 +34,13 @@ enum DebugHarness {
                                                     atomically: true, encoding: .utf8)
         }
 
+        // -moumusic.debugPlaylistFile YES: a small playlist export in Documents, for the file picker UI test.
+        if defaults.bool(forKey: "moumusic.debugPlaylistFile") {
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let json = "{\"name\":\"测试歌单\",\"tracks\":[{\"id\":28949444,\"name\":\"Counting Stars\",\"ar\":[{\"name\":\"OneRepublic\"}],\"al\":{\"name\":\"Native\"},\"dt\":257000},{\"id\":1359356908,\"name\":\"Apologize\",\"ar\":[{\"name\":\"OneRepublic\"}],\"al\":{\"name\":\"Dreaming Out Loud\"},\"dt\":208000}]}"
+            try? json.write(to: docs.appendingPathComponent("playlist-test.json"), atomically: true, encoding: .utf8)
+        }
+
         // -moumusic.debugSourceURL2 is imported first (a backup source); -moumusic.debugSourceURL last, so it is the
         // selected primary one.
         for key in ["moumusic.debugSourceURL2", "moumusic.debugSourceURL"] {

@@ -267,6 +267,86 @@ actor QQMusicAPI {
         }
     }
 
+    /// Songs of one of the signed-in account's own playlists. The public playlist endpoints answer as the anonymous user
+    /// (uin 0) and refuse private lists such as "我喜欢" (the app then said "平台返回了无法识别的结果"): these two send the
+    /// account's cookie. Returns an empty list when neither answers; what each said goes to the diagnostic log.
+    func accountPlaylistTracks(cookie: String, id: String) async -> [Track] {
+        var fields: [String: String] = [:]
+        for part in cookie.split(separator: ";") {
+            let pair = part.split(separator: "=", maxSplits: 1).map { String($0).trimmingCharacters(in: .whitespaces) }
+            if pair.count == 2 { fields[pair[0]] = pair[1] }
+        }
+        let rawUin = fields["uin"] ?? fields["p_uin"] ?? fields["wxuin"] ?? ""
+        let uin = String(rawUin.drop { !$0.isNumber })
+        let credential = fields["qqmusic_key"] ?? fields["p_skey"] ?? fields["skey"] ?? ""
+        let gtk = Self.hash5381(credential)
+        guard !uin.isEmpty, let dissID = Int(id) else { return [] }
+        var notes: [String] = []
+
+        // 1. The route the web player uses, as the signed-in user.
+        let payload: [String: Any] = [
+            "comm": ["g_tk": gtk, "uin": uin, "format": "json", "ct": 20, "cv": 4747474],
+            "req_0": ["module": "music.srfDissInfo.aiDissInfo", "method": "uniform_get_Dissinfo",
+                      "param": ["disstid": dissID, "userinfo": 1, "tag": 1, "orderlist": 1, "song_begin": 0,
+                                "song_num": 1000, "onlysonglist": 0, "enc_host_uin": ""] as [String: Any]] as [String: Any],
+        ]
+        if let body = try? JSONSerialization.data(withJSONObject: payload) {
+            var request = URLRequest(url: URL(string: "https://u.y.qq.com/cgi-bin/musicu.fcg")!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 20
+            request.httpBody = body
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+            request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            if let (data, _) = try? await URLSession.shared.data(for: request),
+               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let req = root["req_0"] as? [String: Any] {
+                let rows = ((req["data"] as? [String: Any])?["songlist"] as? [[String: Any]]) ?? []
+                let tracks = rows.compactMap { LXCatalogService.parseTrack($0, source: .tx) }
+                notes.append("musicu code=\(String(describing: req["code"] ?? "-")) songs=\(tracks.count)")
+                if !tracks.isEmpty { Self.logPlaylist(id: id, notes: notes); return tracks }
+            } else {
+                notes.append("musicu 没有响应")
+            }
+        }
+
+        // 2. The older endpoint, with the account's uin and cookie instead of uin 0.
+        var components = URLComponents(string: "https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg")!
+        components.queryItems = [
+            URLQueryItem(name: "type", value: "1"), URLQueryItem(name: "json", value: "1"), URLQueryItem(name: "utf8", value: "1"),
+            URLQueryItem(name: "onlysong", value: "0"), URLQueryItem(name: "new_format", value: "1"),
+            URLQueryItem(name: "disstid", value: id), URLQueryItem(name: "loginUin", value: uin), URLQueryItem(name: "hostUin", value: "0"),
+            URLQueryItem(name: "format", value: "json"), URLQueryItem(name: "inCharset", value: "utf8"),
+            URLQueryItem(name: "outCharset", value: "utf-8"), URLQueryItem(name: "notice", value: "0"),
+            URLQueryItem(name: "platform", value: "yqq.json"), URLQueryItem(name: "needNewCode", value: "0"),
+            URLQueryItem(name: "g_tk", value: String(gtk)), URLQueryItem(name: "g_tk_new_20200303", value: String(gtk)),
+        ]
+        var legacy = URLRequest(url: components.url!)
+        legacy.timeoutInterval = 20
+        legacy.setValue(cookie, forHTTPHeaderField: "Cookie")
+        legacy.setValue("https://y.qq.com/n/yqq/playsquare/\(id).html", forHTTPHeaderField: "Referer")
+        legacy.setValue("https://y.qq.com", forHTTPHeaderField: "Origin")
+        legacy.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        if let (data, _) = try? await URLSession.shared.data(for: legacy),
+           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let cd = (root["cdlist"] as? [[String: Any]])?.first
+            let rows = (cd?["songlist"] as? [[String: Any]]) ?? []
+            let tracks = rows.compactMap { LXCatalogService.parseTrack($0, source: .tx) }
+            notes.append("cdinfo code=\(String(describing: root["code"] ?? "-")) songs=\(tracks.count)")
+            if !tracks.isEmpty { Self.logPlaylist(id: id, notes: notes); return tracks }
+        } else {
+            notes.append("cdinfo 没有响应")
+        }
+        Self.logPlaylist(id: id, notes: notes)
+        return []
+    }
+
+    private nonisolated static func logPlaylist(id: String, notes: [String]) {
+        Task { @MainActor in
+            DiagnosticLogStore.shared.append(level: .info, category: "QQ 音乐", message: "账号歌单歌曲 \(id)", detail: notes.joined(separator: " | "))
+        }
+    }
+
     private init() {
         let configuration = URLSessionConfiguration.ephemeral
         // A bare `HTTPCookieStorage()` silently drops every cookie on iOS; use a
