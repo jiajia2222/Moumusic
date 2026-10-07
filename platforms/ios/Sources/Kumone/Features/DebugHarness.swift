@@ -374,6 +374,10 @@ enum DebugHarness {
                                 player.isPlaying ? 1 : 0, player.isBuffering ? 1 : 0, player.servedQuality ?? "-"))
                 }
             }
+            // -moumusic.debugHold N: stay N seconds on each song (long enough for its local copy to be made and swapped in).
+            if let hold = defaults.string(forKey: "moumusic.debugHold"), let seconds = Double(hold) {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            }
             player.togglePlayPause()
         }
         note("done")

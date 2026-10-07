@@ -14,6 +14,9 @@ actor AppCacheManager {
         case catalogue
         case media
         case temporary
+        /// The local copies of streamed FLACs (`Caches/MoumusicFLAC`). Songs the user downloaded are NOT here: they live in
+        /// Application Support/Moumusic/Downloads, which this manager never touches.
+        case playback
 
         var id: String { rawValue }
 
@@ -23,6 +26,7 @@ actor AppCacheManager {
             case .catalogue: return "推荐与目录"
             case .media: return "音频与视频临时文件"
             case .temporary: return "临时文件"
+            case .playback: return "播放时下载的 FLAC 副本"
             }
         }
 
@@ -32,6 +36,7 @@ actor AppCacheManager {
             case .catalogue: return "rectangle.stack"
             case .media: return "waveform"
             case .temporary: return "clock.arrow.circlepath"
+            case .playback: return "arrow.down.circle"
             }
         }
     }
@@ -68,7 +73,8 @@ actor AppCacheManager {
             LXPlaylistDetailCache.shared.clear()
         }
 
-        let result = await clearFiles(cacheFiles(), progress: progress)
+        let result = await clearFiles(await withoutPlayingCopy(cacheFiles()), progress: progress)
+        await MainActor.run { PlayerService.shared.forgetClearedLocalFLACCopies() }
         await progress(1)
         return result
     }
@@ -84,9 +90,16 @@ actor AppCacheManager {
             }
         }
 
-        let result = await clearFiles(files(for: category), progress: progress)
+        let result = await clearFiles(await withoutPlayingCopy(files(for: category)), progress: progress)
+        if category == .playback { await MainActor.run { PlayerService.shared.forgetClearedLocalFLACCopies() } }
         await progress(1)
         return result
+    }
+
+    /// The song playing from its local copy keeps that file (deleting it under the player would stop the song).
+    private func withoutPlayingCopy(_ files: [URL]) async -> [URL] {
+        guard let playing = await MainActor.run(body: { PlayerService.shared.currentLocalFLACFile?.standardizedFileURL.path }) else { return files }
+        return files.filter { $0.standardizedFileURL.path != playing }
     }
 
     private func clearFiles(_ files: [URL], progress: @escaping ProgressHandler) async -> ClearResult {
@@ -170,6 +183,7 @@ actor AppCacheManager {
 
     private func classify(_ file: URL) -> CacheCategory {
         let path = file.path.lowercased()
+        if path.contains("/moumusicflac/") { return .playback }
         if path.contains("/tmp/") || path.contains("\\tmp\\") || path.contains("/temporary/") {
             return .temporary
         }

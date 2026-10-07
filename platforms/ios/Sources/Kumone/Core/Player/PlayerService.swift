@@ -1048,7 +1048,20 @@ final class PlayerService: ObservableObject {
     // MARK: - Local copy of a streamed FLAC
 
     private var flacLocalCopy: Task<LocalFLACResult, Never>?
-    private var localFLACURL: URL?
+    /// The local copies kept for songs that were played (key: the song and the quality it was played in).
+    private var localFLACFiles: [String: URL] = [:]
+    private var localFLACDeletion: [String: Task<Void, Never>] = [:]
+    /// The copy of the song that is playing now (it is never deleted under the player).
+    private var currentLocalFLACKey: String?
+    /// How long a song's copy stays after the song is left: played again within this time, the copy is used at once.
+    private static let localFLACKeepSeconds: UInt64 = 60
+
+    /// The local copy of the song playing now, if it plays from one.
+    var currentLocalFLACFile: URL? { currentLocalFLACKey.flatMap { localFLACFiles[$0] } }
+
+    private func localFLACKey(for track: Track, quality: String?) -> String {
+        track.playbackKey + "|" + (quality ?? "")
+    }
 
     nonisolated private static var flacCacheDirectory: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("MoumusicFLAC", isDirectory: true)
@@ -1135,25 +1148,56 @@ final class PlayerService: ObservableObject {
         }
     }
 
-    private func removeLocalFLAC() {
-        if let file = localFLACURL { try? FileManager.default.removeItem(at: file) }
-        localFLACURL = nil
+    /// The song is left (another one starts, or it ended): its copy is deleted a minute later unless the song comes back.
+    private func leaveLocalFLAC() {
+        guard let key = currentLocalFLACKey else { return }
+        currentLocalFLACKey = nil
+        guard localFLACFiles[key] != nil else { return }
+        localFLACDeletion[key]?.cancel()
+        localFLACDeletion[key] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.localFLACKeepSeconds * 1_000_000_000)
+            guard !Task.isCancelled, let self, self.currentLocalFLACKey != key else { return }
+            if let file = self.localFLACFiles.removeValue(forKey: key) { try? FileManager.default.removeItem(at: file) }
+            self.localFLACDeletion[key] = nil
+        }
+    }
+
+    /// The kept copy of this song, if there is one; asking for it cancels its deletion.
+    private func keptLocalFLAC(for key: String) -> URL? {
+        guard let file = localFLACFiles[key], FileManager.default.fileExists(atPath: file.path) else {
+            localFLACFiles[key] = nil
+            return nil
+        }
+        localFLACDeletion[key]?.cancel()
+        localFLACDeletion[key] = nil
+        return file
+    }
+
+    /// Settings > clear cache removed the files: forget the copies that are gone (the one playing now is never removed).
+    func forgetClearedLocalFLACCopies() {
+        for (key, file) in localFLACFiles where !FileManager.default.fileExists(atPath: file.path) {
+            localFLACDeletion[key]?.cancel()
+            localFLACDeletion[key] = nil
+            localFLACFiles[key] = nil
+        }
     }
 
     /// A streamed FLAC without a seek table has its positions estimated from byte offsets: after a seek (or a reconnect)
     /// the sound can be seconds away from the position the player reports, and the lyrics follow that position. Once the
     /// same file is on the device (downloaded in the background while the song already plays), continue from it at the
     /// same position: local positions are exact, so seeks, lyric taps and the lyric clock are right from then on.
-    private func swapToLocalFile(_ file: URL, replacing old: AVPlayerItem, generation: Int, downloadSeconds: Double, convertSeconds: Double) async {
+    private func swapToLocalFile(_ file: URL, key: String, replacing old: AVPlayerItem, generation: Int, downloadSeconds: Double, convertSeconds: Double) async {
         guard generation == resolveGeneration, engine.currentItem === old else {
             try? FileManager.default.removeItem(at: file)
             return
         }
-        localFLACURL = file
-        let position = engine.currentTime()
-        guard position.isValid, position.seconds.isFinite else { return }
-        let wasPlaying = engine.rate > 0
+        localFLACFiles[key] = file
+        currentLocalFLACKey = key
+        localFLACDeletion[key]?.cancel()
+        localFLACDeletion[key] = nil
         let localAsset = AVURLAsset(url: file)
+        // Parsed before the hand-over, so the hand-over itself has less left to do.
+        _ = try? await localAsset.load(.tracks, .duration)
         let newItem = AVPlayerItem(asset: localAsset)
         #if DEBUG && os(iOS)
         if AudioTapProbe.enabled, let audio = try? await localAsset.loadTracks(withMediaType: .audio).first {
@@ -1166,13 +1210,28 @@ final class PlayerService: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in self?.handleItemEnded() }
         }
+        // A short fade around the hand-over: no click, and the gap is a dip in volume instead of a cut. The position is read
+        // after the fade-out so that nothing between the two is skipped.
+        let wasPlaying = engine.rate > 0
+        if wasPlaying {
+            fadeVolume(to: 0, duration: 0.05)
+            try? await Task.sleep(nanoseconds: 70_000_000)
+        }
+        guard generation == resolveGeneration, engine.currentItem === old else { engine.volume = 1; return }
+        let position = engine.currentTime()
+        guard position.isValid, position.seconds.isFinite else { engine.volume = 1; return }
         let started = Date()
         lastSeekRequestAt = started  // our own jump: the clock watch must not report it
         engine.replaceCurrentItem(with: newItem)
         _ = await engine.seek(to: position, toleranceBefore: .zero, toleranceAfter: .zero)
         lastSeekRequestAt = Date()
-        guard generation == resolveGeneration, engine.currentItem === newItem else { return }
-        if wasPlaying, isPlaying { engine.playImmediately(atRate: playbackRate) }
+        guard generation == resolveGeneration, engine.currentItem === newItem else { engine.volume = 1; return }
+        if wasPlaying, isPlaying {
+            engine.playImmediately(atRate: playbackRate)
+            fadeVolume(to: 1, duration: 0.15)
+        } else {
+            engine.volume = 1
+        }
         clockWatch = nil
         let megabytes = Double((try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0) / 1_048_576
         DiagnosticLogStore.shared.append(
@@ -1445,6 +1504,7 @@ final class PlayerService: ObservableObject {
             isPlaying = true
             return
         }
+        leaveLocalFLAC()
         advanceToNext(userInitiated: false)
     }
 
@@ -1778,7 +1838,16 @@ final class PlayerService: ObservableObject {
         // requests never resolve a track — those play untapped and the UI falls
         // back to its decorative animation.
         let asset: AVURLAsset
-        if (track.source ?? "").lowercased() == "bili" {
+        // The previous song is left now (its copy goes in a minute); a copy kept for THIS song is played from at once.
+        let localKey = localFLACKey(for: track, quality: servedByLXQuality)
+        leaveLocalFLAC()
+        let keptCopy: URL? = (!url.isFileURL && url.pathExtension.lowercased() == "flac") ? keptLocalFLAC(for: localKey) : nil
+        if let keptCopy {
+            asset = AVURLAsset(url: keptCopy)
+            currentLocalFLACKey = localKey
+            DiagnosticLogStore.shared.append(level: .info, category: "播放音质", message: "使用上次留下的本地 FLAC 副本",
+                                             detail: "\(track.name)：不用重新下载，位置精确。")
+        } else if (track.source ?? "").lowercased() == "bili" {
             let biliUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 #if os(iOS)
             // Listen mode plays the DASH audio as audio-only HLS (like the video player does): a raw .m4s URL
@@ -1866,9 +1935,8 @@ final class PlayerService: ObservableObject {
         let urlExtension = url.pathExtension.isEmpty ? "-" : url.pathExtension.lowercased()
         flacLocalCopy?.cancel()
         flacLocalCopy = nil
-        removeLocalFLAC()
         var localCopy: Task<LocalFLACResult, Never>?
-        if urlExtension == "flac", !url.isFileURL, (track.source ?? "").lowercased() != "bili",
+        if keptCopy == nil, urlExtension == "flac", !url.isFileURL, (track.source ?? "").lowercased() != "bili",
            UserDefaults.standard.object(forKey: "moumusic.lyrics.preciseFLAC") as? Bool ?? true {
             let remote = url
             let copy = Task.detached(priority: .utility) { await Self.downloadFLAC(remote) }
@@ -1995,7 +2063,7 @@ final class PlayerService: ObservableObject {
             if let localCopyForSwap {
                 let result = await localCopyForSwap.value
                 if let file = result.file {
-                    await self.swapToLocalFile(file, replacing: item, generation: generation, downloadSeconds: result.seconds, convertSeconds: result.convertSeconds)
+                    await self.swapToLocalFile(file, key: localKey, replacing: item, generation: generation, downloadSeconds: result.seconds, convertSeconds: result.convertSeconds)
                 } else if let failure = result.failure, generation == self.resolveGeneration {
                     DiagnosticLogStore.shared.append(
                         level: .warning, category: "播放音质", message: "FLAC 没能下载到本机，继续用网络播放",

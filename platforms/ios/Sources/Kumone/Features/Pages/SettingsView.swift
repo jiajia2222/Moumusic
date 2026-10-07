@@ -430,6 +430,10 @@ struct SettingsView: View {
                     .frame(minHeight: 44)
                 }
                 Button("清除缓存") { clearCache() }
+                Text("清除缓存不会删除“下载管理”里你手动下载的歌曲。播放 FLAC 时在后台留下的本地副本，离开这首歌 1 分钟后会自动清理（期间再播直接复用），也可以在上面点“播放时下载的 FLAC 副本”一键清除；正在播放的那首除外。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 #if os(iOS)
                 if let cacheProgress {
                     ProgressView(value: cacheProgress)

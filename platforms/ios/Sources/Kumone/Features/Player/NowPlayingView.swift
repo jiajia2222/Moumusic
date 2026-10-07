@@ -1434,7 +1434,7 @@ private struct LyricPresentationSheet: View {
                         Toggle("逐字歌词（仅使用真实时间轴）", isOn: $settings.verbatimLyrics)
                         Toggle("其次使用社区校对歌词库（AMLL TTML DB）", isOn: $communityLyrics)
                         Toggle("高音质（FLAC）下载到本机后精确同步", isOn: $preciseFLAC)
-                        Text("原因：iOS 在 FLAC 里“跳到某个位置”会落偏几秒，所以快进、点歌词后歌词会对不上。开启后：FLAC 照常立刻起播，同时在后台下载并转成无损 PCM（音质不变），几秒后无缝切到这份文件，之后快进、点歌词和歌词都精确。多用约一首歌 2～3 倍大小的流量和临时空间，换歌自动清理。关闭则 FLAC 只走网络。下一首歌起生效。")
+                        Text("原因：iOS 在 FLAC 里“跳到某个位置”会落偏几秒，所以快进、点歌词后歌词会对不上。开启后：FLAC 照常立刻起播，同时在后台下载并转成无损 PCM（音质不变），几秒后无缝切到这份文件，之后快进、点歌词和歌词都精确。多用约一首歌 2～3 倍大小的流量和临时空间，离开这首歌 1 分钟后自动清理（期间再播直接复用），设置 → 存储里可一键清除。关闭则 FLAC 只走网络。下一首歌起生效。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
