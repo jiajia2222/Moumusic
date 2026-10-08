@@ -44,6 +44,8 @@ struct LXPlaylistDetailView: View {
     @StateObject private var model = LXPlaylistDetailViewModel()
     @StateObject private var favorites = FavoritesStore.shared
     @EnvironmentObject private var player: PlayerService
+    @State private var isSearching = false
+    @State private var query = ""
 
     var body: some View {
         ScrollView {
@@ -62,6 +64,7 @@ struct LXPlaylistDetailView: View {
         }
         .navigationTitle(model.detail?.name ?? "歌单")
         .navigationBarTitleDisplayMode(.inline)
+        .trackSearchButton(isSearching: $isSearching, text: $query)
         .task {
             await model.load(source: source, playlistID: playlistID)
         }
@@ -119,8 +122,18 @@ struct LXPlaylistDetailView: View {
                 }
                 .padding(.horizontal, Theme.Layout.contentInset)
 
-                TrackListView(tracks: detail.tracks)
-                    .padding(.horizontal, Theme.Layout.contentInset - 10)
+                if isSearching {
+                    TrackSearchField(text: $query, isSearching: $isSearching)
+                }
+
+                let shown = detail.tracks.matching(query)
+                if shown.isEmpty {
+                    EmptyStateView(icon: "magnifyingglass", title: "没有匹配的歌曲", subtitle: "试试搜索歌曲名、歌手或专辑")
+                        .frame(minHeight: 200)
+                } else {
+                    TrackListView(tracks: shown)
+                        .padding(.horizontal, Theme.Layout.contentInset - 10)
+                }
             }
         }
         .padding(.vertical, Theme.Layout.contentInset)

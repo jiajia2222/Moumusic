@@ -575,6 +575,7 @@ struct LocalPlaylistDetailView: View {
     @State private var renameText = ""
     @State private var showAddTracks = false
     @State private var playlistQuery = ""
+    @State private var isSearching = false
     @State private var isSelectingTracks = false
     @State private var selectedTrackKeys = Set<String>()
     #if os(iOS)
@@ -606,9 +607,16 @@ struct LocalPlaylistDetailView: View {
                     }
                     .padding(.horizontal, Theme.Layout.contentInset)
 
+                    if isSearching {
+                        TrackSearchField(text: $playlistQuery, isSearching: $isSearching)
+                    }
+
                     if playlist.tracks.isEmpty {
                         EmptyStateView(icon: "music.note.list", title: "歌单暂无歌曲")
                             .frame(minHeight: 260)
+                    } else if filteredTracks(playlist.tracks).isEmpty {
+                        EmptyStateView(icon: "magnifyingglass", title: "没有匹配的歌曲", subtitle: "试试搜索歌曲名、歌手或专辑")
+                            .frame(minHeight: 200)
                     } else {
                         TrackListView(
                             tracks: filteredTracks(playlist.tracks),
@@ -701,7 +709,7 @@ struct LocalPlaylistDetailView: View {
             }
         }
         #endif
-        .searchable(text: $playlistQuery, prompt: "搜索此歌单")
+        .trackSearchButton(isSearching: $isSearching, text: $playlistQuery)
     }
 
     private func filteredTracks(_ tracks: [Track]) -> [Track] {

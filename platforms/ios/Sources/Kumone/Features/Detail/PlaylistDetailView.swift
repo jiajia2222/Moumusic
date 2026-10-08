@@ -75,6 +75,7 @@ struct PlaylistDetailView: View {
     @EnvironmentObject private var account: AccountStore
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showFullDescription = false
+    @State private var isSearching = false
 
     init(playlistID: Int, isLikedList: Bool = false) {
         self.playlistID = playlistID
@@ -106,6 +107,15 @@ struct PlaylistDetailView: View {
                         regularHeader(detail)
                             .padding(.horizontal, Theme.Layout.contentInset)
                             .padding(.top, 16)
+                    }
+
+                    if isSearching {
+                        TrackSearchField(text: $model.filter, isSearching: $isSearching)
+                    }
+
+                    if model.filteredTracks.isEmpty, !model.filter.isEmpty, !model.isLoadingMore {
+                        EmptyStateView(icon: "magnifyingglass", title: "没有匹配的歌曲", subtitle: "试试搜索歌曲名、歌手或专辑")
+                            .frame(minHeight: 200)
                     }
 
                     TrackListView(
@@ -142,6 +152,7 @@ struct PlaylistDetailView: View {
         #else
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .trackSearchButton(isSearching: $isSearching, text: $model.filter)
         .task(id: playlistID) {
             await model.load()
         }

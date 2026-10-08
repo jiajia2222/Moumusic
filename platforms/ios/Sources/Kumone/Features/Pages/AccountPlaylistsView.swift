@@ -146,6 +146,8 @@ struct AccountPlaylistTracksView: View {
     @State private var tracks: [Track] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var isSearching = false
+    @State private var query = ""
 
     var body: some View {
         ScrollView {
@@ -156,12 +158,23 @@ struct AccountPlaylistTracksView: View {
                     .foregroundStyle(.secondary)
                     .padding(24)
             } else {
-                TrackListView(tracks: tracks)
+                if isSearching {
+                    TrackSearchField(text: $query, isSearching: $isSearching)
+                        .padding(.vertical, 8)
+                }
+                let shown = tracks.matching(query)
+                if shown.isEmpty {
+                    EmptyStateView(icon: "magnifyingglass", title: "没有匹配的歌曲", subtitle: "试试搜索歌曲名、歌手或专辑")
+                        .frame(minHeight: 200)
+                } else {
+                    TrackListView(tracks: shown)
+                }
                 PlayerClearanceSpacer()
             }
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .trackSearchButton(isSearching: $isSearching, text: $query)
         .task {
             do {
                 tracks = try await load()
