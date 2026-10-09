@@ -196,6 +196,9 @@ struct ArtistDetailView: View {
                 }
                 .buttonStyle(.pressable)
 
+                ArtistFavoriteButton(source: "wy", providerID: String(artistID), name: artist.name,
+                                     coverURL: artist.picUrl)
+
                 if account.isLoggedIn {
                     Button {
                         toggleFollow()
@@ -253,6 +256,9 @@ struct ArtistDetailView: View {
                             .shadow(color: Theme.accent.opacity(0.3), radius: 6, y: 2)
                     }
                     .buttonStyle(.pressable)
+
+                    ArtistFavoriteButton(source: "wy", providerID: String(artistID), name: artist.name,
+                                         coverURL: artist.picUrl)
 
                     if account.isLoggedIn {
                         Button {

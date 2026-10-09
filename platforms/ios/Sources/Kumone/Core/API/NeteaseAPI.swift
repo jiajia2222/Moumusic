@@ -888,7 +888,7 @@ enum NeteaseAPI {
 
     static func subscribeArtist(id: Int, subscribe: Bool) async throws {
         _ = try await weapi(CodeOnly.self, "/artist/\(subscribe ? "sub" : "unsub")",
-                            ["artistId": id, "artistIds": "[\(id)]"])
+                            ["artistId": String(id), "artistIds": "[\(id)]"])
     }
 
     struct ToplistArtistResponse: Decodable {

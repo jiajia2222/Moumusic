@@ -127,7 +127,7 @@ struct CollectionsView: View {
                 }
 
                 if !favorites.items.isEmpty {
-                    Text("收藏的歌单与专辑")
+                    Text("收藏的歌单、专辑与歌手")
                         .font(.title3.weight(.bold))
                         .padding(.horizontal, Theme.Layout.contentInset)
 
@@ -151,7 +151,7 @@ struct CollectionsView: View {
         HStack(spacing: 12) {
             CachedAsyncImage(url: item.coverURL?.resizedImageURL(160))
                 .frame(width: 62, height: 62)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: item.kind == .artist ? 31 : 14, style: .continuous))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.name)
@@ -189,6 +189,12 @@ struct CollectionsView: View {
             }
             guard let source = LXCatalogPlatform(rawValue: item.source) else { return nil }
             return .lxPlaylist(source: source, id: item.providerID)
+        case .artist:
+            if item.source == "wy", let id = Int(item.providerID) {
+                return .artist(id)
+            }
+            guard let source = LXCatalogPlatform(rawValue: item.source) else { return nil }
+            return .lxArtist(source: source, name: item.name, avatarURL: item.coverURL)
         case .album:
             if item.source == "wy", let id = Int(item.providerID) {
                 return .album(id)

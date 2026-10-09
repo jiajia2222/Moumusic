@@ -11,7 +11,7 @@ final class DownloadManager: NSObject, ObservableObject {
         let id: String
         let track: Track
         let quality: String
-        let fileName: String
+        var fileName: String
         let createdAt: Date
 
         var fileURL: URL { DownloadManager.downloadDirectory.appendingPathComponent(fileName) }
@@ -43,7 +43,15 @@ final class DownloadManager: NSObject, ObservableObject {
             .appendingPathComponent("Moumusic", isDirectory: true)
     }
 
+    /// Documents/下载: the app shares its Documents folder with the Files app (UIFileSharingEnabled), so the user sees the
+    /// downloaded songs there, named "歌手 - 歌名".
     nonisolated static var downloadDirectory: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("下载", isDirectory: true)
+    }
+
+    /// Where earlier versions kept the songs (Application Support, invisible to the user, files named by UUID).
+    private nonisolated static var legacyDirectory: URL {
         applicationDirectory.appendingPathComponent("Downloads", isDirectory: true)
     }
 
@@ -56,6 +64,56 @@ final class DownloadManager: NSObject, ObservableObject {
         try? FileManager.default.createDirectory(at: Self.downloadDirectory,
                                                  withIntermediateDirectories: true)
         load()
+        migrateToVisibleFolder()
+    }
+
+    /// Moves the songs of earlier versions into the visible folder and gives every file a readable name.
+    private func migrateToVisibleFolder() {
+        let fileManager = FileManager.default
+        var changed = false
+        for index in records.indices {
+            let record = records[index]
+            let current = record.fileURL
+            let legacy = Self.legacyDirectory.appendingPathComponent(record.fileName)
+            let source = fileManager.fileExists(atPath: current.path) ? current : legacy
+            guard fileManager.fileExists(atPath: source.path) else { continue }
+            let hasReadableName = UUID(uuidString: (record.fileName as NSString).deletingPathExtension) == nil
+            if source == current && hasReadableName { continue }
+            let name = Self.uniqueFileName(base: Self.readableBaseName(for: record.track),
+                                           ext: (record.fileName as NSString).pathExtension)
+            do {
+                try fileManager.moveItem(at: source, to: Self.downloadDirectory.appendingPathComponent(name))
+                records[index].fileName = name
+                changed = true
+            } catch {
+                continue
+            }
+        }
+        if changed { save() }
+        if let rest = try? fileManager.contentsOfDirectory(atPath: Self.legacyDirectory.path), rest.isEmpty {
+            try? fileManager.removeItem(at: Self.legacyDirectory)
+        }
+    }
+
+    private nonisolated static func readableBaseName(for track: Track) -> String {
+        let artists = track.artistNames.isEmpty ? "" : track.artistNames + " - "
+        let invalid = CharacterSet(charactersIn: "/\\:*?\"<>|").union(.controlCharacters).union(.newlines)
+        var name = (artists + track.name).components(separatedBy: invalid).joined(separator: "_")
+            .trimmingCharacters(in: .whitespaces)
+        if name.count > 120 { name = String(name.prefix(120)) }
+        return name.isEmpty ? "歌曲" : name
+    }
+
+    /// "base.ext", or "base (2).ext" when that name is taken.
+    private nonisolated static func uniqueFileName(base: String, ext: String) -> String {
+        let suffix = ext.isEmpty ? "" : "." + ext
+        var candidate = base + suffix
+        var number = 2
+        while FileManager.default.fileExists(atPath: downloadDirectory.appendingPathComponent(candidate).path) {
+            candidate = "\(base) (\(number))" + suffix
+            number += 1
+        }
+        return candidate
     }
 
     func record(for track: Track) -> Record? {
@@ -101,7 +159,7 @@ final class DownloadManager: NSObject, ObservableObject {
                 try FileManager.default.createDirectory(at: Self.downloadDirectory,
                                                          withIntermediateDirectories: true)
                 let ext = Self.fileExtension(for: resolved.url)
-                let fileName = "\(UUID().uuidString).\(ext)"
+                let fileName = Self.uniqueFileName(base: Self.readableBaseName(for: normalized), ext: ext)
                 let destination = Self.downloadDirectory.appendingPathComponent(fileName)
                 try? FileManager.default.removeItem(at: destination)
                 try FileManager.default.moveItem(at: temporaryURL, to: destination)
@@ -162,7 +220,10 @@ final class DownloadManager: NSObject, ObservableObject {
     private func load() {
         guard let data = try? Data(contentsOf: Self.manifestURL),
               let stored = try? JSONDecoder().decode([Record].self, from: data) else { return }
-        records = stored.filter { FileManager.default.fileExists(atPath: $0.fileURL.path) }
+        records = stored.filter {
+            FileManager.default.fileExists(atPath: $0.fileURL.path)
+                || FileManager.default.fileExists(atPath: Self.legacyDirectory.appendingPathComponent($0.fileName).path)
+        }
         if records.count != stored.count { save() }
     }
 

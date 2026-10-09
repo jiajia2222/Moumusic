@@ -67,7 +67,14 @@ final class BilibiliDownloadManager: NSObject, ObservableObject {
             .appendingPathComponent("Moumusic", isDirectory: true)
     }
 
+    /// Documents/下载/B站: visible in the Files app (see DownloadManager.downloadDirectory).
     nonisolated static var downloadDirectory: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("下载", isDirectory: true)
+            .appendingPathComponent("B站", isDirectory: true)
+    }
+
+    private nonisolated static var legacyDirectory: URL {
         applicationDirectory.appendingPathComponent("BilibiliDownloads", isDirectory: true)
     }
 
@@ -79,7 +86,22 @@ final class BilibiliDownloadManager: NSObject, ObservableObject {
         super.init()
         try? FileManager.default.createDirectory(at: Self.downloadDirectory,
                                                  withIntermediateDirectories: true)
+        moveLegacyFiles()
         load()
+    }
+
+    /// Earlier versions kept these files in Application Support, where the user cannot see them.
+    private func moveLegacyFiles() {
+        let fileManager = FileManager.default
+        guard let names = try? fileManager.contentsOfDirectory(atPath: Self.legacyDirectory.path) else { return }
+        for name in names {
+            let destination = Self.downloadDirectory.appendingPathComponent(name)
+            guard !fileManager.fileExists(atPath: destination.path) else { continue }
+            try? fileManager.moveItem(at: Self.legacyDirectory.appendingPathComponent(name), to: destination)
+        }
+        if let rest = try? fileManager.contentsOfDirectory(atPath: Self.legacyDirectory.path), rest.isEmpty {
+            try? fileManager.removeItem(at: Self.legacyDirectory)
+        }
     }
 
     /// Starts a download using the exact source URL and quality resolved by

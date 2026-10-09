@@ -1023,8 +1023,13 @@ final class PlayerService: ObservableObject {
             if x == y { return true }
             return min(x.count, y.count) >= 8 && x.prefix(8) == y.prefix(8)
         }
+        // A credit line ("作词: …") never gets a translation by position.
+        func isCredit(_ text: String) -> Bool {
+            text.range(of: #"^[^:：]{1,10}[:：]"#, options: .regularExpression) != nil
+        }
         var merged = base
         var changed = false
+        var usedTranslations = Set<String>()
         for index in merged.lines.indices where merged.lines[index].translation == nil {
             let line = merged.lines[index]
             for metadata in sources {
@@ -1033,6 +1038,31 @@ final class PlayerService: ObservableObject {
                     .min(by: { abs($0.time - line.time) < abs($1.time - line.time) })
                 guard let translation = match?.translation else { continue }
                 merged.lines[index].translation = translation
+                usedTranslations.insert(translation)
+                changed = true
+                break
+            }
+        }
+        // The platforms often write the same line differently (kanji / kana, punctuation, a word more or less), and then the
+        // words do not match: those lines take the translation of the line that starts at the same moment (within 0.6 s),
+        // when the lyrics of both platforms are the same cut (the same number of sung lines, give or take two).
+        let sung = merged.lines.filter { !$0.text.isEmpty && !isCredit($0.text) }.count
+        for index in merged.lines.indices where merged.lines[index].translation == nil {
+            let line = merged.lines[index]
+            guard !line.text.isEmpty, !isCredit(line.text) else { continue }
+            for metadata in sources {
+                let theirSung = metadata.lines.filter { !$0.text.isEmpty && !isCredit($0.text) }.count
+                guard abs(theirSung - sung) <= 2 else { continue }
+                let match = metadata.lines
+                    .filter { candidate in
+                        guard let translation = candidate.translation, !translation.isEmpty,
+                              !usedTranslations.contains(translation), !isCredit(candidate.text) else { return false }
+                        return abs(candidate.time - line.time) < 0.6
+                    }
+                    .min(by: { abs($0.time - line.time) < abs($1.time - line.time) })
+                guard let translation = match?.translation else { continue }
+                merged.lines[index].translation = translation
+                usedTranslations.insert(translation)
                 changed = true
                 break
             }

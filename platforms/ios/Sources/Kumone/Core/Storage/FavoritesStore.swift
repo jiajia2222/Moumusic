@@ -4,6 +4,7 @@ import Combine
 enum FavoriteCollectionKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case playlist
     case album
+    case artist
 
     var id: String { rawValue }
 
@@ -11,6 +12,7 @@ enum FavoriteCollectionKind: String, Codable, CaseIterable, Identifiable, Sendab
         switch self {
         case .playlist: return "歌单"
         case .album: return "专辑"
+        case .artist: return "歌手"
         }
     }
 }

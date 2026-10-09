@@ -163,6 +163,17 @@ struct DownloadsView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("完成") { dismiss() }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        // The Files app opens at Moumusic's Documents folder, where the "下载" folder is.
+                        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                        if let url = URL(string: "shareddocuments://" + documents.path) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        Label("在“文件”App 中查看", systemImage: "folder")
+                    }
+                }
             }
         }
     }

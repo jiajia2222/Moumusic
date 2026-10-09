@@ -128,6 +128,7 @@ struct LXArtistDetailView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+            ArtistFavoriteButton(source: source.rawValue, providerID: artistName, name: artistName, coverURL: avatarURL)
         }
         .padding(.horizontal, Theme.Layout.contentInset)
     }
