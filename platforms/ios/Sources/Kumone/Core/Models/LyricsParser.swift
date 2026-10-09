@@ -125,7 +125,9 @@ enum LyricsParser {
             // instead gave the credits at the start of a song (0.0 - 0.4 s) the translation of the first sung line too.
             var assigned: [Int: (delta: TimeInterval, text: String)] = [:]
             for second in secondary {
-                guard let index = lines.indices.min(by: {
+                // Credit lines ("编曲: …") are never translated: a translation whose nearest line is a credit goes to the
+                // nearest sung line instead.
+                guard let index = lines.indices.filter({ !isCreditText(lines[$0].text) }).min(by: {
                     abs(lines[$0].time - second.time) < abs(lines[$1].time - second.time)
                 }) else { continue }
                 let delta = abs(lines[index].time - second.time)
@@ -146,9 +148,83 @@ enum LyricsParser {
                 main: lines[index].text
             )
         }
+        lines = spreadTranslations(lines)
         lines = addFurigana(to: lines)
         result.lines = lines
         return result
+    }
+
+    /// Some platforms translate two original lines as one ("I was a functioning alcoholic / Till nobody noticed my new
+    /// aesthetic" → one Chinese line), while another platform's timing splits them in two: the second line is then left
+    /// without a translation. When the Chinese line is written in parts (separated by spaces), the parts are shared out over
+    /// the lines, cutting where the share of Chinese characters is closest to the share of the original text.
+    static func isCreditText(_ text: String) -> Bool {
+        text.range(of: #"^\s*(作词|作曲|编曲|词|曲|制作人|制作|监制|混音|母带|录音|配唱|和声|演唱|歌手|出品|发行|策划|统筹|吉他|贝斯|鼓|弦乐|原唱|词曲|编写|lyrics|lyricist|composer|arranger|producer|music|words|written by|arranged by|mixed by)\s*[:：]"#,
+                   options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    static func spreadTranslations(_ input: [LyricLine]) -> [LyricLine] {
+        var lines = input
+        func isCredit(_ text: String) -> Bool {
+            isCreditText(text)
+        }
+        func weight(_ text: String) -> Int { text.unicodeScalars.filter { !CharacterSet.whitespaces.contains($0) }.count }
+        var index = 0
+        while index < lines.count {
+            defer { index += 1 }
+            guard let translation = lines[index].translation, !translation.isEmpty,
+                  weight(lines[index].text) >= 8, !isCredit(lines[index].text) else { continue }
+            var group = [index]
+            var next = index + 1
+            while next < lines.count, group.count < 3, lines[next].translation == nil,
+                  weight(lines[next].text) >= 8, !isCredit(lines[next].text),
+                  // "oh oh oh oh" is not a line of its own that a translation was written for.
+                  Set(lines[next].text.lowercased().filter { !$0.isWhitespace }).count >= 7,
+                  lines[next].time - lines[group.last!].time < 15 {
+                group.append(next)
+                next += 1
+            }
+            guard group.count >= 2 else { continue }
+            let parts = translation.split(whereSeparator: { $0 == " " || $0 == "\u{3000}" }).map(String.init)
+            guard parts.count >= group.count else { continue }
+            let partWeights = parts.map { weight($0) }
+            let totalParts = Double(partWeights.reduce(0, +))
+            let lineWeights = group.map { weight(lines[$0].text) }
+            let totalLines = Double(lineWeights.reduce(0, +))
+            guard totalParts > 0, totalLines > 0 else { continue }
+            // Cut points: the number of parts that go to the first line, to the first two lines, ...
+            func cost(_ cuts: [Int]) -> Double {
+                var total = 0.0
+                var cumLines = 0.0
+                for (k, cut) in cuts.enumerated() {
+                    cumLines += Double(lineWeights[k])
+                    let cumParts = Double(partWeights[0..<cut].reduce(0, +))
+                    total += abs(cumParts / totalParts - cumLines / totalLines)
+                }
+                return total
+            }
+            var best: [Int]?
+            var bestCost = Double.infinity
+            if group.count == 2 {
+                for a in 1..<parts.count { let c = cost([a]); if c < bestCost { bestCost = c; best = [a] } }
+            } else {
+                for a in 1..<(parts.count - 1) {
+                    for b in (a + 1)..<parts.count {
+                        let c = cost([a, b])
+                        if c < bestCost { bestCost = c; best = [a, b] }
+                    }
+                }
+            }
+            guard let cuts = best else { continue }
+            var start = 0
+            for (k, lineIndex) in group.enumerated() {
+                let end = k < cuts.count ? cuts[k] : parts.count
+                lines[lineIndex].translation = parts[start..<end].joined(separator: " ")
+                start = end
+            }
+            index = group.last!
+        }
+        return lines
     }
 
     /// LX source scripts are not completely consistent: most return LRC,
@@ -367,7 +443,7 @@ enum LyricsParser {
             var assigned: [Int: (delta: TimeInterval, text: String)] = [:]
             for (time, text) in secondary {
                 var nearest: (index: Int, delta: TimeInterval)?
-                for i in lines.indices {
+                for i in lines.indices where !isCreditText(lines[i].text) {
                     let delta = abs(time - lines[i].time)
                     if nearest == nil || delta < nearest!.delta { nearest = (i, delta) }
                 }
@@ -405,7 +481,7 @@ enum LyricsParser {
             )
         }
 
-        out.lines = lines
+        out.lines = spreadTranslations(lines)
         out.lines = addFurigana(to: out.lines)
         return out
     }

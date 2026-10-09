@@ -1068,6 +1068,7 @@ final class PlayerService: ObservableObject {
             }
         }
         guard changed, generation == resolveGeneration else { return }
+        merged.lines = LyricsParser.spreadTranslations(merged.lines)
         lyrics = merged
         // Translation enrichment happens after the first lyric payload. Push
         // the merged line through the same snapshot path so the widget and
