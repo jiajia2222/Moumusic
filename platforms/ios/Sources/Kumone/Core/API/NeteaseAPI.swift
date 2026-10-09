@@ -887,8 +887,25 @@ enum NeteaseAPI {
     }
 
     static func subscribeArtist(id: Int, subscribe: Bool) async throws {
-        _ = try await weapi(CodeOnly.self, "/artist/\(subscribe ? "sub" : "unsub")",
-                            ["artistId": String(id), "artistIds": "[\(id)]"])
+        // The server has answered "参数错误" to some of the shapes of this request over time; the ones the known clients send
+        // are tried one after the other, the first error is reported when none works.
+        let path = "/artist/\(subscribe ? "sub" : "unsub")"
+        let variants: [[String: Any]] = [
+            ["artistId": String(id), "artistIds": "[\(id)]"],
+            ["artistId": id, "artistIds": "[\(id)]"],
+            ["artistIds": "[\(id)]"],
+            ["artistId": String(id)],
+        ]
+        var firstError: Error?
+        for payload in variants {
+            do {
+                _ = try await weapi(CodeOnly.self, path, payload)
+                return
+            } catch {
+                if firstError == nil { firstError = error }
+            }
+        }
+        throw firstError ?? URLError(.badServerResponse)
     }
 
     struct ToplistArtistResponse: Decodable {

@@ -297,7 +297,15 @@ struct ArtistDetailView: View {
                 isFollowed.toggle()
                 ToastCenter.shared.show(isFollowed ? String(localized: "已关注歌手") : String(localized: "已取消关注"))
             } catch {
-                ToastCenter.shared.show(error.localizedDescription)
+                // The account follow failed: the artist is kept in the local favourites instead (the same as the heart button).
+                if !isFollowed, let artist,
+                   !FavoritesStore.shared.contains(kind: .artist, source: "wy", providerID: String(artistID)) {
+                    FavoritesStore.shared.toggle(kind: .artist, source: "wy", providerID: String(artistID),
+                                                 name: artist.name, coverURL: artist.picUrl)
+                    ToastCenter.shared.show("网易云关注失败（\(error.localizedDescription)），已收藏到本地")
+                } else {
+                    ToastCenter.shared.show(error.localizedDescription)
+                }
             }
         }
     }
