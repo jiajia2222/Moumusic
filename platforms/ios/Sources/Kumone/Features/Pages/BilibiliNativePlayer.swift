@@ -1440,7 +1440,9 @@ final class BiliDanmakuUIView: UIView {
     func start() {
         guard displayLink == nil else { return }
         let link = CADisplayLink(target: Proxy(self), selector: #selector(Proxy.tick))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        // 60 is plenty for text moving 90 pt/s; 120 Hz doubled the main-thread work and made frames uneven when the
+        // video, the controls and the danmaku competed for it.
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
         link.add(to: .main, forMode: .common)
         displayLink = link
     }
@@ -1481,16 +1483,19 @@ final class BiliDanmakuUIView: UIView {
         // The player reports its time once per video frame, which makes danmaku step in jumps on a 60 Hz
         // display. While playing, advance the time with the display clock and only nudge it toward the
         // player's value (a big gap means a seek: snap).
+        // `rate` stays above zero while the player waits for data (buffering): the display clock must not run on then,
+        // or the danmaku slide ahead and snap back every time the stream stalls.
         let rate = Double(player.rate)
+        let isPlaying = rate > 0 && player.timeControlStatus == .playing
         var time = playerTime
-        if rate > 0, lastHostTime > 0 {
+        if isPlaying, lastHostTime > 0 {
             let predicted = smoothTime + (link.timestamp - lastHostTime) * rate
             let drift = playerTime - predicted
-            time = abs(drift) > 0.5 ? playerTime : predicted + drift * 0.08
+            time = abs(drift) > 0.5 ? playerTime : predicted + drift * 0.05
         }
         smoothTime = time
-        lastHostTime = link.timestamp
-        if rate == 0, time == lastTime { return }
+        lastHostTime = isPlaying ? link.timestamp : 0
+        if !isPlaying, time == lastTime { return }
         // A jump (seek) re-places everything.
         if lastTime >= 0, abs(time - lastTime) > 1.5 { layersByIndex.values.forEach { $0.removeFromSuperlayer() }; layersByIndex.removeAll() }
         lastTime = time
@@ -1525,7 +1530,7 @@ final class BiliDanmakuUIView: UIView {
                 self.layer.addSublayer(layer)
                 layersByIndex[index] = layer
             }
-            layer.opacity = opacity
+            if layer.opacity != opacity { layer.opacity = opacity }
             let width = rendered.size.width
             let origin: CGPoint
             switch item.mode {
@@ -1536,7 +1541,9 @@ final class BiliDanmakuUIView: UIView {
                 origin = CGPoint(x: (bounds.width - width) / 2, y: 8 + laneHeight * CGFloat(item.lane))
             default:
                 let progress = CGFloat(time - item.start) * CGFloat(scrollSpeed)
-                origin = CGPoint(x: bounds.width - progress,
+                // On a whole device pixel: a fractional x resamples the bitmap every frame and the text shimmers.
+                let screenScale = UIScreen.main.scale
+                origin = CGPoint(x: ((bounds.width - progress) * screenScale).rounded() / screenScale,
                                  y: 8 + laneHeight * CGFloat(item.lane))
             }
             layer.position = origin

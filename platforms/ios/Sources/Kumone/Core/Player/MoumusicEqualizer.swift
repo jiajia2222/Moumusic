@@ -131,6 +131,8 @@ final class MoumusicEqualizer: ObservableObject {
         processingEnabled = enabled
         lock.unlock()
         defaults.set(enabled, forKey: Self.enabledKey)
+        // A lossless / hi-res song that started while the equalizer was off has no tap yet.
+        if enabled { Task { @MainActor in PlayerService.shared.refreshAudioTap() } }
     }
 
     func setBandGain(at index: Int, to gain: Double) {

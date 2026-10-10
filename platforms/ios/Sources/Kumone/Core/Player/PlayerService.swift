@@ -1261,6 +1261,7 @@ final class PlayerService: ObservableObject {
         // Parsed before the hand-over, so the hand-over itself has less left to do.
         _ = try? await localAsset.load(.tracks, .duration)
         let newItem = AVPlayerItem(asset: localAsset)
+        await attachAudioTapIfNeeded(to: newItem)
         #if DEBUG && os(iOS)
         if AudioTapProbe.enabled, let audio = try? await localAsset.loadTracks(withMediaType: .audio).first {
             newItem.audioMix = AudioTapProbe.shared.makeMix(for: audio)
@@ -2580,10 +2581,29 @@ final class PlayerService: ObservableObject {
                            bitrate: Double(rate))
     }
 
+    /// The audio tap carries the equalizer and the spectrum bars. Plain stereo lossy audio always gets it; lossless and hi-res
+    /// stereo only while the equalizer is on (the bars alone are not worth the risk there). Multichannel audio never does.
     private static func spectrumTapIsSafe(for track: AVAssetTrack) async -> Bool {
-        guard let facts = await streamFacts(of: track) else { return false }
+        guard let facts = await streamFacts(of: track), facts.channels <= 2 else { return false }
         let lossless = facts.format == kAudioFormatFLAC || facts.format == kAudioFormatAppleLossless
-        return !lossless && facts.channels <= 2 && facts.sampleRate <= 48_000
+        if lossless || facts.sampleRate > 48_000 { return MoumusicEqualizer.shared.isEnabled }
+        return true
+    }
+
+    /// Puts the tap on an item that has none (the equalizer was just turned on, or the item is the local copy of a song).
+    private func attachAudioTapIfNeeded(to item: AVPlayerItem) async {
+        guard item.audioMix == nil,
+              let track = try? await item.asset.loadTracks(withMediaType: .audio).first,
+              await Self.spectrumTapIsSafe(for: track),
+              item.audioMix == nil,
+              let mix = AudioSpectrum.shared.makeAudioMix(for: track) else { return }
+        item.audioMix = mix
+    }
+
+    /// Called when the equalizer is switched on: the song that is playing gets the tap now, not from the next song on.
+    func refreshAudioTap() {
+        guard let item = engine.currentItem else { return }
+        Task { @MainActor [weak self] in await self?.attachAudioTapIfNeeded(to: item) }
     }
 
     /// Quality label derived from the stream's real properties (nil when the track cannot be read).
